@@ -44,7 +44,22 @@
         </el-button>
       </div>
 
-      <div class="card-grid" v-loading="loading">
+      <div class="card-grid" v-if="loading && taskList.length === 0">
+        <div v-for="n in 6" :key="n" class="sub-card-skeleton">
+          <el-skeleton animated class="sub-card-skeleton__body">
+            <template #template>
+              <el-skeleton-item variant="image" class="sub-card-skeleton__poster" />
+              <div class="sub-card-skeleton__info">
+                <el-skeleton-item variant="text" style="width: 70%; height: 16px; margin-bottom: 10px" />
+                <el-skeleton-item variant="text" style="width: 50%; margin-bottom: 10px" />
+                <el-skeleton-item variant="text" style="width: 100%; margin-bottom: 6px" />
+                <el-skeleton-item variant="text" style="width: 100%" />
+              </div>
+            </template>
+          </el-skeleton>
+        </div>
+      </div>
+      <div class="card-grid" v-else v-loading="loading">
         <div v-for="item in taskList" :key="item.id" class="sub-card">
           <div class="sub-poster">
             <img
@@ -449,6 +464,32 @@ const goDownloadRecords = (row: any) => {
   &:hover {
     box-shadow: var(--osr-shadow-md);
     border-color: var(--osr-border-base);
+  }
+}
+
+.sub-card-skeleton {
+  --el-skeleton-color: var(--osr-border-light);
+  --el-skeleton-to-color: var(--osr-bg-page);
+  padding: 14px;
+  border: 1px solid var(--osr-border-light);
+  border-radius: var(--osr-radius-md);
+
+  :deep(.sub-card-skeleton__body) {
+    display: flex;
+    gap: 12px;
+  }
+
+  :deep(.sub-card-skeleton__poster) {
+    flex-shrink: 0;
+    width: 72px;
+    height: 108px;
+    border-radius: var(--osr-radius-sm);
+  }
+
+  :deep(.sub-card-skeleton__info) {
+    flex: 1;
+    min-width: 0;
+    padding-top: 2px;
   }
 }
 
