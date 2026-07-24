@@ -74,3 +74,25 @@ describe('PtDownloadRecord 失败卡片视觉强化', () => {
     expect(card.classes()).not.toContain('record-card--failed')
   })
 })
+
+describe('PtDownloadRecord 骨架屏', () => {
+  it('首次加载（loading 且列表为空）渲染 6 张骨架卡片，不渲染真实卡片', () => {
+    (usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      taskList: ref([]),
+      loading: ref(true)
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    expect(wrapper.findAll('.record-card-skeleton').length).toBe(6)
+    expect(wrapper.find('.record-card').exists()).toBe(false)
+  })
+
+  it('已有数据时重新查询（loading 且列表非空）不回退成骨架屏', () => {
+    (usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      taskList: ref([{ id: 1, title: 'A', state: 'COMPLETED' }]),
+      loading: ref(true)
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    expect(wrapper.find('.record-card-skeleton').exists()).toBe(false)
+    expect(wrapper.find('.record-card').exists()).toBe(true)
+  })
+})

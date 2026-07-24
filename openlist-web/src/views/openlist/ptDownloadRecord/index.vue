@@ -35,7 +35,20 @@
         </el-button>
       </div>
 
-      <div class="card-grid" v-loading="loading">
+      <div class="card-grid" v-if="loading && taskList.length === 0">
+        <div v-for="n in 6" :key="n" class="record-card-skeleton">
+          <el-skeleton animated>
+            <template #template>
+              <el-skeleton-item variant="text" style="width: 60%; height: 16px; margin-bottom: 10px" />
+              <el-skeleton-item variant="text" style="width: 40%; margin-bottom: 10px" />
+              <el-skeleton-item variant="text" style="width: 100%; margin-bottom: 6px" />
+              <el-skeleton-item variant="text" style="width: 100%; margin-bottom: 6px" />
+              <el-skeleton-item variant="text" style="width: 80%" />
+            </template>
+          </el-skeleton>
+        </div>
+      </div>
+      <div class="card-grid" v-else v-loading="loading">
         <div
           v-for="item in taskList"
           :key="item.id"
@@ -230,6 +243,14 @@ const formatSize = (bytes: number): string => {
 .record-card--failed {
   border-left: 3px solid var(--osr-danger);
   padding-left: 13px;
+}
+
+.record-card-skeleton {
+  --el-skeleton-color: var(--osr-border-light);
+  --el-skeleton-to-color: var(--osr-bg-page);
+  padding: 14px 16px;
+  border: 1px solid var(--osr-border-light);
+  border-radius: var(--osr-radius-md);
 }
 
 .record-header {
