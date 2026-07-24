@@ -14,6 +14,7 @@ import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusServ
 import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.ruoyi.openliststrm.pt.subscription.SearchSupplementService;
 import com.ruoyi.openliststrm.pt.subscription.dto.SupplementResult;
+import com.ruoyi.openliststrm.pt.task.dto.BatchRetryResult;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -28,8 +29,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -273,5 +276,62 @@ class DownloadRecordAdminServiceTest {
         service().retry(1);
 
         verify(episodeService, never()).update(any(), any(Wrapper.class));
+    }
+
+    // ---------- retryBatch ----------
+
+    @Test
+    void retryBatch_全部命中_pushedCount等于总数() {
+        PtDownloadRecordPlus r1 = record(1, 10, 5, "FAILED", 20, 30);
+        PtDownloadRecordPlus r2 = record(2, 10, 6, "FAILED", 20, 30);
+        when(recordService.getById(1)).thenReturn(r1);
+        when(recordService.getById(2)).thenReturn(r2);
+        when(subscriptionService.getById(10)).thenReturn(tvSub(10, "某剧", 1, "ACTIVE"));
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of());
+        when(searchSupplementService.supplement(eq(10), eq(5), eq("某剧 S01E05")))
+                .thenReturn(new SupplementResult(true, 1));
+        when(searchSupplementService.supplement(eq(10), eq(6), eq("某剧 S01E06")))
+                .thenReturn(new SupplementResult(true, 1));
+
+        BatchRetryResult result = service().retryBatch(List.of(1, 2));
+
+        assertEquals(2, result.getTotal());
+        assertEquals(2, result.getPushedCount());
+        assertEquals(0, result.getSkippedCount());
+    }
+
+    @Test
+    void retryBatch_一条不是FAILED状态_计入skipped不影响其余() {
+        PtDownloadRecordPlus r1 = record(1, 10, 5, "FAILED", 20, 30);
+        PtDownloadRecordPlus r2 = record(2, 10, 6, "DOWNLOADING", 20, 30);
+        when(recordService.getById(1)).thenReturn(r1);
+        when(recordService.getById(2)).thenReturn(r2);
+        when(subscriptionService.getById(10)).thenReturn(tvSub(10, "某剧", 1, "ACTIVE"));
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of());
+        when(searchSupplementService.supplement(eq(10), eq(5), eq("某剧 S01E05")))
+                .thenReturn(new SupplementResult(true, 1));
+
+        BatchRetryResult result = service().retryBatch(List.of(1, 2));
+
+        assertEquals(2, result.getTotal());
+        assertEquals(1, result.getPushedCount());
+        assertEquals(1, result.getSkippedCount());
+        verify(searchSupplementService, times(1)).supplement(anyInt(), anyInt(), anyString());
+    }
+
+    @Test
+    void retryBatch_搜到0候选_计入skipped而非异常路径() {
+        PtDownloadRecordPlus r = record(1, 10, 5, "FAILED", 20, 30);
+        when(recordService.getById(1)).thenReturn(r);
+        when(subscriptionService.getById(10)).thenReturn(tvSub(10, "某剧", 1, "ACTIVE"));
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of());
+        when(searchSupplementService.supplement(eq(10), eq(5), eq("某剧 S01E05")))
+                .thenReturn(new SupplementResult(false, 0));
+
+        BatchRetryResult result = service().retryBatch(List.of(1));
+
+        assertEquals(1, result.getTotal());
+        assertEquals(0, result.getPushedCount());
+        assertEquals(1, result.getSkippedCount());
     }
 }

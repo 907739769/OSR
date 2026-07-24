@@ -18,6 +18,7 @@ import com.ruoyi.openliststrm.pt.subscription.SubscriptionEpisodeState;
 import com.ruoyi.openliststrm.pt.subscription.SubscriptionMatcher;
 import com.ruoyi.openliststrm.pt.subscription.SubscriptionService;
 import com.ruoyi.openliststrm.pt.subscription.dto.SupplementResult;
+import com.ruoyi.openliststrm.pt.task.dto.BatchRetryResult;
 import com.ruoyi.openliststrm.pt.task.dto.DownloadRecordView;
 import org.springframework.stereotype.Service;
 
@@ -146,6 +147,28 @@ public class DownloadRecordAdminService {
         resetBlockedEpisodes(sub.getId(), record.getEpisode());
         String keyword = buildKeyword(sub, record.getEpisode());
         return searchSupplementService.supplement(sub.getId(), record.getEpisode(), keyword);
+    }
+
+    /**
+     * 批量重试失败下载记录：逐条复用单条 retry，用 try/catch 隔离预期内的"跳过"（记录已被并发处理成
+     * 非 FAILED、关联订阅已暂停等），不让一条不满足条件的记录中断整批。
+     */
+    public BatchRetryResult retryBatch(List<Integer> ids) {
+        int pushed = 0;
+        int skipped = 0;
+        for (Integer id : ids) {
+            try {
+                SupplementResult r = retry(id);
+                if (r.isPushed()) {
+                    pushed++;
+                } else {
+                    skipped++;
+                }
+            } catch (IllegalArgumentException e) {
+                skipped++;
+            }
+        }
+        return new BatchRetryResult(ids.size(), pushed, skipped);
     }
 
     /**
