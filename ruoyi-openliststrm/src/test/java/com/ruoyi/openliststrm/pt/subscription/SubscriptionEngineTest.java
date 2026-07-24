@@ -36,6 +36,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -419,6 +420,91 @@ class SubscriptionEngineTest {
         // 第二次推送前 d1 已被 +1，第二组应该感知到这个变化转而选 d2
         assertEquals(1, saved.get(0).getDownloaderId());
         assertEquals(2, saved.get(1).getDownloaderId());
+    }
+
+    // ---------- 并发上限 ----------
+
+    @Test
+    void 下载器maxConcurrent为0_不做限制_正常推送() throws Exception {
+        PtDownloaderPlus downloader = new PtDownloaderPlus();
+        downloader.setId(1);
+        downloader.setType("QBITTORRENT");
+        downloader.setSavePath("/data/downloads");
+        downloader.setTag("osr-pt");
+        downloader.setEnabled("1");
+        downloader.setMaxConcurrent(0);
+        when(downloaderService.list(any(Wrapper.class))).thenReturn(List.of(downloader));
+        List<PtDownloadRecordPlus> heavyLoad = new ArrayList<>();
+        for (int i = 0; i < 10; i++) {
+            PtDownloadRecordPlus r = new PtDownloadRecordPlus();
+            r.setDownloaderId(1);
+            heavyLoad.add(r);
+        }
+        when(recordService.list(argThat((Wrapper<PtDownloadRecordPlus> w) -> w != null && w.getSqlSegment() != null && w.getSqlSegment().contains("downloader_id"))))
+                .thenReturn(heavyLoad);
+        when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Some Show", 1, 1)));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "MISSING")));
+
+        assertEquals(1, engine.process(List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p"))));
+        verify(downloaderClient).addTorrent(any(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void 下载器maxConcurrent为null_不做限制_正常推送() throws Exception {
+        // setUp() 里的默认下载器未设置 maxConcurrent，Integer 包装类型默认为 null
+        when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Some Show", 1, 1)));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "MISSING")));
+
+        assertEquals(1, engine.process(List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p"))));
+        verify(downloaderClient).addTorrent(any(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void 下载器已达最大并发_跳过本轮_不占位不落库不推送() throws Exception {
+        PtDownloaderPlus downloader = new PtDownloaderPlus();
+        downloader.setId(1);
+        downloader.setType("QBITTORRENT");
+        downloader.setSavePath("/data/downloads");
+        downloader.setTag("osr-pt");
+        downloader.setEnabled("1");
+        downloader.setMaxConcurrent(2);
+        when(downloaderService.list(any(Wrapper.class))).thenReturn(List.of(downloader));
+        PtDownloadRecordPlus active1 = new PtDownloadRecordPlus();
+        active1.setDownloaderId(1);
+        PtDownloadRecordPlus active2 = new PtDownloadRecordPlus();
+        active2.setDownloaderId(1);
+        when(recordService.list(argThat((Wrapper<PtDownloadRecordPlus> w) -> w != null && w.getSqlSegment() != null && w.getSqlSegment().contains("downloader_id"))))
+                .thenReturn(List.of(active1, active2));
+        when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Some Show", 1, 1)));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "MISSING")));
+
+        assertEquals(0, engine.process(List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p"))));
+
+        verify(episodeService, never()).update(any(), any(Wrapper.class));
+        verify(recordService, never()).save(any());
+        verify(downloaderClient, never()).addTorrent(any(), anyString(), anyString(), anyString());
+        verify(searchLogService).recordSummary(eq(10), eq(1), eq(SearchLogService.SOURCE_RSS), contains("并发"));
+    }
+
+    @Test
+    void 下载器未达最大并发_正常推送() throws Exception {
+        PtDownloaderPlus downloader = new PtDownloaderPlus();
+        downloader.setId(1);
+        downloader.setType("QBITTORRENT");
+        downloader.setSavePath("/data/downloads");
+        downloader.setTag("osr-pt");
+        downloader.setEnabled("1");
+        downloader.setMaxConcurrent(2);
+        when(downloaderService.list(any(Wrapper.class))).thenReturn(List.of(downloader));
+        PtDownloadRecordPlus active1 = new PtDownloadRecordPlus();
+        active1.setDownloaderId(1);
+        when(recordService.list(argThat((Wrapper<PtDownloadRecordPlus> w) -> w != null && w.getSqlSegment() != null && w.getSqlSegment().contains("downloader_id"))))
+                .thenReturn(List.of(active1));
+        when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Some Show", 1, 1)));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "MISSING")));
+
+        assertEquals(1, engine.process(List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p"))));
+        verify(downloaderClient).addTorrent(any(), anyString(), anyString(), anyString());
     }
 
     // ---------- 多订阅 ----------

@@ -195,6 +195,13 @@ public class SubscriptionEngine {
             return false;
         }
 
+        if (isOverCapacity(downloader, downloaderLoadCache)) {
+            log.debug("下载器[{}] 已达最大并发 {}，订阅[{}] 集{} 本轮跳过",
+                    downloader.getId(), downloader.getMaxConcurrent(), sub.getId(), match.getEpisode());
+            searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, "下载器并发已达上限");
+            return false;
+        }
+
         // 原子占位：条件更新按影响行数判断，防止并发轮询给同一集推两个种子
         List<PtSubscriptionEpisodePlus> claimed = new ArrayList<>();
         for (PtSubscriptionEpisodePlus target : targets) {
@@ -411,5 +418,25 @@ public class SubscriptionEngine {
             }
         }
         return best;
+    }
+
+    /**
+     * 目标下载器是否已达最大并发。{@code maxConcurrent} 为 null 或 &lt;=0 视为不限
+     * （与 pt_filter_config 里 min_size/max_size 用 0 表示"不限"的既有约定一致）。
+     * <p>
+     * 直接复用调用方（{@link #process}/{@link #pushBest}）已经查好的 {@code loadCache}
+     * （key=下载器id，value=当前 PUSHED/DOWNLOADING 在途记录数，见 {@link #loadDownloaderLoadCounts}），
+     * 不再对 {@code recordService} 发起第二条 COUNT 查询——这条查询已经覆盖了所有启用下载器，
+     * 且 {@link #handleGroup} 推送成功后会对该 Map 就地 {@code +1}，同一批次内的后续分组
+     * 天然能感知到这次推送占用的名额。
+     * </p>
+     */
+    private boolean isOverCapacity(PtDownloaderPlus downloader, Map<Integer, Long> loadCache) {
+        Integer max = downloader.getMaxConcurrent();
+        if (max == null || max <= 0) {
+            return false;
+        }
+        long active = loadCache.getOrDefault(downloader.getId(), 0L);
+        return active >= max;
     }
 }
