@@ -9,6 +9,7 @@ import com.ruoyi.openliststrm.mybatisplus.service.IPtDownloadRecordPlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtIndexerPlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtSearchLogPlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
+import com.ruoyi.openliststrm.pt.stats.dto.PtStatsFailReasonDTO;
 import com.ruoyi.openliststrm.pt.stats.dto.PtStatsIndexerHitRateDTO;
 import com.ruoyi.openliststrm.pt.stats.dto.PtStatsOverviewDTO;
 import com.ruoyi.openliststrm.pt.stats.dto.PtStatsTrendPointDTO;
@@ -157,6 +158,28 @@ public class PtStatsService {
             result.add(dto);
         }
         return result;
+    }
+
+    /**
+     * 失败原因分布：fail_reason 只由 DownloadTrackService.fail() 写入，固定两种文案，
+     * 直接按原始字符串 GROUP BY 即可，不做归一化(设计文档2.1)。
+     */
+    public List<PtStatsFailReasonDTO> failReasons(int days) {
+        java.time.LocalDate start = java.time.LocalDate.now().minusDays(days - 1L);
+        List<Map<String, Object>> rows = downloadRecordService.listMaps(
+                Wrappers.<PtDownloadRecordPlus>query()
+                        .select("fail_reason as reason, count(*) as count")
+                        .eq("state", STATE_FAILED)
+                        .ge("pushed_time", start.atStartOfDay())
+                        .groupBy("fail_reason")
+                        .orderByDesc("count"));
+
+        return rows.stream().map(row -> {
+            PtStatsFailReasonDTO dto = new PtStatsFailReasonDTO();
+            dto.setReason(String.valueOf(row.get("reason")));
+            dto.setCount(asLong(row.get("count")));
+            return dto;
+        }).toList();
     }
 
     private static long asLong(Object v) {

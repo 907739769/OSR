@@ -134,4 +134,19 @@ class PtStatsServiceTest {
         org.junit.jupiter.api.Assertions.assertFalse(b.isHasData());
         assertEquals(0.0, b.getHitRate());
     }
+
+    @Test
+    void failReasons_返回两种固定文案的计数与顺序() {
+        when(downloadRecordService.listMaps(any(Wrapper.class))).thenReturn(List.of(
+                row("reason", "下载超过 24 小时仍未完成，判定为僵尸种子", "count", 12L),
+                row("reason", "下载器中已找不到该种子（可能被删除或元数据解析失败）", "count", 5L)));
+
+        List<com.ruoyi.openliststrm.pt.stats.dto.PtStatsFailReasonDTO> result = service().failReasons(30);
+
+        assertEquals(2, result.size());
+        assertEquals("下载超过 24 小时仍未完成，判定为僵尸种子", result.get(0).getReason());
+        assertEquals(12L, result.get(0).getCount());
+        assertEquals("下载器中已找不到该种子（可能被删除或元数据解析失败）", result.get(1).getReason());
+        assertEquals(5L, result.get(1).getCount());
+    }
 }
