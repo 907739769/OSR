@@ -8,6 +8,7 @@ import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusServ
 import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.ruoyi.openliststrm.pt.media.IMediaServerClient;
 import com.ruoyi.openliststrm.pt.media.MediaServerClientFactory;
+import com.ruoyi.openliststrm.pt.subscription.dto.BatchOperationResult;
 import com.ruoyi.openliststrm.pt.subscription.dto.SubscribeRequest;
 import com.ruoyi.openliststrm.pt.subscription.dto.SubscriptionProgress;
 import com.ruoyi.openliststrm.pt.subscription.dto.TmdbSearchItem;
@@ -33,6 +34,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.atMost;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -455,6 +457,46 @@ class SubscriptionServiceTest {
         ArgumentCaptor<PtSubscriptionPlus> captor = ArgumentCaptor.forClass(PtSubscriptionPlus.class);
         verify(subscriptionService).updateById(captor.capture());
         assertEquals("ACTIVE", captor.getValue().getStatus());
+    }
+
+    // ---------- 批量暂停/恢复 ----------
+
+    @Test
+    void pauseBatch_全部存在_成功数等于总数且逐条更新() {
+        when(subscriptionService.getById(1)).thenReturn(activeTv(1, 1));
+        when(subscriptionService.getById(2)).thenReturn(activeTv(2, 1));
+        when(subscriptionService.getById(3)).thenReturn(activeTv(3, 1));
+
+        BatchOperationResult result = service.pauseBatch(List.of(1, 2, 3));
+
+        assertEquals(3, result.getSuccessCount());
+        assertTrue(result.getFailedIds().isEmpty());
+        verify(subscriptionService, times(3)).updateById(any());
+    }
+
+    @Test
+    void pauseBatch_其中一个不存在_不中断其余条目() {
+        when(subscriptionService.getById(1)).thenReturn(activeTv(1, 1));
+        when(subscriptionService.getById(2)).thenReturn(null);
+        when(subscriptionService.getById(3)).thenReturn(activeTv(3, 1));
+
+        BatchOperationResult result = service.pauseBatch(List.of(1, 2, 3));
+
+        assertEquals(2, result.getSuccessCount());
+        assertEquals(List.of(2), result.getFailedIds());
+        verify(subscriptionService, times(2)).updateById(any());
+    }
+
+    @Test
+    void resumeBatch_其中一个不存在_不中断其余条目() {
+        when(subscriptionService.getById(4)).thenReturn(activeTv(4, 1));
+        when(subscriptionService.getById(5)).thenReturn(null);
+
+        BatchOperationResult result = service.resumeBatch(List.of(4, 5));
+
+        assertEquals(1, result.getSuccessCount());
+        assertEquals(List.of(5), result.getFailedIds());
+        verify(subscriptionService, times(1)).updateById(any());
     }
 
     // ---------- 辅助 ----------
