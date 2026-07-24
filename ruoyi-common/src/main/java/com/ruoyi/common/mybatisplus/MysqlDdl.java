@@ -59,7 +59,8 @@ public class MysqlDdl extends SimpleDdl {
                 "sql/20260734-pt-episode-fail-count.sql",
                 "sql/20260735-pt-downloader-strm-task-link.sql",
                 "sql/20260736-menu-categories.sql",
-                "sql/20260737-fix-menu-group-icon-duplication.sql"
+                "sql/20260737-fix-menu-group-icon-duplication.sql",
+                "sql/20260738-pt-download-record-fail-reason-code.sql"
         );
     }
 }
