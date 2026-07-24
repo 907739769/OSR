@@ -27,6 +27,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -49,6 +50,7 @@ public class SubscriptionEngine {
     private static final String STATE_MISSING = SubscriptionEpisodeState.MISSING.value();
     private static final String STATE_IN_FLIGHT = SubscriptionEpisodeState.IN_FLIGHT.value();
     private static final String RECORD_PUSHED = DownloadRecordState.PUSHED.value();
+    private static final String RECORD_DOWNLOADING = DownloadRecordState.DOWNLOADING.value();
 
     /** 唯一标签前缀，用于把下载记录回映到下载器里的种子 */
     private static final String TAG_PREFIX = "osr-pt-";
@@ -119,9 +121,12 @@ public class SubscriptionEngine {
 
         int pushed = 0;
         Map<Integer, List<PtSubscriptionEpisodePlus>> episodeCache = new LinkedHashMap<>();
+        List<PtDownloaderPlus> enabledDownloaders = loadEnabledDownloaders();
+        Map<Integer, Long> downloaderLoadCache = loadDownloaderLoadCounts(enabledDownloaders);
         for (Map.Entry<String, List<TorrentInfo>> entry : groups.entrySet()) {
             MatchResult match = groupMatch.get(entry.getKey());
-            if (handleGroup(match, entry.getValue(), globalConfig, episodeCache, SearchLogService.SOURCE_RSS)) {
+            if (handleGroup(match, entry.getValue(), globalConfig, episodeCache,
+                    enabledDownloaders, downloaderLoadCache, SearchLogService.SOURCE_RSS)) {
                 pushed++;
             }
         }
@@ -138,7 +143,10 @@ public class SubscriptionEngine {
         PtFilterConfigPlus globalConfig = filterConfigService.getConfig();
         MatchResult match = new MatchResult(sub, episode);
         Map<Integer, List<PtSubscriptionEpisodePlus>> episodeCache = new LinkedHashMap<>();
-        return handleGroup(match, candidates, globalConfig, episodeCache, SearchLogService.SOURCE_SUPPLEMENT);
+        List<PtDownloaderPlus> enabledDownloaders = loadEnabledDownloaders();
+        Map<Integer, Long> downloaderLoadCache = loadDownloaderLoadCounts(enabledDownloaders);
+        return handleGroup(match, candidates, globalConfig, episodeCache,
+                enabledDownloaders, downloaderLoadCache, SearchLogService.SOURCE_SUPPLEMENT);
     }
 
     /**
@@ -147,6 +155,8 @@ public class SubscriptionEngine {
     boolean handleGroup(MatchResult match, List<TorrentInfo> candidates,
                                 PtFilterConfigPlus globalConfig,
                                 Map<Integer, List<PtSubscriptionEpisodePlus>> episodeCache,
+                                List<PtDownloaderPlus> enabledDownloaders,
+                                Map<Integer, Long> downloaderLoadCache,
                                 String source) {
         PtSubscriptionPlus sub = match.getSubscription();
         List<PtSubscriptionEpisodePlus> allEpisodes = episodeCache.computeIfAbsent(
@@ -178,7 +188,7 @@ public class SubscriptionEngine {
             return false;
         }
 
-        PtDownloaderPlus downloader = resolveDownloader(sub);
+        PtDownloaderPlus downloader = resolveDownloader(sub, enabledDownloaders, downloaderLoadCache);
         if (downloader == null) {
             log.warn("没有可用的下载器，订阅[{}] 本轮跳过", sub.getId());
             searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, "没有可用的下载器");
@@ -208,6 +218,8 @@ public class SubscriptionEngine {
             String tags = downloader.getTag() + "," + record.getTrackingTag();
             downloaderClientFactory.get(downloader)
                     .addTorrent(downloader, best.getDownloadUrl(), downloader.getSavePath(), tags);
+            // 就地自增：让同一批次内后续分组也能感知到这次推送，避免全部涌向"批次开始时最闲"的下载器
+            downloaderLoadCache.merge(downloader.getId(), 1L, Long::sum);
         } catch (Exception e) {
             log.error("推送种子到下载器失败，已回滚：{}", best.getTitle(), e);
             searchLogService.recordSummary(sub.getId(), match.getEpisode(), source,
@@ -349,10 +361,34 @@ public class SubscriptionEngine {
         return record;
     }
 
-    /** 订阅指定了下载器就用它，否则用唯一启用的那个 */
-    private PtDownloaderPlus resolveDownloader(PtSubscriptionPlus sub) {
-        List<PtDownloaderPlus> enabled = downloaderService.list(
-                new QueryWrapper<PtDownloaderPlus>().eq("enabled", "1"));
+    /** 查询当前启用的下载器列表，供批内缓存复用 */
+    private List<PtDownloaderPlus> loadEnabledDownloaders() {
+        return downloaderService.list(new QueryWrapper<PtDownloaderPlus>().eq("enabled", "1"));
+    }
+
+    /** 统计每个启用下载器当前 PUSHED/DOWNLOADING 的在途记录数，供负载均衡使用 */
+    private Map<Integer, Long> loadDownloaderLoadCounts(List<PtDownloaderPlus> enabledDownloaders) {
+        if (enabledDownloaders.isEmpty()) {
+            return new HashMap<>();
+        }
+        List<Integer> ids = enabledDownloaders.stream().map(PtDownloaderPlus::getId).toList();
+        List<PtDownloadRecordPlus> active = recordService.list(new QueryWrapper<PtDownloadRecordPlus>()
+                .in("downloader_id", ids)
+                .in("state", RECORD_PUSHED, RECORD_DOWNLOADING));
+        Map<Integer, Long> counts = new HashMap<>();
+        for (PtDownloadRecordPlus r : active) {
+            counts.merge(r.getDownloaderId(), 1L, Long::sum);
+        }
+        return counts;
+    }
+
+    /**
+     * 订阅指定了下载器且该下载器仍启用就用它（不变，用户显式选择优先级最高）；
+     * 否则从启用列表里选当前在途记录数最少的一个，并列时选列表里靠前的（顺序即数据库查询顺序，天然稳定）。
+     */
+    private PtDownloaderPlus resolveDownloader(PtSubscriptionPlus sub,
+                                                List<PtDownloaderPlus> enabled,
+                                                Map<Integer, Long> loadCache) {
         if (enabled.isEmpty()) {
             return null;
         }
@@ -362,8 +398,18 @@ public class SubscriptionEngine {
                     return downloader;
                 }
             }
-            log.warn("订阅[{}] 指定的下载器 {} 不可用，改用第一个启用的", sub.getId(), sub.getDownloaderId());
+            log.warn("订阅[{}] 指定的下载器 {} 不可用，改用负载最低的启用下载器", sub.getId(), sub.getDownloaderId());
         }
-        return enabled.get(0);
+        PtDownloaderPlus best = enabled.get(0);
+        long bestLoad = loadCache.getOrDefault(best.getId(), 0L);
+        for (int i = 1; i < enabled.size(); i++) {
+            PtDownloaderPlus candidate = enabled.get(i);
+            long load = loadCache.getOrDefault(candidate.getId(), 0L);
+            if (load < bestLoad) {
+                best = candidate;
+                bestLoad = load;
+            }
+        }
+        return best;
     }
 }
