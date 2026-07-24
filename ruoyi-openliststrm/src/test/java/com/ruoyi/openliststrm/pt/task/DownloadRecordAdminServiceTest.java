@@ -136,6 +136,19 @@ class DownloadRecordAdminServiceTest {
         assertEquals(0, result.getRecords().size());
     }
 
+    @Test
+    void enrich_透传失败原因分类字段() {
+        PtDownloadRecordPlus r = record(1, 10, 5, "FAILED", 20, 30);
+        r.setFailReasonCode("ZOMBIE_TIMEOUT");
+        when(subscriptionService.listByIds(List.of(10))).thenReturn(List.of(tvSub(10, "某剧", 1, "ACTIVE")));
+        when(indexerService.listByIds(List.of(20))).thenReturn(List.of());
+        when(downloaderService.listByIds(List.of(30))).thenReturn(List.of());
+
+        var result = service().enrich(PageResult.of(List.of(r), 1, 1, 10));
+
+        assertEquals("ZOMBIE_TIMEOUT", result.getRecords().get(0).getFailReasonCode());
+    }
+
     // ---------- retry ----------
 
     @Test

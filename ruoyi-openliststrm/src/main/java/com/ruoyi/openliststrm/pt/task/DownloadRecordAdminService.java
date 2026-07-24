@@ -101,6 +101,7 @@ public class DownloadRecordAdminService {
         view.setState(r.getState());
         view.setProgress(r.getProgress());
         view.setFailReason(r.getFailReason());
+        view.setFailReasonCode(r.getFailReasonCode());
         view.setPushedTime(r.getPushedTime());
         view.setCompletedTime(r.getCompletedTime());
         return view;

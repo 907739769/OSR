@@ -32,6 +32,7 @@ public class DownloadRecordView {
     private String state;
     private Double progress;
     private String failReason;
+    private String failReasonCode;
     private Date pushedTime;
     private Date completedTime;
 }
