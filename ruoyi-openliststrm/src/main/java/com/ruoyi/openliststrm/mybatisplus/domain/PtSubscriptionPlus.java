@@ -68,6 +68,10 @@ public class PtSubscriptionPlus extends BaseEntity {
     @TableField("filter_override")
     private String filterOverride;
 
+    /** 订阅级下载追踪覆盖(JSON)，当前仅支持 zombieTimeoutHours 键，空表示全用全局配置 */
+    @TableField("download_override")
+    private String downloadOverride;
+
     /** 指定下载器，空表示用唯一启用的那个 */
     @TableField("downloader_id")
     private Integer downloaderId;
