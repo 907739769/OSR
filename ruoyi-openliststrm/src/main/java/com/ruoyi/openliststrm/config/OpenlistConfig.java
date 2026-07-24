@@ -48,6 +48,11 @@ public class OpenlistConfig {
         return sysConfigService.selectConfigByKey("openlist.tg.userid");
     }
 
+    //通知Webhook地址
+    public String getNotifyWebhookUrl() {
+        return sysConfigService.selectConfigByKey("openlist.notify.webhook.url");
+    }
+
     //Apikey
     public String getOpenListApiKey() {
         return sysConfigService.selectConfigByKey("openlist.api.apikey");
