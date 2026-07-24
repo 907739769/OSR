@@ -3,6 +3,7 @@ package com.ruoyi.openliststrm.controller.api;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.ruoyi.common.core.domain.Result;
+import com.ruoyi.common.core.text.Convert;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtSearchLogPlus;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
@@ -14,6 +15,7 @@ import com.ruoyi.openliststrm.pt.subscription.SearchSupplementService;
 import com.ruoyi.openliststrm.pt.subscription.SubscriptionSearchOnCreateTrigger;
 import com.ruoyi.openliststrm.pt.subscription.SubscriptionService;
 import com.ruoyi.openliststrm.pt.subscription.TmdbSearchService;
+import com.ruoyi.openliststrm.pt.subscription.dto.BatchOperationResult;
 import com.ruoyi.openliststrm.pt.subscription.dto.SearchRequest;
 import com.ruoyi.openliststrm.pt.subscription.dto.SubscribeRequest;
 import com.ruoyi.openliststrm.pt.subscription.dto.SubscriptionProgress;
@@ -24,6 +26,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Arrays;
 import java.util.List;
 
 /**
@@ -67,7 +70,11 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
         if (StringUtils.isNotBlank(entity.getStatus())) {
             wrapper.eq(PtSubscriptionPlus::getStatus, entity.getStatus());
         }
-        wrapper.orderByDesc(PtSubscriptionPlus::getId);
+        if ("lastMatchTime".equals(entity.getSortBy())) {
+            wrapper.orderByDesc(PtSubscriptionPlus::getLastMatchTime).orderByDesc(PtSubscriptionPlus::getId);
+        } else {
+            wrapper.orderByDesc(PtSubscriptionPlus::getId);
+        }
         return wrapper;
     }
 
@@ -198,6 +205,47 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
         } catch (IllegalArgumentException e) {
             return Result.error(e.getMessage());
         }
+    }
+
+    /**
+     * 批量暂停订阅，单条失败（如已被并发删除）不影响其余条目。
+     */
+    @PostMapping("/batchPause")
+    public Result<BatchOperationResult> batchPause(@RequestParam("ids") String ids) {
+        if (StringUtils.isBlank(ids)) {
+            return Result.error("请选择要暂停的订阅");
+        }
+        List<Integer> idList = Arrays.stream(Convert.toStrArray(ids)).map(Integer::valueOf).toList();
+        return Result.success(subscriptionBiz.pauseBatch(idList));
+    }
+
+    /**
+     * 批量恢复订阅，单条失败不影响其余条目。
+     */
+    @PostMapping("/batchResume")
+    public Result<BatchOperationResult> batchResume(@RequestParam("ids") String ids) {
+        if (StringUtils.isBlank(ids)) {
+            return Result.error("请选择要恢复的订阅");
+        }
+        List<Integer> idList = Arrays.stream(Convert.toStrArray(ids)).map(Integer::valueOf).toList();
+        return Result.success(subscriptionBiz.resumeBatch(idList));
+    }
+
+    /**
+     * 批量删除订阅，连带删除每集状态行。
+     * <p>
+     * 与单条 {@link #delete(Integer)} 同样的"纯 CRUD 组合"落点，用 IN 一次性执行不逐条循环。
+     * </p>
+     */
+    @PostMapping("/batchDelete")
+    public Result<Void> batchDelete(@RequestParam("ids") String ids) {
+        if (StringUtils.isBlank(ids)) {
+            return Result.error("请选择要删除的订阅");
+        }
+        List<Integer> idList = Arrays.stream(Convert.toStrArray(ids)).map(Integer::valueOf).toList();
+        episodeService.remove(new QueryWrapper<PtSubscriptionEpisodePlus>().in("sub_id", idList));
+        boolean removed = service.removeByIds(idList);
+        return removed ? Result.success() : Result.error("删除失败");
     }
 
     /**
