@@ -72,6 +72,9 @@
           </div>
           <div class="record-fail" v-if="item.state === 'FAILED'">
             <el-icon><WarningFilled /></el-icon>
+            <el-tag v-if="item.failReasonCode" size="small" :type="failReasonTagType(item.failReasonCode)">
+              {{ failReasonCodeLabel(item.failReasonCode) }}
+            </el-tag>
             <span>{{ item.failReason || '未知原因' }}</span>
           </div>
           <div class="record-actions" v-if="item.state === 'FAILED'">
@@ -132,6 +135,17 @@ const stateTagType = (state: string): 'success' | 'warning' | 'danger' | 'info' 
     case 'FAILED': return 'danger'
     default: return 'info'
   }
+}
+
+const failReasonCodeLabel = (code: string) => {
+  switch (code) {
+    case 'TORRENT_NOT_FOUND': return '种子丢失'
+    case 'ZOMBIE_TIMEOUT': return '下载超时'
+    default: return '其他原因'
+  }
+}
+const failReasonTagType = (code: string): 'warning' | 'danger' => {
+  return code === 'ZOMBIE_TIMEOUT' ? 'warning' : 'danger'
 }
 
 const formatSize = (bytes: number): string => {
