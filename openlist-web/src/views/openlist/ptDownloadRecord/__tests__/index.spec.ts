@@ -54,3 +54,23 @@ describe('failReasonCode 标签', () => {
     expect(wrapper.find('.record-fail el-tag').exists()).toBe(false)
   })
 })
+
+describe('PtDownloadRecord 失败卡片视觉强化', () => {
+  it('FAILED 状态的卡片带有 record-card--failed 类', () => {
+    (usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      taskList: ref([{ id: 1, title: 'A', state: 'FAILED', failReason: 'boom' }])
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    const card = wrapper.find('.record-card')
+    expect(card.classes()).toContain('record-card--failed')
+  })
+
+  it('非 FAILED 状态的卡片不带 record-card--failed 类', () => {
+    (usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      taskList: ref([{ id: 2, title: 'B', state: 'COMPLETED' }])
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    const card = wrapper.find('.record-card')
+    expect(card.classes()).not.toContain('record-card--failed')
+  })
+})

@@ -36,7 +36,12 @@
       </div>
 
       <div class="card-grid" v-loading="loading">
-        <div v-for="item in taskList" :key="item.id" class="record-card">
+        <div
+          v-for="item in taskList"
+          :key="item.id"
+          class="record-card"
+          :class="{ 'record-card--failed': item.state === 'FAILED' }"
+        >
           <div class="record-header">
             <span class="record-title" :title="item.title">{{ item.title }}</span>
             <el-tag :type="stateTagType(item.state)" size="small">{{ stateLabel(item.state) }}</el-tag>
@@ -222,6 +227,11 @@ const formatSize = (bytes: number): string => {
   }
 }
 
+.record-card--failed {
+  border-left: 3px solid var(--osr-danger);
+  padding-left: 13px;
+}
+
 .record-header {
   display: flex;
   align-items: flex-start;
@@ -276,14 +286,20 @@ const formatSize = (bytes: number): string => {
 
 .record-fail {
   display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  padding: 8px 10px;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
   border-radius: var(--osr-radius-sm);
-  background: var(--el-color-danger-light-9);
-  color: var(--el-color-danger);
+  background: var(--osr-danger-light);
+  color: var(--osr-danger);
   font-size: 12px;
+  font-weight: 500;
   line-height: 1.5;
+
+  .el-icon {
+    font-size: 16px;
+    flex-shrink: 0;
+  }
 }
 
 .record-actions {
