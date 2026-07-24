@@ -73,3 +73,22 @@ export function searchSupplementApi(id: number, data: { episode: number; keyword
 export function getSubscriptionSearchLogsApi(id: number) {
   return request.get<any, any[]>(`/openliststrm/pt-subscriptions/${id}/search-logs`)
 }
+
+/** 批量暂停订阅 */
+export function batchPauseSubscriptionApi(ids: number[]) {
+  return request.post<any, { successCount: number; failedIds: number[] }>(
+    '/openliststrm/pt-subscriptions/batchPause', null, { params: { ids: ids.join(',') } }
+  )
+}
+
+/** 批量恢复订阅 */
+export function batchResumeSubscriptionApi(ids: number[]) {
+  return request.post<any, { successCount: number; failedIds: number[] }>(
+    '/openliststrm/pt-subscriptions/batchResume', null, { params: { ids: ids.join(',') } }
+  )
+}
+
+/** 批量删除订阅 */
+export function batchDeletePtSubscriptionApi(ids: number[]) {
+  return request.post('/openliststrm/pt-subscriptions/batchDelete', null, { params: { ids: ids.join(',') } })
+}
