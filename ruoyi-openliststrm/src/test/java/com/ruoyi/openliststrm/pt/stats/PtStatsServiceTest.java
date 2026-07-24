@@ -101,4 +101,37 @@ class PtStatsServiceTest {
         assertEquals(0L, first.getFailedCount());
         org.junit.jupiter.api.Assertions.assertNull(first.getAvgDurationMinutes());
     }
+
+    @Test
+    void indexerHitRate_按索引器计算命中率_除零记0且未产生日志的索引器仍出现() {
+        com.ruoyi.openliststrm.mybatisplus.domain.PtIndexerPlus withData =
+                new com.ruoyi.openliststrm.mybatisplus.domain.PtIndexerPlus();
+        withData.setId(1);
+        withData.setName("索引器A");
+        com.ruoyi.openliststrm.mybatisplus.domain.PtIndexerPlus withoutData =
+                new com.ruoyi.openliststrm.mybatisplus.domain.PtIndexerPlus();
+        withoutData.setId(2);
+        withoutData.setName("索引器B");
+        when(indexerService.list()).thenReturn(List.of(withData, withoutData));
+        when(searchLogService.listMaps(any(Wrapper.class))).thenReturn(List.of(
+                row("indexer_id", 1, "accepted_count", 30L, "rejected_count", 10L)));
+
+        List<com.ruoyi.openliststrm.pt.stats.dto.PtStatsIndexerHitRateDTO> result = service().indexerHitRate();
+
+        assertEquals(2, result.size());
+        var a = result.get(0);
+        assertEquals(1, a.getIndexerId());
+        assertEquals("索引器A", a.getIndexerName());
+        assertEquals(30L, a.getAcceptedCount());
+        assertEquals(10L, a.getRejectedCount());
+        org.junit.jupiter.api.Assertions.assertTrue(a.isHasData());
+        assertEquals(0.75, a.getHitRate());
+
+        var b = result.get(1);
+        assertEquals(2, b.getIndexerId());
+        assertEquals(0L, b.getAcceptedCount());
+        assertEquals(0L, b.getRejectedCount());
+        org.junit.jupiter.api.Assertions.assertFalse(b.isHasData());
+        assertEquals(0.0, b.getHitRate());
+    }
 }

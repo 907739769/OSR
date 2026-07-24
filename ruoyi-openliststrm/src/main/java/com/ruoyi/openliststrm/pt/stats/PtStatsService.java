@@ -2,11 +2,14 @@ package com.ruoyi.openliststrm.pt.stats;
 
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtDownloadRecordPlus;
+import com.ruoyi.openliststrm.mybatisplus.domain.PtIndexerPlus;
+import com.ruoyi.openliststrm.mybatisplus.domain.PtSearchLogPlus;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtDownloadRecordPlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtIndexerPlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtSearchLogPlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
+import com.ruoyi.openliststrm.pt.stats.dto.PtStatsIndexerHitRateDTO;
 import com.ruoyi.openliststrm.pt.stats.dto.PtStatsOverviewDTO;
 import com.ruoyi.openliststrm.pt.stats.dto.PtStatsTrendPointDTO;
 import com.ruoyi.openliststrm.pt.subscription.SubscriptionService;
@@ -115,6 +118,43 @@ public class PtStatsService {
                 point.setAvgDurationMinutes(asDouble(row.get("avg_duration_minutes")));
             }
             result.add(point);
+        }
+        return result;
+    }
+
+    /**
+     * 索引器命中率：驱动集合是 pt_indexer 全量(indexerService.list())，不是只查有日志的索引器，
+     * 新增索引器还没跑过时 hasData=false 也要出现在结果里(设计文档测试计划)。不做 days 筛选，
+     * 见设计文档 2.4 节：pt_search_log 本身按订阅保留≤200条，再叠加时间筛选口径会不一致。
+     */
+    public List<PtStatsIndexerHitRateDTO> indexerHitRate() {
+        List<Map<String, Object>> rows = searchLogService.listMaps(
+                Wrappers.<PtSearchLogPlus>query()
+                        .select("indexer_id as indexer_id, "
+                                + "SUM(CASE WHEN accepted='1' THEN 1 ELSE 0 END) as accepted_count, "
+                                + "SUM(CASE WHEN accepted='0' THEN 1 ELSE 0 END) as rejected_count")
+                        .isNotNull("indexer_id")
+                        .groupBy("indexer_id"));
+
+        Map<Integer, Map<String, Object>> byIndexer = rows.stream()
+                .collect(java.util.stream.Collectors.toMap(
+                        r -> ((Number) r.get("indexer_id")).intValue(), r -> r));
+
+        List<PtIndexerPlus> indexers = indexerService.list();
+        List<PtStatsIndexerHitRateDTO> result = new java.util.ArrayList<>();
+        for (PtIndexerPlus indexer : indexers) {
+            Map<String, Object> row = byIndexer.get(indexer.getId());
+            PtStatsIndexerHitRateDTO dto = new PtStatsIndexerHitRateDTO();
+            dto.setIndexerId(indexer.getId());
+            dto.setIndexerName(indexer.getName());
+            long accepted = row == null ? 0 : asLong(row.get("accepted_count"));
+            long rejected = row == null ? 0 : asLong(row.get("rejected_count"));
+            dto.setAcceptedCount(accepted);
+            dto.setRejectedCount(rejected);
+            long denom = accepted + rejected;
+            dto.setHasData(denom > 0);
+            dto.setHitRate(denom > 0 ? Math.round(accepted * 10000.0 / denom) / 10000.0 : 0.0);
+            result.add(dto);
         }
         return result;
     }
