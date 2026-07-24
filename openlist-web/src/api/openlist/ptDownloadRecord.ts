@@ -17,3 +17,10 @@ export function retryPtDownloadRecordApi(id: number) {
     `/openliststrm/pt-download-records/${id}/retry`
   )
 }
+
+/** 批量重试选中的失败下载记录 */
+export function batchRetryPtDownloadRecordApi(ids: number[]) {
+  return request.post<any, { total: number; pushedCount: number; skippedCount: number }>(
+    '/openliststrm/pt-download-records/batchRetry', null, { params: { ids: ids.join(',') } }
+  )
+}
