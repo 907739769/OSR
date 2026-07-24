@@ -140,6 +140,7 @@ class DownloadTrackServiceTest {
         ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
         verify(recordService).update(captor.capture(), any(Wrapper.class));
         assertEquals("FAILED", captor.getValue().getState());
+        assertEquals("TORRENT_NOT_FOUND", captor.getValue().getFailReasonCode());
         // 关联集回退 MISSING
         verify(episodeService).update(any(), any(Wrapper.class));
     }
@@ -201,6 +202,7 @@ class DownloadTrackServiceTest {
         ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
         verify(recordService).update(captor.capture(), any(Wrapper.class));
         assertEquals("FAILED", captor.getValue().getState());
+        assertEquals("ZOMBIE_TIMEOUT", captor.getValue().getFailReasonCode());
         verify(episodeService).update(any(), any(Wrapper.class));
     }
 
