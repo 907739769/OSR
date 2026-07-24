@@ -76,4 +76,29 @@ class PtStatsServiceTest {
         assertEquals(80.0, dto.getSuccessRate());
         assertEquals(45.5, dto.getAvgDurationMinutes());
     }
+
+    @Test
+    void trend_缺失日期补齐为0且平均耗时为null() {
+        java.time.LocalDate today = java.time.LocalDate.now();
+        java.time.format.DateTimeFormatter fmt = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd");
+        String onlyDay = today.format(fmt);
+        when(downloadRecordService.listMaps(any(Wrapper.class))).thenReturn(List.of(
+                row("day", onlyDay, "pushed_count", 3L, "completed_count", 2L, "failed_count", 0L, "avg_duration_minutes", 30.0)));
+
+        List<com.ruoyi.openliststrm.pt.stats.dto.PtStatsTrendPointDTO> points = service().trend(7);
+
+        assertEquals(7, points.size());
+        var last = points.get(points.size() - 1);
+        assertEquals(onlyDay, last.getDate());
+        assertEquals(3L, last.getPushedCount());
+        assertEquals(2L, last.getCompletedCount());
+        assertEquals(0L, last.getFailedCount());
+        assertEquals(30.0, last.getAvgDurationMinutes());
+
+        var first = points.get(0);
+        assertEquals(0L, first.getPushedCount());
+        assertEquals(0L, first.getCompletedCount());
+        assertEquals(0L, first.getFailedCount());
+        org.junit.jupiter.api.Assertions.assertNull(first.getAvgDurationMinutes());
+    }
 }

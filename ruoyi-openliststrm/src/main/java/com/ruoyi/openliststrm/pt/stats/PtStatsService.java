@@ -8,6 +8,7 @@ import com.ruoyi.openliststrm.mybatisplus.service.IPtIndexerPlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtSearchLogPlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.ruoyi.openliststrm.pt.stats.dto.PtStatsOverviewDTO;
+import com.ruoyi.openliststrm.pt.stats.dto.PtStatsTrendPointDTO;
 import com.ruoyi.openliststrm.pt.subscription.SubscriptionService;
 import com.ruoyi.openliststrm.pt.task.DownloadRecordState;
 import org.springframework.stereotype.Service;
@@ -26,6 +27,7 @@ public class PtStatsService {
 
     private static final String STATE_COMPLETED = DownloadRecordState.COMPLETED.value();
     private static final String STATE_FAILED = DownloadRecordState.FAILED.value();
+    private static final java.time.format.DateTimeFormatter DAY_FORMATTER = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     private final IPtDownloadRecordPlusService downloadRecordService;
     private final IPtSearchLogPlusService searchLogService;
@@ -71,6 +73,50 @@ public class PtStatsService {
         Double avg = asDouble(row.get("avg_duration_minutes"));
         dto.setAvgDurationMinutes(avg == null ? 0.0 : avg);
         return dto;
+    }
+
+    /**
+     * 下载量趋势：按 pushed_time 所在日期分组，日期区间连续补齐(设计文档2.1只用 pushed_time/state
+     * 两个字段——按"推送日期"这一维度分类，而不是按完成/失败发生的日期分类)。
+     */
+    public List<PtStatsTrendPointDTO> trend(int days) {
+        java.time.LocalDate start = java.time.LocalDate.now().minusDays(days - 1L);
+
+        List<Map<String, Object>> rows = downloadRecordService.listMaps(
+                Wrappers.<PtDownloadRecordPlus>query()
+                        .select("DATE_FORMAT(pushed_time,'%Y-%m-%d') as day, "
+                                + "count(*) as pushed_count, "
+                                + "SUM(CASE WHEN state='" + STATE_COMPLETED + "' THEN 1 ELSE 0 END) as completed_count, "
+                                + "SUM(CASE WHEN state='" + STATE_FAILED + "' THEN 1 ELSE 0 END) as failed_count, "
+                                + "AVG(CASE WHEN state='" + STATE_COMPLETED
+                                + "' THEN TIMESTAMPDIFF(MINUTE, pushed_time, completed_time) ELSE NULL END) as avg_duration_minutes")
+                        .ge("pushed_time", start.atStartOfDay())
+                        .groupBy("DATE_FORMAT(pushed_time,'%Y-%m-%d')"));
+
+        Map<String, Map<String, Object>> byDay = rows.stream()
+                .collect(java.util.stream.Collectors.toMap(r -> String.valueOf(r.get("day")), r -> r));
+
+        List<PtStatsTrendPointDTO> result = new java.util.ArrayList<>();
+        for (int i = 0; i < days; i++) {
+            java.time.LocalDate day = start.plusDays(i);
+            String key = day.format(DAY_FORMATTER);
+            Map<String, Object> row = byDay.get(key);
+            PtStatsTrendPointDTO point = new PtStatsTrendPointDTO();
+            point.setDate(key);
+            if (row == null) {
+                point.setPushedCount(0);
+                point.setCompletedCount(0);
+                point.setFailedCount(0);
+                point.setAvgDurationMinutes(null);
+            } else {
+                point.setPushedCount(asLong(row.get("pushed_count")));
+                point.setCompletedCount(asLong(row.get("completed_count")));
+                point.setFailedCount(asLong(row.get("failed_count")));
+                point.setAvgDurationMinutes(asDouble(row.get("avg_duration_minutes")));
+            }
+            result.add(point);
+        }
+        return result;
     }
 
     private static long asLong(Object v) {
