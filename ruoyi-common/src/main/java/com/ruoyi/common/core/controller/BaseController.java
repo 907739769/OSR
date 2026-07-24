@@ -12,6 +12,7 @@ import org.springframework.web.bind.WebDataBinder;
 import org.springframework.web.bind.annotation.InitBinder;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.baomidou.mybatisplus.core.metadata.OrderItem;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.ruoyi.common.core.domain.AjaxResult;
 import com.ruoyi.common.core.domain.AjaxResult.Type;
@@ -103,14 +104,30 @@ public class BaseController
 
         // 再查分页数据
         Page<T> mpPage = new Page<>(pageNum, pageSize);
-        String orderByColumn = SqlUtil.escapeOrderBySql(pageDomain.getOrderBy());
-        if (StringUtils.isNotEmpty(orderByColumn))
+        OrderItem orderItem = buildOrderItem(pageDomain);
+        if (orderItem != null)
         {
-            mpPage.addOrder(com.baomidou.mybatisplus.core.metadata.OrderItem.desc(orderByColumn));
+            mpPage.addOrder(orderItem);
         }
         baseMapper.selectPage(mpPage, wrapper);
 
         return PageResult.of(mpPage.getRecords(), total, (int) mpPage.getCurrent(), (int) mpPage.getSize());
+    }
+
+    /**
+     * 根据分页请求构造排序对象；未指定排序列时返回 null（不排序）
+     * 列名与排序方向须分别处理，不能拼接成一个字符串再整体当作列名传给 OrderItem，
+     * 否则 MyBatis-Plus 会在拼接的列名后再追加一次方向关键字，生成非法的 ORDER BY 子句
+     */
+    protected static OrderItem buildOrderItem(PageDomain pageDomain)
+    {
+        String orderByColumn = SqlUtil.escapeOrderBySql(StringUtils.toUnderScoreCase(pageDomain.getOrderByColumn()));
+        if (StringUtils.isEmpty(orderByColumn))
+        {
+            return null;
+        }
+        boolean isAsc = !"desc".equalsIgnoreCase(pageDomain.getIsAsc());
+        return isAsc ? OrderItem.asc(orderByColumn) : OrderItem.desc(orderByColumn);
     }
 
     /**

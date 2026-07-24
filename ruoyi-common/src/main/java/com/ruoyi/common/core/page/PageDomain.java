@@ -24,15 +24,6 @@ public class PageDomain
     /** 分页参数合理化 */
     private Boolean reasonable = true;
 
-    public String getOrderBy()
-    {
-        if (StringUtils.isEmpty(orderByColumn))
-        {
-            return "";
-        }
-        return StringUtils.toUnderScoreCase(orderByColumn) + " " + isAsc;
-    }
-
     public Integer getPageNum()
     {
         return pageNum;
