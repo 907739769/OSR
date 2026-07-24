@@ -149,7 +149,7 @@
                 <el-option
                   v-for="child in parent.children"
                   :key="child.id"
-                  :label="`　${child.name} (${child.id})`"
+                  :label="`\u3000${child.name} (${child.id})`"
                   :value="String(child.id)"
                 />
               </el-option-group>
