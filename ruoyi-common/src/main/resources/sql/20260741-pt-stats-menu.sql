@@ -2,9 +2,9 @@
 -- 20260741: 新增"PT统计仪表盘"页面菜单
 -- 挂在 PT下载管理(2070) 分组下，排在"PT下载记录"(2066, order_num=6)之后。
 -- 页面与后端接口在同一批次上线，直接 visible='0'(显示)，参照 20260731 的先例。
--- 图标 fa fa-bar-chart 在 openlist-web/src/composables/useMenuIcon.ts 的 iconMap 里补了映射
--- (指向 TrendCharts)，跟同组内其余6个已用图标(rss/download/server/bookmark-o/sliders/list-ul)
--- 及父分组自己的 fa-bars 都不重复。
+-- 图标 fa fa-bar-chart 映射到前端 TrendCharts 组件的工作由后续"PT订阅统计仪表盘"计划任务10完成，
+-- 本文件仅负责菜单数据迁移。图标选择不与同组内其余6个已用图标(rss/download/server/bookmark-o/sliders/list-ul)
+-- 及父分组自己的 fa-bars 重复。
 -- 注：任务简报原计划编号 20260738 与 menu_id=2071 需在实现前核实，因与本计划并行的其他计划
 -- 已抢占 20260738(pt-download-record-fail-reason-code)/20260739(pt-subscription-download-override)/
 -- 20260740(notify-webhook-config)。经核对 sql/ 目录下所有涉及 sys_menu 的脚本，menu_id=2071
