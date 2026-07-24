@@ -82,12 +82,29 @@ function baseComposable(overrides: Record<string, any> = {}) {
     handlePause: vi.fn(),
     handleResume: vi.fn(),
     handleRemove: vi.fn(),
+    handleDelete: vi.fn(),
+    selectedIds: ref<number[]>([]),
+    selectionMode: ref(false),
+    toggleSubSelect: vi.fn(),
+    isSubSelected: vi.fn(() => false),
+    handleBatchPause: vi.fn(),
+    handleBatchResume: vi.fn(),
     ...overrides
   }
 }
 
 const mountOptions = {
-  global: { stubs: { 'el-dialog': true, 'el-table': true, 'el-table-column': true } }
+  global: {
+    stubs: {
+      'el-dialog': true,
+      'el-table': true,
+      'el-table-column': true,
+      // el-dropdown 未注册为真实组件时会退化成普通自定义元素渲染，
+      // Vue 对普通元素的具名插槽（本文件模板里的 #dropdown）会被直接丢弃、只保留默认插槽，
+      // 因此这里显式桩一个透传所有插槽的组件，让"更多"下拉菜单里的内容能在测试环境渲染出来。
+      'el-dropdown': { template: '<div><slot /><slot name="dropdown" /></div>' }
+    }
+  }
 }
 
 describe('PtSubscription 骨架屏', () => {
@@ -109,5 +126,139 @@ describe('PtSubscription 骨架屏', () => {
     const wrapper = mount(PtSubscriptionPage, mountOptions)
     expect(wrapper.find('.sub-card-skeleton').exists()).toBe(false)
     expect(wrapper.find('.sub-card').exists()).toBe(true)
+  })
+})
+
+describe('PtSubscription 批量操作', () => {
+  it('selectionMode 为 false 时不渲染批量工具条和 checkbox', () => {
+    (usePtSubscription as any).mockReturnValue(baseComposable({
+      taskList: ref([{ id: 1, title: 'A', status: 'ACTIVE', mediaType: 'TV', season: 1, totalEpisodes: 12 }])
+    }))
+    const wrapper = mount(PtSubscriptionPage, mountOptions)
+    expect(wrapper.find('.batch-toolbar').exists()).toBe(false)
+    expect(wrapper.find('.sub-card-checkbox').exists()).toBe(false)
+  })
+
+  it('selectionMode 为 true 时每张卡片都显示 checkbox', () => {
+    (usePtSubscription as any).mockReturnValue(baseComposable({
+      selectionMode: ref(true),
+      taskList: ref([{ id: 1, title: 'A', status: 'ACTIVE', mediaType: 'TV', season: 1, totalEpisodes: 12 }])
+    }))
+    const wrapper = mount(PtSubscriptionPage, mountOptions)
+    expect(wrapper.find('.sub-card-checkbox').exists()).toBe(true)
+  })
+
+  it('批量工具条展示已选数量', () => {
+    (usePtSubscription as any).mockReturnValue(baseComposable({
+      selectionMode: ref(true),
+      selectedIds: ref([1, 2, 3])
+    }))
+    const wrapper = mount(PtSubscriptionPage, mountOptions)
+    expect(wrapper.find('.batch-toolbar').text()).toContain('已选 3 项')
+  })
+
+  it('点击批量暂停调用 handleBatchPause', async () => {
+    const handleBatchPause = vi.fn()
+    ;(usePtSubscription as any).mockReturnValue(baseComposable({
+      selectionMode: ref(true),
+      selectedIds: ref([1]),
+      handleBatchPause
+    }))
+    const wrapper = mount(PtSubscriptionPage, mountOptions)
+    await wrapper.find('.batch-pause-btn').trigger('click')
+    expect(handleBatchPause).toHaveBeenCalled()
+  })
+
+  it('点击批量恢复调用 handleBatchResume', async () => {
+    const handleBatchResume = vi.fn()
+    ;(usePtSubscription as any).mockReturnValue(baseComposable({
+      selectionMode: ref(true),
+      selectedIds: ref([1]),
+      handleBatchResume
+    }))
+    const wrapper = mount(PtSubscriptionPage, mountOptions)
+    await wrapper.find('.batch-resume-btn').trigger('click')
+    expect(handleBatchResume).toHaveBeenCalled()
+  })
+
+  it('点击批量删除调用 handleDelete（复用useTaskList现成批量删除逻辑）', async () => {
+    const handleDelete = vi.fn()
+    ;(usePtSubscription as any).mockReturnValue(baseComposable({
+      selectionMode: ref(true),
+      selectedIds: ref([1]),
+      handleDelete
+    }))
+    const wrapper = mount(PtSubscriptionPage, mountOptions)
+    await wrapper.find('.batch-delete-btn').trigger('click')
+    expect(handleDelete).toHaveBeenCalled()
+  })
+
+  it('点击取消退出批量操作模式，隐藏工具条', async () => {
+    (usePtSubscription as any).mockReturnValue(baseComposable({
+      selectionMode: ref(true),
+      selectedIds: ref([1])
+    }))
+    const wrapper = mount(PtSubscriptionPage, mountOptions)
+    expect(wrapper.find('.batch-toolbar').exists()).toBe(true)
+    await wrapper.find('.batch-cancel-btn').trigger('click')
+    expect(wrapper.find('.batch-toolbar').exists()).toBe(false)
+  })
+
+  it('勾选订阅卡片调用 toggleSubSelect', async () => {
+    const toggleSubSelect = vi.fn()
+    ;(usePtSubscription as any).mockReturnValue(baseComposable({
+      selectionMode: ref(true),
+      taskList: ref([{ id: 1, title: 'A', status: 'ACTIVE', mediaType: 'TV', season: 1, totalEpisodes: 12 }]),
+      toggleSubSelect
+    }))
+    const wrapper = mount(PtSubscriptionPage, mountOptions)
+    await wrapper.find('.sub-card-checkbox').trigger('change')
+    expect(toggleSubSelect).toHaveBeenCalled()
+  })
+})
+
+describe('PtSubscription 按钮收纳', () => {
+  it('sub-actions 只保留4个直接按钮：进度/下载记录/暂停或恢复/删除', () => {
+    (usePtSubscription as any).mockReturnValue(baseComposable({
+      taskList: ref([{ id: 1, title: 'A', status: 'ACTIVE', mediaType: 'TV', season: 1, totalEpisodes: 12 }])
+    }))
+    const wrapper = mount(PtSubscriptionPage, mountOptions)
+    const directButtons = wrapper.findAll('.sub-actions > el-button')
+    const texts = directButtons.map(b => b.text())
+    expect(texts).toEqual(['进度', '下载记录', '暂停', '删除'])
+  })
+
+  it('对账/匹配日志/过滤规则/搜索补齐收进更多下拉，不再是直接按钮', () => {
+    (usePtSubscription as any).mockReturnValue(baseComposable({
+      taskList: ref([{ id: 1, title: 'A', status: 'ACTIVE', mediaType: 'TV', season: 1, totalEpisodes: 12 }])
+    }))
+    const wrapper = mount(PtSubscriptionPage, mountOptions)
+    const directButtonTexts = wrapper.findAll('.sub-actions > el-button').map(b => b.text())
+    expect(directButtonTexts).not.toContain('对账')
+    expect(directButtonTexts).not.toContain('匹配日志')
+    expect(directButtonTexts).not.toContain('过滤规则')
+    expect(directButtonTexts).not.toContain('搜索补齐')
+    const dropdownItemTexts = wrapper.findAll('el-dropdown-item').map(i => i.text())
+    expect(dropdownItemTexts).toEqual(['对账', '匹配日志', '过滤规则', '搜索补齐'])
+  })
+
+  it('已暂停的订阅显示恢复按钮而不是暂停按钮', () => {
+    (usePtSubscription as any).mockReturnValue(baseComposable({
+      taskList: ref([{ id: 1, title: 'A', status: 'PAUSED', mediaType: 'TV', season: 1, totalEpisodes: 12 }])
+    }))
+    const wrapper = mount(PtSubscriptionPage, mountOptions)
+    const texts = wrapper.findAll('.sub-actions > el-button').map(b => b.text())
+    expect(texts).toContain('恢复')
+    expect(texts).not.toContain('暂停')
+  })
+})
+
+describe('PtSubscription 排序下拉', () => {
+  it('切换排序下拉触发 handleQuery', async () => {
+    const handleQuery = vi.fn()
+    ;(usePtSubscription as any).mockReturnValue(baseComposable({ handleQuery }))
+    const wrapper = mount(PtSubscriptionPage, mountOptions)
+    await wrapper.find('.sort-select').trigger('change')
+    expect(handleQuery).toHaveBeenCalled()
   })
 })
