@@ -3,6 +3,7 @@ package com.ruoyi.openliststrm.mybatisplus.domain;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 
 /**
  * baseUrl() 需要对用户误填的 host（带协议前缀、带末尾斜杠、带首尾空白）做防御性清洗，
@@ -69,5 +70,16 @@ class PtDownloaderPlusTest {
         d.baseUrl();
 
         assertEquals("http://192.168.1.10/", d.getHost());
+    }
+
+    @Test
+    void maxConcurrent_未设置时为null_设置后能读回() {
+        PtDownloaderPlus d = new PtDownloaderPlus();
+
+        assertNull(d.getMaxConcurrent());
+
+        d.setMaxConcurrent(5);
+
+        assertEquals(5, d.getMaxConcurrent());
     }
 }
