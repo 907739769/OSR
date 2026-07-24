@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment -- 项目没装 @types/node，下面用到的 node: 内置模块在 vue-tsc 下无类型声明，需要 @ts-nocheck 跳过本文件类型检查
 // @ts-nocheck
 // 项目没装 @types/node（tsconfig 也没配置 node 类型），下面几个 node: 内置模块在
 // vue-tsc（走 tsconfig 的 src/**/*.ts 范围）里会报 TS2307 找不到类型声明；
