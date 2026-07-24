@@ -1,7 +1,7 @@
 import { ref, reactive, computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { getPtDownloadRecordListApi, retryPtDownloadRecordApi } from '@/api/openlist/ptDownloadRecord'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { getPtDownloadRecordListApi, retryPtDownloadRecordApi, batchRetryPtDownloadRecordApi } from '@/api/openlist/ptDownloadRecord'
 import type { PtDownloadRecordQuery } from '@/api/openlist/ptDownloadRecord'
 
 /**
@@ -67,6 +67,32 @@ export function usePtDownloadRecord() {
     }
   }
 
+  // ---------- 批量重试 ----------
+  const selectionMode = ref(false)
+  const selectedIds = ref<number[]>([])
+
+  const toggleRecordSelect = (row: any) => {
+    const idx = selectedIds.value.indexOf(row.id)
+    if (idx === -1) {
+      selectedIds.value.push(row.id)
+    } else {
+      selectedIds.value.splice(idx, 1)
+    }
+  }
+
+  const handleBatchRetry = async () => {
+    if (!selectedIds.value.length) return
+    try {
+      await ElMessageBox.confirm(`确认批量重试选中的 ${selectedIds.value.length} 条失败记录？`, '提示', { type: 'warning' })
+      const result = await batchRetryPtDownloadRecordApi(selectedIds.value)
+      ElMessage.success(`已重新推送 ${result.pushedCount} 条，${result.skippedCount} 条未搜到或已跳过`)
+      selectedIds.value = []
+      getList()
+    } catch (e) {
+      if (e !== 'cancel') console.error(e)
+    }
+  }
+
   // ---------- 移动端 - 分页辅助 ----------
   const totalPages = computed(() => Math.ceil(total.value / queryParams.pageSize!) || 1)
 
@@ -96,6 +122,7 @@ export function usePtDownloadRecord() {
   return {
     taskList, loading, total, queryParams, getList, handleQuery, resetQuery, queryRef,
     retryingIds, handleRetry,
+    selectionMode, selectedIds, toggleRecordSelect, handleBatchRetry,
     totalPages, prevPage, nextPage, handleSizeChange, searchCollapsed
   }
 }
