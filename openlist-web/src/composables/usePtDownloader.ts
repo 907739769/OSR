@@ -38,6 +38,7 @@ export function usePtDownloader() {
       password: undefined,
       savePath: undefined,
       tag: 'osr-pt',
+      maxConcurrent: 0,
       enabled: '1',
       strmTaskId: undefined
     }),
@@ -49,7 +50,10 @@ export function usePtDownloader() {
         { type: 'number', min: 1, max: 65535, message: '端口须在 1-65535 之间', trigger: 'blur' }
       ],
       savePath: [{ required: true, message: '保存路径不能为空', trigger: 'blur' }],
-      tag: [{ required: true, message: '标签不能为空', trigger: 'blur' }]
+      tag: [{ required: true, message: '标签不能为空', trigger: 'blur' }],
+      maxConcurrent: [
+        { type: 'number', min: 0, message: '最大并发数不能为负数', trigger: 'blur' }
+      ]
     },
     defaultQuery: {
       name: undefined,
