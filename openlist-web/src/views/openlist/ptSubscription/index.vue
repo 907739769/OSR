@@ -581,7 +581,7 @@ const goDownloadRecords = (row: any) => {
 }
 
 .sub-year {
-  color: var(--el-text-color-secondary);
+  color: var(--osr-text-secondary);
   font-size: 12px;
 }
 
@@ -589,7 +589,7 @@ const goDownloadRecords = (row: any) => {
   margin-top: 12px;
   padding: 10px 12px;
   border-radius: 4px;
-  background: var(--el-fill-color-light);
+  background: var(--osr-bg-page);
 }
 
 .progress-title {
@@ -599,7 +599,7 @@ const goDownloadRecords = (row: any) => {
 }
 
 .all-done {
-  color: var(--el-color-success);
+  color: var(--osr-success);
 }
 
 .missing-list {
