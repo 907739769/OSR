@@ -1,7 +1,8 @@
 import {
   Setting, Document, Picture, Monitor, Tools, Calendar, Coin, Promotion,
   Watermelon, Menu as IconMenu, VideoPlay, RefreshRight, EditPen,
-  FolderOpened, DocumentCopy, MagicStick, Connection, Download, Film, Filter
+  FolderOpened, DocumentCopy, MagicStick, Connection, Download, Film, Filter,
+  TrendCharts
 } from '@element-plus/icons-vue'
 import type { Component } from 'vue'
 
@@ -34,7 +35,8 @@ const iconMap: Record<string, Component> = {
   'fa fa-rss': Connection,
   'fa fa-download': Download,
   'fa fa-server': Film,
-  'fa fa-sliders': Filter
+  'fa fa-sliders': Filter,
+  'fa fa-bar-chart': TrendCharts
 }
 
 export function getIconComponent(icon?: string): Component | undefined {
