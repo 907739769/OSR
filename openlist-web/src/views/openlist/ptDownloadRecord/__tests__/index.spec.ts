@@ -24,6 +24,10 @@ function baseComposable(overrides: Record<string, any> = {}) {
     queryRef: ref(),
     retryingIds: reactive(new Set<number>()),
     handleRetry: vi.fn(),
+    selectionMode: ref(false),
+    selectedIds: ref<number[]>([]),
+    toggleRecordSelect: vi.fn(),
+    handleBatchRetry: vi.fn(),
     ...overrides
   }
 }
@@ -94,5 +98,72 @@ describe('PtDownloadRecord 骨架屏', () => {
     const wrapper = mount(PtDownloadRecordPage)
     expect(wrapper.find('.record-card-skeleton').exists()).toBe(false)
     expect(wrapper.find('.record-card').exists()).toBe(true)
+  })
+})
+
+describe('PtDownloadRecord 批量重试', () => {
+  it('selectionMode 为 false 时不渲染批量工具条和 checkbox', () => {
+    (usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      taskList: ref([{ id: 1, title: 'A', state: 'FAILED', failReason: 'boom' }])
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    expect(wrapper.find('.batch-toolbar').exists()).toBe(false)
+    expect(wrapper.find('.record-card-checkbox').exists()).toBe(false)
+  })
+
+  it('selectionMode 为 true 时仅 FAILED 卡片显示 checkbox', () => {
+    (usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      selectionMode: ref(true),
+      taskList: ref([
+        { id: 1, title: 'A', state: 'FAILED', failReason: 'boom' },
+        { id: 2, title: 'B', state: 'COMPLETED' }
+      ])
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    expect(wrapper.findAll('.record-card-checkbox').length).toBe(1)
+  })
+
+  it('批量工具条展示已选数量', () => {
+    (usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      selectionMode: ref(true),
+      selectedIds: ref([1, 2])
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    expect(wrapper.find('.batch-toolbar').text()).toContain('已选 2 项')
+  })
+
+  it('点击批量重试按钮调用 handleBatchRetry', async () => {
+    const handleBatchRetry = vi.fn()
+    ;(usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      selectionMode: ref(true),
+      selectedIds: ref([1]),
+      handleBatchRetry
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    await wrapper.find('.batch-retry-btn').trigger('click')
+    expect(handleBatchRetry).toHaveBeenCalled()
+  })
+
+  it('点击取消按钮退出批量操作模式，隐藏工具条', async () => {
+    (usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      selectionMode: ref(true),
+      selectedIds: ref([1])
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    expect(wrapper.find('.batch-toolbar').exists()).toBe(true)
+    await wrapper.find('.batch-cancel-btn').trigger('click')
+    expect(wrapper.find('.batch-toolbar').exists()).toBe(false)
+  })
+
+  it('勾选下载记录调用 toggleRecordSelect', async () => {
+    const toggleRecordSelect = vi.fn()
+    ;(usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      selectionMode: ref(true),
+      taskList: ref([{ id: 1, title: 'A', state: 'FAILED', failReason: 'boom' }]),
+      toggleRecordSelect
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    await wrapper.find('.record-card-checkbox').trigger('change')
+    expect(toggleRecordSelect).toHaveBeenCalled()
   })
 })

@@ -28,11 +28,21 @@
     <!-- 列表 -->
     <el-card class="table-card">
       <div class="action-bar">
-        <div class="action-left" />
+        <div class="action-left">
+          <el-button text @click="selectionMode = !selectionMode">
+            {{ selectionMode ? '退出批量操作' : '批量操作' }}
+          </el-button>
+        </div>
         <el-button text @click="showSearch = !showSearch">
           <el-icon><Filter /></el-icon>
           {{ showSearch ? '隐藏搜索' : '显示搜索' }}
         </el-button>
+      </div>
+
+      <div class="batch-toolbar" v-if="selectionMode">
+        已选 {{ selectedIds.length }} 项
+        <el-button link type="primary" class="batch-retry-btn" :disabled="!selectedIds.length" @click="handleBatchRetry">批量重试</el-button>
+        <el-button link class="batch-cancel-btn" @click="selectionMode = false">取消</el-button>
       </div>
 
       <div class="card-grid" v-if="loading && taskList.length === 0">
@@ -55,6 +65,12 @@
           class="record-card"
           :class="{ 'record-card--failed': item.state === 'FAILED' }"
         >
+          <el-checkbox
+            v-if="selectionMode && item.state === 'FAILED'"
+            class="record-card-checkbox"
+            :model-value="selectedIds.includes(item.id)"
+            @change="toggleRecordSelect(item)"
+          />
           <div class="record-header">
             <span class="record-title" :title="item.title">{{ item.title }}</span>
             <el-tag :type="stateTagType(item.state)" size="small">{{ stateLabel(item.state) }}</el-tag>
@@ -133,7 +149,8 @@ const showSearch = ref(window.innerWidth >= 768)
 
 const {
   taskList, loading, total, queryParams, getList, handleQuery, resetQuery, queryRef,
-  retryingIds, handleRetry
+  retryingIds, handleRetry,
+  selectionMode, selectedIds, toggleRecordSelect, handleBatchRetry
 } = usePtDownloadRecord()
 
 const stateLabel = (state: string) => {
@@ -211,6 +228,18 @@ const formatSize = (bytes: number): string => {
   margin-bottom: 12px;
 }
 
+.batch-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border-radius: var(--osr-radius-sm);
+  background: var(--osr-bg-page);
+  font-size: 13px;
+  color: var(--osr-text-secondary);
+}
+
 .pagination-wrapper {
   display: flex;
   justify-content: flex-end;
@@ -226,6 +255,7 @@ const formatSize = (bytes: number): string => {
 }
 
 .record-card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -238,6 +268,13 @@ const formatSize = (bytes: number): string => {
     box-shadow: var(--osr-shadow-md);
     border-color: var(--osr-border-base);
   }
+}
+
+.record-card-checkbox {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1;
 }
 
 .record-card--failed {
