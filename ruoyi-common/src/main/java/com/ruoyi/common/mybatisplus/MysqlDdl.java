@@ -63,7 +63,8 @@ public class MysqlDdl extends SimpleDdl {
                 "sql/20260738-pt-download-record-fail-reason-code.sql",
                 "sql/20260739-pt-subscription-download-override.sql",
                 "sql/20260740-notify-webhook-config.sql",
-                "sql/20260741-pt-stats-menu.sql"
+                "sql/20260741-pt-stats-menu.sql",
+                "sql/20260742-pt-downloader-max-concurrency.sql"
         );
     }
 }
