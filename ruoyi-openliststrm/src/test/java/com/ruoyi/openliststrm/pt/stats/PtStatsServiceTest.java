@@ -149,4 +149,34 @@ class PtStatsServiceTest {
         assertEquals("下载器中已找不到该种子（可能被删除或元数据解析失败）", result.get(1).getReason());
         assertEquals(5L, result.get(1).getCount());
     }
+
+    @Test
+    void topSubscriptions_limit生效且订阅已删除时兜底展示() {
+        when(downloadRecordService.listMaps(any(Wrapper.class))).thenReturn(List.of(
+                row("sub_id", 10, "download_count", 8L, "completed_count", 6L, "failed_count", 1L),
+                row("sub_id", 11, "download_count", 3L, "completed_count", 3L, "failed_count", 0L)));
+        com.ruoyi.openliststrm.mybatisplus.domain.PtSubscriptionPlus sub10 =
+                new com.ruoyi.openliststrm.mybatisplus.domain.PtSubscriptionPlus();
+        sub10.setId(10);
+        sub10.setTitle("怪奇物语");
+        sub10.setSeason(4);
+        sub10.setMediaType("TV");
+        when(subscriptionService.listByIds(any())).thenReturn(List.of(sub10));
+
+        List<com.ruoyi.openliststrm.pt.stats.dto.PtStatsActiveSubscriptionDTO> result =
+                service().topSubscriptions(30, 2);
+
+        assertEquals(2, result.size());
+        assertEquals(10, result.get(0).getSubId());
+        assertEquals("怪奇物语", result.get(0).getTitle());
+        assertEquals(4, result.get(0).getSeason());
+        assertEquals("TV", result.get(0).getMediaType());
+        assertEquals(8L, result.get(0).getDownloadCount());
+
+        assertEquals(11, result.get(1).getSubId());
+        assertEquals("（订阅已删除）", result.get(1).getTitle());
+        org.junit.jupiter.api.Assertions.assertNull(result.get(1).getSeason());
+        org.junit.jupiter.api.Assertions.assertNull(result.get(1).getMediaType());
+        org.junit.jupiter.api.Assertions.assertNull(result.get(1).getLastMatchTime());
+    }
 }

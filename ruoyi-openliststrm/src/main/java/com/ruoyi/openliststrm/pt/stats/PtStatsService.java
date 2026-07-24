@@ -9,6 +9,7 @@ import com.ruoyi.openliststrm.mybatisplus.service.IPtDownloadRecordPlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtIndexerPlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtSearchLogPlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
+import com.ruoyi.openliststrm.pt.stats.dto.PtStatsActiveSubscriptionDTO;
 import com.ruoyi.openliststrm.pt.stats.dto.PtStatsFailReasonDTO;
 import com.ruoyi.openliststrm.pt.stats.dto.PtStatsIndexerHitRateDTO;
 import com.ruoyi.openliststrm.pt.stats.dto.PtStatsOverviewDTO;
@@ -178,6 +179,43 @@ public class PtStatsService {
             PtStatsFailReasonDTO dto = new PtStatsFailReasonDTO();
             dto.setReason(String.valueOf(row.get("reason")));
             dto.setCount(asLong(row.get("count")));
+            return dto;
+        }).toList();
+    }
+
+    /**
+     * Top 活跃订阅：按 sub_id 分组的下载次数排行，limit 走 QueryWrapper.last("LIMIT n")
+     * (跟 SearchLogService 里清理旧日志用的同一种写法，n 是后端已校验过的白名单/上限值，无拼接风险)。
+     * 订阅已被删除时(historical download record 还在但 pt_subscription 查不到)兜底展示，不抛 NPE。
+     */
+    public List<PtStatsActiveSubscriptionDTO> topSubscriptions(int days, int limit) {
+        java.time.LocalDate start = java.time.LocalDate.now().minusDays(days - 1L);
+        List<Map<String, Object>> rows = downloadRecordService.listMaps(
+                Wrappers.<PtDownloadRecordPlus>query()
+                        .select("sub_id as sub_id, count(*) as download_count, "
+                                + "SUM(CASE WHEN state='" + STATE_COMPLETED + "' THEN 1 ELSE 0 END) as completed_count, "
+                                + "SUM(CASE WHEN state='" + STATE_FAILED + "' THEN 1 ELSE 0 END) as failed_count")
+                        .ge("pushed_time", start.atStartOfDay())
+                        .groupBy("sub_id")
+                        .orderByDesc("download_count")
+                        .last("LIMIT " + limit));
+
+        List<Integer> subIds = rows.stream().map(r -> ((Number) r.get("sub_id")).intValue()).toList();
+        Map<Integer, PtSubscriptionPlus> subs = subIds.isEmpty() ? Map.of() : subscriptionService.listByIds(subIds)
+                .stream().collect(java.util.stream.Collectors.toMap(PtSubscriptionPlus::getId, s -> s));
+
+        return rows.stream().map(row -> {
+            int subId = ((Number) row.get("sub_id")).intValue();
+            PtSubscriptionPlus sub = subs.get(subId);
+            PtStatsActiveSubscriptionDTO dto = new PtStatsActiveSubscriptionDTO();
+            dto.setSubId(subId);
+            dto.setTitle(sub == null ? "（订阅已删除）" : sub.getTitle());
+            dto.setSeason(sub == null ? null : sub.getSeason());
+            dto.setMediaType(sub == null ? null : sub.getMediaType());
+            dto.setDownloadCount(asLong(row.get("download_count")));
+            dto.setCompletedCount(asLong(row.get("completed_count")));
+            dto.setFailedCount(asLong(row.get("failed_count")));
+            dto.setLastMatchTime(sub == null ? null : sub.getLastMatchTime());
             return dto;
         }).toList();
     }
