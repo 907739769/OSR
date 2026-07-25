@@ -541,15 +541,6 @@ const openActionDrawer = (row: any) => {
 const goDownloadRecords = (row: any) => {
   router.push({ path: '/openlist/ptDownloadRecord', query: { subId: row.id } })
 }
-
-/** 操作抽屉状态 */
-const actionDrawerOpen = ref(false)
-const actionDrawerTarget = ref<any>(null)
-
-const openActionDrawer = (row: any) => {
-  actionDrawerTarget.value = row
-  actionDrawerOpen.value = true
-}
 </script>
 
 <style scoped lang="scss">
