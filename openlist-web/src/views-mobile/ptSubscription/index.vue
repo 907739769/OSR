@@ -19,6 +19,12 @@
             <el-option label="已暂停" value="PAUSED" />
           </el-select>
         </el-form-item>
+        <el-form-item label="排序" prop="sortBy">
+          <el-select v-model="queryParams.sortBy" placeholder="排序" clearable style="width: 100%" @change="handleQuery">
+            <el-option label="默认（最新创建）" value="" />
+            <el-option label="上次命中时间" value="lastMatchTime" />
+          </el-select>
+        </el-form-item>
       </el-form>
     </MobileSearchPanel>
 
