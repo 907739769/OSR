@@ -86,13 +86,13 @@
     <!-- 操作抽屉 -->
     <el-drawer v-model="actionDrawerOpen" direction="btt" size="auto" :with-header="true" title="更多操作" append-to-body class="modern-drawer">
       <div class="drawer-actions" v-if="actionDrawerTarget">
-        <el-button v-if="actionDrawerTarget.status !== 'PAUSED'" type="warning" @click="handlePause(actionDrawerTarget); actionDrawerOpen = false">暂停</el-button>
-        <el-button v-else type="success" @click="handleResume(actionDrawerTarget); actionDrawerOpen = false">恢复</el-button>
-        <el-button type="primary" @click="openSeasonSearch(actionDrawerTarget); actionDrawerOpen = false">搜索补齐</el-button>
-        <el-button @click="handleRefresh(actionDrawerTarget); actionDrawerOpen = false">对账</el-button>
-        <el-button @click="showSearchLogs(actionDrawerTarget); actionDrawerOpen = false">匹配日志</el-button>
-        <el-button @click="openFilterOverride(actionDrawerTarget); actionDrawerOpen = false">过滤规则</el-button>
-        <el-button type="danger" @click="handleRemove(actionDrawerTarget); actionDrawerOpen = false">删除</el-button>
+        <el-button v-if="actionDrawerTarget.status !== 'PAUSED'" type="warning" @click="handlePause(actionDrawerTarget); actionDrawerOpen = false" style="margin-left: 0">暂停</el-button>
+        <el-button v-else type="success" @click="handleResume(actionDrawerTarget); actionDrawerOpen = false" style="margin-left: 0">恢复</el-button>
+        <el-button type="primary" @click="openSeasonSearch(actionDrawerTarget); actionDrawerOpen = false" style="margin-left: 0">搜索补齐</el-button>
+        <el-button @click="handleRefresh(actionDrawerTarget); actionDrawerOpen = false" style="margin-left: 0">对账</el-button>
+        <el-button @click="showSearchLogs(actionDrawerTarget); actionDrawerOpen = false" style="margin-left: 0">匹配日志</el-button>
+        <el-button @click="openFilterOverride(actionDrawerTarget); actionDrawerOpen = false" style="margin-left: 0">过滤规则</el-button>
+        <el-button type="danger" @click="handleRemove(actionDrawerTarget); actionDrawerOpen = false" style="margin-left: 0">删除</el-button>
       </div>
     </el-drawer>
 
@@ -597,17 +597,25 @@ const goDownloadRecords = (row: any) => {
     padding: 16px;
   }
 
+  :deep(.el-button + .el-button) {
+    margin-left: 0;
+  }
+
   .drawer-actions {
     display: flex;
     flex-direction: column;
+    align-items: stretch;
     gap: 8px;
+    width: 100%;
 
     .el-button {
-      width: 100%;
+      width: 100% !important;
       justify-content: center;
       height: 44px;
       font-size: 15px;
       border-radius: var(--osr-radius-md);
+      margin-left: 0 !important;
+      margin-right: 0 !important;
     }
   }
 }
