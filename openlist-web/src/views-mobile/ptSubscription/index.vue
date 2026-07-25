@@ -26,7 +26,7 @@
 
     <!-- 列表 -->
     <div class="task-list" v-loading="loading">
-      <div v-for="item in taskList" :key="item.id" class="sub-card">
+      <div v-for="item in taskList" :key="item.id" class="sub-card" :class="{ selected: selectedIds.includes(item.id) }" @click="toggleSubSelect(item)">
         <div class="sub-poster">
           <img
             v-if="item.posterPath && !posterErrorIds.has(item.id)"
@@ -68,7 +68,7 @@
               @change="toggleAutoSearch(item)"
             />
           </div>
-          <div class="sub-actions">
+          <div class="sub-actions" @click.stop>
             <el-button link type="primary" size="small" @click="showProgress(item)">进度</el-button>
             <el-button link type="primary" size="small" @click="openSeasonSearch(item)">搜索补齐</el-button>
             <el-button link type="primary" size="small" @click="handleRefresh(item)">对账</el-button>
@@ -83,6 +83,15 @@
       </div>
 
       <el-empty v-if="!loading && taskList.length === 0" description="暂无订阅" />
+    </div>
+
+    <!-- 批量操作 -->
+    <div class="batch-bar" v-if="selectedIds.length > 0">
+      <span class="selected-count">已选 {{ selectedIds.length }} 项</span>
+      <el-button link type="warning" size="small" @click="handleBatchPause">批量暂停</el-button>
+      <el-button link type="success" size="small" @click="handleBatchResume">批量恢复</el-button>
+      <el-button link type="danger" size="small" @click="handleDelete()">批量删除</el-button>
+      <el-button link size="small" @click="selectedIds.length = 0">取消</el-button>
     </div>
 
     <!-- 分页 -->
@@ -296,7 +305,8 @@ const {
   openSeasonSearch, openEpisodeSearch, confirmSearch, toggleAutoSearch,
   handleRefresh, handlePause, handleResume, handleRemove,
   totalPages, prevPage, nextPage, handleSizeChange,
-  searchCollapsed
+  searchCollapsed,
+  selectedIds, toggleSubSelect, handleBatchPause, handleBatchResume, handleDelete
 } = usePtSubscription()
 
 /** TMDb 海报路径拼完整图片地址，w200 宽度足够列表缩略图使用 */
@@ -326,6 +336,30 @@ const goDownloadRecords = (row: any) => {
   flex: 1;
 }
 
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background: var(--osr-primary-light-9);
+  border: 1px solid var(--osr-primary-light-7);
+  border-radius: var(--osr-radius-md);
+  font-size: 13px;
+
+  .selected-count {
+    font-weight: 600;
+    color: var(--osr-primary);
+    margin-right: 4px;
+    white-space: nowrap;
+  }
+
+  .el-button {
+    font-size: 12px;
+    padding: 0 4px;
+    height: auto;
+  }
+}
+
 .sub-card {
   display: flex;
   gap: 10px;
@@ -333,6 +367,17 @@ const goDownloadRecords = (row: any) => {
   border-radius: var(--osr-radius-lg);
   padding: 12px;
   box-shadow: var(--osr-shadow-base);
+  border: 2px solid transparent;
+  transition: all var(--osr-transition-fast);
+
+  &.selected {
+    border-color: var(--osr-primary-light-5);
+    background: var(--osr-primary-light-9);
+  }
+
+  &:active {
+    transform: scale(0.99);
+  }
 }
 
 .sub-poster {
