@@ -698,6 +698,7 @@ const goDownloadRecords = (row: any) => {
 .sub-actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 2px;
   margin-top: 2px;
   padding-top: 6px;
