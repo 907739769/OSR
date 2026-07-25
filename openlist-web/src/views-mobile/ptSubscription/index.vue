@@ -596,19 +596,19 @@ const goDownloadRecords = (row: any) => {
   :deep(.el-drawer__body) {
     padding: 16px;
   }
-}
 
-.drawer-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  .drawer-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
 
-  .el-button {
-    width: 100%;
-    justify-content: center;
-    height: 44px;
-    font-size: 15px;
-    border-radius: var(--osr-radius-md);
+    .el-button {
+      width: 100%;
+      justify-content: center;
+      height: 44px;
+      font-size: 15px;
+      border-radius: var(--osr-radius-md);
+    }
   }
 }
 </style>
