@@ -113,7 +113,7 @@ const componentMap: Record<string, Component | (() => Promise<any>)> = {
   'openlist/ptStatsDashboard/index': createDeviceView(
     () => import('@/views/openlist/ptStatsDashboard/index.vue'),
     () => import('@/views-mobile/ptStatsDashboard/index.vue')
-  )
+  ),
 }
 
 /**

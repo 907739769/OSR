@@ -70,8 +70,7 @@
             v-if="selectionMode && item.state === 'FAILED'"
             class="record-card-checkbox"
             :model-value="selectedIds.includes(item.id)"
-            @change="toggleRecordSelect(item)"
-            @click.stop
+            @click.stop="toggleRecordSelect(item)"
           />
           <div class="record-header">
             <span class="record-title" :title="item.title">{{ item.title }}</span>
@@ -149,13 +148,14 @@ import { usePtDownloadRecord } from '@/composables/usePtDownloadRecord'
 
 const showSearch = ref(window.innerWidth >= 768)
 
-/** 骨架屏数量根据页面宽度动态计算 */
 const skeletonCount = ref(6)
+
 function updateSkeletonCount() {
   const cardMinWidth = 320 + 14
   const containerWidth = window.innerWidth - 32 - 32
   skeletonCount.value = Math.max(3, Math.min(12, Math.floor(containerWidth / cardMinWidth)))
 }
+
 onMounted(() => { updateSkeletonCount(); window.addEventListener('resize', updateSkeletonCount) })
 onUnmounted(() => { window.removeEventListener('resize', updateSkeletonCount) })
 
@@ -237,9 +237,9 @@ const formatSize = (bytes: number): string => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
   margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .batch-toolbar {

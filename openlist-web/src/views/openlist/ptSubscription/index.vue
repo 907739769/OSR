@@ -89,8 +89,7 @@
             v-if="selectionMode"
             class="sub-card-checkbox"
             :model-value="isSubSelected(item.id)"
-            @change="toggleSubSelect(item)"
-            @click.stop
+            @click.stop="toggleSubSelect(item)"
           />
           <div class="sub-poster">
             <img
@@ -441,6 +440,17 @@ const {
 /** TMDb 海报路径拼完整图片地址，w200 宽度足够列表缩略图使用 */
 const posterUrl = (path: string) => `https://image.tmdb.org/t/p/w200${path}`
 
+const skeletonCount = ref(6)
+
+function updateSkeletonCount() {
+  const cardMinWidth = 340 + 14
+  const containerWidth = window.innerWidth - 32 - 32
+  skeletonCount.value = Math.max(3, Math.min(12, Math.floor(containerWidth / cardMinWidth)))
+}
+
+onMounted(() => { updateSkeletonCount(); window.addEventListener('resize', updateSkeletonCount) })
+onUnmounted(() => { window.removeEventListener('resize', updateSkeletonCount) })
+
 const goDownloadRecords = (row: any) => {
   router.push({ path: '/openlist/ptDownloadRecord', query: { subId: row.id } })
 }
@@ -454,16 +464,6 @@ const handleMoreCommand = (cmd: string, row: any) => {
     case 'search': openSeasonSearch(row); break
   }
 }
-
-/** 骨架屏数量根据页面宽度动态计算 */
-const skeletonCount = ref(6)
-function updateSkeletonCount() {
-  const cardMinWidth = 340 + 14
-  const containerWidth = window.innerWidth - 32 - 32
-  skeletonCount.value = Math.max(3, Math.min(12, Math.floor(containerWidth / cardMinWidth)))
-}
-onMounted(() => { updateSkeletonCount(); window.addEventListener('resize', updateSkeletonCount) })
-onUnmounted(() => { window.removeEventListener('resize', updateSkeletonCount) })
 </script>
 
 <style scoped lang="scss">
@@ -499,9 +499,9 @@ onUnmounted(() => { window.removeEventListener('resize', updateSkeletonCount) })
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 10px;
-  flex-wrap: wrap;
   margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 10px;
 
   .action-left {
     display: flex;
@@ -517,12 +517,6 @@ onUnmounted(() => { window.removeEventListener('resize', updateSkeletonCount) })
   }
 }
 
-.sort-label {
-  font-size: 13px;
-  color: var(--osr-text-secondary);
-  white-space: nowrap;
-}
-
 .batch-toolbar {
   display: flex;
   align-items: center;
@@ -531,11 +525,11 @@ onUnmounted(() => { window.removeEventListener('resize', updateSkeletonCount) })
   padding: 8px 12px;
   border-radius: var(--osr-radius-sm);
   background: var(--osr-bg-page);
+  font-size: 13px;
+  color: var(--osr-text-secondary);
   position: sticky;
   top: 0;
   z-index: 2;
-  font-size: 13px;
-  color: var(--osr-text-secondary);
 }
 
 .pagination-wrapper {
@@ -736,6 +730,12 @@ onUnmounted(() => { window.removeEventListener('resize', updateSkeletonCount) })
   .card-grid {
     grid-template-columns: 1fr;
   }
+}
+
+.sort-label {
+  font-size: 13px;
+  color: var(--osr-text-secondary);
+  white-space: nowrap;
 }
 
 .sub-year {

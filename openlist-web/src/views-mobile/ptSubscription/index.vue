@@ -1,52 +1,26 @@
 <template>
   <div class="mobile-page">
     <!-- 搜索 -->
-    <MobileSearchPanel
-      v-model:collapsed="searchCollapsed"
-      :loading="loading"
-      @search="handleQuery"
-      @reset="resetQuery"
-    >
+    <MobileSearchPanel v-model:collapsed="searchCollapsed" :loading="loading" @search="handleQuery" @reset="resetQuery">
       <el-form ref="queryRef" :model="queryParams" label-width="72px">
         <el-form-item label="标题" prop="title">
-          <el-input
-            v-model="queryParams.title"
-            placeholder="请输入标题"
-            clearable
-            @keyup.enter="handleQuery"
-          />
+          <el-input v-model="queryParams.title" placeholder="请输入标题" clearable @keyup.enter="handleQuery" />
         </el-form-item>
         <el-form-item label="类型" prop="mediaType">
-          <el-select
-            v-model="queryParams.mediaType"
-            placeholder="全部类型"
-            clearable
-            style="width: 100%"
-          >
+          <el-select v-model="queryParams.mediaType" placeholder="全部类型" clearable style="width: 100%">
             <el-option label="剧集" value="TV" />
             <el-option label="电影" value="MOVIE" />
           </el-select>
         </el-form-item>
         <el-form-item label="状态" prop="status">
-          <el-select
-            v-model="queryParams.status"
-            placeholder="全部状态"
-            clearable
-            style="width: 100%"
-          >
+          <el-select v-model="queryParams.status" placeholder="全部状态" clearable style="width: 100%">
             <el-option label="订阅中" value="ACTIVE" />
             <el-option label="已完成" value="COMPLETED" />
             <el-option label="已暂停" value="PAUSED" />
           </el-select>
         </el-form-item>
         <el-form-item label="排序" prop="sortBy">
-          <el-select
-            v-model="queryParams.sortBy"
-            placeholder="排序"
-            clearable
-            style="width: 100%"
-            @change="handleQuery"
-          >
+          <el-select v-model="queryParams.sortBy" placeholder="排序" clearable style="width: 100%" @change="handleQuery">
             <el-option label="默认（最新创建）" value="" />
             <el-option label="上次命中时间" value="lastMatchTime" />
           </el-select>
@@ -54,17 +28,9 @@
       </el-form>
     </MobileSearchPanel>
 
-    <!-- 提示：新增订阅需要 TMDb 选片向导，暂只支持电脑端操作 -->
-
     <!-- 列表 -->
     <div class="task-list" v-loading="loading">
-      <div
-        v-for="item in taskList"
-        :key="item.id"
-        class="sub-card"
-        :class="{ selected: selectedIds.includes(item.id) }"
-        @click="toggleSubSelect(item)"
-      >
+      <div v-for="item in taskList" :key="item.id" class="sub-card" :class="{ selected: selectedIds.includes(item.id) }" @click="toggleSubSelect(item)">
         <div class="sub-poster">
           <img
             v-if="item.posterPath && !posterErrorIds.has(item.id)"
@@ -83,25 +49,18 @@
               {{ item.title }}
               <span v-if="item.year" class="sub-year">({{ item.year }})</span>
             </span>
-            <el-tag v-if="item.status === 'ACTIVE'" type="success" size="small"
-              >订阅中</el-tag
-            >
-            <el-tag
-              v-else-if="item.status === 'COMPLETED'"
-              type="info"
-              size="small"
-              >已完成</el-tag
-            >
+            <el-tag v-if="item.status === 'ACTIVE'" type="success" size="small">订阅中</el-tag>
+            <el-tag v-else-if="item.status === 'COMPLETED'" type="info" size="small">已完成</el-tag>
             <el-tag v-else type="warning" size="small">已暂停</el-tag>
           </div>
           <div class="sub-meta">
-            <span>{{ item.mediaType === "MOVIE" ? "电影" : "剧集" }}</span>
+            <span>{{ item.mediaType === 'MOVIE' ? '电影' : '剧集' }}</span>
             <span v-if="item.mediaType !== 'MOVIE'">S{{ item.season }}</span>
             <span>共 {{ item.totalEpisodes }} 集</span>
           </div>
           <div class="detail-row">
             <span class="label">上次命中</span>
-            <span class="value">{{ item.lastMatchTime || "-" }}</span>
+            <span class="value">{{ item.lastMatchTime || '-' }}</span>
           </div>
           <div class="detail-row">
             <span class="label">自动补搜</span>
@@ -114,121 +73,36 @@
             />
           </div>
           <div class="sub-actions" @click.stop>
-            <el-button
-              link
-              type="primary"
-              size="small"
-              @click="showProgress(item)"
-              >进度</el-button
-            >
-            <el-button
-              link
-              type="primary"
-              size="small"
-              @click="goDownloadRecords(item)"
-              >下载记录</el-button
-            >
-            <el-button
-              link
-              type="info"
-              size="small"
-              @click="openActionDrawer(item)"
-              >···</el-button
-            >
+            <el-button link type="primary" size="small" @click="showProgress(item)">进度</el-button>
+            <el-button link type="primary" size="small" @click="goDownloadRecords(item)">下载记录</el-button>
+            <el-button link type="info" size="small" @click="openActionDrawer(item)">···</el-button>
           </div>
         </div>
       </div>
 
-      <el-empty
-        v-if="!loading && taskList.length === 0"
-        description="暂无订阅"
-      />
+      <el-empty v-if="!loading && taskList.length === 0" description="暂无订阅" />
     </div>
 
     <!-- 操作抽屉 -->
-    <el-drawer
-      v-model="actionDrawerOpen"
-      direction="btt"
-      size="auto"
-      :with-header="true"
-      title="更多操作"
-      append-to-body
-      class="modern-drawer"
-    >
+    <el-drawer v-model="actionDrawerOpen" direction="btt" size="auto" :with-header="true" title="更多操作" append-to-body class="modern-drawer">
       <div class="drawer-actions" v-if="actionDrawerTarget">
-        <el-button
-          v-if="actionDrawerTarget.status !== 'PAUSED'"
-          type="warning"
-          @click="
-            handlePause(actionDrawerTarget);
-            actionDrawerOpen = false;
-          "
-          >暂停</el-button
-        >
-        <el-button
-          v-else
-          type="success"
-          @click="
-            handleResume(actionDrawerTarget);
-            actionDrawerOpen = false;
-          "
-          >恢复</el-button
-        >
-        <el-button
-          type="primary"
-          @click="
-            openSeasonSearch(actionDrawerTarget);
-            actionDrawerOpen = false;
-          "
-          >搜索补齐</el-button
-        >
-        <el-button
-          @click="
-            handleRefresh(actionDrawerTarget);
-            actionDrawerOpen = false;
-          "
-          >对账</el-button
-        >
-        <el-button
-          @click="
-            showSearchLogs(actionDrawerTarget);
-            actionDrawerOpen = false;
-          "
-          >匹配日志</el-button
-        >
-        <el-button
-          @click="
-            openFilterOverride(actionDrawerTarget);
-            actionDrawerOpen = false;
-          "
-          >过滤规则</el-button
-        >
-        <el-button
-          type="danger"
-          @click="
-            handleRemove(actionDrawerTarget);
-            actionDrawerOpen = false;
-          "
-          >删除</el-button
-        >
+        <el-button v-if="actionDrawerTarget.status !== 'PAUSED'" type="warning" @click="handlePause(actionDrawerTarget); actionDrawerOpen = false">暂停</el-button>
+        <el-button v-else type="success" @click="handleResume(actionDrawerTarget); actionDrawerOpen = false">恢复</el-button>
+        <el-button type="primary" @click="openSeasonSearch(actionDrawerTarget); actionDrawerOpen = false">搜索补齐</el-button>
+        <el-button @click="handleRefresh(actionDrawerTarget); actionDrawerOpen = false">对账</el-button>
+        <el-button @click="showSearchLogs(actionDrawerTarget); actionDrawerOpen = false">匹配日志</el-button>
+        <el-button @click="openFilterOverride(actionDrawerTarget); actionDrawerOpen = false">过滤规则</el-button>
+        <el-button type="danger" @click="handleRemove(actionDrawerTarget); actionDrawerOpen = false">删除</el-button>
       </div>
     </el-drawer>
 
     <!-- 批量操作 -->
     <div class="batch-bar" v-if="selectedIds.length > 0">
       <span class="selected-count">已选 {{ selectedIds.length }} 项</span>
-      <el-button link type="warning" size="small" @click="handleBatchPause"
-        >批量暂停</el-button
-      >
-      <el-button link type="success" size="small" @click="handleBatchResume"
-        >批量恢复</el-button
-      >
-      <el-button link type="danger" size="small" @click="handleDelete()"
-        >批量删除</el-button
-      >
-      <el-button link size="small" @click="selectedIds.length = 0"
-        >取消</el-button
-      >
+      <el-button link type="warning" size="small" @click="handleBatchPause">批量暂停</el-button>
+      <el-button link type="success" size="small" @click="handleBatchResume">批量恢复</el-button>
+      <el-button link type="danger" size="small" @click="handleDelete()">批量删除</el-button>
+      <el-button link size="small" @click="selectedIds.length = 0">取消</el-button>
     </div>
 
     <!-- 分页 -->
@@ -243,54 +117,26 @@
     />
 
     <!-- 进度 -->
-    <el-dialog
-      v-model="progressOpen"
-      title="订阅进度"
-      width="90%"
-      append-to-body
-      class="modern-dialog"
-    >
+    <el-dialog v-model="progressOpen" title="订阅进度" width="90%" append-to-body class="modern-dialog">
       <div v-loading="progressLoading">
         <template v-if="progress">
           <p class="progress-title">{{ progress.title }}</p>
           <el-progress
-            :percentage="
-              progress.totalEpisodes
-                ? Math.round(
-                    (progress.inLibraryCount / progress.totalEpisodes) * 100,
-                  )
-                : 0
-            "
+            :percentage="progress.totalEpisodes ? Math.round((progress.inLibraryCount / progress.totalEpisodes) * 100) : 0"
           />
-          <p>
-            已入库 <strong>{{ progress.inLibraryCount }}</strong> /
-            {{ progress.totalEpisodes }} 集
-          </p>
-          <p v-if="progress.inFlightCount">
-            在途 {{ progress.inFlightCount }} 集（已推送下载器，尚未入库）
-          </p>
-          <div
-            v-if="progress.missingEpisodes && progress.missingEpisodes.length"
-            class="missing-list"
-          >
+          <p>已入库 <strong>{{ progress.inLibraryCount }}</strong> / {{ progress.totalEpisodes }} 集</p>
+          <p v-if="progress.inFlightCount">在途 {{ progress.inFlightCount }} 集（已推送下载器，尚未入库）</p>
+          <div v-if="progress.missingEpisodes && progress.missingEpisodes.length" class="missing-list">
             仍缺第
-            <span
-              v-for="(ep, idx) in progress.missingEpisodes"
-              :key="ep"
-              class="missing-item"
-            >
+            <span v-for="(ep, idx) in progress.missingEpisodes" :key="ep" class="missing-item">
               <span v-if="idx > 0">、</span>{{ ep }}
               <el-button
-                v-if="
-                  currentSubscription &&
-                  currentSubscription.mediaType !== 'MOVIE'
-                "
+                v-if="currentSubscription && currentSubscription.mediaType !== 'MOVIE'"
                 link
                 type="primary"
                 size="small"
                 @click="openEpisodeSearch(currentSubscription, ep)"
-                >搜</el-button
-              >
+              >搜</el-button>
             </span>
             集
           </div>
@@ -298,11 +144,7 @@
         </template>
       </div>
       <template #footer>
-        <el-button
-          v-if="currentSubscription"
-          type="primary"
-          @click="openSeasonSearch(currentSubscription)"
-        >
+        <el-button v-if="currentSubscription" type="primary" @click="openSeasonSearch(currentSubscription)">
           搜索补齐
         </el-button>
         <el-button @click="progressOpen = false">关闭</el-button>
@@ -310,62 +152,34 @@
     </el-dialog>
 
     <!-- 搜索补集确认 -->
-    <el-dialog
-      v-model="searchDialogOpen"
-      title="搜索补集"
-      width="90%"
-      append-to-body
-      class="modern-dialog"
-    >
+    <el-dialog v-model="searchDialogOpen" title="搜索补集" width="90%" append-to-body class="modern-dialog">
       <el-form label-width="80px">
         <el-form-item label="关键词">
-          <el-input
-            v-model="searchDialogKeyword"
-            placeholder="搜索关键词，可编辑后再搜"
-          />
+          <el-input v-model="searchDialogKeyword" placeholder="搜索关键词，可编辑后再搜" />
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="searchDialogOpen = false">取消</el-button>
-        <el-button
-          type="primary"
-          :loading="searchDialogLoading"
-          @click="confirmSearch"
-          >搜索</el-button
-        >
+        <el-button type="primary" :loading="searchDialogLoading" @click="confirmSearch">搜索</el-button>
       </template>
     </el-dialog>
 
     <!-- 匹配日志 -->
-    <el-dialog
-      v-model="searchLogOpen"
-      title="匹配日志"
-      width="92%"
-      append-to-body
-      class="modern-dialog"
-    >
+    <el-dialog v-model="searchLogOpen" title="匹配日志" width="92%" append-to-body class="modern-dialog">
       <div v-loading="searchLogLoading" class="log-list">
         <div v-for="(log, idx) in searchLogs" :key="idx" class="log-item">
           <div class="log-top">
             <span class="log-time">{{ log.createTime }}</span>
-            <el-tag
-              size="small"
-              :type="log.source === 'RSS' ? 'info' : 'primary'"
-            >
-              {{ log.source === "RSS" ? "RSS轮询" : "搜索补集" }}
+            <el-tag size="small" :type="log.source === 'RSS' ? 'info' : 'primary'">
+              {{ log.source === 'RSS' ? 'RSS轮询' : '搜索补集' }}
             </el-tag>
-            <el-tag v-if="log.accepted === '1'" type="success" size="small"
-              >通过</el-tag
-            >
+            <el-tag v-if="log.accepted === '1'" type="success" size="small">通过</el-tag>
             <el-tag v-else type="danger" size="small">淘汰</el-tag>
           </div>
-          <div class="log-title">{{ log.torrentTitle || "-" }}</div>
+          <div class="log-title">{{ log.torrentTitle || '-' }}</div>
           <div class="log-reason" v-if="log.reason">{{ log.reason }}</div>
         </div>
-        <el-empty
-          v-if="!searchLogLoading && searchLogs.length === 0"
-          description="暂无日志"
-        />
+        <el-empty v-if="!searchLogLoading && searchLogs.length === 0" description="暂无日志" />
       </div>
       <template #footer>
         <el-button @click="searchLogOpen = false">关闭</el-button>
@@ -373,13 +187,7 @@
     </el-dialog>
 
     <!-- 过滤规则覆盖 -->
-    <el-dialog
-      v-model="filterOverrideOpen"
-      title="过滤规则覆盖"
-      width="94%"
-      append-to-body
-      class="modern-dialog"
-    >
+    <el-dialog v-model="filterOverrideOpen" title="过滤规则覆盖" width="94%" append-to-body class="modern-dialog">
       <p class="override-tip">只勾选需要覆盖的项，不勾选的沿用全局过滤规则。</p>
       <el-form label-width="86px" size="small">
         <el-form-item label="最低做种数">
@@ -420,10 +228,7 @@
         <el-form-item label="仅要免费种">
           <div class="override-row">
             <el-checkbox v-model="filterOverrideForm.freeOnly.enabled" />
-            <el-radio-group
-              v-model="filterOverrideForm.freeOnly.value"
-              :disabled="!filterOverrideForm.freeOnly.enabled"
-            >
+            <el-radio-group v-model="filterOverrideForm.freeOnly.value" :disabled="!filterOverrideForm.freeOnly.enabled">
               <el-radio value="0">否</el-radio>
               <el-radio value="1">是</el-radio>
             </el-radio-group>
@@ -431,9 +236,7 @@
         </el-form-item>
         <el-form-item label="分辨率白名单">
           <div class="override-row">
-            <el-checkbox
-              v-model="filterOverrideForm.resolutionWhitelist.enabled"
-            />
+            <el-checkbox v-model="filterOverrideForm.resolutionWhitelist.enabled" />
             <el-input
               v-model="filterOverrideForm.resolutionWhitelist.value"
               placeholder="如 2160p,1080p"
@@ -463,9 +266,7 @@
         </el-form-item>
         <el-form-item label="分辨率优先级">
           <div class="override-row">
-            <el-checkbox
-              v-model="filterOverrideForm.resolutionPriority.enabled"
-            />
+            <el-checkbox v-model="filterOverrideForm.resolutionPriority.enabled" />
             <el-input
               v-model="filterOverrideForm.resolutionPriority.value"
               placeholder="如 2160p,1080p,720p"
@@ -488,19 +289,14 @@
       </el-form>
       <template #footer>
         <el-button @click="filterOverrideOpen = false">取消</el-button>
-        <el-button
-          type="primary"
-          :loading="filterOverrideSaving"
-          @click="saveFilterOverride"
-          >保存</el-button
-        >
+        <el-button type="primary" :loading="filterOverrideSaving" @click="saveFilterOverride">保存</el-button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { reactive } from 'vue'
+import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Picture } from '@element-plus/icons-vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
@@ -698,7 +494,6 @@ const goDownloadRecords = (row: any) => {
 .sub-actions {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
   gap: 2px;
   margin-top: 2px;
   padding-top: 6px;
