@@ -127,6 +127,17 @@ describe('PtSubscription 骨架屏', () => {
     expect(wrapper.find('.sub-card-skeleton').exists()).toBe(false)
     expect(wrapper.find('.sub-card').exists()).toBe(true)
   })
+
+  it('骨架屏数量根据页面宽度动态变化（至少 3 张）', () => {
+    ;(usePtSubscription as any).mockReturnValue(baseComposable({
+      taskList: ref([]),
+      loading: ref(true)
+    }))
+    const wrapper = mount(PtSubscriptionPage, mountOptions)
+    const count = wrapper.findAll('.sub-card-skeleton').length
+    expect(count).toBeGreaterThanOrEqual(3)
+    expect(count).toBeLessThanOrEqual(12)
+  })
 })
 
 describe('PtSubscription 批量操作', () => {
@@ -214,6 +225,36 @@ describe('PtSubscription 批量操作', () => {
     const wrapper = mount(PtSubscriptionPage, mountOptions)
     await wrapper.find('.sub-card-checkbox').trigger('change')
     expect(toggleSubSelect).toHaveBeenCalled()
+  })
+
+  it('批量模式下点击卡片调用 toggleSubSelect', async () => {
+    const toggleSubSelect = vi.fn()
+    ;(usePtSubscription as any).mockReturnValue(baseComposable({
+      selectionMode: ref(true),
+      taskList: ref([{ id: 1, title: 'A', status: 'ACTIVE', mediaType: 'TV', season: 1, totalEpisodes: 12 }]),
+      toggleSubSelect
+    }))
+    const wrapper = mount(PtSubscriptionPage, mountOptions)
+    await wrapper.find('.sub-card').trigger('click')
+    expect(toggleSubSelect).toHaveBeenCalled()
+  })
+
+  it('批量模式下卡片带有 selectable class', () => {
+    ;(usePtSubscription as any).mockReturnValue(baseComposable({
+      selectionMode: ref(true),
+      taskList: ref([{ id: 1, title: 'A', status: 'ACTIVE', mediaType: 'TV', season: 1, totalEpisodes: 12 }])
+    }))
+    const wrapper = mount(PtSubscriptionPage, mountOptions)
+    expect(wrapper.find('.sub-card').classes()).toContain('selectable')
+  })
+
+  it('非批量模式下卡片不带 selectable class', () => {
+    ;(usePtSubscription as any).mockReturnValue(baseComposable({
+      selectionMode: ref(false),
+      taskList: ref([{ id: 1, title: 'A', status: 'ACTIVE', mediaType: 'TV', season: 1, totalEpisodes: 12 }])
+    }))
+    const wrapper = mount(PtSubscriptionPage, mountOptions)
+    expect(wrapper.find('.sub-card').classes()).not.toContain('selectable')
   })
 })
 

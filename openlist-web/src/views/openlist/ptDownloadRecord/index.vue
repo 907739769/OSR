@@ -63,7 +63,8 @@
           v-for="item in taskList"
           :key="item.id"
           class="record-card"
-          :class="{ 'record-card--failed': item.state === 'FAILED' }"
+          :class="{ 'record-card--failed': item.state === 'FAILED', selectable: selectionMode && item.state === 'FAILED' }"
+          @click="selectionMode && item.state === 'FAILED' && toggleRecordSelect(item)"
         >
           <el-checkbox
             v-if="selectionMode && item.state === 'FAILED'"
