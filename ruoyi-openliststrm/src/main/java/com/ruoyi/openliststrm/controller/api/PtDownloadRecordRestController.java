@@ -4,11 +4,13 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.ruoyi.common.core.controller.BaseController;
 import com.ruoyi.common.core.domain.PageResult;
 import com.ruoyi.common.core.domain.Result;
+import com.ruoyi.common.core.text.Convert;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtDownloadRecordPlus;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtDownloadRecordPlusService;
 import com.ruoyi.openliststrm.pt.subscription.dto.SupplementResult;
 import com.ruoyi.openliststrm.pt.task.DownloadRecordAdminService;
+import com.ruoyi.openliststrm.pt.task.dto.BatchRetryResult;
 import com.ruoyi.openliststrm.pt.task.dto.DownloadRecordView;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -17,6 +19,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.Arrays;
+import java.util.List;
 
 /**
  * PT 下载记录 REST API 控制器：只读列表 + 失败重试，不提供增删改（记录由下载追踪流程自动生成）。
@@ -62,5 +67,17 @@ public class PtDownloadRecordRestController extends BaseController {
         } catch (IllegalArgumentException e) {
             return Result.error(e.getMessage());
         }
+    }
+
+    /**
+     * 批量重试选中的失败下载记录，单条失败（如已被并发处理成非 FAILED）不影响其余条目。
+     */
+    @PostMapping("/batchRetry")
+    public Result<BatchRetryResult> batchRetry(@RequestParam("ids") String ids) {
+        if (StringUtils.isBlank(ids)) {
+            return Result.error("请选择要重试的下载记录");
+        }
+        List<Integer> idList = Arrays.stream(Convert.toStrArray(ids)).map(Integer::valueOf).toList();
+        return Result.success(adminService.retryBatch(idList));
     }
 }

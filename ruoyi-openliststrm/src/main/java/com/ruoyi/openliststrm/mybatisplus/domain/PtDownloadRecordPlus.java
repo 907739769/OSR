@@ -84,6 +84,10 @@ public class PtDownloadRecordPlus extends BaseEntity {
     @TableField("fail_reason")
     private String failReason;
 
+    /** 失败原因结构化分类：TORRENT_NOT_FOUND/ZOMBIE_TIMEOUT/OTHER，历史记录（分类能力上线前产生）为 null */
+    @TableField("fail_reason_code")
+    private String failReasonCode;
+
     /** 推送时间 */
     @TableField("pushed_time")
     private Date pushedTime;

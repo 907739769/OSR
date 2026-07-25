@@ -100,4 +100,11 @@ describe('usePtDownloader 的保存路径警告生命周期', () => {
     expect(validateSavePathApi).toHaveBeenCalledWith({ savePath: '/data/not-watched' })
     expect(composable.savePathWarning.value).toBe('保存路径不在任何文件同步任务的监听目录下')
   })
+
+  it('初始化表单时 maxConcurrent 默认值为 0（表示不限）', async () => {
+    const composable = usePtDownloader()
+    await nextTick()
+
+    expect(composable.form.value.maxConcurrent).toBe(0)
+  })
 })

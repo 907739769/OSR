@@ -37,15 +37,59 @@
           <el-button type="primary" @click="openSubscribeDialog">
             <el-icon><Plus /></el-icon> 新增订阅
           </el-button>
+          <el-button text @click="selectionMode = !selectionMode">
+            {{ selectionMode ? '退出批量操作' : '批量操作' }}
+          </el-button>
         </div>
-        <el-button text @click="showSearch = !showSearch">
-          <el-icon><Filter /></el-icon>
-          {{ showSearch ? '隐藏搜索' : '显示搜索' }}
-        </el-button>
+        <div class="action-right">
+          <el-select
+            v-model="queryParams.sortBy"
+            class="sort-select"
+            placeholder="排序"
+            :style="{ width: '150px' }"
+            @change="handleQuery"
+          >
+            <el-option label="默认（最新创建）" value="" />
+            <el-option label="上次命中时间" value="lastMatchTime" />
+          </el-select>
+          <el-button text @click="showSearch = !showSearch">
+            <el-icon><Filter /></el-icon>
+            {{ showSearch ? '隐藏搜索' : '显示搜索' }}
+          </el-button>
+        </div>
       </div>
 
-      <div class="card-grid" v-loading="loading">
+      <div class="batch-toolbar" v-if="selectionMode">
+        已选 {{ selectedIds.length }} 项
+        <el-button link type="warning" class="batch-pause-btn" :disabled="!selectedIds.length" @click="handleBatchPause">批量暂停</el-button>
+        <el-button link type="success" class="batch-resume-btn" :disabled="!selectedIds.length" @click="handleBatchResume">批量恢复</el-button>
+        <el-button link type="danger" class="batch-delete-btn" :disabled="!selectedIds.length" @click="handleDelete()">批量删除</el-button>
+        <el-button link class="batch-cancel-btn" @click="selectionMode = false">取消</el-button>
+      </div>
+
+      <div class="card-grid" v-if="loading && taskList.length === 0">
+        <div v-for="n in 6" :key="n" class="sub-card-skeleton">
+          <el-skeleton animated class="sub-card-skeleton__body">
+            <template #template>
+              <el-skeleton-item variant="image" class="sub-card-skeleton__poster" />
+              <div class="sub-card-skeleton__info">
+                <el-skeleton-item variant="text" style="width: 70%; height: 16px; margin-bottom: 10px" />
+                <el-skeleton-item variant="text" style="width: 50%; margin-bottom: 10px" />
+                <el-skeleton-item variant="text" style="width: 100%; margin-bottom: 6px" />
+                <el-skeleton-item variant="text" style="width: 100%" />
+              </div>
+            </template>
+          </el-skeleton>
+        </div>
+      </div>
+      <div class="card-grid" v-else v-loading="loading">
         <div v-for="item in taskList" :key="item.id" class="sub-card">
+          <el-checkbox
+            v-if="selectionMode"
+            class="sub-card-checkbox"
+            :model-value="isSubSelected(item.id)"
+            @change="toggleSubSelect(item)"
+          />
           <div class="sub-poster">
             <img
               v-if="item.posterPath && !posterErrorIds.has(item.id)"
@@ -92,14 +136,21 @@
             </div>
             <div class="sub-actions">
               <el-button link type="primary" @click="showProgress(item)">进度</el-button>
-              <el-button link type="primary" @click="openSeasonSearch(item)">搜索补齐</el-button>
-              <el-button link type="primary" @click="handleRefresh(item)">对账</el-button>
               <el-button link type="primary" @click="goDownloadRecords(item)">下载记录</el-button>
-              <el-button link type="primary" @click="showSearchLogs(item)">匹配日志</el-button>
-              <el-button link type="primary" @click="openFilterOverride(item)">过滤规则</el-button>
               <el-button v-if="item.status !== 'PAUSED'" link type="warning" @click="handlePause(item)">暂停</el-button>
               <el-button v-else link type="success" @click="handleResume(item)">恢复</el-button>
               <el-button link type="danger" @click="handleRemove(item)">删除</el-button>
+              <el-dropdown trigger="click" @command="(cmd: string) => handleMoreCommand(cmd, item)">
+                <el-button link type="info">更多<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="refresh">对账</el-dropdown-item>
+                    <el-dropdown-item command="logs">匹配日志</el-dropdown-item>
+                    <el-dropdown-item command="filter">过滤规则</el-dropdown-item>
+                    <el-dropdown-item command="search">搜索补齐</el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
             </div>
           </div>
         </div>
@@ -143,6 +194,18 @@
         highlight-current-row
         @current-change="pick"
       >
+        <el-table-column label="海报" width="64" align="center">
+          <template #default="scope">
+            <img
+              v-if="scope.row.posterPath"
+              :src="posterUrl(scope.row.posterPath)"
+              class="search-poster"
+              loading="lazy"
+              @error="(e: Event) => ((e.target as HTMLImageElement).style.visibility = 'hidden')"
+            />
+            <el-icon v-else class="search-poster-placeholder"><Picture /></el-icon>
+          </template>
+        </el-table-column>
         <el-table-column label="标题" min-width="200" show-overflow-tooltip>
           <template #default="scope">
             {{ scope.row.title }}
@@ -350,7 +413,7 @@
 <script setup lang="ts">
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
-import { Picture } from '@element-plus/icons-vue'
+import { Picture, ArrowDown } from '@element-plus/icons-vue'
 import { usePtSubscription } from '@/composables/usePtSubscription'
 
 const router = useRouter()
@@ -368,7 +431,9 @@ const {
   openFilterOverride, saveFilterOverride,
   searchDialogOpen, searchDialogLoading, searchDialogKeyword,
   openSeasonSearch, openEpisodeSearch, confirmSearch, toggleAutoSearch,
-  handleRefresh, handlePause, handleResume, handleRemove
+  handleRefresh, handlePause, handleResume, handleRemove, handleDelete,
+  selectedIds, selectionMode, toggleSubSelect, isSubSelected,
+  handleBatchPause, handleBatchResume
 } = usePtSubscription()
 
 /** TMDb 海报路径拼完整图片地址，w200 宽度足够列表缩略图使用 */
@@ -376,6 +441,16 @@ const posterUrl = (path: string) => `https://image.tmdb.org/t/p/w200${path}`
 
 const goDownloadRecords = (row: any) => {
   router.push({ path: '/openlist/ptDownloadRecord', query: { subId: row.id } })
+}
+
+/** "更多"下拉菜单 command → 现有函数的分发，纯路由不新增业务逻辑 */
+const handleMoreCommand = (cmd: string, row: any) => {
+  switch (cmd) {
+    case 'refresh': handleRefresh(row); break
+    case 'logs': showSearchLogs(row); break
+    case 'filter': openFilterOverride(row); break
+    case 'search': openSeasonSearch(row); break
+  }
 }
 </script>
 
@@ -419,6 +494,25 @@ const goDownloadRecords = (row: any) => {
     gap: 6px;
     flex-wrap: wrap;
   }
+
+  .action-right {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+}
+
+.batch-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border-radius: var(--osr-radius-sm);
+  background: var(--osr-bg-page);
+  font-size: 13px;
+  color: var(--osr-text-secondary);
 }
 
 .pagination-wrapper {
@@ -439,6 +533,7 @@ const goDownloadRecords = (row: any) => {
 }
 
 .sub-card {
+  position: relative;
   display: flex;
   gap: 12px;
   padding: 14px;
@@ -449,6 +544,39 @@ const goDownloadRecords = (row: any) => {
   &:hover {
     box-shadow: var(--osr-shadow-md);
     border-color: var(--osr-border-base);
+  }
+}
+
+.sub-card-checkbox {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 1;
+}
+
+.sub-card-skeleton {
+  --el-skeleton-color: var(--osr-border-light);
+  --el-skeleton-to-color: var(--osr-bg-page);
+  padding: 14px;
+  border: 1px solid var(--osr-border-light);
+  border-radius: var(--osr-radius-md);
+
+  :deep(.sub-card-skeleton__body) {
+    display: flex;
+    gap: 12px;
+  }
+
+  :deep(.sub-card-skeleton__poster) {
+    flex-shrink: 0;
+    width: 72px;
+    height: 108px;
+    border-radius: var(--osr-radius-sm);
+  }
+
+  :deep(.sub-card-skeleton__info) {
+    flex: 1;
+    min-width: 0;
+    padding-top: 2px;
   }
 }
 
@@ -581,7 +709,7 @@ const goDownloadRecords = (row: any) => {
 }
 
 .sub-year {
-  color: var(--el-text-color-secondary);
+  color: var(--osr-text-secondary);
   font-size: 12px;
 }
 
@@ -589,7 +717,7 @@ const goDownloadRecords = (row: any) => {
   margin-top: 12px;
   padding: 10px 12px;
   border-radius: 4px;
-  background: var(--el-fill-color-light);
+  background: var(--osr-bg-page);
 }
 
 .progress-title {
@@ -599,7 +727,7 @@ const goDownloadRecords = (row: any) => {
 }
 
 .all-done {
-  color: var(--el-color-success);
+  color: var(--osr-success);
 }
 
 .missing-list {
@@ -621,5 +749,25 @@ const goDownloadRecords = (row: any) => {
 
 .override-checkbox {
   margin-right: 10px;
+}
+
+.search-poster {
+  width: 40px;
+  height: 60px;
+  object-fit: cover;
+  border-radius: var(--osr-radius-sm);
+  display: block;
+  margin: 0 auto;
+}
+
+.search-poster-placeholder {
+  width: 40px;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto;
+  color: var(--osr-text-disabled);
+  font-size: 18px;
 }
 </style>

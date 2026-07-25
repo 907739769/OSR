@@ -1,5 +1,6 @@
 package com.ruoyi.openliststrm.pt.task;
 
+import com.alibaba.fastjson2.JSONObject;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.ruoyi.common.utils.StringUtils;
@@ -7,8 +8,10 @@ import com.ruoyi.openliststrm.helper.TgHelper;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtDownloadRecordPlus;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtDownloaderPlus;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
+import com.ruoyi.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtDownloadRecordPlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
+import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.ruoyi.openliststrm.pt.downloader.model.DownloaderTorrent;
 import com.ruoyi.openliststrm.pt.subscription.SubscriptionEpisodeState;
 import lombok.extern.slf4j.Slf4j;
@@ -17,6 +20,8 @@ import org.springframework.stereotype.Service;
 
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * 下载追踪的编排逻辑：把下载器里的种子回映到下载记录并推进状态。
@@ -39,26 +44,32 @@ public class DownloadTrackService {
     /** 推送后找不到对应种子的宽限期：超过它才判失败（qB 解析磁力元数据需要时间） */
     private static final long GRACE_MILLIS = 10 * 60 * 1000L;
 
-    /** 附录C 绝对时长兜底：推送超过该时长仍未完成的记录一律判失败并回退集，
-     *  覆盖「种子还在下载器但 0 做种卡死」这类 grace 分支照不到的僵尸种子。
-     *  代价：真实的超长慢速下载超过该时长也会被释放（其 guid 按附录B 拉黑，该集靠别的种子恢复）。 */
-    private static final long ZOMBIE_TIMEOUT_MILLIS = 24 * 60 * 60 * 1000L;
-
     /** 同一集连续失败达到该次数后不再回退 MISSING，转 BLOCKED 停止自动重试，避免已下架/失效资源被无限次静默重试 */
     private final int maxConsecutiveFailures;
+
+    /** 附录C 绝对时长兜底的全局默认值：推送超过该时长仍未完成的记录一律判失败并回退集，
+     *  覆盖「种子还在下载器但 0 做种卡死」这类 grace 分支照不到的僵尸种子。
+     *  订阅可通过 pt_subscription.download_override 里的 zombieTimeoutHours 键覆盖此默认值。
+     *  代价：真实的超长慢速下载超过该时长也会被释放（其 guid 按附录B 拉黑，该集靠别的种子恢复）。 */
+    private final long zombieTimeoutMillisDefault;
 
     private final IPtDownloadRecordPlusService recordService;
     private final IPtSubscriptionEpisodePlusService episodeService;
     private final DownloadCompletionSyncTrigger completionSyncTrigger;
+    private final IPtSubscriptionPlusService subscriptionService;
 
     public DownloadTrackService(IPtDownloadRecordPlusService recordService,
                                 IPtSubscriptionEpisodePlusService episodeService,
                                 DownloadCompletionSyncTrigger completionSyncTrigger,
-                                @Value("${pt.download.max-consecutive-failures:3}") int maxConsecutiveFailures) {
+                                IPtSubscriptionPlusService subscriptionService,
+                                @Value("${pt.download.max-consecutive-failures:3}") int maxConsecutiveFailures,
+                                @Value("${pt.download.zombie-timeout-hours:24}") int zombieTimeoutHoursDefault) {
         this.recordService = recordService;
         this.episodeService = episodeService;
         this.completionSyncTrigger = completionSyncTrigger;
+        this.subscriptionService = subscriptionService;
         this.maxConsecutiveFailures = maxConsecutiveFailures;
+        this.zombieTimeoutMillisDefault = zombieTimeoutHoursDefault * 3600_000L;
     }
 
     /**
@@ -72,27 +83,66 @@ public class DownloadTrackService {
         if (active.isEmpty()) {
             return;
         }
+        Map<Integer, PtSubscriptionPlus> subCache = loadSubscriptions(active);
         long now = System.currentTimeMillis();
         for (PtDownloadRecordPlus record : active) {
             DownloaderTorrent matched = findByTag(torrents, record.getTrackingTag());
             long age = record.getPushedTime() == null
                     ? Long.MAX_VALUE : now - record.getPushedTime().getTime();
+            long zombieTimeoutMillis = resolveZombieTimeoutMillis(subCache.get(record.getSubId()));
             if (matched != null && matched.isCompleted()) {
                 complete(record, downloader);
             } else if (matched == null) {
                 if (age >= GRACE_MILLIS) {
-                    fail(record, "下载器中已找不到该种子（可能被删除或元数据解析失败）");
+                    fail(record, FailReasonCode.TORRENT_NOT_FOUND, "下载器中已找不到该种子（可能被删除或元数据解析失败）");
                 }
                 // 未超宽限期：qB 可能还在解析元数据，本轮跳过
             } else {
                 // 种子还在下载器但未完成
-                if (age >= ZOMBIE_TIMEOUT_MILLIS) {
-                    fail(record, "下载超过 " + (ZOMBIE_TIMEOUT_MILLIS / 3600000) + " 小时仍未完成，判定为僵尸种子");
+                if (age >= zombieTimeoutMillis) {
+                    fail(record, FailReasonCode.ZOMBIE_TIMEOUT,
+                            "下载超过 " + (zombieTimeoutMillis / 3600000) + " 小时仍未完成，判定为僵尸种子");
                 } else {
                     markDownloading(record, matched.getProgress());
                 }
             }
         }
+    }
+
+    /**
+     * 批量加载本次要处理的记录涉及的全部订阅，循环内按 subId 取用，避免逐条查询（批内缓存，
+     * 与问题 1 的 {@code SubscriptionEngine} 批内缓存原则一致）。
+     */
+    private Map<Integer, PtSubscriptionPlus> loadSubscriptions(List<PtDownloadRecordPlus> records) {
+        List<Integer> subIds = records.stream().map(PtDownloadRecordPlus::getSubId).distinct().toList();
+        if (subIds.isEmpty()) {
+            return Map.of();
+        }
+        return subscriptionService.listByIds(subIds).stream()
+                .collect(Collectors.toMap(PtSubscriptionPlus::getId, s -> s));
+    }
+
+    /**
+     * 解析订阅级僵尸超时覆盖：只有 downloadOverride JSON 里出现 zombieTimeoutHours 键才覆盖，
+     * 格式损坏、值非法（&lt;=0）或订阅为 null（已被删除）时一律回退全局默认值，
+     * 绝不让一条脏配置炸掉整轮轮询。写法与 {@code FilterCriteriaFactory} 同源。
+     */
+    private long resolveZombieTimeoutMillis(PtSubscriptionPlus sub) {
+        if (sub == null || StringUtils.isBlank(sub.getDownloadOverride())) {
+            return zombieTimeoutMillisDefault;
+        }
+        try {
+            JSONObject patch = JSONObject.parseObject(sub.getDownloadOverride());
+            if (patch != null && patch.containsKey("zombieTimeoutHours")) {
+                Integer hours = patch.getInteger("zombieTimeoutHours");
+                if (hours != null && hours > 0) {
+                    return hours * 3600_000L;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("订阅[{}] 下载追踪覆盖不是合法 JSON，已回退全局默认值：{}", sub.getId(), e.getMessage());
+        }
+        return zombieTimeoutMillisDefault;
     }
 
     /**
@@ -161,7 +211,7 @@ public class DownloadTrackService {
      * 达到阈值后转 BLOCKED 停止自动重试，避免已下架/失效的资源被无限次静默重试。
      * </p>
      */
-    private void fail(PtDownloadRecordPlus record, String reason) {
+    private void fail(PtDownloadRecordPlus record, FailReasonCode code, String reason) {
         // 1) 先回退关联集（幂等：只动 IN_FLIGHT 的；普通集1条、季包多条统一处理）
         List<PtSubscriptionEpisodePlus> episodes = episodeService.list(
                 new QueryWrapper<PtSubscriptionEpisodePlus>()
@@ -186,6 +236,7 @@ public class DownloadTrackService {
         PtDownloadRecordPlus set = new PtDownloadRecordPlus();
         set.setState(STATE_FAILED);
         set.setFailReason(reason);
+        set.setFailReasonCode(code.value());
         boolean changed = recordService.update(set, new UpdateWrapper<PtDownloadRecordPlus>()
                 .eq("id", record.getId())
                 .in("state", STATE_PUSHED, STATE_DOWNLOADING));

@@ -74,6 +74,10 @@
               <span class="label">标签</span>
               <span class="value">{{ item.tag }}</span>
             </div>
+            <div class="card-row">
+              <span class="label">最大并发</span>
+              <span class="value">{{ item.maxConcurrent ? item.maxConcurrent : '不限' }}</span>
+            </div>
           </div>
           <div class="card-footer">
             <el-button link type="primary" @click="handleUpdate(item, '修改下载器')">
@@ -136,6 +140,10 @@
         <el-form-item label="标签" prop="tag">
           <el-input v-model="form.tag" placeholder="推送种子时打的标签" />
         </el-form-item>
+        <el-form-item label="最大并发数" prop="maxConcurrent">
+          <el-input-number v-model="form.maxConcurrent" :min="0" :style="{ width: '200px' }" />
+          <div class="field-hint">0 表示不限，达到上限时新任务会等到下一轮自动重试</div>
+        </el-form-item>
         <el-form-item label="关联STRM任务" prop="strmTaskId">
           <el-select v-model="form.strmTaskId" placeholder="下载完成后触发该任务增量生成，可不选" clearable :style="{ width: '100%' }">
             <el-option
@@ -183,6 +191,13 @@ const {
   font-size: 12px;
   line-height: 1.5;
   color: var(--el-color-warning);
+}
+
+.field-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--osr-text-secondary);
 }
 
 .page-container {

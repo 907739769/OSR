@@ -35,6 +35,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -315,6 +317,196 @@ class SubscriptionEngineTest {
         verify(recordService, never()).save(any());
     }
 
+    @Test
+    void 两个启用下载器_未指定_选负载最小的推送() throws Exception {
+        PtDownloaderPlus d1 = new PtDownloaderPlus();
+        d1.setId(1); d1.setType("QBITTORRENT"); d1.setSavePath("/data/downloads"); d1.setTag("osr-pt"); d1.setEnabled("1");
+        PtDownloaderPlus d2 = new PtDownloaderPlus();
+        d2.setId(2); d2.setType("QBITTORRENT"); d2.setSavePath("/data/downloads2"); d2.setTag("osr-pt2"); d2.setEnabled("1");
+        when(downloaderService.list(any(Wrapper.class))).thenReturn(List.of(d1, d2));
+        // 区分两类 recordService.list 查询：guid_hash 查询（excludeAlreadyRecorded）与
+        // downloader_id/state 查询（loadDownloaderLoadCounts）用同一个方法签名，按 SQL 片段里的目标字段区分桩数据
+        when(recordService.list(argThat((Wrapper<PtDownloadRecordPlus> w) -> w != null && w.getSqlSegment() != null && w.getSqlSegment().contains("guid_hash"))))
+                .thenReturn(List.of());
+        PtDownloadRecordPlus loadForD1a = new PtDownloadRecordPlus();
+        loadForD1a.setDownloaderId(1);
+        PtDownloadRecordPlus loadForD1b = new PtDownloadRecordPlus();
+        loadForD1b.setDownloaderId(1);
+        when(recordService.list(argThat((Wrapper<PtDownloadRecordPlus> w) -> w != null && w.getSqlSegment() != null && w.getSqlSegment().contains("downloader_id"))))
+                .thenReturn(List.of(loadForD1a, loadForD1b)); // d1 在途记录数=2，d2=0
+        when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Some Show", 1, 1)));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "MISSING")));
+
+        engine.process(List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p")));
+
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService).save(captor.capture());
+        assertEquals(2, captor.getValue().getDownloaderId());
+    }
+
+    @Test
+    void 订阅指定下载器_即使负载更高_仍选择指定的() throws Exception {
+        PtDownloaderPlus d1 = new PtDownloaderPlus();
+        d1.setId(1); d1.setType("QBITTORRENT"); d1.setSavePath("/data/downloads"); d1.setTag("osr-pt"); d1.setEnabled("1");
+        PtDownloaderPlus d2 = new PtDownloaderPlus();
+        d2.setId(2); d2.setType("QBITTORRENT"); d2.setSavePath("/data/downloads2"); d2.setTag("osr-pt2"); d2.setEnabled("1");
+        when(downloaderService.list(any(Wrapper.class))).thenReturn(List.of(d1, d2));
+        when(recordService.list(argThat((Wrapper<PtDownloadRecordPlus> w) -> w != null && w.getSqlSegment() != null && w.getSqlSegment().contains("guid_hash"))))
+                .thenReturn(List.of());
+        PtDownloadRecordPlus loadForD1a = new PtDownloadRecordPlus();
+        loadForD1a.setDownloaderId(1);
+        PtDownloadRecordPlus loadForD1b = new PtDownloadRecordPlus();
+        loadForD1b.setDownloaderId(1);
+        when(recordService.list(argThat((Wrapper<PtDownloadRecordPlus> w) -> w != null && w.getSqlSegment() != null && w.getSqlSegment().contains("downloader_id"))))
+                .thenReturn(List.of(loadForD1a, loadForD1b)); // d1 负载更高：2 对 0
+        PtSubscriptionPlus sub = tvSub(10, "Some Show", 1, 1);
+        sub.setDownloaderId(1);
+        when(subscriptionService.listActive()).thenReturn(List.of(sub));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "MISSING")));
+
+        engine.process(List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p")));
+
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService).save(captor.capture());
+        assertEquals(1, captor.getValue().getDownloaderId());
+    }
+
+    @Test
+    void 指定下载器已禁用_回退到负载最低的启用下载器() throws Exception {
+        PtDownloaderPlus d1 = new PtDownloaderPlus();
+        d1.setId(1); d1.setType("QBITTORRENT"); d1.setSavePath("/data/downloads"); d1.setTag("osr-pt"); d1.setEnabled("1");
+        PtDownloaderPlus d2 = new PtDownloaderPlus();
+        d2.setId(2); d2.setType("QBITTORRENT"); d2.setSavePath("/data/downloads2"); d2.setTag("osr-pt2"); d2.setEnabled("1");
+        when(downloaderService.list(any(Wrapper.class))).thenReturn(List.of(d1, d2));
+        when(recordService.list(argThat((Wrapper<PtDownloadRecordPlus> w) -> w != null && w.getSqlSegment() != null && w.getSqlSegment().contains("guid_hash"))))
+                .thenReturn(List.of());
+        PtDownloadRecordPlus loadForD1 = new PtDownloadRecordPlus();
+        loadForD1.setDownloaderId(1);
+        when(recordService.list(argThat((Wrapper<PtDownloadRecordPlus> w) -> w != null && w.getSqlSegment() != null && w.getSqlSegment().contains("downloader_id"))))
+                .thenReturn(List.of(loadForD1)); // d1 负载=1，d2 负载=0
+        PtSubscriptionPlus sub = tvSub(10, "Some Show", 1, 1);
+        sub.setDownloaderId(99); // 不在启用列表里
+        when(subscriptionService.listActive()).thenReturn(List.of(sub));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "MISSING")));
+
+        engine.process(List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p")));
+
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService).save(captor.capture());
+        assertEquals(2, captor.getValue().getDownloaderId());
+    }
+
+    @Test
+    void 同一批次连续命中_第二次感知前一次推送的负载增量() throws Exception {
+        PtDownloaderPlus d1 = new PtDownloaderPlus();
+        d1.setId(1); d1.setType("QBITTORRENT"); d1.setSavePath("/data/downloads"); d1.setTag("osr-pt"); d1.setEnabled("1");
+        PtDownloaderPlus d2 = new PtDownloaderPlus();
+        d2.setId(2); d2.setType("QBITTORRENT"); d2.setSavePath("/data/downloads2"); d2.setTag("osr-pt2"); d2.setEnabled("1");
+        when(downloaderService.list(any(Wrapper.class))).thenReturn(List.of(d1, d2));
+        // 两个下载器初始负载都是 0（沿用 setUp() 的默认空列表桩）
+        when(subscriptionService.listActive()).thenReturn(List.of(
+                tvSub(10, "Show A", 1, 1), tvSub(20, "Show B", 1, 1)));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "MISSING")));
+        when(episodeService.listBySubscription(20)).thenReturn(List.of(episode(201, 1, "MISSING")));
+
+        engine.process(List.of(
+                torrent("Show.A.S01E01.1080p", "gA", 10, "1080p"),
+                torrent("Show.B.S01E01.1080p", "gB", 10, "1080p")));
+
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService, times(2)).save(captor.capture());
+        List<PtDownloadRecordPlus> saved = captor.getAllValues();
+        // 两个下载器初始负载相等，按顺序 tie-break 选第一个(d1)；
+        // 第二次推送前 d1 已被 +1，第二组应该感知到这个变化转而选 d2
+        assertEquals(1, saved.get(0).getDownloaderId());
+        assertEquals(2, saved.get(1).getDownloaderId());
+    }
+
+    // ---------- 并发上限 ----------
+
+    @Test
+    void 下载器maxConcurrent为0_不做限制_正常推送() throws Exception {
+        PtDownloaderPlus downloader = new PtDownloaderPlus();
+        downloader.setId(1);
+        downloader.setType("QBITTORRENT");
+        downloader.setSavePath("/data/downloads");
+        downloader.setTag("osr-pt");
+        downloader.setEnabled("1");
+        downloader.setMaxConcurrent(0);
+        when(downloaderService.list(any(Wrapper.class))).thenReturn(List.of(downloader));
+        List<PtDownloadRecordPlus> heavyLoad = new ArrayList<>();
+        for (int i = 0; i < 10; i++) {
+            PtDownloadRecordPlus r = new PtDownloadRecordPlus();
+            r.setDownloaderId(1);
+            heavyLoad.add(r);
+        }
+        when(recordService.list(argThat((Wrapper<PtDownloadRecordPlus> w) -> w != null && w.getSqlSegment() != null && w.getSqlSegment().contains("downloader_id"))))
+                .thenReturn(heavyLoad);
+        when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Some Show", 1, 1)));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "MISSING")));
+
+        assertEquals(1, engine.process(List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p"))));
+        verify(downloaderClient).addTorrent(any(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void 下载器maxConcurrent为null_不做限制_正常推送() throws Exception {
+        // setUp() 里的默认下载器未设置 maxConcurrent，Integer 包装类型默认为 null
+        when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Some Show", 1, 1)));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "MISSING")));
+
+        assertEquals(1, engine.process(List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p"))));
+        verify(downloaderClient).addTorrent(any(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void 下载器已达最大并发_跳过本轮_不占位不落库不推送() throws Exception {
+        PtDownloaderPlus downloader = new PtDownloaderPlus();
+        downloader.setId(1);
+        downloader.setType("QBITTORRENT");
+        downloader.setSavePath("/data/downloads");
+        downloader.setTag("osr-pt");
+        downloader.setEnabled("1");
+        downloader.setMaxConcurrent(2);
+        when(downloaderService.list(any(Wrapper.class))).thenReturn(List.of(downloader));
+        PtDownloadRecordPlus active1 = new PtDownloadRecordPlus();
+        active1.setDownloaderId(1);
+        PtDownloadRecordPlus active2 = new PtDownloadRecordPlus();
+        active2.setDownloaderId(1);
+        when(recordService.list(argThat((Wrapper<PtDownloadRecordPlus> w) -> w != null && w.getSqlSegment() != null && w.getSqlSegment().contains("downloader_id"))))
+                .thenReturn(List.of(active1, active2));
+        when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Some Show", 1, 1)));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "MISSING")));
+
+        assertEquals(0, engine.process(List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p"))));
+
+        verify(episodeService, never()).update(any(), any(Wrapper.class));
+        verify(recordService, never()).save(any());
+        verify(downloaderClient, never()).addTorrent(any(), anyString(), anyString(), anyString());
+        verify(searchLogService).recordSummary(eq(10), eq(1), eq(SearchLogService.SOURCE_RSS), contains("并发"));
+    }
+
+    @Test
+    void 下载器未达最大并发_正常推送() throws Exception {
+        PtDownloaderPlus downloader = new PtDownloaderPlus();
+        downloader.setId(1);
+        downloader.setType("QBITTORRENT");
+        downloader.setSavePath("/data/downloads");
+        downloader.setTag("osr-pt");
+        downloader.setEnabled("1");
+        downloader.setMaxConcurrent(2);
+        when(downloaderService.list(any(Wrapper.class))).thenReturn(List.of(downloader));
+        PtDownloadRecordPlus active1 = new PtDownloadRecordPlus();
+        active1.setDownloaderId(1);
+        when(recordService.list(argThat((Wrapper<PtDownloadRecordPlus> w) -> w != null && w.getSqlSegment() != null && w.getSqlSegment().contains("downloader_id"))))
+                .thenReturn(List.of(active1));
+        when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Some Show", 1, 1)));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "MISSING")));
+
+        assertEquals(1, engine.process(List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p"))));
+        verify(downloaderClient).addTorrent(any(), anyString(), anyString(), anyString());
+    }
+
     // ---------- 多订阅 ----------
 
     @Test
@@ -404,6 +596,9 @@ class SubscriptionEngineTest {
      * 在真实 MySQL 上是语法错误（Mock 环境不会暴露，只有真实数据库才会报错，
      * 这个用例是在浏览器端到端验证时发现的真实生产问题——见 SearchSupplementService
      * 在无索引器/无搜索结果时会以空列表调用 pushBest）。
+     * 注意：本任务（任务7）给 pushBest 新增了批内下载器负载统计查询（downloader_id 维度，
+     * ids 来自非空的启用下载器列表，不存在 IN () 风险），这是合法的新调用，
+     * 因此断言收窄为「不按 guid_hash 查询」而不是「完全不查询」。
      */
     @Test
     void pushBest_候选为空_不查询已有下载记录() {
@@ -412,7 +607,8 @@ class SubscriptionEngineTest {
 
         engine.pushBest(sub, 1, List.of());
 
-        verify(recordService, never()).list(any(Wrapper.class));
+        verify(recordService, never()).list(argThat((Wrapper<PtDownloadRecordPlus> w) ->
+                w != null && w.getSqlSegment() != null && w.getSqlSegment().contains("guid_hash")));
     }
 
     // ---------- 匹配日志 ----------

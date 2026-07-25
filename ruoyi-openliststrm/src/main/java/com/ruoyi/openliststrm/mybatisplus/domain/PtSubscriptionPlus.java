@@ -68,6 +68,10 @@ public class PtSubscriptionPlus extends BaseEntity {
     @TableField("filter_override")
     private String filterOverride;
 
+    /** 订阅级下载追踪覆盖(JSON)，当前仅支持 zombieTimeoutHours 键，空表示全用全局配置 */
+    @TableField("download_override")
+    private String downloadOverride;
+
     /** 指定下载器，空表示用唯一启用的那个 */
     @TableField("downloader_id")
     private Integer downloaderId;
@@ -87,4 +91,8 @@ public class PtSubscriptionPlus extends BaseEntity {
     /** 上次发起搜索补集的时间，用于自动补搜到期判断与前端展示 */
     @TableField("last_search_time")
     private Date lastSearchTime;
+
+    /** 排序方式：lastMatchTime=按上次命中时间倒序；其余/空=默认按 id 倒序。仅供列表查询用，不落库 */
+    @TableField(exist = false)
+    private String sortBy;
 }

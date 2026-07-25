@@ -8,6 +8,7 @@ import com.ruoyi.openliststrm.mybatisplus.service.IPtMediaServerPlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.ruoyi.openliststrm.pt.media.MediaServerClientFactory;
+import com.ruoyi.openliststrm.pt.subscription.dto.BatchOperationResult;
 import com.ruoyi.openliststrm.pt.subscription.dto.SubscribeRequest;
 import com.ruoyi.openliststrm.pt.subscription.dto.SubscriptionProgress;
 import com.ruoyi.openliststrm.pt.subscription.dto.TmdbSearchItem;
@@ -198,6 +199,36 @@ public class SubscriptionService {
         PtSubscriptionPlus sub = requireSubscription(subId);
         sub.setStatus(STATUS_ACTIVE);
         subscriptionService.updateById(sub);
+    }
+
+    /** 批量暂停：逐条复用单条 pause，一条失败（如已被并发删除）不影响其余条目 */
+    public BatchOperationResult pauseBatch(List<Integer> ids) {
+        int success = 0;
+        List<Integer> failed = new ArrayList<>();
+        for (Integer id : ids) {
+            try {
+                pause(id);
+                success++;
+            } catch (IllegalArgumentException e) {
+                failed.add(id);
+            }
+        }
+        return new BatchOperationResult(success, failed);
+    }
+
+    /** 批量恢复：逐条复用单条 resume，一条失败不影响其余条目 */
+    public BatchOperationResult resumeBatch(List<Integer> ids) {
+        int success = 0;
+        List<Integer> failed = new ArrayList<>();
+        for (Integer id : ids) {
+            try {
+                resume(id);
+                success++;
+            } catch (IllegalArgumentException e) {
+                failed.add(id);
+            }
+        }
+        return new BatchOperationResult(success, failed);
     }
 
     // ---------- 内部 ----------

@@ -13,7 +13,10 @@ import {
   pauseSubscriptionApi,
   resumeSubscriptionApi,
   searchSupplementApi,
-  getSubscriptionSearchLogsApi
+  getSubscriptionSearchLogsApi,
+  batchPauseSubscriptionApi,
+  batchResumeSubscriptionApi,
+  batchDeletePtSubscriptionApi
 } from '@/api/openlist/ptSubscription'
 import type { SearchParams } from '@/types'
 
@@ -21,6 +24,7 @@ interface PtSubscriptionQuery extends SearchParams {
   title?: string
   mediaType?: string
   status?: string
+  sortBy?: string
 }
 
 /**
@@ -32,10 +36,11 @@ export function usePtSubscription() {
     addApi: addPtSubscriptionApi,
     updateApi: updatePtSubscriptionApi,
     deleteApi: deletePtSubscriptionApi,
+    batchDeleteApi: batchDeletePtSubscriptionApi,
     idField: 'id',
     initForm: () => ({ id: undefined }),
     rules: {},
-    defaultQuery: { title: undefined, mediaType: undefined, status: undefined }
+    defaultQuery: { title: undefined, mediaType: undefined, status: undefined, sortBy: undefined }
   })
 
   // ---------- 建订阅向导 ----------
@@ -329,6 +334,53 @@ export function usePtSubscription() {
     }
   }
 
+  // ---------- 批量操作 ----------
+
+  const selectionMode = ref(false)
+
+  const toggleSubSelect = (row: any) => {
+    const idx = base.selectedIds.value.indexOf(row.id)
+    if (idx === -1) {
+      base.selectedIds.value.push(row.id)
+    } else {
+      base.selectedIds.value.splice(idx, 1)
+    }
+  }
+
+  const isSubSelected = (id: number) => base.selectedIds.value.includes(id)
+
+  /** 批量暂停/恢复共用的结果提示文案："成功 N 项" +（有跳过时）"，M 项已跳过（可能已被删除）" */
+  const formatBatchResultMessage = (result: { successCount: number; failedIds: number[] }) => {
+    const skipTip = result.failedIds.length ? `，${result.failedIds.length} 项已跳过（可能已被删除）` : ''
+    return `成功 ${result.successCount} 项${skipTip}`
+  }
+
+  const handleBatchPause = async () => {
+    if (!base.selectedIds.value.length) return
+    try {
+      await ElMessageBox.confirm(`确认批量暂停选中的 ${base.selectedIds.value.length} 个订阅？`, '提示', { type: 'warning' })
+      const result = await batchPauseSubscriptionApi(base.selectedIds.value)
+      ElMessage.success(formatBatchResultMessage(result))
+      base.selectedIds.value = []
+      base.getList()
+    } catch (e) {
+      if (e !== 'cancel') console.error(e)
+    }
+  }
+
+  const handleBatchResume = async () => {
+    if (!base.selectedIds.value.length) return
+    try {
+      await ElMessageBox.confirm(`确认批量恢复选中的 ${base.selectedIds.value.length} 个订阅？`, '提示', { type: 'warning' })
+      const result = await batchResumeSubscriptionApi(base.selectedIds.value)
+      ElMessage.success(formatBatchResultMessage(result))
+      base.selectedIds.value = []
+      base.getList()
+    } catch (e) {
+      if (e !== 'cancel') console.error(e)
+    }
+  }
+
   // ---------- 移动端 - 分页辅助 ----------
   const totalPages = computed(() => Math.ceil(base.total.value / base.queryParams.pageSize) || 1)
 
@@ -373,6 +425,8 @@ export function usePtSubscription() {
     openSeasonSearch, openEpisodeSearch, confirmSearch, toggleAutoSearch,
     // 行操作
     handleRefresh, handlePause, handleResume, handleRemove,
+    // 批量操作
+    selectionMode, toggleSubSelect, isSubSelected, handleBatchPause, handleBatchResume,
     // 移动端分页 & 搜索面板
     totalPages, prevPage, nextPage, handleSizeChange, searchCollapsed
   }

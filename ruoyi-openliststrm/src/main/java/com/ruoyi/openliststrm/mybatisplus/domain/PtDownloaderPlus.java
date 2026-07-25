@@ -67,6 +67,10 @@ public class PtDownloaderPlus extends BaseEntity {
     @TableField("tag")
     private String tag;
 
+    /** 同时处于 PUSHED/DOWNLOADING 状态的最大记录数，0 表示不限 */
+    @TableField("max_concurrent")
+    private Integer maxConcurrent;
+
     /** 是否启用 0-否 1-是 */
     @TableField("enabled")
     private String enabled;

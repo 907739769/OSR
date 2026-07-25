@@ -5,8 +5,10 @@ import com.ruoyi.openliststrm.helper.TgHelper;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtDownloadRecordPlus;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtDownloaderPlus;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
+import com.ruoyi.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtDownloadRecordPlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
+import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.ruoyi.openliststrm.pt.downloader.model.DownloaderTorrent;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -40,9 +42,13 @@ class DownloadTrackServiceTest {
     @Mock private IPtDownloadRecordPlusService recordService;
     @Mock private IPtSubscriptionEpisodePlusService episodeService;
     @Mock private DownloadCompletionSyncTrigger completionSyncTrigger;
+    @Mock private IPtSubscriptionPlusService subscriptionService;
 
     private DownloadTrackService service() {
-        return new DownloadTrackService(recordService, episodeService, completionSyncTrigger, 3);
+        // 默认桩：查不到任何订阅（对应"订阅已删除"分支），使全部现有用例回退全局默认值 24 小时，
+        // 与改造前的行为保持一致，不用逐个用例改断言。
+        when(subscriptionService.listByIds(any())).thenReturn(List.of());
+        return new DownloadTrackService(recordService, episodeService, completionSyncTrigger, subscriptionService, 3, 24);
     }
 
     private PtDownloaderPlus downloader() {
@@ -134,6 +140,7 @@ class DownloadTrackServiceTest {
         ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
         verify(recordService).update(captor.capture(), any(Wrapper.class));
         assertEquals("FAILED", captor.getValue().getState());
+        assertEquals("TORRENT_NOT_FOUND", captor.getValue().getFailReasonCode());
         // 关联集回退 MISSING
         verify(episodeService).update(any(), any(Wrapper.class));
     }
@@ -195,6 +202,7 @@ class DownloadTrackServiceTest {
         ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
         verify(recordService).update(captor.capture(), any(Wrapper.class));
         assertEquals("FAILED", captor.getValue().getState());
+        assertEquals("ZOMBIE_TIMEOUT", captor.getValue().getFailReasonCode());
         verify(episodeService).update(any(), any(Wrapper.class));
     }
 
@@ -301,5 +309,72 @@ class DownloadTrackServiceTest {
         List<PtSubscriptionEpisodePlus> updates = captor.getAllValues();
         assertEquals("BLOCKED", updates.get(0).getState());
         assertEquals("MISSING", updates.get(1).getState());
+    }
+
+    // ---------- 僵尸超时：全局默认值 + 订阅级覆盖 ----------
+
+    @Test
+    void 订阅设置僵尸超时覆盖_按覆盖值判定僵尸超时() {
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+        // 覆盖为 1 小时，记录已推送 90 分钟——超过覆盖值 1 小时，但远不到全局默认 24 小时
+        PtDownloadRecordPlus r = record(100, 2, "osr-pt-aaa", "DOWNLOADING", 90 * 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of(episodeRow(500)));
+        PtSubscriptionPlus sub = new PtSubscriptionPlus();
+        sub.setId(10);
+        sub.setDownloadOverride("{\"zombieTimeoutHours\": 1}");
+        when(subscriptionService.listByIds(any())).thenReturn(List.of(sub));
+
+        service().track(downloader(), List.of(torrent("osr-pt,osr-pt-other", 0.5)));
+
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService).update(captor.capture(), any(Wrapper.class));
+        assertEquals("FAILED", captor.getValue().getState());
+    }
+
+    @Test
+    void 订阅覆盖非法JSON_回退全局默认值不抛异常() {
+        // 记录已推送 90 分钟：若非法覆盖被误当成短超时会判失败；正确回退 24 小时默认值应仍是下载中
+        PtDownloadRecordPlus r = record(100, 2, "osr-pt-aaa", "DOWNLOADING", 90 * 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        PtSubscriptionPlus sub = new PtSubscriptionPlus();
+        sub.setId(10);
+        sub.setDownloadOverride("{");
+        when(subscriptionService.listByIds(any())).thenReturn(List.of(sub));
+
+        service().track(downloader(), List.of(torrent("osr-pt,osr-pt-aaa", 0.5)));
+
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService).updateById(captor.capture());
+        assertEquals("DOWNLOADING", captor.getValue().getState());
+    }
+
+    @Test
+    void 订阅覆盖僵尸超时为零_视为无效回退全局默认值() {
+        PtDownloadRecordPlus r = record(100, 2, "osr-pt-aaa", "DOWNLOADING", 90 * 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        PtSubscriptionPlus sub = new PtSubscriptionPlus();
+        sub.setId(10);
+        sub.setDownloadOverride("{\"zombieTimeoutHours\": 0}");
+        when(subscriptionService.listByIds(any())).thenReturn(List.of(sub));
+
+        service().track(downloader(), List.of(torrent("osr-pt,osr-pt-aaa", 0.5)));
+
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService).updateById(captor.capture());
+        assertEquals("DOWNLOADING", captor.getValue().getState());
+    }
+
+    @Test
+    void 订阅已删除_listByIds查不到_回退全局默认值() {
+        PtDownloadRecordPlus r = record(100, 2, "osr-pt-aaa", "DOWNLOADING", 90 * 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(subscriptionService.listByIds(any())).thenReturn(List.of()); // 订阅已删除
+
+        service().track(downloader(), List.of(torrent("osr-pt,osr-pt-aaa", 0.5)));
+
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService).updateById(captor.capture());
+        assertEquals("DOWNLOADING", captor.getValue().getState());
     }
 }
