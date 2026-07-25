@@ -42,6 +42,7 @@
           </el-button>
         </div>
         <div class="action-right">
+          <span class="sort-label">排序：</span>
           <el-select
             v-model="queryParams.sortBy"
             class="sort-select"
@@ -68,7 +69,7 @@
       </div>
 
       <div class="card-grid" v-if="loading && taskList.length === 0">
-        <div v-for="n in 6" :key="n" class="sub-card-skeleton">
+        <div v-for="n in skeletonCount" :key="n" class="sub-card-skeleton">
           <el-skeleton animated class="sub-card-skeleton__body">
             <template #template>
               <el-skeleton-item variant="image" class="sub-card-skeleton__poster" />
@@ -83,12 +84,13 @@
         </div>
       </div>
       <div class="card-grid" v-else v-loading="loading">
-        <div v-for="item in taskList" :key="item.id" class="sub-card">
+        <div v-for="item in taskList" :key="item.id" class="sub-card" :class="{ selectable: selectionMode }" @click="selectionMode && toggleSubSelect(item)">
           <el-checkbox
             v-if="selectionMode"
             class="sub-card-checkbox"
             :model-value="isSubSelected(item.id)"
             @change="toggleSubSelect(item)"
+            @click.stop
           />
           <div class="sub-poster">
             <img
@@ -411,7 +413,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Picture, ArrowDown } from '@element-plus/icons-vue'
 import { usePtSubscription } from '@/composables/usePtSubscription'
@@ -452,6 +454,16 @@ const handleMoreCommand = (cmd: string, row: any) => {
     case 'search': openSeasonSearch(row); break
   }
 }
+
+/** 骨架屏数量根据页面宽度动态计算 */
+const skeletonCount = ref(6)
+function updateSkeletonCount() {
+  const cardMinWidth = 340 + 14
+  const containerWidth = window.innerWidth - 32 - 32
+  skeletonCount.value = Math.max(3, Math.min(12, Math.floor(containerWidth / cardMinWidth)))
+}
+onMounted(() => { updateSkeletonCount(); window.addEventListener('resize', updateSkeletonCount) })
+onUnmounted(() => { window.removeEventListener('resize', updateSkeletonCount) })
 </script>
 
 <style scoped lang="scss">
@@ -487,6 +499,8 @@ const handleMoreCommand = (cmd: string, row: any) => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
   margin-bottom: 12px;
 
   .action-left {
@@ -503,6 +517,12 @@ const handleMoreCommand = (cmd: string, row: any) => {
   }
 }
 
+.sort-label {
+  font-size: 13px;
+  color: var(--osr-text-secondary);
+  white-space: nowrap;
+}
+
 .batch-toolbar {
   display: flex;
   align-items: center;
@@ -511,6 +531,9 @@ const handleMoreCommand = (cmd: string, row: any) => {
   padding: 8px 12px;
   border-radius: var(--osr-radius-sm);
   background: var(--osr-bg-page);
+  position: sticky;
+  top: 0;
+  z-index: 2;
   font-size: 13px;
   color: var(--osr-text-secondary);
 }
@@ -527,7 +550,7 @@ const handleMoreCommand = (cmd: string, row: any) => {
    ============================================ */
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(340px, 480px));
   gap: 14px;
   min-height: 120px;
 }
@@ -544,6 +567,13 @@ const handleMoreCommand = (cmd: string, row: any) => {
   &:hover {
     box-shadow: var(--osr-shadow-md);
     border-color: var(--osr-border-base);
+  }
+
+  &.selectable {
+    cursor: pointer;
+    &:hover {
+      border-color: var(--osr-primary-light-5);
+    }
   }
 }
 

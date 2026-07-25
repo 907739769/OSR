@@ -46,7 +46,7 @@
       </div>
 
       <div class="card-grid" v-if="loading && taskList.length === 0">
-        <div v-for="n in 6" :key="n" class="record-card-skeleton">
+        <div v-for="n in skeletonCount" :key="n" class="record-card-skeleton">
           <el-skeleton animated>
             <template #template>
               <el-skeleton-item variant="text" style="width: 60%; height: 16px; margin-bottom: 10px" />
@@ -71,6 +71,7 @@
             class="record-card-checkbox"
             :model-value="selectedIds.includes(item.id)"
             @change="toggleRecordSelect(item)"
+            @click.stop
           />
           <div class="record-header">
             <span class="record-title" :title="item.title">{{ item.title }}</span>
@@ -142,11 +143,21 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { WarningFilled } from '@element-plus/icons-vue'
 import { usePtDownloadRecord } from '@/composables/usePtDownloadRecord'
 
 const showSearch = ref(window.innerWidth >= 768)
+
+/** 骨架屏数量根据页面宽度动态计算 */
+const skeletonCount = ref(6)
+function updateSkeletonCount() {
+  const cardMinWidth = 320 + 14
+  const containerWidth = window.innerWidth - 32 - 32
+  skeletonCount.value = Math.max(3, Math.min(12, Math.floor(containerWidth / cardMinWidth)))
+}
+onMounted(() => { updateSkeletonCount(); window.addEventListener('resize', updateSkeletonCount) })
+onUnmounted(() => { window.removeEventListener('resize', updateSkeletonCount) })
 
 const {
   taskList, loading, total, queryParams, getList, handleQuery, resetQuery, queryRef,
@@ -226,6 +237,8 @@ const formatSize = (bytes: number): string => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
   margin-bottom: 12px;
 }
 
@@ -239,6 +252,9 @@ const formatSize = (bytes: number): string => {
   background: var(--osr-bg-page);
   font-size: 13px;
   color: var(--osr-text-secondary);
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 .pagination-wrapper {
@@ -250,7 +266,7 @@ const formatSize = (bytes: number): string => {
 
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(320px, 480px));
   gap: 14px;
   min-height: 120px;
 }
@@ -268,6 +284,13 @@ const formatSize = (bytes: number): string => {
   &:hover {
     box-shadow: var(--osr-shadow-md);
     border-color: var(--osr-border-base);
+  }
+
+  &.selectable {
+    cursor: pointer;
+    &:hover {
+      border-color: var(--osr-primary-light-5);
+    }
   }
 }
 
