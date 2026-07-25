@@ -539,7 +539,7 @@ const openActionDrawer = (row: any) => {
 }
 
 const goDownloadRecords = (row: any) => {
-  router.push({ path: '/openlist/ptDownloadRecord', query: { subId: row.id } }
+  router.push({ path: '/openlist/ptDownloadRecord', query: { subId: row.id } })
 }
 
 /** 操作抽屉状态 */
