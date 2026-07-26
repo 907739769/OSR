@@ -1,6 +1,7 @@
 package com.ruoyi.openliststrm.helper;
 
 import com.alibaba.fastjson2.JSONObject;
+import com.ruoyi.common.utils.Threads;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.utils.spring.SpringUtils;
 import com.ruoyi.openliststrm.api.OpenlistApi;
@@ -57,7 +58,7 @@ public class AsynHelper {
         Instant deadline = Instant.now().plus(monitorDuration());
         // 首次延迟30秒后开始检查
         String dstPrefix = StringUtils.removeEnd(dstDir, "/");
-        scheduler.schedule(() -> {
+        scheduler.schedule(Threads.wrap(() -> {
             try {
                 // 仅获取本次目标目录子树下正在进行的任务，避免全表拉取导致多任务并发时互相干扰
                 List<OpenlistCopyPlus> copyList = openlistCopyPlusService.lambdaQuery()
@@ -76,7 +77,7 @@ public class AsynHelper {
             } catch (Exception e) {
                 log.error("Error in isCopyDone initialization", e);
             }
-        }, Instant.now().plusSeconds(30));
+        }), Instant.now().plusSeconds(30));
     }
 
     /**
@@ -161,7 +162,7 @@ public class AsynHelper {
         } else {
             // 列表不为空，说明还有任务在运行，按退避间隔再次调用自己
             long interval = nextIntervalSeconds(round);
-            scheduler.schedule(() -> processCopyListRecursive(copyList, dstDir, strmDir, deadline, round + 1),
+            scheduler.schedule(Threads.wrap(() -> processCopyListRecursive(copyList, dstDir, strmDir, deadline, round + 1)),
                     Instant.now().plusSeconds(interval));
         }
     }
@@ -176,7 +177,7 @@ public class AsynHelper {
                     .map(OpenlistCopyPlus::getCopyTaskId)
                     .filter(StringUtils::isNotBlank)
                     .distinct()
-                    .map(taskId -> CompletableFuture.runAsync(() -> {
+                    .map(taskId -> CompletableFuture.runAsync(Threads.wrap(() -> {
                         try {
                             JSONObject resp = openlistApi.copyInfo(taskId);
                             if (resp != null) {
@@ -185,7 +186,7 @@ public class AsynHelper {
                         } catch (Exception e) {
                             log.error("并行查询复制任务状态异常: {}", taskId, e);
                         }
-                    }, executor))
+                    }), executor))
                     .toList();
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
         }
@@ -213,7 +214,7 @@ public class AsynHelper {
 
         // 延迟30秒后开始第一次检查
         Instant deadline = Instant.now().plus(monitorDuration());
-        scheduler.schedule(() -> checkOneFileRecursive(path, copy, deadline, 0), Instant.now().plusSeconds(30));
+        scheduler.schedule(Threads.wrap(() -> checkOneFileRecursive(path, copy, deadline, 0)), Instant.now().plusSeconds(30));
     }
 
     /**
@@ -270,7 +271,7 @@ public class AsynHelper {
 
             // 任务仍在运行中，按退避间隔继续调度下一次检查
             long interval = nextIntervalSeconds(round);
-            scheduler.schedule(() -> checkOneFileRecursive(path, copy, deadline, round + 1),
+            scheduler.schedule(Threads.wrap(() -> checkOneFileRecursive(path, copy, deadline, round + 1)),
                     Instant.now().plusSeconds(interval));
 
         } catch (Exception e) {

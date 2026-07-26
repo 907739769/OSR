@@ -1,5 +1,6 @@
 package com.ruoyi.openliststrm.pt.task;
 
+import com.ruoyi.common.utils.Threads;
 import com.ruoyi.common.utils.spring.SpringUtils;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtDownloadRecordPlus;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtDownloaderPlus;
@@ -28,12 +29,12 @@ public class DownloadCompletionSyncTrigger {
     private final TaskScheduler scheduler = SpringUtils.getBean("virtualScheduledExecutor");
 
     public void triggerAsync(PtDownloadRecordPlus record, PtDownloaderPlus downloader) {
-        scheduler.schedule(() -> {
+        scheduler.schedule(Threads.wrap(() -> {
             try {
                 syncService.sync(record, downloader);
             } catch (Exception e) {
                 log.warn("下载记录[{}] 完成后联动同步失败：{}", record.getId(), e.getMessage());
             }
-        }, Instant.now());
+        }), Instant.now());
     }
 }

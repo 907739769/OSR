@@ -22,6 +22,7 @@ import com.ruoyi.openliststrm.pt.subscription.dto.MatchResult;
 import com.ruoyi.openliststrm.pt.task.DownloadRecordState;
 import com.ruoyi.openliststrm.rename.MediaParser;
 import com.ruoyi.openliststrm.rename.model.MediaInfo;
+import com.ruoyi.common.utils.Threads;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -142,12 +143,12 @@ public class SubscriptionEngine {
 
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             List<CompletableFuture<Boolean>> futures = groups.entrySet().stream()
-                    .map(entry -> CompletableFuture.supplyAsync(() -> {
+                    .map(entry -> CompletableFuture.supplyAsync(Threads.wrapSupplier(() -> {
                         MatchResult match = groupMatch.get(entry.getKey());
                         return handleGroup(match, entry.getValue(), globalConfig,
                                 episodeCache, enabledDownloaders, downloaderLoadCache,
                                 SearchLogService.SOURCE_RSS);
-                    }, executor))
+                    }), executor))
                     .toList();
             int pushed = 0;
             for (CompletableFuture<Boolean> future : futures) {

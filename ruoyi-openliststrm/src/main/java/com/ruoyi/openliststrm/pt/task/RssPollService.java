@@ -1,5 +1,6 @@
 package com.ruoyi.openliststrm.pt.task;
 
+import com.ruoyi.common.utils.Threads;
 import com.ruoyi.openliststrm.helper.TgHelper;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtIndexerPlus;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtIndexerPlusService;
@@ -90,8 +91,8 @@ public class RssPollService {
         Semaphore limiter = new Semaphore(maxConcurrency);
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             List<CompletableFuture<Void>> futures = due.stream()
-                    .map(indexer -> CompletableFuture.runAsync(() ->
-                            runLimited(limiter, () -> pollOne(indexer, allTorrents)), executor))
+                    .map(indexer -> CompletableFuture.runAsync(Threads.wrap(() ->
+                            runLimited(limiter, () -> pollOne(indexer, allTorrents))), executor))
                     .toList();
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
         }

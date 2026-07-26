@@ -1,5 +1,6 @@
 package com.ruoyi.openliststrm.pt.subscription;
 
+import com.ruoyi.common.utils.Threads;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.openliststrm.helper.TgHelper;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtIndexerPlus;
@@ -254,13 +255,14 @@ public class SearchSupplementService {
         Semaphore limiter = new Semaphore(maxConcurrency);
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             List<CompletableFuture<Void>> futures = indexers.stream()
-                    .map(indexer -> CompletableFuture.runAsync(() -> runLimited(limiter, () -> {
-                        try {
-                            merged.addAll(torznabClient.search(indexer, keyword));
-                        } catch (Exception e) {
-                            log.warn("索引器[{}]关键词搜索失败：{}", indexer.getName(), e.getMessage());
-                        }
-                    }), executor))
+                    .map(indexer -> CompletableFuture.runAsync(Threads.wrap(() ->
+                            runLimited(limiter, () -> {
+                                try {
+                                    merged.addAll(torznabClient.search(indexer, keyword));
+                                } catch (Exception e) {
+                                    log.warn("索引器[{}]关键词搜索失败：{}", indexer.getName(), e.getMessage());
+                                }
+                            })), executor))
                     .toList();
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
         }
@@ -285,7 +287,7 @@ public class SearchSupplementService {
         Semaphore limiter = new Semaphore(maxConcurrency);
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             List<CompletableFuture<Void>> futures = indexers.stream()
-                    .map(indexer -> CompletableFuture.runAsync(() -> {
+                    .map(indexer -> CompletableFuture.runAsync(Threads.wrap(() -> {
                         IdSearchParam param = resolveIdParam(sub, indexer, movie);
                         if (param == null) {
                             return;
@@ -298,7 +300,7 @@ public class SearchSupplementService {
                                 log.warn("索引器[{}]按{}搜索失败：{}", indexer.getName(), param.name(), e.getMessage());
                             }
                         });
-                    }, executor))
+                    }), executor))
                     .toList();
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
         }

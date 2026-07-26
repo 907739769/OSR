@@ -1,5 +1,6 @@
 package com.ruoyi.openliststrm.pt.task;
 
+import com.ruoyi.common.utils.Threads;
 import com.ruoyi.common.utils.ThreadTraceIdUtil;
 import com.ruoyi.common.utils.spring.SpringUtils;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
@@ -41,7 +42,7 @@ public class LibrarySyncTask {
     @EventListener(ApplicationReadyEvent.class)
     public void start() {
         ThreadTraceIdUtil.initTraceId();
-        scheduler.scheduleAtFixedRate(this::poll, Instant.now().plusSeconds(120), Duration.ofMinutes(10));
+        scheduler.scheduleAtFixedRate(Threads.wrap(this::poll), Instant.now().plusSeconds(120), Duration.ofMinutes(10));
         log.info("LibrarySyncTask started");
     }
 
