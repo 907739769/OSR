@@ -665,32 +665,26 @@ class SearchSupplementServiceTest {
     }
 
     @Test
-    void supplement_ID搜到候选但过滤后为空_继续走标题搜索而非直接判定未命中() throws Exception {
+    void supplement_ID搜索直接推送不过滤() throws Exception {
+        // ID 搜索是精确匹配，结果直接走 pushBest，不经过 filterByTarget
         PtSubscriptionPlus movie = movieSub(20, "手机", "2003");
         movie.setImdbId("tt0125664");
         when(subscriptionService.getById(20)).thenReturn(movie);
         PtIndexerPlus idx = indexer(1);
         when(indexerService.listEnabled()).thenReturn(List.of(idx));
         when(torznabClient.getCaps(idx)).thenReturn(new IndexerCapability(true, false, false, false));
-        // 索引器 ID 搜索实现有 bug，返回了不相关内容
-        TorrentInfo wrong = torrent("Cellphone.2003.1080p");
-        wrong.setParsedTitle("Cellphone");
-        wrong.setParsedYear("2003");
+        TorrentInfo anySeed = torrent("手机.2003.1080p");
+        anySeed.setParsedTitle("手机");
+        anySeed.setParsedYear("2003");
         when(torznabClient.searchByExternalId(idx, true, "imdbid", "tt0125664", null, null))
-                .thenReturn(List.of(wrong));
-        TorrentInfo right = torrent("手机.2003.1080p");
-        right.setParsedTitle("手机");
-        right.setParsedYear("2003");
-        when(torznabClient.search(any(), anyString())).thenReturn(List.of(right));
+                .thenReturn(List.of(anySeed));
         when(subscriptionEngine.pushBest(eq(movie), eq(0), anyList())).thenReturn(true);
 
         SupplementResult result = service.supplement(20, 0, "手机");
 
         assertTrue(result.isPushed());
-        ArgumentCaptor<List<TorrentInfo>> captor = ArgumentCaptor.forClass(List.class);
-        verify(subscriptionEngine).pushBest(eq(movie), eq(0), captor.capture());
-        assertTrue(captor.getValue().contains(right));
-        assertFalse(captor.getValue().contains(wrong));
+        // ID 有结果直接推送，不降级到关键词搜索
+        verify(torznabClient, never()).search(any(), anyString());
     }
 
     @Test

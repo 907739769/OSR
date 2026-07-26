@@ -86,19 +86,27 @@ public class SearchSupplementService {
 
         int totalCandidates = 0;
 
+        // 第一优先级：IMDB/TMDB ID 精确搜索，结果不经过 filterByTarget——ID 已是精确匹配
+        // （索引器按 ID 返回的种子就是该作品/集数的资源），直接进入推链路。
+        // 如果推送失败（全部已有记录、无可占位缺失集、下载器不可用等），
+        // 再降级到关键词搜索找不同种子。
         List<TorrentInfo> idCandidates = searchByExternalId(sub, episode);
         fillParsedAll(idCandidates);
         totalCandidates += idCandidates.size();
-        List<TorrentInfo> matched = filterByTarget(sub, episode, idCandidates);
+        boolean pushed = false;
+        if (!idCandidates.isEmpty()) {
+            pushed = subscriptionEngine.pushBest(sub, episode, idCandidates);
+        }
 
-        if (matched.isEmpty()) {
+        List<TorrentInfo> matched = new ArrayList<>();
+        if (!pushed) {
             List<TorrentInfo> candidates = searchAcrossIndexers(keyword);
             fillParsedAll(candidates);
             totalCandidates += candidates.size();
             matched = filterByTarget(sub, episode, candidates);
         }
 
-        if (matched.isEmpty()) {
+        if (!pushed && matched.isEmpty()) {
             String altKeyword = buildAltKeyword(sub, episode);
             if (altKeyword != null) {
                 List<TorrentInfo> altCandidates = searchAcrossIndexers(altKeyword);
@@ -108,7 +116,9 @@ public class SearchSupplementService {
             }
         }
 
-        boolean pushed = subscriptionEngine.pushBest(sub, episode, matched);
+        if (!pushed) {
+            pushed = subscriptionEngine.pushBest(sub, episode, matched);
+        }
 
         sub.setLastSearchTime(new Date());
         subscriptionService.updateById(sub);
