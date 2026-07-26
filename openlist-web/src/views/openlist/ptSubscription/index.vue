@@ -62,6 +62,14 @@
 
       <div class="batch-toolbar" v-if="selectionMode">
         已选 {{ selectedIds.length }} 项
+        <el-checkbox
+          :model-value="isAllPageSelected"
+          :indeterminate="isIndeterminate"
+          @change="toggleSelectAllPage"
+          class="select-all-checkbox"
+        >
+          全选本页
+        </el-checkbox>
         <el-button link type="warning" class="batch-pause-btn" :disabled="!selectedIds.length" @click="handleBatchPause">批量暂停</el-button>
         <el-button link type="success" class="batch-resume-btn" :disabled="!selectedIds.length" @click="handleBatchResume">批量恢复</el-button>
         <el-button link type="danger" class="batch-delete-btn" :disabled="!selectedIds.length" @click="handleDelete()">批量删除</el-button>
@@ -97,10 +105,11 @@
               :src="posterUrl(item.posterPath)"
               :alt="item.title"
               loading="lazy"
-              @error="posterErrorIds.add(item.id)"
+              @error="onPosterError(item.id)"
             />
-            <div v-else class="sub-poster-placeholder">
-              <el-icon><Picture /></el-icon>
+            <div v-else class="sub-poster-placeholder" :class="item.mediaType === 'MOVIE' ? 'placeholder-movie' : 'placeholder-tv'">
+              <el-icon :size="24"><Picture /></el-icon>
+              <span class="placeholder-text">{{ item.mediaType === 'MOVIE' ? '电影' : '剧集' }}</span>
             </div>
           </div>
           <div class="sub-info">
@@ -270,6 +279,14 @@
         <el-button v-if="currentSubscription" type="primary" @click="openSeasonSearch(currentSubscription)">
           搜索补齐
         </el-button>
+        <el-button
+          v-if="currentSubscription && progress && progress.missingEpisodes && progress.missingEpisodes.length > 1"
+          type="success"
+          :loading="searchAllMissingLoading"
+          @click="handleSearchAllMissing"
+        >
+          一键补齐全部（{{ progress.missingEpisodes.length }}集）
+        </el-button>
         <el-button @click="progressOpen = false">关闭</el-button>
       </template>
     </el-dialog>
@@ -335,22 +352,22 @@
           <el-input-number
             v-model="filterOverrideForm.minSize.value"
             :min="0"
-            :step="1073741824"
+            :max="999"
             :disabled="!filterOverrideForm.minSize.enabled"
-            :style="{ width: '240px' }"
+            :style="{ width: '160px' }"
           />
-          <span class="form-tip">字节</span>
+          <span class="form-tip">GB</span>
         </el-form-item>
         <el-form-item label="体积上限">
           <el-checkbox v-model="filterOverrideForm.maxSize.enabled" class="override-checkbox" />
           <el-input-number
             v-model="filterOverrideForm.maxSize.value"
             :min="0"
-            :step="1073741824"
+            :max="999"
             :disabled="!filterOverrideForm.maxSize.enabled"
-            :style="{ width: '240px' }"
+            :style="{ width: '160px' }"
           />
-          <span class="form-tip">字节</span>
+          <span class="form-tip">GB</span>
         </el-form-item>
         <el-form-item label="仅要免费种">
           <el-checkbox v-model="filterOverrideForm.freeOnly.enabled" class="override-checkbox" />
@@ -396,11 +413,11 @@
           <el-input-number
             v-model="filterOverrideForm.preferredSize.value"
             :min="0"
-            :step="1073741824"
+            :max="999"
             :disabled="!filterOverrideForm.preferredSize.enabled"
-            :style="{ width: '240px' }"
+            :style="{ width: '160px' }"
           />
-          <span class="form-tip">字节</span>
+          <span class="form-tip">GB</span>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -422,6 +439,8 @@ const showSearch = ref(window.innerWidth >= 768)
 /** 海报加载失败的订阅 id 集合，命中则展示占位图标而非裂图 */
 const posterErrorIds = reactive(new Set<number>())
 
+const onPosterError = (id: number) => { posterErrorIds.add(id) }
+
 const {
   taskList, loading, total, queryParams, getList, handleQuery, resetQuery, queryRef,
   subscribeOpen, searchLoading, subscribeLoading, searchResults, searchForm,
@@ -434,7 +453,9 @@ const {
   openSeasonSearch, openEpisodeSearch, confirmSearch, toggleAutoSearch,
   handleRefresh, handlePause, handleResume, handleRemove, handleDelete,
   selectedIds, selectionMode, toggleSubSelect, isSubSelected,
-  handleBatchPause, handleBatchResume
+  handleBatchPause, handleBatchResume,
+  isAllPageSelected, isIndeterminate, toggleSelectAllPage,
+  searchAllMissingLoading, handleSearchAllMissing
 } = usePtSubscription()
 
 /** TMDb 海报路径拼完整图片地址，w200 宽度足够列表缩略图使用 */
@@ -532,6 +553,11 @@ const handleMoreCommand = (cmd: string, row: any) => {
   z-index: 2;
 }
 
+.select-all-checkbox {
+  margin-left: 4px;
+  font-size: 13px;
+}
+
 .pagination-wrapper {
   display: flex;
   justify-content: flex-end;
@@ -544,7 +570,7 @@ const handleMoreCommand = (cmd: string, row: any) => {
    ============================================ */
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 480px));
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
   gap: 14px;
   min-height: 120px;
 }
@@ -623,10 +649,28 @@ const handleMoreCommand = (cmd: string, row: any) => {
     width: 100%;
     height: 100%;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: 4px;
     color: var(--osr-text-disabled);
     font-size: 22px;
+
+    &.placeholder-movie {
+      background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 50%, #1e3a5f 100%);
+      color: rgba(255, 255, 255, 0.7);
+    }
+
+    &.placeholder-tv {
+      background: linear-gradient(135deg, #3b1f47 0%, #6b3a7a 50%, #3b1f47 100%);
+      color: rgba(255, 255, 255, 0.7);
+    }
+
+    .placeholder-text {
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 1px;
+    }
   }
 }
 

@@ -33,12 +33,19 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
 
 /**
  * 订阅推送引擎：把一批 RSS 种子变成「推给下载器的决策」并落好账。
  * <p>
  * 不加 {@code @Transactional}——方法体内含推送下载器的网络调用，长事务是反模式。
  * 各步写库各自独立，推送失败时显式回滚（删记录 + 集状态改回 MISSING）。
+ * </p>
+ * <p>
+ * 分组处理阶段（{@link #handleGroup}）各组间无写冲突，使用虚拟线程并行执行，
+ * 避免单组网络调用阻塞其它组的匹配/推送。匹配+分组阶段（纯内存计算）保持串行。
  * </p>
  *
  * @author Jack
@@ -94,6 +101,10 @@ public class SubscriptionEngine {
 
     /**
      * 处理一批种子：匹配订阅 → 分组 → 过滤择优 → 占位 → 推送 → 落账。
+     * <p>
+     * 匹配+分组阶段（纯内存计算）保持串行；分组处理阶段（含网络调用）
+     * 各组间无写冲突，使用虚拟线程并行执行。
+     * </p>
      *
      * @return 成功推送给下载器的种子数
      */
@@ -104,7 +115,7 @@ public class SubscriptionEngine {
         }
         PtFilterConfigPlus globalConfig = filterConfigService.getConfig();
 
-        // 按 (订阅id, 集号) 分组；集号 -1 表示季包
+        // 匹配+分组：纯内存计算，保持串行
         Map<String, List<TorrentInfo>> groups = new LinkedHashMap<>();
         Map<String, MatchResult> groupMatch = new LinkedHashMap<>();
         for (TorrentInfo torrent : torrents) {
@@ -119,18 +130,33 @@ public class SubscriptionEngine {
             groupMatch.putIfAbsent(key, match);
         }
 
-        int pushed = 0;
-        Map<Integer, List<PtSubscriptionEpisodePlus>> episodeCache = new LinkedHashMap<>();
-        List<PtDownloaderPlus> enabledDownloaders = loadEnabledDownloaders();
-        Map<Integer, Long> downloaderLoadCache = loadDownloaderLoadCounts(enabledDownloaders);
-        for (Map.Entry<String, List<TorrentInfo>> entry : groups.entrySet()) {
-            MatchResult match = groupMatch.get(entry.getKey());
-            if (handleGroup(match, entry.getValue(), globalConfig, episodeCache,
-                    enabledDownloaders, downloaderLoadCache, SearchLogService.SOURCE_RSS)) {
-                pushed++;
-            }
+        if (groups.isEmpty()) {
+            return 0;
         }
-        return pushed;
+
+        // 分组处理：各组间无写冲突，用虚拟线程并行
+        Map<Integer, List<PtSubscriptionEpisodePlus>> episodeCache = new ConcurrentHashMap<>();
+        List<PtDownloaderPlus> enabledDownloaders = loadEnabledDownloaders();
+        Map<Integer, Long> downloaderLoadCache = new ConcurrentHashMap<>(
+                loadDownloaderLoadCounts(enabledDownloaders));
+
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            List<CompletableFuture<Boolean>> futures = groups.entrySet().stream()
+                    .map(entry -> CompletableFuture.supplyAsync(() -> {
+                        MatchResult match = groupMatch.get(entry.getKey());
+                        return handleGroup(match, entry.getValue(), globalConfig,
+                                episodeCache, enabledDownloaders, downloaderLoadCache,
+                                SearchLogService.SOURCE_RSS);
+                    }, executor))
+                    .toList();
+            int pushed = 0;
+            for (CompletableFuture<Boolean> future : futures) {
+                if (future.join()) {
+                    pushed++;
+                }
+            }
+            return pushed;
+        }
     }
 
     /**
@@ -171,8 +197,13 @@ public class SubscriptionEngine {
 
         List<TorrentInfo> fresh = excludeAlreadyRecorded(candidates);
         if (fresh.isEmpty()) {
-            log.debug("订阅[{}] 集{} 的候选都已有下载记录，跳过", sub.getId(), match.getEpisode());
-            searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, "候选种子都已推送过，本轮跳过");
+            if (candidates.isEmpty()) {
+                log.debug("订阅[{}] 集{} 无可用候选种子（搜索未返回结果），跳过", sub.getId(), match.getEpisode());
+                searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, "搜索未返回任何候选种子");
+            } else {
+                log.debug("订阅[{}] 集{} 的候选都有已有下载记录，跳过", sub.getId(), match.getEpisode());
+                searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, "候选种子都已推送过，本轮跳过");
+            }
             return false;
         }
 
@@ -299,8 +330,13 @@ public class SubscriptionEngine {
     }
 
     /**
-     * 剔除已有下载记录的候选。按 (indexer_id, guid_hash) 判断——这正是表上的唯一约束，
+     * 剔除已有下载记录的候选。按 {@code (indexer_id, guid_hash)} 判断——这正是表上的唯一约束，
      * 提前剔除既避免重复下载，也避免插入时撞约束。
+     * <p>
+     * 查询时按索引器分组批量查询 {@code WHERE indexer_id = ? AND guid_hash IN (...)}，
+     * 严格匹配唯一约束语义，避免不同索引器的同 hash 种子互相误杀
+     * （索引器降级使用 downloadUrl 作为 guid 时可能因 apikey 等参数模式不同而碰撞）。
+     * </p>
      */
     private List<TorrentInfo> excludeAlreadyRecorded(List<TorrentInfo> candidates) {
         if (candidates.isEmpty()) {
@@ -309,18 +345,26 @@ public class SubscriptionEngine {
             // （SearchSupplementService）可能以空结果调用到这里，必须在查库前短路。
             return candidates;
         }
-        List<String> hashes = candidates.stream()
-                .map(t -> GuidHasher.hash(t.getGuid()))
-                .toList();
-        List<PtDownloadRecordPlus> existing = recordService.list(
-                new QueryWrapper<PtDownloadRecordPlus>().in("guid_hash", hashes));
+        // 按 indexer_id 分组，每组批量查一次，严格匹配唯一约束
+        Map<Integer, Set<String>> indexerHashes = new HashMap<>();
+        for (TorrentInfo t : candidates) {
+            indexerHashes.computeIfAbsent(t.getIndexerId(), k -> new HashSet<>())
+                    .add(GuidHasher.hash(t.getGuid()));
+        }
+        // indexer_id + guid_hash 组合键作为已存在标记
         Set<String> taken = new HashSet<>();
-        for (PtDownloadRecordPlus record : existing) {
-            taken.add(record.getGuidHash());
+        for (Map.Entry<Integer, Set<String>> entry : indexerHashes.entrySet()) {
+            List<PtDownloadRecordPlus> existing = recordService.list(
+                    new QueryWrapper<PtDownloadRecordPlus>()
+                            .eq("indexer_id", entry.getKey())
+                            .in("guid_hash", entry.getValue()));
+            for (PtDownloadRecordPlus record : existing) {
+                taken.add(entry.getKey() + ":" + record.getGuidHash());
+            }
         }
         List<TorrentInfo> fresh = new ArrayList<>();
         for (TorrentInfo torrent : candidates) {
-            if (!taken.contains(GuidHasher.hash(torrent.getGuid()))) {
+            if (!taken.contains(torrent.getIndexerId() + ":" + GuidHasher.hash(torrent.getGuid()))) {
                 fresh.add(torrent);
             }
         }

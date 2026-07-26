@@ -77,7 +77,14 @@
             <el-tag :type="stateTagType(item.state)" size="small">{{ stateLabel(item.state) }}</el-tag>
           </div>
           <div class="record-sub">
-            {{ item.subTitle || '订阅已删除' }}
+            <router-link
+              v-if="item.subId"
+              :to="{ path: '/openlist/ptSubscription', query: { id: item.subId } }"
+              class="record-sub-link"
+            >
+              {{ item.subTitle || '订阅已删除' }}
+            </router-link>
+            <span v-else>{{ item.subTitle || '订阅已删除' }}</span>
             <span v-if="item.episodeLabel" class="record-episode">· {{ item.episodeLabel }}</span>
           </div>
           <el-progress
@@ -266,7 +273,7 @@ const formatSize = (bytes: number): string => {
 
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 480px));
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 14px;
   min-height: 120px;
 }
@@ -276,7 +283,7 @@ const formatSize = (bytes: number): string => {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 14px 16px;
+  padding: 14px;
   border: 1px solid var(--osr-border-light);
   border-radius: var(--osr-radius-md);
   transition: box-shadow var(--osr-transition-fast), border-color var(--osr-transition-fast);
@@ -297,19 +304,18 @@ const formatSize = (bytes: number): string => {
 .record-card-checkbox {
   position: absolute;
   top: 10px;
-  right: 10px;
+  left: 10px;
   z-index: 1;
 }
 
 .record-card--failed {
   border-left: 3px solid var(--osr-danger);
-  padding-left: 13px;
 }
 
 .record-card-skeleton {
   --el-skeleton-color: var(--osr-border-light);
   --el-skeleton-to-color: var(--osr-bg-page);
-  padding: 14px 16px;
+  padding: 14px;
   border: 1px solid var(--osr-border-light);
   border-radius: var(--osr-radius-md);
 }
@@ -323,7 +329,7 @@ const formatSize = (bytes: number): string => {
   .record-title {
     flex: 1;
     min-width: 0;
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 600;
     color: var(--osr-text-primary);
     overflow: hidden;
@@ -344,6 +350,15 @@ const formatSize = (bytes: number): string => {
   }
 }
 
+.record-sub-link {
+  color: var(--osr-primary);
+  text-decoration: none;
+  &:hover {
+    text-decoration: underline;
+    color: var(--osr-primary-light-3);
+  }
+}
+
 .record-row {
   display: flex;
   align-items: center;
@@ -352,7 +367,7 @@ const formatSize = (bytes: number): string => {
 
   .label {
     flex-shrink: 0;
-    width: 78px;
+    width: 58px;
     color: var(--osr-text-secondary);
   }
 
@@ -407,12 +422,27 @@ const formatSize = (bytes: number): string => {
     }
   }
 
+  .action-bar {
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
+
+    .action-left {
+      gap: 4px;
+    }
+  }
+
   .table-card :deep(.el-card__body) {
     padding: 12px;
   }
 
   .card-grid {
     grid-template-columns: 1fr;
+  }
+
+  .record-card-checkbox {
+    left: 6px;
+    top: 6px;
   }
 }
 </style>

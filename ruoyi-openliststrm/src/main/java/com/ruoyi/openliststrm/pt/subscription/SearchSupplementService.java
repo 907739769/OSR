@@ -118,10 +118,19 @@ public class SearchSupplementService {
     }
 
     /**
-     * 建订阅后一次性补搜历史资源：电影只搜一次；剧集先试整季包，季包搜不到再对仍缺失的
-     * 集逐一兜底。供 {@link SubscriptionSearchOnCreateTrigger} 异步调用——顶层不抛异常，
-     * 季包搜索与每一集的搜索都各自 try/catch，任一目标失败不影响其余目标继续搜索。
-     * 全部目标都没能推送成功时发一次通知，避免用户只能靠翻 pt_search_log 排查"为什么没搜到"。
+     * 建订阅后一次性补搜历史资源：电影只搜一次；剧集做一次全季节搜索获取候选，
+     * 先试整季包，季包未命中再对仍缺失的集从同一候选池中逐集匹配推送。
+     * <p>
+     * 与旧实现（逐集调用 {@link #supplement} 分别搜索）相比，避免了对同级别的
+     * 多集缺失时反复向所有索引器发起搜索——由 O(N×M) 降为 O(N+M)，N=三级搜索,
+     * M=缺集数,每次只做本地匹配和择优推送。
+     * </p>
+     * <p>
+     * 供 {@link SubscriptionSearchOnCreateTrigger} 异步调用——顶层不抛异常，
+     * 任一步的异常被各自 try/catch 捕获，不影响其他步骤继续。
+     * 全部目标都没能推送成功时发一次通知，避免用户只能靠翻 pt_search_log
+     * 排查"为什么没搜到"。
+     * </p>
      */
     public void supplementOnCreate(Integer subId) {
         PtSubscriptionPlus sub = subscriptionService.getById(subId);
@@ -149,33 +158,74 @@ public class SearchSupplementService {
             return;
         }
 
+        // 单次全季节搜索（三级回退：ID → 中文 → 英文/原语言）
+        List<TorrentInfo> candidates = searchSeasonCandidates(sub);
+
+        // 先试季包
         boolean seasonPushed = false;
-        try {
-            seasonPushed = supplement(subId, SubscriptionMatcher.SEASON_PACK,
-                    sub.getTitle() + " S" + pad(sub.getSeason())).isPushed();
-        } catch (Exception e) {
-            log.warn("订阅[{}] 建订阅补搜整季包失败：{}", subId, e.getMessage());
+        if (!candidates.isEmpty()) {
+            List<TorrentInfo> seasonCandidates = filterByTarget(sub, SubscriptionMatcher.SEASON_PACK, candidates);
+            if (!seasonCandidates.isEmpty()) {
+                try {
+                    seasonPushed = subscriptionEngine.pushBest(sub, SubscriptionMatcher.SEASON_PACK, seasonCandidates);
+                } catch (Exception e) {
+                    log.warn("订阅[{}] 建订阅补搜整季包推送异常：{}", subId, e.getMessage());
+                }
+            }
         }
 
+        // 季包未命中：从同一候选池逐集匹配推送
         boolean anyEpisodePushed = false;
-        List<PtSubscriptionEpisodePlus> remaining = episodeService.listBySubscription(subId);
-        for (PtSubscriptionEpisodePlus ep : remaining) {
-            if (!SubscriptionService.STATE_MISSING.equals(ep.getState())) {
-                continue;
-            }
-            try {
-                String keyword = sub.getTitle() + " S" + pad(sub.getSeason()) + "E" + pad(ep.getEpisode());
-                if (supplement(subId, ep.getEpisode(), keyword).isPushed()) {
-                    anyEpisodePushed = true;
+        if (!seasonPushed && !candidates.isEmpty()) {
+            for (PtSubscriptionEpisodePlus ep : episodes) {
+                if (!SubscriptionService.STATE_MISSING.equals(ep.getState())) {
+                    continue;
                 }
-            } catch (Exception e) {
-                log.warn("订阅[{}] 建订阅补搜第{}集失败：{}", subId, ep.getEpisode(), e.getMessage());
+                try {
+                    if (subscriptionEngine.pushBest(sub, ep.getEpisode(), candidates)) {
+                        anyEpisodePushed = true;
+                    }
+                } catch (Exception e) {
+                    log.warn("订阅[{}] 建订阅补搜第{}集推送失败：{}", subId, ep.getEpisode(), e.getMessage());
+                }
             }
         }
 
         if (!seasonPushed && !anyEpisodePushed) {
             notifyNoResult(sub);
         }
+    }
+
+    /**
+     * 全季节搜索：三级回退（ID 精确搜索 → 中文标题 → 英文/原语言标题），
+     * 返回结果不经 {@code filterByTarget} 过滤，供调用方自行按季包/逐集匹配。
+     * 各级搜索到有结果即停止，候选已做过 {@link SubscriptionEngine#fillParsed}。
+     *
+     * @return 搜索到的全部候选种子；全为空返回空列表
+     */
+    private List<TorrentInfo> searchSeasonCandidates(PtSubscriptionPlus sub) {
+        List<TorrentInfo> candidates = searchByExternalId(sub, SubscriptionMatcher.SEASON_PACK);
+        fillParsedAll(candidates);
+        if (!candidates.isEmpty()) {
+            return candidates;
+        }
+
+        String keyword = sub.getTitle() + " S" + pad(sub.getSeason());
+        candidates = searchAcrossIndexers(keyword);
+        fillParsedAll(candidates);
+        if (!candidates.isEmpty()) {
+            return candidates;
+        }
+
+        String originalTitle = sub.getOriginalTitle();
+        if (StringUtils.isNotBlank(originalTitle)
+                && !matcher.normalizeAll(originalTitle).equals(matcher.normalizeAll(sub.getTitle()))) {
+            String altKeyword = originalTitle + " S" + pad(sub.getSeason());
+            candidates = searchAcrossIndexers(altKeyword);
+            fillParsedAll(candidates);
+        }
+
+        return candidates;
     }
 
     private void notifyNoResult(PtSubscriptionPlus sub) {
@@ -386,6 +436,11 @@ public class SearchSupplementService {
      * 电影候选校验标准与 {@link SubscriptionMatcher} 的电影分支保持一致：
      * 带季/集信息的一定是剧集/综艺，标题需归一化后与订阅有交集，年份必须完全一致
      * （同名翻拍常见，宁可漏也不能串台）。
+     * <p>
+     * 注意：{@link SubscriptionEngine#fillParsed} 填入的 {@code parsedTitle} 依赖
+     * {@code MediaParser.parseLocal} 的解析结果，特殊格式的种子标题可能解析失败（产生 null）。
+     * 此时回退到种子的原始标题 {@code torrent.getTitle()} 做归一化比对，避免漏掉有效候选。
+     * </p>
      */
     private List<TorrentInfo> filterMovieCandidates(PtSubscriptionPlus sub, List<TorrentInfo> candidates) {
         Set<String> subTitles = matcher.normalizeAll(sub.getTitle(), sub.getOriginalTitle());
@@ -394,7 +449,12 @@ public class SearchSupplementService {
             if (candidate.getParsedSeason() != null || candidate.getParsedEpisode() != null) {
                 continue;
             }
-            Set<String> torrentTitles = matcher.normalizeAll(candidate.getParsedTitle(), candidate.getParsedTitleEn());
+            // parsedTitle/parsedTitleEn 可能为 null（MediaParser 解析失败），
+            // 此时回退到原始种子标题 getTitle() 做归一化
+            String t1 = candidate.getParsedTitle();
+            String t2 = candidate.getParsedTitleEn();
+            String tFallback = (t1 == null && t2 == null) ? candidate.getTitle() : null;
+            Set<String> torrentTitles = matcher.normalizeAll(t1, t2, tFallback);
             if (Collections.disjoint(torrentTitles, subTitles)) {
                 continue;
             }

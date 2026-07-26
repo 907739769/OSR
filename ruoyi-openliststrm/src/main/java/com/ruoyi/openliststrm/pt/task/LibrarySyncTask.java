@@ -57,7 +57,8 @@ public class LibrarySyncTask {
             return;
         }
         try {
-            List<PtSubscriptionPlus> active = subscriptionService.listActive();
+            // 只对有缺集的订阅执行对账，跳过全部已入库的 ACTIVE 订阅
+            List<PtSubscriptionPlus> active = subscriptionService.listActiveWithMissing();
             for (PtSubscriptionPlus sub : active) {
                 try {
                     subscriptionBiz.refresh(sub.getId());

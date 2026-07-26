@@ -790,12 +790,15 @@ class SearchSupplementServiceTest {
     void supplementOnCreate_剧集季包命中_不逐集兜底() throws Exception {
         PtSubscriptionPlus sub = tvSub(10, 1, 2);
         when(subscriptionService.getById(10)).thenReturn(sub);
-        // 第一次调用（进方法时判断是否有缺失集）返回全缺，第二次调用（季包搜完后重新查）
-        // 模拟季包命中把所有缺集占位为 IN_FLIGHT 的结果
         when(episodeService.listBySubscription(10)).thenReturn(
-                List.of(episode(1, "MISSING"), episode(2, "MISSING")),
-                List.of(episode(1, "IN_FLIGHT"), episode(2, "IN_FLIGHT")));
-        when(indexerService.listEnabled()).thenReturn(List.of());
+                List.of(episode(1, "MISSING"), episode(2, "MISSING")));
+        // searchSeasonCandidates: keyword 搜索返回季包候选
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+        TorrentInfo seasonPack = torrent("Some.Show.S01.1080p");
+        seasonPack.setParsedSeason(1);
+        seasonPack.setParsedEpisode(null);
+        when(torznabClient.search(any(), anyString())).thenReturn(List.of(seasonPack));
+        when(subscriptionEngine.pushBest(eq(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList())).thenReturn(true);
 
         service.supplementOnCreate(10);
 
@@ -810,42 +813,60 @@ class SearchSupplementServiceTest {
         when(subscriptionService.getById(10)).thenReturn(sub);
         List<PtSubscriptionEpisodePlus> episodes = List.of(
                 episode(1, "MISSING"), episode(2, "MISSING"), episode(3, "IN_LIBRARY"));
-        when(episodeService.listBySubscription(10)).thenReturn(episodes, episodes);
-        when(indexerService.listEnabled()).thenReturn(List.of());
+        when(episodeService.listBySubscription(10)).thenReturn(episodes);
+        // searchSeasonCandidates: 返回两个单集候选
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+        TorrentInfo ep1torrent = torrent("Some.Show.S01E01.1080p");
+        ep1torrent.setParsedSeason(1);
+        ep1torrent.setParsedEpisode(1);
+        TorrentInfo ep2torrent = torrent("Some.Show.S01E02.1080p");
+        ep2torrent.setParsedSeason(1);
+        ep2torrent.setParsedEpisode(2);
+        when(torznabClient.search(any(), anyString())).thenReturn(List.of(ep1torrent, ep2torrent));
+        when(subscriptionEngine.pushBest(eq(sub), eq(1), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushBest(eq(sub), eq(2), anyList())).thenReturn(true);
 
         service.supplementOnCreate(10);
 
-        verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList());
         verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(1), anyList());
         verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(2), anyList());
         verify(subscriptionEngine, never()).pushBest(eq(sub), eq(3), anyList());
     }
 
     @Test
-    void supplementOnCreate_逐集兜底关键词按season和episode两位数格式拼() throws Exception {
+    void supplementOnCreate_逐集兜底关键词按season两位数格式拼() throws Exception {
         PtSubscriptionPlus sub = tvSub(10, 2, 5);
         when(subscriptionService.getById(10)).thenReturn(sub);
         List<PtSubscriptionEpisodePlus> episodes = List.of(episode(5, "MISSING"));
-        when(episodeService.listBySubscription(10)).thenReturn(episodes, episodes);
+        when(episodeService.listBySubscription(10)).thenReturn(episodes);
         when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
         when(torznabClient.search(any(), anyString())).thenReturn(List.of());
 
         service.supplementOnCreate(10);
 
+        // 优化后：只有整季搜索关键字，不再逐集搜索（免去 E05 的搜索）
         verify(torznabClient).search(any(), eq("Some Show S02"));
-        verify(torznabClient).search(any(), eq("Some Show S02E05"));
+        verify(torznabClient, never()).search(any(), eq("Some Show S02E05"));
     }
 
     @Test
-    void supplementOnCreate_季包补搜异常_仍继续逐集兜底() throws Exception {
+    void supplementOnCreate_季包推送异常_仍继续逐集兜底() throws Exception {
         PtSubscriptionPlus sub = tvSub(10, 1, 2);
         when(subscriptionService.getById(10)).thenReturn(sub);
         List<PtSubscriptionEpisodePlus> episodes = List.of(
                 episode(1, "MISSING"), episode(2, "MISSING"));
-        when(episodeService.listBySubscription(10)).thenReturn(episodes, episodes);
-        when(indexerService.listEnabled()).thenReturn(List.of());
-        when(subscriptionEngine.pushBest(eq(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList()))
-                .thenThrow(new RuntimeException("boom"));
+        when(episodeService.listBySubscription(10)).thenReturn(episodes);
+        // searchSeasonCandidates 返回单集候选
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+        TorrentInfo ep1 = torrent("Some.Show.S01E01.1080p");
+        ep1.setParsedSeason(1);
+        ep1.setParsedEpisode(1);
+        TorrentInfo ep2 = torrent("Some.Show.S01E02.1080p");
+        ep2.setParsedSeason(1);
+        ep2.setParsedEpisode(2);
+        when(torznabClient.search(any(), anyString())).thenReturn(List.of(ep1, ep2));
+        when(subscriptionEngine.pushBest(eq(sub), eq(1), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushBest(eq(sub), eq(2), anyList())).thenReturn(true);
 
         service.supplementOnCreate(10);
 
@@ -854,17 +875,27 @@ class SearchSupplementServiceTest {
     }
 
     @Test
-    void supplementOnCreate_某集补搜异常_不影响其余集继续搜索() throws Exception {
+    void supplementOnCreate_某集推送异常_不影响其余集继续搜索() throws Exception {
         PtSubscriptionPlus sub = tvSub(10, 1, 3);
         when(subscriptionService.getById(10)).thenReturn(sub);
         List<PtSubscriptionEpisodePlus> episodes = List.of(
                 episode(1, "MISSING"), episode(2, "MISSING"), episode(3, "IN_LIBRARY"));
-        when(episodeService.listBySubscription(10)).thenReturn(episodes, episodes);
-        when(indexerService.listEnabled()).thenReturn(List.of());
+        when(episodeService.listBySubscription(10)).thenReturn(episodes);
+        // searchSeasonCandidates 返回候选
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+        TorrentInfo ep1 = torrent("Some.Show.S01E01.1080p");
+        ep1.setParsedSeason(1);
+        ep1.setParsedEpisode(1);
+        TorrentInfo ep2 = torrent("Some.Show.S01E02.1080p");
+        ep2.setParsedSeason(1);
+        ep2.setParsedEpisode(2);
+        when(torznabClient.search(any(), anyString())).thenReturn(List.of(ep1, ep2));
         when(subscriptionEngine.pushBest(eq(sub), eq(1), anyList())).thenThrow(new RuntimeException("boom"));
+        when(subscriptionEngine.pushBest(eq(sub), eq(2), anyList())).thenReturn(true);
 
         service.supplementOnCreate(10);
 
+        verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(1), anyList());
         verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(2), anyList());
     }
 
@@ -899,14 +930,14 @@ class SearchSupplementServiceTest {
     }
 
     @Test
-    void supplementOnCreate_剧集季包和逐集全部落空_发送告警通知() throws Exception {
+    void supplementOnCreate_剧集无任何候选_发送告警通知() throws Exception {
         PtSubscriptionPlus sub = tvSub(10, 1, 2);
         when(subscriptionService.getById(10)).thenReturn(sub);
         List<PtSubscriptionEpisodePlus> episodes = List.of(
                 episode(1, "MISSING"), episode(2, "MISSING"));
-        when(episodeService.listBySubscription(10)).thenReturn(episodes, episodes);
+        when(episodeService.listBySubscription(10)).thenReturn(episodes);
+        // 无索引器 → 搜索无候选 → 无推送 → 告警
         when(indexerService.listEnabled()).thenReturn(List.of());
-        when(subscriptionEngine.pushBest(any(), anyInt(), anyList())).thenReturn(false);
 
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
             service.supplementOnCreate(10);
@@ -919,9 +950,13 @@ class SearchSupplementServiceTest {
         PtSubscriptionPlus sub = tvSub(10, 1, 2);
         when(subscriptionService.getById(10)).thenReturn(sub);
         when(episodeService.listBySubscription(10)).thenReturn(
-                List.of(episode(1, "MISSING"), episode(2, "MISSING")),
-                List.of(episode(1, "IN_FLIGHT"), episode(2, "IN_FLIGHT")));
-        when(indexerService.listEnabled()).thenReturn(List.of());
+                List.of(episode(1, "MISSING"), episode(2, "MISSING")));
+        // 有季包候选
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+        TorrentInfo seasonPack = torrent("Some.Show.S01.1080p");
+        seasonPack.setParsedSeason(1);
+        seasonPack.setParsedEpisode(null);
+        when(torznabClient.search(any(), anyString())).thenReturn(List.of(seasonPack));
         when(subscriptionEngine.pushBest(eq(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList())).thenReturn(true);
 
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
@@ -936,11 +971,17 @@ class SearchSupplementServiceTest {
         when(subscriptionService.getById(10)).thenReturn(sub);
         List<PtSubscriptionEpisodePlus> episodes = List.of(
                 episode(1, "MISSING"), episode(2, "MISSING"));
-        when(episodeService.listBySubscription(10)).thenReturn(episodes, episodes);
-        when(indexerService.listEnabled()).thenReturn(List.of());
-        when(subscriptionEngine.pushBest(eq(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList())).thenReturn(false);
+        when(episodeService.listBySubscription(10)).thenReturn(episodes);
+        // 有单集候选（季包 searchSeasonCandidates 返回单集 → 季包 push 不会执行 → 逐集推送）
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+        TorrentInfo ep1 = torrent("Some.Show.S01E01.1080p");
+        ep1.setParsedSeason(1);
+        ep1.setParsedEpisode(1);
+        TorrentInfo ep2 = torrent("Some.Show.S01E02.1080p");
+        ep2.setParsedSeason(1);
+        ep2.setParsedEpisode(2);
+        when(torznabClient.search(any(), anyString())).thenReturn(List.of(ep1, ep2));
         when(subscriptionEngine.pushBest(eq(sub), eq(1), anyList())).thenReturn(true);
-        when(subscriptionEngine.pushBest(eq(sub), eq(2), anyList())).thenReturn(false);
 
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
             service.supplementOnCreate(10);

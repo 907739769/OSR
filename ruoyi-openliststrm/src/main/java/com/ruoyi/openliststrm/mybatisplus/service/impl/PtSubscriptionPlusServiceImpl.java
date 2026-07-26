@@ -26,4 +26,14 @@ public class PtSubscriptionPlusServiceImpl extends ServiceImpl<PtSubscriptionPlu
                 .orderByAsc(PtSubscriptionPlus::getId)
                 .list();
     }
+
+    @Override
+    public List<PtSubscriptionPlus> listActiveWithMissing() {
+        return lambdaQuery()
+                .eq(PtSubscriptionPlus::getStatus, "ACTIVE")
+                .inSql(PtSubscriptionPlus::getId,
+                        "SELECT DISTINCT sub_id FROM pt_subscription_episode WHERE state IN ('MISSING', 'IN_FLIGHT')")
+                .orderByAsc(PtSubscriptionPlus::getId)
+                .list();
+    }
 }

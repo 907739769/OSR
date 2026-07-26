@@ -59,10 +59,6 @@ public class PtDownloaderPlus extends BaseEntity {
     @TableField("save_path")
     private String savePath;
 
-    /** 关联的 STRM 任务ID(openlist_strm_task.strm_task_id)，下载完成后据此触发一次增量生成，为空则不触发 */
-    @TableField("strm_task_id")
-    private Integer strmTaskId;
-
     /** 推送时打的标签 */
     @TableField("tag")
     private String tag;

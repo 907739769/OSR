@@ -23,6 +23,11 @@ export function usePtFilterConfig() {
   const saving = ref(false)
   const formRef = ref<any>()
 
+  /** 1 GB = 1073741824 字节 */
+  const GB = 1073741824
+
+  const sizeFields = new Set(['minSize', 'maxSize', 'preferredSize'] as const)
+
   const form = reactive<PtFilterConfig>({
     minSeeders: 1,
     minSize: 0,
@@ -53,7 +58,12 @@ export function usePtFilterConfig() {
         getPtFilterConfigApi(),
         getSortDimensionsApi()
       ])
-      Object.assign(form, config)
+      // 体积字段后端存字节，前端显示 GB
+      const gbConfig = { ...config }
+      for (const field of sizeFields) {
+        gbConfig[field] = Math.round((config[field] || 0) / GB)
+      }
+      Object.assign(form, gbConfig)
       allDimensions.value = dimensions || []
       // 已配置的在前保持原顺序，未出现在配置里的补到末尾，避免新增维度后消失
       const configured = (config.sortPriority || '')
@@ -89,7 +99,12 @@ export function usePtFilterConfig() {
     }
     saving.value = true
     try {
-      await updatePtFilterConfigApi({ ...form, sortPriority: sortOrder.value.join(',') })
+      // 体积字段前端显示 GB，后端存字节
+      const bytesForm: any = { ...form, sortPriority: sortOrder.value.join(',') }
+      for (const field of sizeFields) {
+        bytesForm[field] = (form[field] || 0) * GB
+      }
+      await updatePtFilterConfigApi(bytesForm)
       ElMessage.success('保存成功')
       await load()
     } catch (e) {

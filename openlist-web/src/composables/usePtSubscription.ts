@@ -40,7 +40,7 @@ export function usePtSubscription() {
     idField: 'id',
     initForm: () => ({ id: undefined }),
     rules: {},
-    defaultQuery: { title: undefined, mediaType: undefined, status: undefined, sortBy: undefined }
+    defaultQuery: { title: undefined, mediaType: undefined, status: 'ACTIVE', sortBy: undefined }
   })
 
   // ---------- 建订阅向导 ----------
@@ -179,6 +179,10 @@ export function usePtSubscription() {
 
   const FILTER_OVERRIDE_KEYS = Object.keys(filterOverrideForm) as Array<keyof typeof filterOverrideForm>
 
+  /** 前端用 GB 显示，后端存字节；1 GB = 1073741824 字节 */
+  const GB = 1073741824
+  const sizeFields = new Set<keyof typeof filterOverrideForm>(['minSize', 'maxSize', 'preferredSize'])
+
   const openFilterOverride = (row: any) => {
     filterOverrideSubId.value = row.id
     FILTER_OVERRIDE_KEYS.forEach((key) => {
@@ -195,7 +199,10 @@ export function usePtSubscription() {
     FILTER_OVERRIDE_KEYS.forEach((key) => {
       if (Object.prototype.hasOwnProperty.call(parsed, key)) {
         filterOverrideForm[key].enabled = true
-        filterOverrideForm[key].value = parsed[key]
+        // 体积字段后端存字节，前端显示 GB（除以 GB），未定义或0时展示0
+        filterOverrideForm[key].value = sizeFields.has(key)
+          ? Math.round((parsed[key] as number) / GB)
+          : parsed[key]
       }
     })
     filterOverrideOpen.value = true
@@ -208,7 +215,10 @@ export function usePtSubscription() {
       const override: Record<string, any> = {}
       FILTER_OVERRIDE_KEYS.forEach((key) => {
         if (filterOverrideForm[key].enabled) {
-          override[key] = filterOverrideForm[key].value
+          // 体积字段前端显示 GB，后端存字节（乘以 GB）
+          override[key] = sizeFields.has(key)
+            ? (filterOverrideForm[key].value as number) * GB
+            : filterOverrideForm[key].value
         }
       })
       // 空字符串而非 null：updateById 默认按"非空字段才更新"，传 null 无法清空已有覆盖，
@@ -276,6 +286,36 @@ export function usePtSubscription() {
     }
   }
 
+  // ---------- 一键补齐全部缺集 ----------
+
+  const searchAllMissingLoading = ref(false)
+
+  const handleSearchAllMissing = async () => {
+    if (!currentSubscription.value || !progress.value?.missingEpisodes?.length) return
+    searchAllMissingLoading.value = true
+    const missing = [...progress.value.missingEpisodes] as number[]
+    let pushedCount = 0
+    for (const ep of missing) {
+      const keyword = `${currentSubscription.value.title} S${String(currentSubscription.value.season).padStart(2, '0')}E${String(ep).padStart(2, '0')}`
+      try {
+        const result = await searchSupplementApi(currentSubscription.value.id, {
+          episode: ep,
+          keyword
+        })
+        if (result.pushed) pushedCount++
+      } catch (e) {
+        console.error(`第${ep}集补搜失败：`, e)
+      }
+    }
+    ElMessage.success(`已完成搜索：${pushedCount}/${missing.length} 集已推送下载`)
+    // 刷新进度
+    if (currentSubscription.value) {
+      progress.value = await getSubscriptionProgressApi(currentSubscription.value.id)
+    }
+    base.getList()
+    searchAllMissingLoading.value = false
+  }
+
   const toggleAutoSearch = async (row: any) => {
     try {
       await updatePtSubscriptionApi({ id: row.id, autoSearch: row.autoSearch })
@@ -337,6 +377,28 @@ export function usePtSubscription() {
   // ---------- 批量操作 ----------
 
   const selectionMode = ref(false)
+
+  /** 当前页所有项是否全部已选 */
+  const isAllPageSelected = computed(() =>
+    base.taskList.value.length > 0 && base.taskList.value.every((item: any) => base.selectedIds.value.includes(item.id))
+  )
+  /** 当前页部分选中（有选中的但不全） */
+  const isIndeterminate = computed(() =>
+    !isAllPageSelected.value && base.taskList.value.some((item: any) => base.selectedIds.value.includes(item.id))
+  )
+
+  const toggleSelectAllPage = (checked: string | number | boolean) => {
+    if (checked) {
+      for (const item of base.taskList.value) {
+        if (!base.selectedIds.value.includes(item.id)) {
+          base.selectedIds.value.push(item.id)
+        }
+      }
+    } else {
+      const pageIds = new Set(base.taskList.value.map((item: any) => item.id))
+      base.selectedIds.value = base.selectedIds.value.filter((id: number) => !pageIds.has(id))
+    }
+  }
 
   const toggleSubSelect = (row: any) => {
     const idx = base.selectedIds.value.indexOf(row.id)
@@ -422,11 +484,14 @@ export function usePtSubscription() {
     openFilterOverride, saveFilterOverride,
     // 搜索补集
     searchDialogOpen, searchDialogLoading, searchDialogKeyword,
-    openSeasonSearch, openEpisodeSearch, confirmSearch, toggleAutoSearch,
+    openSeasonSearch, openEpisodeSearch, confirmSearch,
+    // 一键补齐全部缺集
+    searchAllMissingLoading, handleSearchAllMissing, toggleAutoSearch,
     // 行操作
     handleRefresh, handlePause, handleResume, handleRemove,
     // 批量操作
-    selectionMode, toggleSubSelect, isSubSelected, handleBatchPause, handleBatchResume,
+    selectionMode, isAllPageSelected, isIndeterminate, toggleSelectAllPage,
+    toggleSubSelect, isSubSelected, handleBatchPause, handleBatchResume,
     // 移动端分页 & 搜索面板
     totalPages, prevPage, nextPage, handleSizeChange, searchCollapsed
   }
