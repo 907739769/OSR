@@ -170,6 +170,7 @@ export function usePtSubscription() {
     minSize: { enabled: false, value: 0 as number },
     maxSize: { enabled: false, value: 0 as number },
     freeOnly: { enabled: false, value: '0' as string },
+    requireChineseSubtitle: { enabled: false, value: '0' as string },
     includeKeywords: { enabled: false, value: '' as string },
     excludeKeywords: { enabled: false, value: '' as string },
     resolutionWhitelist: { enabled: false, value: '' as string },

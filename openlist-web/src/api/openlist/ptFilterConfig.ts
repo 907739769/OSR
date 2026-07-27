@@ -17,6 +17,8 @@ export interface PtFilterConfig {
   /** 排序维度顺序，逗号分隔 */
   sortPriority?: string
   preferredSize?: number
+  /** 外语电影是否需要中文字幕 0-否 1-是 */
+  requireChineseSubtitle?: string
 }
 
 export function getPtFilterConfigApi() {

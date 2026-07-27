@@ -18,6 +18,7 @@ import com.ruoyi.openliststrm.pt.filter.FilterCriteriaFactory;
 import com.ruoyi.openliststrm.pt.filter.TorrentFilterEngine;
 import com.ruoyi.openliststrm.pt.indexer.GuidHasher;
 import com.ruoyi.openliststrm.pt.model.TorrentInfo;
+import com.ruoyi.openliststrm.pt.subscription.TmdbSearchService;
 import com.ruoyi.openliststrm.pt.subscription.dto.MatchResult;
 import com.ruoyi.openliststrm.pt.task.DownloadRecordState;
 import com.ruoyi.openliststrm.rename.MediaParser;
@@ -72,6 +73,7 @@ public class SubscriptionEngine {
     private final TorrentFilterEngine filterEngine;
     private final SubscriptionMatcher matcher;
     private final SearchLogService searchLogService;
+    private final TmdbSearchService tmdbSearchService;
 
     /**
      * 本地标题解析器。parseLocal 只做本地正则抽取，不查 TMDb、不调 AI，所以传 null 客户端即可；
@@ -88,7 +90,8 @@ public class SubscriptionEngine {
                               DownloaderClientFactory downloaderClientFactory,
                               TorrentFilterEngine filterEngine,
                               SubscriptionMatcher matcher,
-                              SearchLogService searchLogService) {
+                              SearchLogService searchLogService,
+                              TmdbSearchService tmdbSearchService) {
         this.subscriptionService = subscriptionService;
         this.episodeService = episodeService;
         this.recordService = recordService;
@@ -98,6 +101,7 @@ public class SubscriptionEngine {
         this.filterEngine = filterEngine;
         this.matcher = matcher;
         this.searchLogService = searchLogService;
+        this.tmdbSearchService = tmdbSearchService;
     }
 
     /**
@@ -209,7 +213,8 @@ public class SubscriptionEngine {
         }
 
         FilterCriteria criteria = FilterCriteriaFactory.build(globalConfig, sub.getFilterOverride());
-        List<TorrentFilterEngine.Verdict> verdicts = filterEngine.evaluate(fresh, criteria);
+        String originalLanguage = tmdbSearchService.getOriginalLanguage(sub.getMediaType(), sub.getTmdbId());
+        List<TorrentFilterEngine.Verdict> verdicts = filterEngine.evaluate(fresh, criteria, originalLanguage);
         searchLogService.recordVerdicts(sub.getId(), match.getEpisode(), source, verdicts);
         List<TorrentInfo> survivors = verdicts.stream()
                 .filter(TorrentFilterEngine.Verdict::accepted)

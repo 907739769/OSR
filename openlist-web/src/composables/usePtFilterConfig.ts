@@ -38,7 +38,8 @@ export function usePtFilterConfig() {
     resolutionPriority: '',
     resolutionWhitelist: '',
     sortPriority: '',
-    preferredSize: 0
+    preferredSize: 0,
+    requireChineseSubtitle: '0'
   })
 
   /** 排序维度的当前顺序，用有序数组承载，提交时拼成逗号分隔串 */

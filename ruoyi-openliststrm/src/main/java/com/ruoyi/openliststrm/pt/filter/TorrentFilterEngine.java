@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Pattern;
 
 /**
  * 种子过滤与择优引擎。纯逻辑，不读数据库、不发网络请求——生效条件由调用方
@@ -19,6 +20,27 @@ import java.util.Locale;
 @Slf4j
 @Component
 public class TorrentFilterEngine {
+
+    /**
+     * 中文字幕标识正则——匹配种子标题或描述中的常见中文字幕标注。
+     * <p>
+     * 覆盖以下常见 PT 站命名惯例：
+     * <ul>
+     *   <li>CHS / CHT（简中/繁中）</li>
+     *   <li>SUBCHS / SUBCHT（内嵌中字变体）</li>
+     *   <li>中字 / 繁中 / 简中</li>
+     *   <li>Chinese Subtitle / Chinese Subtitles</li>
+     *   <li>简英 / 繁英 / 简繁英（双语字幕）</li>
+     *   <li>国粤 / 双语（中文字幕隐含）</li>
+     * </ul>
+     * </p>
+     */
+    private static final Pattern CHINESE_SUBTITLE_PATTERN = Pattern.compile(
+            "\\b(CHS|CHT|SUBCHS|SUBCHT)\\b" +
+            "|中字|繁中|简中|繁体中文字幕|简体中文字幕" +
+            "|\\bChinese\\s+Subtitle(s)?\\b" +
+            "|简英|繁英|简繁英|国粤|双语",
+            Pattern.CASE_INSENSITIVE);
 
     /**
      * 候选种子的过滤裁决：{@code rejectReason} 为 null 表示通过。
@@ -33,11 +55,13 @@ public class TorrentFilterEngine {
      * 逐条给出候选的过滤裁决与具体原因，供调用方落库供前端排查
      * （见 {@link com.ruoyi.openliststrm.pt.subscription.SubscriptionEngine}）。
      * {@link #filter} 基于本方法实现，两者的淘汰判定逻辑保证一致。
+     *
+     * @param originalLanguage 影片的原始语言代码（如 "en"、"zh"），为 null 则跳过中字检查
      */
-    public List<Verdict> evaluate(List<TorrentInfo> candidates, FilterCriteria criteria) {
+    public List<Verdict> evaluate(List<TorrentInfo> candidates, FilterCriteria criteria, String originalLanguage) {
         List<Verdict> verdicts = new ArrayList<>();
         for (TorrentInfo torrent : candidates) {
-            verdicts.add(new Verdict(torrent, rejectReason(torrent, criteria)));
+            verdicts.add(new Verdict(torrent, rejectReason(torrent, criteria, originalLanguage)));
         }
         return verdicts;
     }
@@ -51,9 +75,9 @@ public class TorrentFilterEngine {
      *
      * @return 新的可变列表，调用方修改它不会影响入参
      */
-    public List<TorrentInfo> filter(List<TorrentInfo> candidates, FilterCriteria criteria) {
+    public List<TorrentInfo> filter(List<TorrentInfo> candidates, FilterCriteria criteria, String originalLanguage) {
         List<TorrentInfo> survivors = new ArrayList<>();
-        for (Verdict verdict : evaluate(candidates, criteria)) {
+        for (Verdict verdict : evaluate(candidates, criteria, originalLanguage)) {
             if (verdict.accepted()) {
                 survivors.add(verdict.torrent());
             } else {
@@ -104,8 +128,10 @@ public class TorrentFilterEngine {
 
     /**
      * 返回淘汰原因；返回 null 表示通过。
+     *
+     * @param originalLanguage 影片的原始语言代码（如 "en"、"zh"），为 null 则跳过中字检查
      */
-    private String rejectReason(TorrentInfo torrent, FilterCriteria criteria) {
+    private String rejectReason(TorrentInfo torrent, FilterCriteria criteria, String originalLanguage) {
         if (torrent.getSeeders() < criteria.minSeeders()) {
             return "做种数 " + torrent.getSeeders() + " 低于下限 " + criteria.minSeeders();
         }
@@ -143,7 +169,41 @@ public class TorrentFilterEngine {
         if (!criteria.includeKeywords().isEmpty() && !containsAny(lower, criteria.includeKeywords())) {
             return "未命中任何包含词 " + criteria.includeKeywords();
         }
+
+        // 外语电影中字检测
+        if (criteria.requireChineseSubtitle() && isForeignLanguage(originalLanguage)) {
+            if (!hasChineseSubtitle(torrent)) {
+                return "外语电影(originalLanguage=" + originalLanguage + ")，标题/描述中未检测到中文字幕标识";
+            }
+        }
+
         return null;
+    }
+
+    /**
+     * 判断是否为外语电影（需中文字幕检查适用的范围）。
+     * <p>
+     * originalLanguage 为 null 时（API 不可用/未配置），跳过检查（安全失败）；
+     * 以 "zh" 开头（zh / zh-CN / zh-TW 等）视为中文电影，不需要检查中文字幕。
+     * </p>
+     */
+    private boolean isForeignLanguage(String originalLanguage) {
+        return originalLanguage != null && !originalLanguage.toLowerCase(Locale.ROOT).startsWith("zh");
+    }
+
+    /**
+     * 检测种子标题或描述中是否包含常见的中文字幕标识。
+     */
+    private boolean hasChineseSubtitle(TorrentInfo torrent) {
+        String text = torrent.getTitle();
+        if (CHINESE_SUBTITLE_PATTERN.matcher(text).find()) {
+            return true;
+        }
+        String description = torrent.getDescription();
+        if (StringUtils.isNotBlank(description) && CHINESE_SUBTITLE_PATTERN.matcher(description).find()) {
+            return true;
+        }
+        return false;
     }
 
     private boolean containsAny(String lowerTitle, List<String> keywords) {

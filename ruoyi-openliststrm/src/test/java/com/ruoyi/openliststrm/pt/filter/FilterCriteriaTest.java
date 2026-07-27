@@ -37,7 +37,7 @@ class FilterCriteriaTest {
     void 列表字段被防御性拷贝_外部修改不影响已构造的条件() {
         List<String> mutable = new java.util.ArrayList<>(List.of("1080p"));
         FilterCriteria criteria = new FilterCriteria(
-                1, 0L, 0L, false, List.of(), List.of(), mutable, List.of(), List.of(SortDimension.SEEDERS), 0L);
+                1, 0L, 0L, false, List.of(), List.of(), mutable, List.of(), List.of(SortDimension.SEEDERS), 0L, false);
 
         mutable.add("720p");
 
@@ -47,7 +47,7 @@ class FilterCriteriaTest {
     @Test
     void 列表字段不可变_尝试修改抛异常() {
         FilterCriteria criteria = new FilterCriteria(
-                1, 0L, 0L, false, List.of(), List.of(), List.of("1080p"), List.of(), List.of(SortDimension.SEEDERS), 0L);
+                1, 0L, 0L, false, List.of(), List.of(), List.of("1080p"), List.of(), List.of(SortDimension.SEEDERS), 0L, false);
 
         assertThrows(UnsupportedOperationException.class, () -> criteria.resolutionPriority().add("720p"));
     }
@@ -55,7 +55,7 @@ class FilterCriteriaTest {
     @Test
     void 排序维度为空_回退到内置默认顺序() {
         FilterCriteria criteria = new FilterCriteria(
-                1, 0L, 0L, false, List.of(), List.of(), List.of(), List.of(), List.of(), 0L);
+                1, 0L, 0L, false, List.of(), List.of(), List.of(), List.of(), List.of(), 0L, false);
 
         // 空的排序配置会让择优退化成"随便挑一个"，必须有兜底
         assertEquals(FilterCriteria.DEFAULT_SORT_PRIORITY, criteria.sortPriority());
@@ -66,7 +66,7 @@ class FilterCriteriaTest {
         // 后续阶段会直接 new 这个 public record，不能指望调用方永远传非 null；
         // null 应归一为空列表，与"空 -> 不限/回退默认"的既有语义保持一致
         FilterCriteria criteria = assertDoesNotThrow(() -> new FilterCriteria(
-                1, 0L, 0L, false, null, null, null, null, null, 0L));
+                1, 0L, 0L, false, null, null, null, null, null, 0L, false));
 
         assertTrue(criteria.includeKeywords().isEmpty());
         assertTrue(criteria.excludeKeywords().isEmpty());

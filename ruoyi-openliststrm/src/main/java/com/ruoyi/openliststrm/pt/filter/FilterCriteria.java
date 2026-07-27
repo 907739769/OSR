@@ -21,6 +21,7 @@ import java.util.List;
  * @param resolutionWhitelist 分辨率白名单，非空时硬性过滤——不在白名单里的直接淘汰；空列表表示不限
  * @param sortPriority      排序维度顺序；传空列表时回退到 {@link #DEFAULT_SORT_PRIORITY}
  * @param preferredSize     体积接近度的目标值(字节)，0 表示该维度不参与比较
+ * @param requireChineseSubtitle 外语电影(originalLanguage 不以 zh 开头)是否需要中文字幕标识
  * @author Jack
  */
 public record FilterCriteria(
@@ -33,7 +34,8 @@ public record FilterCriteria(
         List<String> resolutionPriority,
         List<String> resolutionWhitelist,
         List<SortDimension> sortPriority,
-        long preferredSize) {
+        long preferredSize,
+        boolean requireChineseSubtitle) {
 
     /** 未配置排序维度时的兜底顺序，与建表脚本的默认值一致 */
     public static final List<SortDimension> DEFAULT_SORT_PRIORITY =

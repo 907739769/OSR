@@ -27,6 +27,16 @@
           <span class="form-tip">开启后 50% 促销种也会被淘汰，只留完全免费的</span>
         </el-form-item>
 
+        <el-form-item label="外语电影需中字">
+          <el-radio-group v-model="form.requireChineseSubtitle">
+            <el-radio value="0">否</el-radio>
+            <el-radio value="1">是</el-radio>
+          </el-radio-group>
+          <span class="form-tip">
+            外语电影（TMDb 原始语言非中文）的种子标题或描述中未检测到中文字幕标识（CHS/CHT/中字等）时直接淘汰。中文电影自动跳过此规则
+          </span>
+        </el-form-item>
+
         <el-form-item label="分辨率白名单">
           <el-input v-model="form.resolutionWhitelist" placeholder="如 2160p,1080p；留空表示不限" />
           <span class="form-tip">

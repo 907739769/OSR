@@ -376,6 +376,13 @@
             <el-radio value="1">是</el-radio>
           </el-radio-group>
         </el-form-item>
+        <el-form-item label="外语电影需中字">
+          <el-checkbox v-model="filterOverrideForm.requireChineseSubtitle.enabled" class="override-checkbox" />
+          <el-radio-group v-model="filterOverrideForm.requireChineseSubtitle.value" :disabled="!filterOverrideForm.requireChineseSubtitle.enabled">
+            <el-radio value="0">否</el-radio>
+            <el-radio value="1">是</el-radio>
+          </el-radio-group>
+        </el-form-item>
         <el-form-item label="分辨率白名单">
           <el-checkbox v-model="filterOverrideForm.resolutionWhitelist.enabled" class="override-checkbox" />
           <el-input

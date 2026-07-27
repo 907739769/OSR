@@ -80,6 +80,9 @@ public class TorrentInfo {
     /** 解析出的媒介来源，如 WEB-DL、BluRay、Remux */
     private String parsedSource;
 
+    /** 种子描述（RSS &lt;description&gt;），部分 PT 站会在描述中标注字幕信息 */
+    private String description;
+
     /** 解析后的发布时间；原始字符串见 {@link #pubDate}，本字段不变动 pubDate */
     private Date parsedPubTime;
 

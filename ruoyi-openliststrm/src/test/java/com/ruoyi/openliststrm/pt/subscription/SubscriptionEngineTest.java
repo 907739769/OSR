@@ -54,6 +54,7 @@ class SubscriptionEngineTest {
     @Mock private DownloaderClientFactory downloaderClientFactory;
     @Mock private IDownloaderClient downloaderClient;
     @Mock private SearchLogService searchLogService;
+    @Mock private TmdbSearchService tmdbSearchService;
 
     private SubscriptionEngine engine;
 
@@ -62,7 +63,7 @@ class SubscriptionEngineTest {
         engine = new SubscriptionEngine(
                 subscriptionService, episodeService, recordService, downloaderService,
                 filterConfigService, downloaderClientFactory,
-                new TorrentFilterEngine(), new SubscriptionMatcher(), searchLogService);
+                new TorrentFilterEngine(), new SubscriptionMatcher(), searchLogService, tmdbSearchService);
 
         PtFilterConfigPlus config = new PtFilterConfigPlus();
         config.setMinSeeders(0);
@@ -202,6 +203,8 @@ class SubscriptionEngineTest {
         when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(102, 2, "MISSING")));
         PtDownloadRecordPlus existing = new PtDownloadRecordPlus();
         existing.setGuidHash(com.ruoyi.openliststrm.pt.indexer.GuidHasher.hash("g1"));
+        existing.setDownloaderId(1);
+        existing.setIndexerId(1);
         when(recordService.list(any(Wrapper.class))).thenReturn(List.of(existing));
 
         assertEquals(0, engine.process(List.of(torrent("Some.Show.S01E02.1080p", "g1", 10, "1080p"))));

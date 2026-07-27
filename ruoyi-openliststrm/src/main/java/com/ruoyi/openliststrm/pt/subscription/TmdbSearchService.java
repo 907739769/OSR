@@ -77,6 +77,43 @@ public class TmdbSearchService {
     }
 
     /**
+     * 查询影片的原始语言代码（如 "zh"、"en"、"ja"、"ko" 等）。
+     * <p>
+     * 利用 TMDb API /movie/{id} 或 /tv/{id} 的详情响应中的 {@code original_language} 字段。
+     * API 响应已有进程内缓存(L1,10min)与数据库缓存(L2,24h)，同一影片的频繁查询不会触发重复网络请求。
+     * </p>
+     *
+     * @param mediaType TV / MOVIE
+     * @param tmdbId    TMDb ID
+     * @return 原始语言代码；API 不可用或无 key 时返回 null（调用方应视作"未知"，跳过语言相关过滤）
+     */
+    public String getOriginalLanguage(String mediaType, String tmdbId) {
+        if (StringUtils.isBlank(tmdbId) || StringUtils.isBlank(mediaType)) {
+            return null;
+        }
+        String apiKey = openlistConfig.getTmdbApiKey();
+        if (StringUtils.isBlank(apiKey)) {
+            log.debug("TMDb API Key 未配置，无法查询 originalLanguage");
+            return null;
+        }
+        try {
+            JSONObject detail = readObject(tmDbApiService.getDetails(
+                    apiKey, tmdbType(mediaType), Integer.parseInt(tmdbId)));
+            if (detail == null) {
+                log.warn("TMDb 未返回 tmdbId={} 的详情，无法获取 originalLanguage", tmdbId);
+                return null;
+            }
+            return detail.getString("original_language");
+        } catch (NumberFormatException e) {
+            log.warn("tmdbId 格式非法：{}", tmdbId);
+            return null;
+        } catch (Exception e) {
+            log.warn("查询 TMDb originalLanguage 异常（tmdbId={}）：{}", tmdbId, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
      * 电影详情接口（/movie/{id}）本身带 imdb_id，直接取，不产生额外请求；
      * 剧集详情接口（/tv/{id}）没有该字段，需要多查一次 external_ids。
      * 两种情况都取不到时返回 null——imdbId 为空是允许的降级路径（走标题搜索）。

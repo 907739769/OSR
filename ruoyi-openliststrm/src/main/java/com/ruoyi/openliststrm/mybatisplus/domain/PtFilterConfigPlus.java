@@ -72,6 +72,10 @@ public class PtFilterConfigPlus extends BaseEntity {
     @TableField("preferred_size")
     private Long preferredSize;
 
+    /** 外语电影是否需要中文字幕 0-否 1-是 */
+    @TableField("require_chinese_subtitle")
+    private String requireChineseSubtitle;
+
     /** 自动补搜的全局周期(小时) */
     @TableField("auto_search_interval_hours")
     private Integer autoSearchIntervalHours;

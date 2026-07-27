@@ -102,6 +102,8 @@ public final class TorznabParser {
         }
         info.setSize(size);
 
+        info.setDescription(StringUtils.trimToNull(childText(item, "description")));
+
         info.setSeeders((int) parseLong(attrValue(item, "seeders"), 0L));
         info.setPeers((int) parseLong(attrValue(item, "peers"), 0L));
         info.setInfoHash(StringUtils.trimToNull(attrValue(item, "infohash")));

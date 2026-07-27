@@ -65,7 +65,8 @@ public class MysqlDdl extends SimpleDdl {
                 "sql/20260740-notify-webhook-config.sql",
                 "sql/20260741-pt-stats-menu.sql",
                 "sql/20260742-pt-downloader-max-concurrency.sql",
-                "sql/20260743-pt-downloader-remove-strm-task-id.sql"
+                "sql/20260743-pt-downloader-remove-strm-task-id.sql",
+                "sql/20260744-pt-filter-require-chinese-subtitle.sql"
         );
     }
 }
