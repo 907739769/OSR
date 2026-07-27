@@ -13,6 +13,7 @@ import {
   pauseSubscriptionApi,
   resumeSubscriptionApi,
   searchSupplementApi,
+  pushSelectedCandidateApi,
   getSubscriptionSearchLogsApi,
   batchPauseSubscriptionApi,
   batchResumeSubscriptionApi,
@@ -243,7 +244,13 @@ export function usePtSubscription() {
   const searchDialogOpen = ref(false)
   const searchDialogLoading = ref(false)
   const searchDialogKeyword = ref('')
+  const searchManualSelect = ref(false)
   const searchDialogTarget = ref<{ subId: number; episode: number } | null>(null)
+
+  /** 手动选择候选弹窗 */
+  const candidateDialogOpen = ref(false)
+  const candidates = ref<any[]>([])
+  const pushingSelected = ref(false)
 
   const pad2 = (n: number) => (n < 10 ? '0' + n : String(n))
 
@@ -252,6 +259,7 @@ export function usePtSubscription() {
     const isMovie = row.mediaType === 'MOVIE'
     searchDialogTarget.value = { subId: row.id, episode: isMovie ? 0 : -1 }
     searchDialogKeyword.value = isMovie ? row.title : `${row.title} S${pad2(row.season)}`
+    searchManualSelect.value = false
     searchDialogOpen.value = true
   }
 
@@ -259,6 +267,7 @@ export function usePtSubscription() {
   const openEpisodeSearch = (row: any, episode: number) => {
     searchDialogTarget.value = { subId: row.id, episode }
     searchDialogKeyword.value = `${row.title} S${pad2(row.season)}E${pad2(episode)}`
+    searchManualSelect.value = false
     searchDialogOpen.value = true
   }
 
@@ -268,23 +277,79 @@ export function usePtSubscription() {
       ElMessage.warning('请输入搜索关键词')
       return
     }
+    const target = searchDialogTarget.value
+    const manualSelect = searchManualSelect.value
     searchDialogLoading.value = true
     try {
-      const result = await searchSupplementApi(searchDialogTarget.value.subId, {
-        episode: searchDialogTarget.value.episode,
-        keyword: searchDialogKeyword.value.trim()
+      const result = await searchSupplementApi(target.subId, {
+        episode: target.episode,
+        keyword: searchDialogKeyword.value.trim(),
+        manualSelect
       })
-      ElMessage[result.pushed ? 'success' : 'info'](result.pushed ? '已找到并推送下载' : '未搜索到匹配资源')
-      searchDialogOpen.value = false
-      base.getList()
-      if (currentSubscription.value && currentSubscription.value.id === searchDialogTarget.value.subId) {
-        progress.value = await getSubscriptionProgressApi(searchDialogTarget.value.subId)
+
+      if (manualSelect && result.candidates && result.candidates.length > 0) {
+        // 手动模式：展示候选列表供用户挑选
+        candidates.value = result.candidates
+        searchDialogOpen.value = false
+        candidateDialogOpen.value = true
+      } else if (manualSelect && (!result.candidates || result.candidates.length === 0)) {
+        // 手动模式但无结果
+        ElMessage.info('未搜索到匹配资源')
+        searchDialogOpen.value = false
+      } else {
+        // 自动推送模式
+        ElMessage[result.pushed ? 'success' : 'info'](result.pushed ? '已找到并推送下载' : '未搜索到匹配资源')
+        searchDialogOpen.value = false
+        base.getList()
+        if (currentSubscription.value && currentSubscription.value.id === target.subId) {
+          progress.value = await getSubscriptionProgressApi(target.subId)
+        }
       }
     } catch (e) {
       console.error(e)
     } finally {
       searchDialogLoading.value = false
     }
+  }
+
+  /** 推送用户选中的候选种子 */
+  const pushSelectedCandidate = async (candidate: any) => {
+    if (!searchDialogTarget.value) return
+    pushingSelected.value = true
+    try {
+      await pushSelectedCandidateApi(searchDialogTarget.value.subId, {
+        episode: searchDialogTarget.value.episode,
+        title: candidate.title,
+        size: candidate.size,
+        seeders: candidate.seeders,
+        peers: candidate.peers,
+        downloadVolumeFactor: candidate.free ? 0 : 1,
+        indexerId: candidate.indexerId,
+        guid: candidate.guid,
+        downloadUrl: '',
+        pubDate: candidate.pubDate
+      })
+      ElMessage.success('已推送下载')
+      candidateDialogOpen.value = false
+      base.getList()
+      if (currentSubscription.value && currentSubscription.value.id === searchDialogTarget.value.subId) {
+        progress.value = await getSubscriptionProgressApi(searchDialogTarget.value.subId)
+      }
+    } catch (e) {
+      console.error(e)
+      ElMessage.error('推送失败')
+    } finally {
+      pushingSelected.value = false
+    }
+  }
+
+  /** 格式化体积为人类可读 */
+  const formatSize = (bytes: number) => {
+    if (bytes === 0) return '0 B'
+    const units = ['B', 'KB', 'MB', 'GB', 'TB']
+    const k = 1024
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + units[i]
   }
 
   // ---------- 一键补齐全部缺集 ----------
@@ -484,8 +549,10 @@ export function usePtSubscription() {
     filterOverrideOpen, filterOverrideSaving, filterOverrideForm,
     openFilterOverride, saveFilterOverride,
     // 搜索补集
-    searchDialogOpen, searchDialogLoading, searchDialogKeyword,
+    searchDialogOpen, searchDialogLoading, searchDialogKeyword, searchManualSelect,
     openSeasonSearch, openEpisodeSearch, confirmSearch,
+    // 手动选择候选
+    candidateDialogOpen, candidates, pushingSelected, pushSelectedCandidate, formatSize,
     // 一键补齐全部缺集
     searchAllMissingLoading, handleSearchAllMissing, toggleAutoSearch,
     // 行操作

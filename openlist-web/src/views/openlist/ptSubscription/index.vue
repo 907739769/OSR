@@ -297,10 +297,64 @@
         <el-form-item label="关键词">
           <el-input v-model="searchDialogKeyword" placeholder="搜索关键词，可编辑后再搜" />
         </el-form-item>
+        <el-form-item label=" ">
+          <el-checkbox v-model="searchManualSelect">
+            手动选择结果
+          </el-checkbox>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="searchDialogOpen = false">取消</el-button>
         <el-button type="primary" :loading="searchDialogLoading" @click="confirmSearch">搜索</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 候选种子手动选择 -->
+    <el-dialog v-model="candidateDialogOpen" title="选择候选种子" width="800px" append-to-body class="modern-dialog">
+      <div v-if="candidates.length === 0" style="text-align:center;padding:40px;color:var(--osr-text-secondary);">
+        未搜索到匹配资源
+      </div>
+      <el-table v-else :data="candidates" highlight-current-row height="420" size="small" @current-change="(row: any) => selectedCandidate = row">
+        <el-table-column type="index" label="#" width="48" align="center" />
+        <el-table-column label="来源" width="100">
+          <template #default="scope">
+            <el-tag size="small" type="info">{{ scope.row.indexerName }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="标题" min-width="280" show-overflow-tooltip>
+          <template #default="scope">{{ scope.row.title }}</template>
+        </el-table-column>
+        <el-table-column label="分辨率" width="80" align="center">
+          <template #default="scope">{{ scope.row.resolution || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="来源" width="80" align="center">
+          <template #default="scope">{{ scope.row.source || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="体积" width="100" align="right">
+          <template #default="scope">{{ formatSize(scope.row.size) }}</template>
+        </el-table-column>
+        <el-table-column label="做种" width="70" align="center">
+          <template #default="scope">
+            <el-tag :type="scope.row.seeders > 0 ? 'success' : 'danger'" size="small">{{ scope.row.seeders }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="免费" width="60" align="center">
+          <template #default="scope">
+            <el-tag v-if="scope.row.free" type="warning" size="small">免费</el-tag>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button @click="candidateDialogOpen = false">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="pushingSelected"
+          :disabled="!selectedCandidate"
+          @click="pushSelectedCandidate(selectedCandidate)"
+        >
+          下载选中版本
+        </el-button>
       </template>
     </el-dialog>
 
@@ -456,14 +510,18 @@ const {
   searchLogOpen, searchLogLoading, searchLogs, showSearchLogs,
   filterOverrideOpen, filterOverrideSaving, filterOverrideForm,
   openFilterOverride, saveFilterOverride,
-  searchDialogOpen, searchDialogLoading, searchDialogKeyword,
+  searchDialogOpen, searchDialogLoading, searchDialogKeyword, searchManualSelect,
   openSeasonSearch, openEpisodeSearch, confirmSearch, toggleAutoSearch,
   handleRefresh, handlePause, handleResume, handleRemove, handleDelete,
   selectedIds, selectionMode, toggleSubSelect, isSubSelected,
   handleBatchPause, handleBatchResume,
   isAllPageSelected, isIndeterminate, toggleSelectAllPage,
-  searchAllMissingLoading, handleSearchAllMissing
+  searchAllMissingLoading, handleSearchAllMissing,
+  candidateDialogOpen, candidates, pushingSelected, pushSelectedCandidate, formatSize
 } = usePtSubscription()
+
+/** 候选种子表格中当前高亮的行 */
+const selectedCandidate = ref<any>(null)
 
 /** TMDb 海报路径拼完整图片地址，w200 宽度足够列表缩略图使用 */
 const posterUrl = (path: string) => `https://image.tmdb.org/t/p/w200${path}`

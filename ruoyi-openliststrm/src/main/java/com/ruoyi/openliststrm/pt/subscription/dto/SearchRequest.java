@@ -15,4 +15,7 @@ public class SearchRequest {
 
     /** 搜索关键词，前端按标题/季集号预填，用户可编辑 */
     private String keyword;
+
+    /** 是否启用手动选择模式：true=返回候选列表供用户挑选，false（默认）=自动推送最优结果 */
+    private boolean manualSelect;
 }

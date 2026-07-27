@@ -4,13 +4,16 @@ import com.ruoyi.openliststrm.helper.TgHelper;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtIndexerPlus;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
+import com.ruoyi.openliststrm.mybatisplus.service.IPtFilterConfigPlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtIndexerPlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
+import com.ruoyi.openliststrm.pt.filter.TorrentFilterEngine;
 import com.ruoyi.openliststrm.pt.indexer.IndexerCapability;
 import com.ruoyi.openliststrm.pt.indexer.IndexerCapabilityCache;
 import com.ruoyi.openliststrm.pt.indexer.TorznabClient;
 import com.ruoyi.openliststrm.pt.model.TorrentInfo;
+import com.ruoyi.openliststrm.pt.subscription.TmdbSearchService;
 import com.ruoyi.openliststrm.pt.subscription.dto.SupplementResult;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -58,6 +61,13 @@ class SearchSupplementServiceTest {
     @Mock private IPtSubscriptionEpisodePlusService episodeService;
     // 用真实实例而非 mock：标题归一化逻辑本身就是本测试要验证的行为
     private final SubscriptionMatcher matcher = new SubscriptionMatcher();
+    @Mock
+    private IPtFilterConfigPlusService filterConfigService;
+    @Mock
+    private TorrentFilterEngine filterEngine;
+    @Mock
+    private TmdbSearchService tmdbSearchService;
+
     private IndexerCapabilityCache capabilityCache;
 
     private SearchSupplementService service;
@@ -65,7 +75,7 @@ class SearchSupplementServiceTest {
     @BeforeEach
     void setUp() {
         capabilityCache = new IndexerCapabilityCache(torznabClient);
-        service = new SearchSupplementService(indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, 10);
+        service = new SearchSupplementService(indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, 10);
     }
 
     private PtIndexerPlus indexer(int id) {
@@ -153,7 +163,7 @@ class SearchSupplementServiceTest {
     void searchAcrossIndexers_并发数不超过配置上限() throws Exception {
         int limit = 2;
         SearchSupplementService limited = new SearchSupplementService(
-                indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, limit);
+                indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, limit);
         when(indexerService.listEnabled()).thenReturn(
                 List.of(indexer(1), indexer(2), indexer(3), indexer(4), indexer(5)));
 
@@ -188,7 +198,7 @@ class SearchSupplementServiceTest {
     void searchAcrossIndexers_并发受限但最终仍处理完所有索引器() throws Exception {
         int limit = 2;
         SearchSupplementService limited = new SearchSupplementService(
-                indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, limit);
+                indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, limit);
         when(indexerService.listEnabled()).thenReturn(
                 List.of(indexer(1), indexer(2), indexer(3), indexer(4), indexer(5)));
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(torrent("t")));
@@ -201,7 +211,7 @@ class SearchSupplementServiceTest {
     @Test
     void 配置并发数小于1_至少允许1个() throws Exception {
         SearchSupplementService limited = new SearchSupplementService(
-                indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, 0);
+                indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, 0);
         when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(torrent("t")));
 

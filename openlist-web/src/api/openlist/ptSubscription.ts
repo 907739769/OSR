@@ -62,11 +62,30 @@ export function resumeSubscriptionApi(id: number) {
 }
 
 /** 搜索补集：关键词搜索所有索引器并推送最优结果 */
-export function searchSupplementApi(id: number, data: { episode: number; keyword: string }) {
-  return request.post<any, { pushed: boolean; candidateCount: number }>(
+export function searchSupplementApi(id: number, data: { episode: number; keyword: string; manualSelect?: boolean }) {
+  return request.post<any, { pushed: boolean; candidateCount: number; candidates?: any[] }>(
     `/openliststrm/pt-subscriptions/${id}/search`,
-    data
+    data,
+    { timeout: 60000 }
   )
+}
+
+/** 手动选择推送：用户在候选列表中选中一个种子后推送到下载器 */
+export function pushSelectedCandidateApi(id: number, data: {
+  episode: number
+  title: string
+  size: number
+  seeders: number
+  peers: number
+  downloadVolumeFactor: number
+  indexerId: number
+  guid: string
+  downloadUrl: string
+  infoHash?: string
+  description?: string
+  pubDate?: string
+}) {
+  return request.post(`/openliststrm/pt-subscriptions/${id}/push-selected`, data)
 }
 
 /** 查订阅最近的匹配/过滤日志，排查"这一轮为什么没抓到" */
