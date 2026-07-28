@@ -24,3 +24,17 @@ export function batchRetryPtDownloadRecordApi(ids: number[]) {
     '/openliststrm/pt-download-records/batchRetry', null, { params: { ids: ids.join(',') } }
   )
 }
+
+/** 拉黑该记录对应的种子（GUID 维度），reason 可选；返回 true=新增成功，false=已在黑名单中 */
+export function blacklistGuidApi(id: number, reason?: string) {
+  return request.post<any, boolean>(
+    `/openliststrm/pt-download-records/${id}/blacklist-guid`, reason ? { reason } : {}
+  )
+}
+
+/** 拉黑该记录标题解析出的发布组，reason 可选；返回 true=新增成功，false=已在黑名单中 */
+export function blacklistReleaseGroupApi(id: number, reason?: string) {
+  return request.post<any, boolean>(
+    `/openliststrm/pt-download-records/${id}/blacklist-release-group`, reason ? { reason } : {}
+  )
+}

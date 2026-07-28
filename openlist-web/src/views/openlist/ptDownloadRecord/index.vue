@@ -111,14 +111,33 @@
             </el-tag>
             <span>{{ item.failReason || '未知原因' }}</span>
           </div>
-          <div class="record-actions" v-if="item.state === 'FAILED'">
+          <div class="record-actions">
             <el-button
+              v-if="item.state === 'FAILED'"
               link
               type="primary"
               :loading="retryingIds.has(item.id)"
               @click="handleRetry(item)"
             >
               立即重试
+            </el-button>
+            <el-button
+              link
+              type="warning"
+              class="blacklist-guid-btn"
+              :loading="blacklistingIds.has(item.id)"
+              @click="handleBlacklistGuid(item)"
+            >
+              拉黑该种子
+            </el-button>
+            <el-button
+              link
+              type="danger"
+              class="blacklist-group-btn"
+              :loading="blacklistingIds.has(item.id)"
+              @click="handleBlacklistReleaseGroup(item)"
+            >
+              拉黑该发布组
             </el-button>
           </div>
         </div>
@@ -150,7 +169,8 @@ const showSearch = ref(window.innerWidth >= 768)
 const {
   taskList, loading, total, queryParams, getList, handleQuery, resetQuery, queryRef,
   retryingIds, handleRetry,
-  selectionMode, selectedIds, toggleRecordSelect, handleBatchRetry
+  selectionMode, selectedIds, toggleRecordSelect, handleBatchRetry,
+  blacklistingIds, handleBlacklistGuid, handleBlacklistReleaseGroup
 } = usePtDownloadRecord()
 
 const stateLabel = (state: string) => {

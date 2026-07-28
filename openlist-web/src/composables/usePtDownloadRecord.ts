@@ -1,7 +1,10 @@
 import { ref, reactive, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getPtDownloadRecordListApi, retryPtDownloadRecordApi, batchRetryPtDownloadRecordApi } from '@/api/openlist/ptDownloadRecord'
+import {
+  getPtDownloadRecordListApi, retryPtDownloadRecordApi, batchRetryPtDownloadRecordApi,
+  blacklistGuidApi, blacklistReleaseGroupApi
+} from '@/api/openlist/ptDownloadRecord'
 import type { PtDownloadRecordQuery } from '@/api/openlist/ptDownloadRecord'
 import { usePtStatusSocket } from './usePtStatusSocket'
 
@@ -104,6 +107,33 @@ export function usePtDownloadRecord() {
     }
   }
 
+  // ---------- 拉黑 ----------
+  const blacklistingIds = reactive(new Set<number>())
+
+  const handleBlacklistGuid = async (row: any) => {
+    blacklistingIds.add(row.id)
+    try {
+      const created = await blacklistGuidApi(row.id)
+      ElMessage.success(created ? '已拉黑该种子' : '该种子已在黑名单中')
+    } catch (e) {
+      console.error(e)
+    } finally {
+      blacklistingIds.delete(row.id)
+    }
+  }
+
+  const handleBlacklistReleaseGroup = async (row: any) => {
+    blacklistingIds.add(row.id)
+    try {
+      const created = await blacklistReleaseGroupApi(row.id)
+      ElMessage.success(created ? '已拉黑该发布组' : '该发布组已在黑名单中')
+    } catch (e) {
+      console.error(e)
+    } finally {
+      blacklistingIds.delete(row.id)
+    }
+  }
+
   // ---------- 移动端 - 分页辅助 ----------
   const totalPages = computed(() => Math.ceil(total.value / queryParams.pageSize!) || 1)
 
@@ -134,6 +164,7 @@ export function usePtDownloadRecord() {
     taskList, loading, total, queryParams, getList, handleQuery, resetQuery, queryRef,
     retryingIds, handleRetry,
     selectionMode, selectedIds, toggleRecordSelect, handleBatchRetry,
+    blacklistingIds, handleBlacklistGuid, handleBlacklistReleaseGroup,
     totalPages, prevPage, nextPage, handleSizeChange, searchCollapsed
   }
 }

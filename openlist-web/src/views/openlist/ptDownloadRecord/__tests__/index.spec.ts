@@ -28,6 +28,9 @@ function baseComposable(overrides: Record<string, any> = {}) {
     selectedIds: ref<number[]>([]),
     toggleRecordSelect: vi.fn(),
     handleBatchRetry: vi.fn(),
+    blacklistingIds: reactive(new Set<number>()),
+    handleBlacklistGuid: vi.fn(),
+    handleBlacklistReleaseGroup: vi.fn(),
     ...overrides
   }
 }
@@ -165,5 +168,39 @@ describe('PtDownloadRecord 批量重试', () => {
     const wrapper = mount(PtDownloadRecordPage)
     await wrapper.find('.record-card-checkbox').trigger('change')
     expect(toggleRecordSelect).toHaveBeenCalled()
+  })
+})
+
+describe('PtDownloadRecord 拉黑操作', () => {
+  it('非 FAILED 状态的卡片也显示拉黑按钮，不显示立即重试按钮', () => {
+    (usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      taskList: ref([{ id: 1, title: 'A', state: 'COMPLETED' }])
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    expect(wrapper.find('.blacklist-guid-btn').exists()).toBe(true)
+    expect(wrapper.find('.blacklist-group-btn').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('立即重试')
+  })
+
+  it('点击拉黑该种子按钮调用 handleBlacklistGuid', async () => {
+    const handleBlacklistGuid = vi.fn()
+    ;(usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      taskList: ref([{ id: 1, title: 'A', state: 'COMPLETED' }]),
+      handleBlacklistGuid
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    await wrapper.find('.blacklist-guid-btn').trigger('click')
+    expect(handleBlacklistGuid).toHaveBeenCalled()
+  })
+
+  it('点击拉黑该发布组按钮调用 handleBlacklistReleaseGroup', async () => {
+    const handleBlacklistReleaseGroup = vi.fn()
+    ;(usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      taskList: ref([{ id: 1, title: 'A', state: 'COMPLETED' }]),
+      handleBlacklistReleaseGroup
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    await wrapper.find('.blacklist-group-btn').trigger('click')
+    expect(handleBlacklistReleaseGroup).toHaveBeenCalled()
   })
 })
