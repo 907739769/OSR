@@ -8,14 +8,17 @@ import com.ruoyi.common.core.text.Convert;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtDownloadRecordPlus;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtDownloadRecordPlusService;
+import com.ruoyi.openliststrm.mybatisplus.service.IPtTorrentBlacklistPlusService;
 import com.ruoyi.openliststrm.pt.subscription.dto.SupplementResult;
 import com.ruoyi.openliststrm.pt.task.DownloadRecordAdminService;
 import com.ruoyi.openliststrm.pt.task.dto.BatchRetryResult;
 import com.ruoyi.openliststrm.pt.task.dto.DownloadRecordView;
+import com.ruoyi.openliststrm.req.BlacklistReq;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -37,6 +40,9 @@ public class PtDownloadRecordRestController extends BaseController {
 
     @Autowired
     private DownloadRecordAdminService adminService;
+
+    @Autowired
+    private IPtTorrentBlacklistPlusService blacklistService;
 
     @GetMapping({"", "/list"})
     public Result<PageResult<DownloadRecordView>> list(@RequestParam(value = "subId", required = false) Integer subId,
@@ -79,5 +85,31 @@ public class PtDownloadRecordRestController extends BaseController {
         }
         List<Integer> idList = Arrays.stream(Convert.toStrArray(ids)).map(Integer::valueOf).toList();
         return Result.success(adminService.retryBatch(idList));
+    }
+
+    /**
+     * 拉黑该下载记录对应的种子（GUID 维度）。记录不存在时返回错误；已拉黑过时幂等返回 false。
+     */
+    @PostMapping("/{id}/blacklist-guid")
+    public Result<Boolean> blacklistGuid(@PathVariable("id") Integer id,
+                                          @RequestBody(required = false) BlacklistReq req) {
+        try {
+            return Result.success(blacklistService.blockRecordGuid(id, req == null ? null : req.getReason()));
+        } catch (IllegalArgumentException e) {
+            return Result.error(e.getMessage());
+        }
+    }
+
+    /**
+     * 拉黑该下载记录标题解析出的发布组。标题解析不出发布组时返回错误；已拉黑过时幂等返回 false。
+     */
+    @PostMapping("/{id}/blacklist-release-group")
+    public Result<Boolean> blacklistReleaseGroup(@PathVariable("id") Integer id,
+                                                  @RequestBody(required = false) BlacklistReq req) {
+        try {
+            return Result.success(blacklistService.blockRecordReleaseGroup(id, req == null ? null : req.getReason()));
+        } catch (IllegalArgumentException e) {
+            return Result.error(e.getMessage());
+        }
     }
 }
