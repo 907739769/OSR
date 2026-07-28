@@ -20,12 +20,17 @@ vi.mock('@/api/openlist/ptSubscription', () => ({
   batchDeletePtSubscriptionApi: vi.fn()
 }))
 
+vi.mock('../usePtStatusSocket', () => ({
+  usePtStatusSocket: vi.fn()
+}))
+
 import { usePtSubscription } from '../usePtSubscription'
 import {
   getPtSubscriptionListApi,
   batchPauseSubscriptionApi,
   batchResumeSubscriptionApi
 } from '@/api/openlist/ptSubscription'
+import { usePtStatusSocket } from '../usePtStatusSocket'
 
 describe('usePtSubscription 的批量暂停/恢复', () => {
   let confirmSpy: any
@@ -90,5 +95,35 @@ describe('usePtSubscription 的批量暂停/恢复', () => {
     expect(composable.isSubSelected(7)).toBe(true)
     composable.toggleSubSelect({ id: 7 })
     expect(composable.isSubSelected(7)).toBe(false)
+  })
+})
+
+describe('usePtSubscription 实时状态推送', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(getPtSubscriptionListApi as any).mockResolvedValue({ records: [], total: 0 })
+    ;(usePtStatusSocket as any).mockReturnValue({ connect: vi.fn(), disconnect: vi.fn() })
+  })
+
+  it('收到 subscription 事件后原地更新对应行的 lastMatchTime，不重新整页拉取', () => {
+    const composable = usePtSubscription()
+    composable.taskList.value = [
+      { id: 1, lastMatchTime: null },
+      { id: 2, lastMatchTime: '2026-01-01 00:00:00' }
+    ]
+
+    const handlers = (usePtStatusSocket as any).mock.calls[0][0]
+    handlers.onSubscription({ type: 'subscription', subId: 1, lastMatchTime: '2026-07-24 15:30:00' })
+
+    expect(composable.taskList.value[0].lastMatchTime).toBe('2026-07-24 15:30:00')
+    expect(composable.taskList.value[1].lastMatchTime).toBe('2026-01-01 00:00:00')
+  })
+
+  it('找不到对应行时静默忽略，不抛异常', () => {
+    const composable = usePtSubscription()
+    composable.taskList.value = [{ id: 1, lastMatchTime: null }]
+
+    const handlers = (usePtStatusSocket as any).mock.calls[0][0]
+    expect(() => handlers.onSubscription({ type: 'subscription', subId: 999, lastMatchTime: '2026-07-24 15:30:00' })).not.toThrow()
   })
 })

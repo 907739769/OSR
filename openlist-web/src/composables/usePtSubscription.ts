@@ -1,6 +1,7 @@
 import { ref, reactive, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useTaskList } from './useTaskList'
+import { usePtStatusSocket } from './usePtStatusSocket'
 import {
   getPtSubscriptionListApi,
   addPtSubscriptionApi,
@@ -41,6 +42,16 @@ export function usePtSubscription() {
     initForm: () => ({ id: undefined }),
     rules: {},
     defaultQuery: { title: undefined, mediaType: undefined, status: undefined, sortBy: undefined }
+  })
+
+  // ---------- 实时状态推送：订阅命中时间原地更新，不用整页刷新 ----------
+  usePtStatusSocket({
+    onSubscription: (event) => {
+      const row = base.taskList.value.find((item: any) => item.id === event.subId)
+      if (row) {
+        Object.assign(row, { lastMatchTime: event.lastMatchTime })
+      }
+    }
   })
 
   // ---------- 建订阅向导 ----------
