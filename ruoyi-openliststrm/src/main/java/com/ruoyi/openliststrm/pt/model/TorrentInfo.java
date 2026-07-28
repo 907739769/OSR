@@ -80,6 +80,9 @@ public class TorrentInfo {
     /** 解析出的媒介来源，如 WEB-DL、BluRay、Remux */
     private String parsedSource;
 
+    /** 解析出的发布组，如 CHDWEB；未解析出时为 null */
+    private String parsedReleaseGroup;
+
     /** 解析后的发布时间；原始字符串见 {@link #pubDate}，本字段不变动 pubDate */
     private Date parsedPubTime;
 

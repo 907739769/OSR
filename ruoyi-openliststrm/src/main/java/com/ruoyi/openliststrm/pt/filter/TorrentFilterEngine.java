@@ -1,6 +1,7 @@
 package com.ruoyi.openliststrm.pt.filter;
 
 import com.ruoyi.common.utils.StringUtils;
+import com.ruoyi.openliststrm.pt.indexer.GuidHasher;
 import com.ruoyi.openliststrm.pt.model.TorrentInfo;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -12,7 +13,8 @@ import java.util.Locale;
 
 /**
  * 种子过滤与择优引擎。纯逻辑，不读数据库、不发网络请求——生效条件由调用方
- * 通过 {@link FilterCriteria} 传入（见 {@link FilterCriteriaFactory}）。
+ * 通过 {@link FilterCriteria} 传入（见 {@link FilterCriteriaFactory}），
+ * 黑名单规则由调用方通过 {@link TorrentBlacklist} 传入。
  *
  * @author Jack
  */
@@ -33,11 +35,19 @@ public class TorrentFilterEngine {
      * 逐条给出候选的过滤裁决与具体原因，供调用方落库供前端排查
      * （见 {@link com.ruoyi.openliststrm.pt.subscription.SubscriptionEngine}）。
      * {@link #filter} 基于本方法实现，两者的淘汰判定逻辑保证一致。
+     * <p>不传黑名单时等价于 {@link TorrentBlacklist#EMPTY}，行为与改动前完全一致。</p>
      */
     public List<Verdict> evaluate(List<TorrentInfo> candidates, FilterCriteria criteria) {
+        return evaluate(candidates, criteria, TorrentBlacklist.EMPTY);
+    }
+
+    /**
+     * 三参重载：额外传入生效的种子/发布组黑名单。
+     */
+    public List<Verdict> evaluate(List<TorrentInfo> candidates, FilterCriteria criteria, TorrentBlacklist blacklist) {
         List<Verdict> verdicts = new ArrayList<>();
         for (TorrentInfo torrent : candidates) {
-            verdicts.add(new Verdict(torrent, rejectReason(torrent, criteria)));
+            verdicts.add(new Verdict(torrent, rejectReason(torrent, criteria, blacklist)));
         }
         return verdicts;
     }
@@ -52,8 +62,15 @@ public class TorrentFilterEngine {
      * @return 新的可变列表，调用方修改它不会影响入参
      */
     public List<TorrentInfo> filter(List<TorrentInfo> candidates, FilterCriteria criteria) {
+        return filter(candidates, criteria, TorrentBlacklist.EMPTY);
+    }
+
+    /**
+     * 三参重载：额外传入生效的种子/发布组黑名单。
+     */
+    public List<TorrentInfo> filter(List<TorrentInfo> candidates, FilterCriteria criteria, TorrentBlacklist blacklist) {
         List<TorrentInfo> survivors = new ArrayList<>();
-        for (Verdict verdict : evaluate(candidates, criteria)) {
+        for (Verdict verdict : evaluate(candidates, criteria, blacklist)) {
             if (verdict.accepted()) {
                 survivors.add(verdict.torrent());
             } else {
@@ -103,9 +120,24 @@ public class TorrentFilterEngine {
     }
 
     /**
-     * 返回淘汰原因；返回 null 表示通过。
+     * 返回淘汰原因；返回 null 表示通过。判定顺序：
+     * GUID 黑名单 → 做种数 → 体积上下限 → 免费 → 分辨率白名单 → 标题为空
+     * → 发布组黑名单 → 排除词 → 包含词。
+     * <p>
+     * GUID 判定放最前：不依赖标题解析、不依赖任何统计字段，是最便宜的判定，
+     * 而且"拉黑一个具体种子"是用户的强确定性意图，语义上应该比软性阈值更早生效。
+     * 发布组判定放在"标题为空"之后：该判定依赖 {@code parsedReleaseGroup}，
+     * 这个字段本质上是标题解析的产物，与 excludeKeywords/includeKeywords 一样
+     * 要求标题非空。
+     * </p>
      */
-    private String rejectReason(TorrentInfo torrent, FilterCriteria criteria) {
+    private String rejectReason(TorrentInfo torrent, FilterCriteria criteria, TorrentBlacklist blacklist) {
+        if (!blacklist.guidHashes().isEmpty()) {
+            String guid = torrent.getGuid();
+            if (StringUtils.isNotBlank(guid) && blacklist.guidHashes().contains(GuidHasher.hash(guid))) {
+                return "该种子已被手动拉黑（GUID）";
+            }
+        }
         if (torrent.getSeeders() < criteria.minSeeders()) {
             return "做种数 " + torrent.getSeeders() + " 低于下限 " + criteria.minSeeders();
         }
@@ -133,6 +165,14 @@ public class TorrentFilterEngine {
         if (StringUtils.isBlank(title)) {
             return "标题为空，无法判定";
         }
+
+        if (!blacklist.releaseGroupsUpper().isEmpty()) {
+            String group = torrent.getParsedReleaseGroup();
+            if (StringUtils.isNotBlank(group) && blacklist.releaseGroupsUpper().contains(group.toUpperCase(Locale.ROOT))) {
+                return "发布组「" + group + "」已被手动拉黑";
+            }
+        }
+
         String lower = title.toLowerCase(Locale.ROOT);
 
         for (String keyword : criteria.excludeKeywords()) {

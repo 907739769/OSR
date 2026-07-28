@@ -9,8 +9,10 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TorrentFilterEngineFilterTest {
@@ -303,5 +305,101 @@ class TorrentFilterEngineFilterTest {
             logger.setLevel(originalLevel);
             logger.detachAppender(appender);
         }
+    }
+
+    // ---------- 种子/发布组黑名单（不改变以上任何现有用例的调用方式或断言） ----------
+
+    @Test
+    void GUID命中黑名单_淘汰原因包含拉黑() {
+        TorrentInfo t = ok();
+        t.setGuid("bad-guid");
+        TorrentBlacklist blacklist = new TorrentBlacklist(
+                Set.of(com.ruoyi.openliststrm.pt.indexer.GuidHasher.hash("bad-guid")), Set.of());
+
+        List<TorrentFilterEngine.Verdict> verdicts = engine.evaluate(List.of(t),
+                criteria(1, 0L, 0L, false, List.of(), List.of()), blacklist);
+
+        assertFalse(verdicts.get(0).accepted());
+        assertTrue(verdicts.get(0).rejectReason().contains("拉黑"));
+    }
+
+    @Test
+    void GUID未命中黑名单_不受影响_走原有判定链() {
+        TorrentInfo t = ok();
+        t.setGuid("good-guid");
+        TorrentBlacklist blacklist = new TorrentBlacklist(
+                Set.of(com.ruoyi.openliststrm.pt.indexer.GuidHasher.hash("other-guid")), Set.of());
+
+        List<TorrentInfo> result = engine.filter(List.of(t),
+                criteria(1, 0L, 0L, false, List.of(), List.of()), blacklist);
+
+        assertEquals(1, result.size());
+    }
+
+    @Test
+    void 发布组命中黑名单_大小写不一致也命中_淘汰() {
+        TorrentInfo t = ok();
+        t.setParsedReleaseGroup("chdweb");
+        TorrentBlacklist blacklist = new TorrentBlacklist(Set.of(), Set.of("CHDWEB"));
+
+        List<TorrentInfo> result = engine.filter(List.of(t),
+                criteria(1, 0L, 0L, false, List.of(), List.of()), blacklist);
+
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void 发布组未命中黑名单_不受影响() {
+        TorrentInfo t = ok();
+        t.setParsedReleaseGroup("someother");
+        TorrentBlacklist blacklist = new TorrentBlacklist(Set.of(), Set.of("CHDWEB"));
+
+        List<TorrentInfo> result = engine.filter(List.of(t),
+                criteria(1, 0L, 0L, false, List.of(), List.of()), blacklist);
+
+        assertEquals(1, result.size());
+    }
+
+    @Test
+    void 标题为空_即使parsedReleaseGroup非空_仍先被标题为空淘汰() {
+        TorrentInfo t = torrent(null, 10, 100L, false);
+        t.setParsedReleaseGroup("CHDWEB");
+        TorrentBlacklist blacklist = new TorrentBlacklist(Set.of(), Set.of("CHDWEB"));
+
+        List<TorrentFilterEngine.Verdict> verdicts = engine.evaluate(List.of(t),
+                criteria(0, 0L, 0L, false, List.of(), List.of()), blacklist);
+
+        assertTrue(verdicts.get(0).rejectReason().contains("标题为空"));
+    }
+
+    @Test
+    void 同时命中GUID和做种数不足_淘汰原因是GUID命中() {
+        TorrentInfo t = torrent("t", 1, 100L, false);
+        t.setGuid("bad-guid");
+        TorrentBlacklist blacklist = new TorrentBlacklist(
+                Set.of(com.ruoyi.openliststrm.pt.indexer.GuidHasher.hash("bad-guid")), Set.of());
+
+        List<TorrentFilterEngine.Verdict> verdicts = engine.evaluate(List.of(t),
+                criteria(10, 0L, 0L, false, List.of(), List.of()), blacklist);
+
+        assertTrue(verdicts.get(0).rejectReason().contains("拉黑"));
+    }
+
+    @Test
+    void 未传黑名单参数_两参旧签名_行为与改动前完全一致() {
+        List<TorrentInfo> result = engine.filter(List.of(ok()),
+                criteria(1, 0L, 0L, false, List.of(), List.of()));
+
+        assertEquals(1, result.size());
+    }
+
+    @Test
+    void TorrentBlacklistEMPTY_与两参旧签名结果一致() {
+        List<TorrentInfo> withEmpty = engine.filter(List.of(ok()),
+                criteria(1, 0L, 0L, false, List.of(), List.of()), TorrentBlacklist.EMPTY);
+        List<TorrentInfo> withoutBlacklist = engine.filter(List.of(ok()),
+                criteria(1, 0L, 0L, false, List.of(), List.of()));
+
+        assertEquals(withoutBlacklist.size(), withEmpty.size());
     }
 }
