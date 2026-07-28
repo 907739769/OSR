@@ -13,7 +13,7 @@ class SortDimensionTest {
 
     private FilterCriteria criteria(List<String> resolutions, long preferredSize) {
         return new FilterCriteria(0, 0L, 0L, false, List.of(), List.of(),
-                resolutions, List.of(), List.of(SortDimension.SEEDERS), preferredSize);
+                resolutions, List.of(), List.of(SortDimension.SEEDERS), preferredSize, false);
     }
 
     private TorrentInfo torrent(String resolution, boolean free, int seeders, long size) {

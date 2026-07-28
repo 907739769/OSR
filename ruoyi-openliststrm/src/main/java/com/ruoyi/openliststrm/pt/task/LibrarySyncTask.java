@@ -1,5 +1,6 @@
 package com.ruoyi.openliststrm.pt.task;
 
+import com.ruoyi.common.utils.Threads;
 import com.ruoyi.common.utils.ThreadTraceIdUtil;
 import com.ruoyi.common.utils.spring.SpringUtils;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
@@ -41,7 +42,7 @@ public class LibrarySyncTask {
     @EventListener(ApplicationReadyEvent.class)
     public void start() {
         ThreadTraceIdUtil.initTraceId();
-        scheduler.scheduleAtFixedRate(this::poll, Instant.now().plusSeconds(120), Duration.ofMinutes(10));
+        scheduler.scheduleAtFixedRate(Threads.wrap(this::poll), Instant.now().plusSeconds(120), Duration.ofMinutes(10));
         log.info("LibrarySyncTask started");
     }
 
@@ -57,7 +58,8 @@ public class LibrarySyncTask {
             return;
         }
         try {
-            List<PtSubscriptionPlus> active = subscriptionService.listActive();
+            // 只对有缺集的订阅执行对账，跳过全部已入库的 ACTIVE 订阅
+            List<PtSubscriptionPlus> active = subscriptionService.listActiveWithMissing();
             for (PtSubscriptionPlus sub : active) {
                 try {
                     subscriptionBiz.refresh(sub.getId());

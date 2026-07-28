@@ -185,5 +185,47 @@ class FilterCriteriaFactoryTest {
         assertTrue(c.resolutionWhitelist().isEmpty());
         assertEquals(FilterCriteria.DEFAULT_SORT_PRIORITY, c.sortPriority());
         assertEquals(0L, c.preferredSize());
+        assertFalse(c.requireChineseSubtitle());
+    }
+
+    @Test
+    void 全局requireChineseSubtitle默认关闭() {
+        FilterCriteria c = FilterCriteriaFactory.build(globalConfig(), null);
+        assertFalse(c.requireChineseSubtitle(), "默认应为 false");
+    }
+
+    @Test
+    void 全局配置启用requireChineseSubtitle() {
+        PtFilterConfigPlus config = globalConfig();
+        config.setRequireChineseSubtitle("1");
+        FilterCriteria c = FilterCriteriaFactory.build(config, null);
+        assertTrue(c.requireChineseSubtitle());
+    }
+
+    @Test
+    void 订阅覆盖关闭requireChineseSubtitle() {
+        PtFilterConfigPlus config = globalConfig();
+        config.setRequireChineseSubtitle("1");
+        FilterCriteria c = FilterCriteriaFactory.build(config, "{\"requireChineseSubtitle\":\"0\"}");
+        assertFalse(c.requireChineseSubtitle(), "订阅覆盖应能关掉全局开启的中字要求");
+    }
+
+    @Test
+    void 订阅覆盖启用requireChineseSubtitle() {
+        FilterCriteria c = FilterCriteriaFactory.build(globalConfig(), "{\"requireChineseSubtitle\":\"1\"}");
+        assertTrue(c.requireChineseSubtitle());
+    }
+
+    @Test
+    void 覆盖requireChineseSubtitle为布尔true() {
+        FilterCriteria c = FilterCriteriaFactory.build(globalConfig(), "{\"requireChineseSubtitle\":true}");
+        assertTrue(c.requireChineseSubtitle(), "布尔 true 应被识别为开启");
+    }
+
+    @Test
+    void 覆盖requireChineseSubtitle为字符串true_大小写不敏感() {
+        assertTrue(FilterCriteriaFactory.build(globalConfig(), "{\"requireChineseSubtitle\":\"TRUE\"}").requireChineseSubtitle());
+        assertTrue(FilterCriteriaFactory.build(globalConfig(), "{\"requireChineseSubtitle\":\"True\"}").requireChineseSubtitle());
+        assertFalse(FilterCriteriaFactory.build(globalConfig(), "{\"requireChineseSubtitle\":\"false\"}").requireChineseSubtitle());
     }
 }

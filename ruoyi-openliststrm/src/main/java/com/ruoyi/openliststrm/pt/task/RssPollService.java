@@ -1,5 +1,6 @@
 package com.ruoyi.openliststrm.pt.task;
 
+import com.ruoyi.common.utils.Threads;
 import com.ruoyi.openliststrm.helper.TgHelper;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtIndexerPlus;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtIndexerPlusService;
@@ -13,9 +14,14 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
 
 /**
  * RSS 轮询编排：遍历到期的索引器拉取种子，汇总后交给推送引擎。
+ * 多索引器并发拉取，避免单索引器拖慢整轮；并发数可配置（默认 4）。
  *
  * @author Jack
  */
@@ -36,6 +42,9 @@ public class RssPollService {
     private static final String ENABLED = "1";
     private static final String DISABLED = "0";
 
+    /** 同时拉取多个到期索引器的最大并发数 */
+    private final int maxConcurrency;
+
     /**
      * 自动停用后的冷却期（小时）：冷却期内不重复探测，避免对已知失效的索引器每轮心跳都打一次站点。
      */
@@ -48,50 +57,44 @@ public class RssPollService {
     public RssPollService(IPtIndexerPlusService indexerService,
                           TorznabClient torznabClient,
                           SubscriptionEngine subscriptionEngine,
-                          @Value("${pt.indexer.self-heal-cooldown-hours:2}") int selfHealCooldownHours) {
+                          @Value("${pt.indexer.self-heal-cooldown-hours:2}") int selfHealCooldownHours,
+                          @Value("${pt.indexer.max-concurrency:4}") int maxConcurrency) {
         this.indexerService = indexerService;
         this.torznabClient = torznabClient;
         this.subscriptionEngine = subscriptionEngine;
         this.selfHealCooldownHours = selfHealCooldownHours;
+        this.maxConcurrency = Math.max(1, maxConcurrency);
     }
 
     /**
-     * 轮询一轮：先对冷却期已过的停用索引器做一次自愈探测，再拉取所有到期索引器的种子。
+     * 轮询一轮：先对冷却期已过的停用索引器做一次自愈探测，再并发拉取所有到期索引器的种子。
      */
     public void poll() {
         selfHeal();
 
         List<PtIndexerPlus> indexers = indexerService.listEnabled();
-        List<TorrentInfo> allTorrents = new ArrayList<>();
         long now = System.currentTimeMillis();
 
+        // 只处理到期的索引器
+        List<PtIndexerPlus> due = new ArrayList<>();
         for (PtIndexerPlus indexer : indexers) {
-            if (!isDue(indexer, now)) {
-                continue;
+            if (isDue(indexer, now)) {
+                due.add(indexer);
             }
-            try {
-                List<TorrentInfo> fetched = torznabClient.fetch(indexer);
-                allTorrents.addAll(fetched);
-                indexer.setLastPollTime(new Date());
-                indexer.setLastStatus("OK");
-                indexer.setFailCount(0);
-                log.info("索引器[{}]拉取到 {} 条种子", indexer.getName(), fetched.size());
-            } catch (Exception e) {
-                int fails = (indexer.getFailCount() == null ? 0 : indexer.getFailCount()) + 1;
-                indexer.setFailCount(fails);
-                indexer.setLastStatus(truncate(e.getMessage()));
-                log.warn("索引器[{}]拉取失败（第{}次）：{}", indexer.getName(), fails, e.getMessage());
-                if (fails >= DISABLE_FAIL_THRESHOLD && ENABLED.equals(indexer.getEnabled())) {
-                    indexer.setEnabled(DISABLED);
-                    indexer.setDisabledAt(new Date());
-                    log.warn("索引器[{}]连续失败 {} 次，已自动停用", indexer.getName(), fails);
-                    notifySafely("🛑 索引器[" + indexer.getName() + "]已连续失败 " + fails + " 次，已自动停用，"
-                            + "冷却 " + selfHealCooldownHours + " 小时后将自动尝试恢复");
-                } else if (fails == ALERT_FAIL_THRESHOLD) {
-                    notifySafely("⚠️ 索引器[" + indexer.getName() + "]已连续失败 " + fails + " 次：" + e.getMessage());
-                }
-            }
-            indexerService.updateById(indexer);
+        }
+        if (due.isEmpty()) {
+            return;
+        }
+
+        // 并发拉取所有到期索引器，各索引器互不依赖
+        List<TorrentInfo> allTorrents = new CopyOnWriteArrayList<>();
+        Semaphore limiter = new Semaphore(maxConcurrency);
+        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
+            List<CompletableFuture<Void>> futures = due.stream()
+                    .map(indexer -> CompletableFuture.runAsync(Threads.wrap(() ->
+                            runLimited(limiter, () -> pollOne(indexer, allTorrents))), executor))
+                    .toList();
+            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
         }
 
         if (!allTorrents.isEmpty()) {
@@ -101,6 +104,53 @@ public class RssPollService {
             }
             log.info("本轮共拉取 {} 条种子，推送 {} 个", allTorrents.size(), pushed);
         }
+    }
+
+    /**
+     * 在信号量许可证下执行任务，避免同时向过多索引器发起请求。
+     */
+    private void runLimited(Semaphore limiter, Runnable task) {
+        try {
+            limiter.acquire();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return;
+        }
+        try {
+            task.run();
+        } finally {
+            limiter.release();
+        }
+    }
+
+    /**
+     * 拉取单个索引器：成功则清零 fail_count，失败则累加并可能自动停用。
+     * 各索引器互不依赖，线程安全地写入 collector。
+     */
+    private void pollOne(PtIndexerPlus indexer, List<TorrentInfo> collector) {
+        try {
+            List<TorrentInfo> fetched = torznabClient.fetch(indexer);
+            collector.addAll(fetched);
+            indexer.setLastPollTime(new Date());
+            indexer.setLastStatus("OK");
+            indexer.setFailCount(0);
+            log.info("索引器[{}]拉取到 {} 条种子", indexer.getName(), fetched.size());
+        } catch (Exception e) {
+            int fails = (indexer.getFailCount() == null ? 0 : indexer.getFailCount()) + 1;
+            indexer.setFailCount(fails);
+            indexer.setLastStatus(truncate(e.getMessage()));
+            log.warn("索引器[{}]拉取失败（第{}次）：{}", indexer.getName(), fails, e.getMessage());
+            if (fails >= DISABLE_FAIL_THRESHOLD && ENABLED.equals(indexer.getEnabled())) {
+                indexer.setEnabled(DISABLED);
+                indexer.setDisabledAt(new Date());
+                log.warn("索引器[{}]连续失败 {} 次，已自动停用", indexer.getName(), fails);
+                notifySafely("🛑 索引器[" + indexer.getName() + "]已连续失败 " + fails + " 次，已自动停用，"
+                        + "冷却 " + selfHealCooldownHours + " 小时后将自动尝试恢复");
+            } else if (fails == ALERT_FAIL_THRESHOLD) {
+                notifySafely("⚠️ 索引器[" + indexer.getName() + "]已连续失败 " + fails + " 次：" + e.getMessage());
+            }
+        }
+        indexerService.updateById(indexer);
     }
 
     /**

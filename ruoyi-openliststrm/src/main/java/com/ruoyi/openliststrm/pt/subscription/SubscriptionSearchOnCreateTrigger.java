@@ -1,5 +1,6 @@
 package com.ruoyi.openliststrm.pt.subscription;
 
+import com.ruoyi.common.utils.Threads;
 import com.ruoyi.common.utils.spring.SpringUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -28,12 +29,12 @@ public class SubscriptionSearchOnCreateTrigger {
      * 异步发起一次建订阅补搜，立即返回，不等待搜索完成。
      */
     public void triggerAsync(Integer subId) {
-        scheduler.schedule(() -> {
+        scheduler.schedule(Threads.wrap(() -> {
             try {
                 searchSupplementService.supplementOnCreate(subId);
             } catch (Exception e) {
                 log.warn("订阅[{}] 建订阅后补搜历史资源失败：{}", subId, e.getMessage());
             }
-        }, Instant.now());
+        }), Instant.now());
     }
 }

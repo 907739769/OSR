@@ -102,6 +102,17 @@ describe('PtDownloadRecord 骨架屏', () => {
     expect(wrapper.find('.record-card-skeleton').exists()).toBe(false)
     expect(wrapper.find('.record-card').exists()).toBe(true)
   })
+
+  it('骨架屏数量根据页面宽度动态变化（至少 3 张）', () => {
+    ;(usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      taskList: ref([]),
+      loading: ref(true)
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    const count = wrapper.findAll('.record-card-skeleton').length
+    expect(count).toBeGreaterThanOrEqual(3)
+    expect(count).toBeLessThanOrEqual(12)
+  })
 })
 
 describe('PtDownloadRecord 批量重试', () => {
@@ -168,6 +179,36 @@ describe('PtDownloadRecord 批量重试', () => {
     const wrapper = mount(PtDownloadRecordPage)
     await wrapper.find('.record-card-checkbox').trigger('change')
     expect(toggleRecordSelect).toHaveBeenCalled()
+  })
+
+  it('批量模式下点击 FAILED 卡片调用 toggleRecordSelect', async () => {
+    const toggleRecordSelect = vi.fn()
+    ;(usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      selectionMode: ref(true),
+      taskList: ref([{ id: 1, title: 'A', state: 'FAILED', failReason: 'boom' }]),
+      toggleRecordSelect
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    await wrapper.find('.record-card').trigger('click')
+    expect(toggleRecordSelect).toHaveBeenCalled()
+  })
+
+  it('批量模式下 FAILED 卡片带有 selectable class', () => {
+    ;(usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      selectionMode: ref(true),
+      taskList: ref([{ id: 1, title: 'A', state: 'FAILED', failReason: 'boom' }])
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    expect(wrapper.find('.record-card').classes()).toContain('selectable')
+  })
+
+  it('批量模式下非 FAILED 卡片不带 selectable class', () => {
+    ;(usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      selectionMode: ref(true),
+      taskList: ref([{ id: 1, title: 'A', state: 'COMPLETED' }])
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    expect(wrapper.find('.record-card').classes()).not.toContain('selectable')
   })
 })
 

@@ -42,6 +42,7 @@
           </el-button>
         </div>
         <div class="action-right">
+          <span class="sort-label">排序：</span>
           <el-select
             v-model="queryParams.sortBy"
             class="sort-select"
@@ -61,6 +62,14 @@
 
       <div class="batch-toolbar" v-if="selectionMode">
         已选 {{ selectedIds.length }} 项
+        <el-checkbox
+          :model-value="isAllPageSelected"
+          :indeterminate="isIndeterminate"
+          @change="toggleSelectAllPage"
+          class="select-all-checkbox"
+        >
+          全选本页
+        </el-checkbox>
         <el-button link type="warning" class="batch-pause-btn" :disabled="!selectedIds.length" @click="handleBatchPause">批量暂停</el-button>
         <el-button link type="success" class="batch-resume-btn" :disabled="!selectedIds.length" @click="handleBatchResume">批量恢复</el-button>
         <el-button link type="danger" class="batch-delete-btn" :disabled="!selectedIds.length" @click="handleDelete()">批量删除</el-button>
@@ -68,7 +77,7 @@
       </div>
 
       <div class="card-grid" v-if="loading && taskList.length === 0">
-        <div v-for="n in 6" :key="n" class="sub-card-skeleton">
+        <div v-for="n in skeletonCount" :key="n" class="sub-card-skeleton">
           <el-skeleton animated class="sub-card-skeleton__body">
             <template #template>
               <el-skeleton-item variant="image" class="sub-card-skeleton__poster" />
@@ -83,12 +92,12 @@
         </div>
       </div>
       <div class="card-grid" v-else v-loading="loading">
-        <div v-for="item in taskList" :key="item.id" class="sub-card">
+        <div v-for="item in taskList" :key="item.id" class="sub-card" :class="{ selectable: selectionMode }" @click="selectionMode && toggleSubSelect(item)">
           <el-checkbox
             v-if="selectionMode"
             class="sub-card-checkbox"
             :model-value="isSubSelected(item.id)"
-            @change="toggleSubSelect(item)"
+            @click.stop="toggleSubSelect(item)"
           />
           <div class="sub-poster">
             <img
@@ -96,10 +105,11 @@
               :src="posterUrl(item.posterPath)"
               :alt="item.title"
               loading="lazy"
-              @error="posterErrorIds.add(item.id)"
+              @error="onPosterError(item.id)"
             />
-            <div v-else class="sub-poster-placeholder">
-              <el-icon><Picture /></el-icon>
+            <div v-else class="sub-poster-placeholder" :class="item.mediaType === 'MOVIE' ? 'placeholder-movie' : 'placeholder-tv'">
+              <el-icon :size="24"><Picture /></el-icon>
+              <span class="placeholder-text">{{ item.mediaType === 'MOVIE' ? '电影' : '剧集' }}</span>
             </div>
           </div>
           <div class="sub-info">
@@ -269,6 +279,14 @@
         <el-button v-if="currentSubscription" type="primary" @click="openSeasonSearch(currentSubscription)">
           搜索补齐
         </el-button>
+        <el-button
+          v-if="currentSubscription && progress && progress.missingEpisodes && progress.missingEpisodes.length > 1"
+          type="success"
+          :loading="searchAllMissingLoading"
+          @click="handleSearchAllMissing"
+        >
+          一键补齐全部（{{ progress.missingEpisodes.length }}集）
+        </el-button>
         <el-button @click="progressOpen = false">关闭</el-button>
       </template>
     </el-dialog>
@@ -279,10 +297,64 @@
         <el-form-item label="关键词">
           <el-input v-model="searchDialogKeyword" placeholder="搜索关键词，可编辑后再搜" />
         </el-form-item>
+        <el-form-item label=" ">
+          <el-checkbox v-model="searchManualSelect">
+            手动选择结果
+          </el-checkbox>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="searchDialogOpen = false">取消</el-button>
         <el-button type="primary" :loading="searchDialogLoading" @click="confirmSearch">搜索</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 候选种子手动选择 -->
+    <el-dialog v-model="candidateDialogOpen" title="选择候选种子" width="800px" append-to-body class="modern-dialog">
+      <div v-if="candidates.length === 0" style="text-align:center;padding:40px;color:var(--osr-text-secondary);">
+        未搜索到匹配资源
+      </div>
+      <el-table v-else :data="candidates" highlight-current-row height="420" size="small" @current-change="(row: any) => selectedCandidate = row">
+        <el-table-column type="index" label="#" width="48" align="center" />
+        <el-table-column label="来源" width="100">
+          <template #default="scope">
+            <el-tag size="small" type="info">{{ scope.row.indexerName }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="标题" min-width="280" show-overflow-tooltip>
+          <template #default="scope">{{ scope.row.title }}</template>
+        </el-table-column>
+        <el-table-column label="分辨率" width="80" align="center">
+          <template #default="scope">{{ scope.row.resolution || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="来源" width="80" align="center">
+          <template #default="scope">{{ scope.row.source || '-' }}</template>
+        </el-table-column>
+        <el-table-column label="体积" width="100" align="right">
+          <template #default="scope">{{ formatSize(scope.row.size) }}</template>
+        </el-table-column>
+        <el-table-column label="做种" width="70" align="center">
+          <template #default="scope">
+            <el-tag :type="scope.row.seeders > 0 ? 'success' : 'danger'" size="small">{{ scope.row.seeders }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="免费" width="60" align="center">
+          <template #default="scope">
+            <el-tag v-if="scope.row.free" type="warning" size="small">免费</el-tag>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+      </el-table>
+      <template #footer>
+        <el-button @click="candidateDialogOpen = false">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="pushingSelected"
+          :disabled="!selectedCandidate"
+          @click="pushSelectedCandidate(selectedCandidate)"
+        >
+          下载选中版本
+        </el-button>
       </template>
     </el-dialog>
 
@@ -334,26 +406,33 @@
           <el-input-number
             v-model="filterOverrideForm.minSize.value"
             :min="0"
-            :step="1073741824"
+            :max="999"
             :disabled="!filterOverrideForm.minSize.enabled"
-            :style="{ width: '240px' }"
+            :style="{ width: '160px' }"
           />
-          <span class="form-tip">字节</span>
+          <span class="form-tip">GB</span>
         </el-form-item>
         <el-form-item label="体积上限">
           <el-checkbox v-model="filterOverrideForm.maxSize.enabled" class="override-checkbox" />
           <el-input-number
             v-model="filterOverrideForm.maxSize.value"
             :min="0"
-            :step="1073741824"
+            :max="999"
             :disabled="!filterOverrideForm.maxSize.enabled"
-            :style="{ width: '240px' }"
+            :style="{ width: '160px' }"
           />
-          <span class="form-tip">字节</span>
+          <span class="form-tip">GB</span>
         </el-form-item>
         <el-form-item label="仅要免费种">
           <el-checkbox v-model="filterOverrideForm.freeOnly.enabled" class="override-checkbox" />
           <el-radio-group v-model="filterOverrideForm.freeOnly.value" :disabled="!filterOverrideForm.freeOnly.enabled">
+            <el-radio value="0">否</el-radio>
+            <el-radio value="1">是</el-radio>
+          </el-radio-group>
+        </el-form-item>
+        <el-form-item label="外语电影需中字">
+          <el-checkbox v-model="filterOverrideForm.requireChineseSubtitle.enabled" class="override-checkbox" />
+          <el-radio-group v-model="filterOverrideForm.requireChineseSubtitle.value" :disabled="!filterOverrideForm.requireChineseSubtitle.enabled">
             <el-radio value="0">否</el-radio>
             <el-radio value="1">是</el-radio>
           </el-radio-group>
@@ -395,11 +474,11 @@
           <el-input-number
             v-model="filterOverrideForm.preferredSize.value"
             :min="0"
-            :step="1073741824"
+            :max="999"
             :disabled="!filterOverrideForm.preferredSize.enabled"
-            :style="{ width: '240px' }"
+            :style="{ width: '160px' }"
           />
-          <span class="form-tip">字节</span>
+          <span class="form-tip">GB</span>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -411,7 +490,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { Picture, ArrowDown } from '@element-plus/icons-vue'
 import { usePtSubscription } from '@/composables/usePtSubscription'
@@ -421,6 +500,8 @@ const showSearch = ref(window.innerWidth >= 768)
 /** 海报加载失败的订阅 id 集合，命中则展示占位图标而非裂图 */
 const posterErrorIds = reactive(new Set<number>())
 
+const onPosterError = (id: number) => { posterErrorIds.add(id) }
+
 const {
   taskList, loading, total, queryParams, getList, handleQuery, resetQuery, queryRef,
   subscribeOpen, searchLoading, subscribeLoading, searchResults, searchForm,
@@ -429,15 +510,32 @@ const {
   searchLogOpen, searchLogLoading, searchLogs, showSearchLogs,
   filterOverrideOpen, filterOverrideSaving, filterOverrideForm,
   openFilterOverride, saveFilterOverride,
-  searchDialogOpen, searchDialogLoading, searchDialogKeyword,
+  searchDialogOpen, searchDialogLoading, searchDialogKeyword, searchManualSelect,
   openSeasonSearch, openEpisodeSearch, confirmSearch, toggleAutoSearch,
   handleRefresh, handlePause, handleResume, handleRemove, handleDelete,
   selectedIds, selectionMode, toggleSubSelect, isSubSelected,
-  handleBatchPause, handleBatchResume
+  handleBatchPause, handleBatchResume,
+  isAllPageSelected, isIndeterminate, toggleSelectAllPage,
+  searchAllMissingLoading, handleSearchAllMissing,
+  candidateDialogOpen, candidates, pushingSelected, pushSelectedCandidate, formatSize
 } = usePtSubscription()
+
+/** 候选种子表格中当前高亮的行 */
+const selectedCandidate = ref<any>(null)
 
 /** TMDb 海报路径拼完整图片地址，w200 宽度足够列表缩略图使用 */
 const posterUrl = (path: string) => `https://image.tmdb.org/t/p/w200${path}`
+
+const skeletonCount = ref(6)
+
+function updateSkeletonCount() {
+  const cardMinWidth = 340 + 14
+  const containerWidth = window.innerWidth - 32 - 32
+  skeletonCount.value = Math.max(3, Math.min(12, Math.floor(containerWidth / cardMinWidth)))
+}
+
+onMounted(() => { updateSkeletonCount(); window.addEventListener('resize', updateSkeletonCount) })
+onUnmounted(() => { window.removeEventListener('resize', updateSkeletonCount) })
 
 const goDownloadRecords = (row: any) => {
   router.push({ path: '/openlist/ptDownloadRecord', query: { subId: row.id } })
@@ -488,6 +586,8 @@ const handleMoreCommand = (cmd: string, row: any) => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 10px;
 
   .action-left {
     display: flex;
@@ -513,6 +613,14 @@ const handleMoreCommand = (cmd: string, row: any) => {
   background: var(--osr-bg-page);
   font-size: 13px;
   color: var(--osr-text-secondary);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.select-all-checkbox {
+  margin-left: 4px;
+  font-size: 13px;
 }
 
 .pagination-wrapper {
@@ -527,7 +635,7 @@ const handleMoreCommand = (cmd: string, row: any) => {
    ============================================ */
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
   gap: 14px;
   min-height: 120px;
 }
@@ -544,6 +652,13 @@ const handleMoreCommand = (cmd: string, row: any) => {
   &:hover {
     box-shadow: var(--osr-shadow-md);
     border-color: var(--osr-border-base);
+  }
+
+  &.selectable {
+    cursor: pointer;
+    &:hover {
+      border-color: var(--osr-primary-light-5);
+    }
   }
 }
 
@@ -599,10 +714,28 @@ const handleMoreCommand = (cmd: string, row: any) => {
     width: 100%;
     height: 100%;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: 4px;
     color: var(--osr-text-disabled);
     font-size: 22px;
+
+    &.placeholder-movie {
+      background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 50%, #1e3a5f 100%);
+      color: rgba(255, 255, 255, 0.7);
+    }
+
+    &.placeholder-tv {
+      background: linear-gradient(135deg, #3b1f47 0%, #6b3a7a 50%, #3b1f47 100%);
+      color: rgba(255, 255, 255, 0.7);
+    }
+
+    .placeholder-text {
+      font-size: 11px;
+      font-weight: 500;
+      letter-spacing: 1px;
+    }
   }
 }
 
@@ -706,6 +839,12 @@ const handleMoreCommand = (cmd: string, row: any) => {
   .card-grid {
     grid-template-columns: 1fr;
   }
+}
+
+.sort-label {
+  font-size: 13px;
+  color: var(--osr-text-secondary);
+  white-space: nowrap;
 }
 
 .sub-year {

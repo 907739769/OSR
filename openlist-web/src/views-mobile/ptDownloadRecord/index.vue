@@ -17,9 +17,34 @@
       </el-form>
     </MobileSearchPanel>
 
+    <!-- 批量选择 -->
+    <div class="list-toolbar">
+      <el-button text size="small" class="batch-toggle-btn" @click="selectionMode = !selectionMode">
+        {{ selectionMode ? '退出批量操作' : '批量操作' }}
+      </el-button>
+    </div>
+
+    <div class="batch-bar" v-if="selectionMode">
+      <span class="selected-count">已选 {{ selectedIds.length }} 项</span>
+      <el-button link type="primary" size="small" class="batch-retry-btn" :disabled="!selectedIds.length" @click="handleBatchRetry">批量重试</el-button>
+      <el-button link size="small" @click="selectionMode = false">取消</el-button>
+    </div>
+
     <!-- 列表 -->
     <div class="task-list" v-loading="loading">
-      <div v-for="item in taskList" :key="item.id" class="task-card">
+      <div
+        v-for="item in taskList"
+        :key="item.id"
+        class="task-card"
+        :class="{ selected: selectionMode && item.state === 'FAILED' && selectedIds.includes(item.id) }"
+      >
+        <div class="card-checkbox" v-if="selectionMode && item.state === 'FAILED'">
+          <el-checkbox
+            :model-value="selectedIds.includes(item.id)"
+            size="large"
+            @change="toggleRecordSelect(item)"
+          />
+        </div>
         <div class="card-content">
           <div class="card-top">
             <span class="task-name">{{ item.title }}</span>
@@ -95,6 +120,7 @@ const {
   taskList, loading, total, queryParams, queryRef,
   handleQuery, resetQuery,
   retryingIds, handleRetry,
+  selectionMode, selectedIds, toggleRecordSelect, handleBatchRetry,
   totalPages, prevPage, nextPage, handleSizeChange,
   searchCollapsed
 } = usePtDownloadRecord()
@@ -148,6 +174,35 @@ const formatSize = (bytes: number): string => {
   padding-bottom: 8px;
 }
 
+.list-toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background: var(--osr-primary-light-9);
+  border: 1px solid var(--osr-primary-light-7);
+  border-radius: var(--osr-radius-md);
+  font-size: 13px;
+
+  .selected-count {
+    font-weight: 600;
+    color: var(--osr-primary);
+    margin-right: 4px;
+    white-space: nowrap;
+  }
+
+  .el-button {
+    font-size: 12px;
+    padding: 0 4px;
+    height: auto;
+  }
+}
+
 .task-list {
   display: flex;
   flex-direction: column;
@@ -163,6 +218,21 @@ const formatSize = (bytes: number): string => {
   border-radius: var(--osr-radius-lg);
   padding: 12px;
   box-shadow: var(--osr-shadow-base);
+  border: 2px solid transparent;
+  transition: all var(--osr-transition-fast);
+
+  &.selected {
+    border-color: var(--osr-primary-light-5);
+    background: var(--osr-primary-light-9);
+  }
+
+  .card-checkbox {
+    flex-shrink: 0;
+    display: flex;
+    align-items: flex-start;
+    padding-top: 2px;
+    padding-left: 2px;
+  }
 
   .card-content {
     flex: 1;

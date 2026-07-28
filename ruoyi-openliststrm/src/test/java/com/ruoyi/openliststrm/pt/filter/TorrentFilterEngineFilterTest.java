@@ -27,7 +27,7 @@ class TorrentFilterEngineFilterTest {
     private FilterCriteria criteriaWithWhitelist(int minSeeders, long minSize, long maxSize, boolean freeOnly,
                                     List<String> include, List<String> exclude, List<String> resolutionWhitelist) {
         return new FilterCriteria(minSeeders, minSize, maxSize, freeOnly, include, exclude,
-                List.of("1080p"), resolutionWhitelist, List.of(SortDimension.SEEDERS), 0L);
+                List.of("1080p"), resolutionWhitelist, List.of(SortDimension.SEEDERS), 0L, false);
     }
 
     private TorrentInfo torrent(String title, int seeders, long size, boolean free) {
@@ -52,7 +52,7 @@ class TorrentFilterEngineFilterTest {
     @Test
     void 全部条件满足_保留() {
         List<TorrentInfo> result = engine.filter(List.of(ok()),
-                criteria(1, 0L, 0L, false, List.of(), List.of()));
+                criteria(1, 0L, 0L, false, List.of(), List.of()), (String) null);
 
         assertEquals(1, result.size());
     }
@@ -61,7 +61,7 @@ class TorrentFilterEngineFilterTest {
     void 做种数低于下限_淘汰() {
         List<TorrentInfo> result = engine.filter(
                 List.of(torrent("t", 2, 5_000_000_000L, false)),
-                criteria(3, 0L, 0L, false, List.of(), List.of()));
+                criteria(3, 0L, 0L, false, List.of(), List.of()), (String) null);
 
         assertTrue(result.isEmpty());
     }
@@ -70,7 +70,7 @@ class TorrentFilterEngineFilterTest {
     void 做种数等于下限_保留() {
         List<TorrentInfo> result = engine.filter(
                 List.of(torrent("t", 3, 5_000_000_000L, false)),
-                criteria(3, 0L, 0L, false, List.of(), List.of()));
+                criteria(3, 0L, 0L, false, List.of(), List.of()), (String) null);
 
         assertEquals(1, result.size());
     }
@@ -79,7 +79,7 @@ class TorrentFilterEngineFilterTest {
     void 体积小于下限_淘汰() {
         List<TorrentInfo> result = engine.filter(
                 List.of(torrent("t", 10, 500L, false)),
-                criteria(0, 1_000L, 0L, false, List.of(), List.of()));
+                criteria(0, 1_000L, 0L, false, List.of(), List.of()), (String) null);
 
         assertTrue(result.isEmpty());
     }
@@ -88,7 +88,7 @@ class TorrentFilterEngineFilterTest {
     void 体积大于上限_淘汰() {
         List<TorrentInfo> result = engine.filter(
                 List.of(torrent("t", 10, 90_000_000_000L, false)),
-                criteria(0, 0L, 50_000_000_000L, false, List.of(), List.of()));
+                criteria(0, 0L, 50_000_000_000L, false, List.of(), List.of()), (String) null);
 
         assertTrue(result.isEmpty());
     }
@@ -97,7 +97,7 @@ class TorrentFilterEngineFilterTest {
     void 体积上下限为0_表示不限() {
         List<TorrentInfo> result = engine.filter(
                 List.of(torrent("t", 10, 1L, false), torrent("t2", 10, 999_999_999_999L, false)),
-                criteria(0, 0L, 0L, false, List.of(), List.of()));
+                criteria(0, 0L, 0L, false, List.of(), List.of()), (String) null);
 
         assertEquals(2, result.size());
     }
@@ -106,7 +106,7 @@ class TorrentFilterEngineFilterTest {
     void 仅要免费_非免费种被淘汰() {
         List<TorrentInfo> result = engine.filter(
                 List.of(torrent("free", 10, 100L, true), torrent("paid", 10, 100L, false)),
-                criteria(0, 0L, 0L, true, List.of(), List.of()));
+                criteria(0, 0L, 0L, true, List.of(), List.of()), (String) null);
 
         assertEquals(1, result.size());
         assertEquals("free", result.get(0).getTitle());
@@ -116,7 +116,7 @@ class TorrentFilterEngineFilterTest {
     void 命中排除词_淘汰() {
         List<TorrentInfo> result = engine.filter(
                 List.of(torrent("Some.Show.预告片.1080p", 10, 100L, false)),
-                criteria(0, 0L, 0L, false, List.of(), List.of("预告", "花絮")));
+                criteria(0, 0L, 0L, false, List.of(), List.of("预告", "花絮")), (String) null);
 
         assertTrue(result.isEmpty());
     }
@@ -125,7 +125,7 @@ class TorrentFilterEngineFilterTest {
     void 排除词大小写不敏感() {
         List<TorrentInfo> result = engine.filter(
                 List.of(torrent("Some.Show.SAMPLES.1080p", 10, 100L, false)),
-                criteria(0, 0L, 0L, false, List.of(), List.of("samples")));
+                criteria(0, 0L, 0L, false, List.of(), List.of("samples")), (String) null);
 
         assertTrue(result.isEmpty());
     }
@@ -134,7 +134,7 @@ class TorrentFilterEngineFilterTest {
     void 包含词非空_一个都没命中则淘汰() {
         List<TorrentInfo> result = engine.filter(
                 List.of(torrent("Some.Show.1080p.WEB-DL", 10, 100L, false)),
-                criteria(0, 0L, 0L, false, List.of("中字", "国语"), List.of()));
+                criteria(0, 0L, 0L, false, List.of("中字", "国语"), List.of()), (String) null);
 
         assertTrue(result.isEmpty());
     }
@@ -143,7 +143,7 @@ class TorrentFilterEngineFilterTest {
     void 包含词命中其一即保留() {
         List<TorrentInfo> result = engine.filter(
                 List.of(torrent("Some.Show.1080p.中字", 10, 100L, false)),
-                criteria(0, 0L, 0L, false, List.of("中字", "国语"), List.of()));
+                criteria(0, 0L, 0L, false, List.of("中字", "国语"), List.of()), (String) null);
 
         assertEquals(1, result.size());
     }
@@ -152,21 +152,19 @@ class TorrentFilterEngineFilterTest {
     void 排除优先于包含_同时命中两者时淘汰() {
         List<TorrentInfo> result = engine.filter(
                 List.of(torrent("Some.Show.中字.预告", 10, 100L, false)),
-                criteria(0, 0L, 0L, false, List.of("中字"), List.of("预告")));
+                criteria(0, 0L, 0L, false, List.of("中字"), List.of("预告")), (String) null);
 
         assertTrue(result.isEmpty());
     }
 
     @Test
     void 多个候选_只保留合格的() {
-        List<TorrentInfo> candidates = List.of(
-                torrent("good.1080p", 10, 5_000_000_000L, false),
-                torrent("低做种.1080p", 1, 5_000_000_000L, false),
-                torrent("预告.1080p", 10, 5_000_000_000L, false),
-                torrent("good2.1080p", 20, 5_000_000_000L, false));
-
-        List<TorrentInfo> result = engine.filter(candidates,
-                criteria(5, 0L, 0L, false, List.of(), List.of("预告")));
+        List<TorrentInfo> result = engine.filter(
+                List.of(torrent("good.1080p", 10, 5_000_000_000L, false),
+                        torrent("低做种.1080p", 1, 5_000_000_000L, false),
+                        torrent("预告.1080p", 10, 5_000_000_000L, false),
+                        torrent("good2.1080p", 20, 5_000_000_000L, false)),
+                criteria(5, 0L, 0L, false, List.of(), List.of("预告")), (String) null);
 
         assertEquals(List.of("good.1080p", "good2.1080p"),
                 result.stream().map(TorrentInfo::getTitle).toList());
@@ -174,7 +172,7 @@ class TorrentFilterEngineFilterTest {
 
     @Test
     void 输入为空列表_返回空列表() {
-        assertTrue(engine.filter(List.of(), criteria(0, 0L, 0L, false, List.of(), List.of())).isEmpty());
+        assertTrue(engine.filter(List.of(), criteria(0, 0L, 0L, false, List.of(), List.of()), (String) null).isEmpty());
     }
 
     @Test
@@ -182,7 +180,7 @@ class TorrentFilterEngineFilterTest {
         TorrentInfo t = torrent(null, 10, 100L, false);
 
         List<TorrentInfo> result = engine.filter(List.of(t),
-                criteria(0, 0L, 0L, false, List.of(), List.of("预告")));
+                criteria(0, 0L, 0L, false, List.of(), List.of("预告")), (String) null);
 
         assertTrue(result.isEmpty());
     }
@@ -190,7 +188,7 @@ class TorrentFilterEngineFilterTest {
     @Test
     void 结果列表不含原列表引用_不会被调用方修改() {
         List<TorrentInfo> result = engine.filter(List.of(ok()),
-                criteria(0, 0L, 0L, false, List.of(), List.of()));
+                criteria(0, 0L, 0L, false, List.of(), List.of()), (String) null);
 
         // 返回新列表而非原列表的视图
         result.add(ok());
@@ -210,7 +208,7 @@ class TorrentFilterEngineFilterTest {
         logger.setLevel(Level.DEBUG);
         try {
             engine.filter(List.of(torrent("做种不足的种子", 2, 5_000_000_000L, false)),
-                    criteria(10, 0L, 0L, false, List.of(), List.of()));
+                    criteria(10, 0L, 0L, false, List.of(), List.of()), (String) null);
 
             String logged = appender.list.stream()
                     .filter(e -> e.getLevel() == Level.DEBUG)
@@ -232,7 +230,7 @@ class TorrentFilterEngineFilterTest {
     void 白名单命中_保留() {
         List<TorrentInfo> result = engine.filter(
                 List.of(torrentWithResolution("t", "1080p")),
-                criteriaWithWhitelist(0, 0L, 0L, false, List.of(), List.of(), List.of("2160p", "1080p")));
+                criteriaWithWhitelist(0, 0L, 0L, false, List.of(), List.of(), List.of("2160p", "1080p")), (String) null);
 
         assertEquals(1, result.size());
     }
@@ -241,7 +239,7 @@ class TorrentFilterEngineFilterTest {
     void 白名单未命中_淘汰() {
         List<TorrentInfo> result = engine.filter(
                 List.of(torrentWithResolution("t", "720p")),
-                criteriaWithWhitelist(0, 0L, 0L, false, List.of(), List.of(), List.of("2160p", "1080p")));
+                criteriaWithWhitelist(0, 0L, 0L, false, List.of(), List.of(), List.of("2160p", "1080p")), (String) null);
 
         assertTrue(result.isEmpty());
     }
@@ -250,7 +248,7 @@ class TorrentFilterEngineFilterTest {
     void 白名单大小写不敏感() {
         List<TorrentInfo> result = engine.filter(
                 List.of(torrentWithResolution("t", "1080P")),
-                criteriaWithWhitelist(0, 0L, 0L, false, List.of(), List.of(), List.of("2160p", "1080p")));
+                criteriaWithWhitelist(0, 0L, 0L, false, List.of(), List.of(), List.of("2160p", "1080p")), (String) null);
 
         assertEquals(1, result.size());
     }
@@ -259,11 +257,11 @@ class TorrentFilterEngineFilterTest {
     void 白名单非空_解析不出分辨率则淘汰() {
         // 无法判定是否在白名单内的一律不放行，而不是当作"无所谓"直接通过
         List<TorrentInfo> resultNull = engine.filter(
-                List.of(torrentWithResolution("t", null)),
-                criteriaWithWhitelist(0, 0L, 0L, false, List.of(), List.of(), List.of("2160p", "1080p")));
+                List.of(torrentWithResolution("t", (String) null)),
+                criteriaWithWhitelist(0, 0L, 0L, false, List.of(), List.of(), List.of("2160p", "1080p")), (String) null);
         List<TorrentInfo> resultBlank = engine.filter(
                 List.of(torrentWithResolution("t2", "   ")),
-                criteriaWithWhitelist(0, 0L, 0L, false, List.of(), List.of(), List.of("2160p", "1080p")));
+                criteriaWithWhitelist(0, 0L, 0L, false, List.of(), List.of(), List.of("2160p", "1080p")), (String) null);
 
         assertTrue(resultNull.isEmpty());
         assertTrue(resultBlank.isEmpty());
@@ -273,7 +271,7 @@ class TorrentFilterEngineFilterTest {
     void 白名单为空_不限制分辨率() {
         List<TorrentInfo> result = engine.filter(
                 List.of(torrentWithResolution("t", "480p")),
-                criteriaWithWhitelist(0, 0L, 0L, false, List.of(), List.of(), List.of()));
+                criteriaWithWhitelist(0, 0L, 0L, false, List.of(), List.of(), List.of()), (String) null);
 
         assertEquals(1, result.size());
     }
@@ -289,7 +287,7 @@ class TorrentFilterEngineFilterTest {
         try {
             List<TorrentInfo> result = engine.filter(
                     List.of(torrentWithResolution("t", "720p")),
-                    criteriaWithWhitelist(0, 0L, 0L, false, List.of(), List.of(), List.of("2160p", "1080p")));
+                    criteriaWithWhitelist(0, 0L, 0L, false, List.of(), List.of(), List.of("2160p", "1080p")), (String) null);
 
             assertTrue(result.isEmpty());
 

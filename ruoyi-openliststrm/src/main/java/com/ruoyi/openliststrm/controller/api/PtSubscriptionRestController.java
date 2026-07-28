@@ -16,6 +16,7 @@ import com.ruoyi.openliststrm.pt.subscription.SubscriptionSearchOnCreateTrigger;
 import com.ruoyi.openliststrm.pt.subscription.SubscriptionService;
 import com.ruoyi.openliststrm.pt.subscription.TmdbSearchService;
 import com.ruoyi.openliststrm.pt.subscription.dto.BatchOperationResult;
+import com.ruoyi.openliststrm.pt.subscription.dto.PushSelectedRequest;
 import com.ruoyi.openliststrm.pt.subscription.dto.SearchRequest;
 import com.ruoyi.openliststrm.pt.subscription.dto.SubscribeRequest;
 import com.ruoyi.openliststrm.pt.subscription.dto.SubscriptionProgress;
@@ -170,12 +171,32 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
     }
 
     /**
-     * 搜索补集：关键词并发搜索所有索引器，命中后走与 RSS 相同的过滤择优/推送链路。
+     * 搜索补集：关键词并发搜索所有索引器。
+     * <p>
+     * 当 request.manualSelect=true 时，不自动推送最优结果，返回候选种子列表供用户挑选；
+     * 否则自动推送最优结果（原逻辑保持不变）。
+     * </p>
      */
     @PostMapping("/{id}/search")
     public Result<SupplementResult> search(@PathVariable("id") Integer id, @RequestBody SearchRequest request) {
         try {
-            return Result.success(searchSupplementService.supplement(id, request.getEpisode(), request.getKeyword()));
+            return Result.success(searchSupplementService.supplement(id, request.getEpisode(), request.getKeyword(), request.isManualSelect()));
+        } catch (IllegalArgumentException e) {
+            return Result.error(e.getMessage());
+        }
+    }
+
+    /**
+     * 手动选择推送：用户在手动搜索模式选中的一个候选种子，通过本接口推送到下载器。
+     */
+    @PostMapping("/{id}/push-selected")
+    public Result<Void> pushSelected(@PathVariable("id") Integer id, @RequestBody PushSelectedRequest request) {
+        try {
+            boolean pushed = searchSupplementService.pushSelected(id, request.getEpisode(), request);
+            if (pushed) {
+                return Result.success();
+            }
+            return Result.error("推送失败，可能该集已无可用缺额或下载器不可用");
         } catch (IllegalArgumentException e) {
             return Result.error(e.getMessage());
         }

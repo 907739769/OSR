@@ -15,7 +15,7 @@ class TorrentFilterEnginePickBestTest {
 
     private FilterCriteria criteria(List<SortDimension> sortPriority, long preferredSize) {
         return new FilterCriteria(0, 0L, 0L, false, List.of(), List.of(),
-                List.of("2160p", "1080p", "720p"), List.of(), sortPriority, preferredSize);
+                List.of("2160p", "1080p", "720p"), List.of(), sortPriority, preferredSize, false);
     }
 
     private TorrentInfo torrent(String title, String resolution, boolean free, int seeders, long size) {
@@ -154,11 +154,11 @@ class TorrentFilterEnginePickBestTest {
 
         FilterCriteria criteria = new FilterCriteria(10, 0L, 0L, false, List.of(), List.of(),
                 List.of("2160p", "1080p", "720p"), List.of(),
-                List.of(SortDimension.RESOLUTION), 0L);
+                List.of(SortDimension.RESOLUTION), 0L, false);
 
         List<TorrentInfo> survivors = engine.filter(
                 List.of(eliminatedButOtherwisePerfect, survivorLowerResolution, survivorHigherResolution),
-                criteria);
+                criteria, (String) null);
         TorrentInfo best = engine.pickBest(survivors, criteria);
 
         assertEquals(2, survivors.size(), "做种数 2 低于下限 10，应在 filter 阶段被淘汰");

@@ -15,8 +15,10 @@ import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtTorrentBlacklistPlusService;
 import com.ruoyi.openliststrm.pt.downloader.DownloaderClientFactory;
 import com.ruoyi.openliststrm.pt.downloader.IDownloaderClient;
+import com.ruoyi.openliststrm.pt.filter.TorrentBlacklist;
 import com.ruoyi.openliststrm.pt.filter.TorrentFilterEngine;
 import com.ruoyi.openliststrm.pt.model.TorrentInfo;
+import com.ruoyi.openliststrm.pt.subscription.dto.MatchResult;
 import com.ruoyi.openliststrm.pt.ws.PtStatusWebSocket;
 import com.ruoyi.openliststrm.rename.MediaParser;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,6 +33,7 @@ import org.mockito.quality.Strictness;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -61,6 +64,7 @@ class SubscriptionEngineTest {
     @Mock private IDownloaderClient downloaderClient;
     @Mock private SearchLogService searchLogService;
     @Mock private IPtTorrentBlacklistPlusService blacklistService;
+    @Mock private TmdbSearchService tmdbSearchService;
 
     private SubscriptionEngine engine;
 
@@ -69,7 +73,8 @@ class SubscriptionEngineTest {
         engine = new SubscriptionEngine(
                 subscriptionService, episodeService, recordService, downloaderService,
                 filterConfigService, downloaderClientFactory,
-                new TorrentFilterEngine(), new SubscriptionMatcher(), searchLogService, blacklistService);
+                new TorrentFilterEngine(), new SubscriptionMatcher(), searchLogService,
+                blacklistService, tmdbSearchService);
         when(blacklistService.list()).thenReturn(new ArrayList<>());
 
         PtFilterConfigPlus config = new PtFilterConfigPlus();
@@ -210,6 +215,8 @@ class SubscriptionEngineTest {
         when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(102, 2, "MISSING")));
         PtDownloadRecordPlus existing = new PtDownloadRecordPlus();
         existing.setGuidHash(com.ruoyi.openliststrm.pt.indexer.GuidHasher.hash("g1"));
+        existing.setDownloaderId(1);
+        existing.setIndexerId(1);
         when(recordService.list(any(Wrapper.class))).thenReturn(List.of(existing));
 
         assertEquals(0, engine.process(List.of(torrent("Some.Show.S01E02.1080p", "g1", 10, "1080p"))));
@@ -424,10 +431,14 @@ class SubscriptionEngineTest {
         ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
         verify(recordService, times(2)).save(captor.capture());
         List<PtDownloadRecordPlus> saved = captor.getAllValues();
-        // 两个下载器初始负载相等，按顺序 tie-break 选第一个(d1)；
-        // 第二次推送前 d1 已被 +1，第二组应该感知到这个变化转而选 d2
-        assertEquals(1, saved.get(0).getDownloaderId());
-        assertEquals(2, saved.get(1).getDownloaderId());
+        // 两个下载器初始负载相等，谁先经过"选下载器+占位自增"的临界区就tie-break选中d1，
+        // 另一组感知到 d1 已被占用后转而选 d2；process() 用虚拟线程并行处理各分组，
+        // 具体哪一组先进临界区不确定，因此不断言顺序，只断言两条记录分别落在 d1/d2 上
+        // （负载均衡真正生效——两组不会挤到同一个下载器）。
+        assertEquals(2, saved.size());
+        assertEquals(java.util.Set.of(1, 2), saved.stream()
+                .map(PtDownloadRecordPlus::getDownloaderId)
+                .collect(java.util.stream.Collectors.toSet()));
     }
 
     // ---------- 并发上限 ----------
@@ -706,13 +717,31 @@ class SubscriptionEngineTest {
 
     @Test
     void 推送成功后_推送WebSocket订阅事件() throws Exception {
+        // 不走 process()：process() 内部用虚拟线程并行处理各分组，而 Mockito 的
+        // MockedStatic 只在注册它的线程上生效，跨线程调用会被判定为"零交互"。
+        // handleGroup 才是真正触发 WebSocket 推送的地方，直接调用它既测到了目标逻辑，
+        // 又避免了与并发模型打架。
         PtSubscriptionPlus sub = tvSub(10, "Some Show", 1, 1);
-        when(subscriptionService.listActive()).thenReturn(List.of(sub));
         when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "MISSING")));
 
-        try (MockedStatic<PtStatusWebSocket> ws = mockStatic(PtStatusWebSocket.class)) {
-            engine.process(List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p")));
+        PtDownloaderPlus downloader = new PtDownloaderPlus();
+        downloader.setId(1);
+        downloader.setType("QBITTORRENT");
+        downloader.setSavePath("/data/downloads");
+        downloader.setTag("osr-pt");
+        downloader.setEnabled("1");
 
+        try (MockedStatic<PtStatusWebSocket> ws = mockStatic(PtStatusWebSocket.class)) {
+            boolean pushed = engine.handleGroup(new MatchResult(sub, 1),
+                    List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p")),
+                    filterConfigService.getConfig(),
+                    new LinkedHashMap<>(),
+                    List.of(downloader),
+                    new LinkedHashMap<>(),
+                    SearchLogService.SOURCE_RSS,
+                    TorrentBlacklist.EMPTY);
+
+            assertTrue(pushed);
             ws.verify(() -> PtStatusWebSocket.pushSubscriptionEvent(same(sub)));
         }
     }

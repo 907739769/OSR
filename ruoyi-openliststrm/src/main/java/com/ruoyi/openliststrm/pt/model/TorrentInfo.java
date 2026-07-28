@@ -83,6 +83,9 @@ public class TorrentInfo {
     /** 解析出的发布组，如 CHDWEB；未解析出时为 null */
     private String parsedReleaseGroup;
 
+    /** 种子描述（RSS &lt;description&gt;），部分 PT 站会在描述中标注字幕信息 */
+    private String description;
+
     /** 解析后的发布时间；原始字符串见 {@link #pubDate}，本字段不变动 pubDate */
     private Date parsedPubTime;
 

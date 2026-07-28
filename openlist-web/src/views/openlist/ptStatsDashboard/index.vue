@@ -73,7 +73,16 @@
             </div>
           </template>
           <el-table :data="topSubscriptions" v-loading="topSubscriptionsLoading" style="width: 100%">
-            <el-table-column prop="title" label="订阅标题" min-width="180" />
+            <el-table-column prop="title" label="订阅标题" min-width="180">
+              <template #default="{ row }">
+                <router-link
+                  :to="{ path: '/openlist/ptSubscription', query: { id: row.subId } }"
+                  class="stats-sub-link"
+                >
+                  {{ row.title }}
+                </router-link>
+              </template>
+            </el-table-column>
             <el-table-column label="季/类型" width="100">
               <template #default="{ row }">
                 <span v-if="row.mediaType === 'MOVIE'">电影</span>
@@ -469,6 +478,16 @@ onUnmounted(() => {
   margin-top: 8px;
   font-size: 12px;
   color: var(--osr-text-secondary);
+}
+
+.stats-sub-link {
+  color: var(--osr-primary);
+  text-decoration: none;
+  font-weight: 500;
+  &:hover {
+    text-decoration: underline;
+    color: var(--osr-primary-light-3);
+  }
 }
 
 @media (max-width: 768px) {

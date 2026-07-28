@@ -31,6 +31,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
+import org.mockito.stubbing.Answer;
+
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
 class RssPollServiceTest {
@@ -40,7 +42,7 @@ class RssPollServiceTest {
     @Mock private SubscriptionEngine subscriptionEngine;
 
     private RssPollService service() {
-        return new RssPollService(indexerService, torznabClient, subscriptionEngine, 2);
+        return new RssPollService(indexerService, torznabClient, subscriptionEngine, 2, 4);
     }
 
     private PtIndexerPlus indexer(int id, Integer pollInterval, java.util.Date lastPoll, int failCount) {
@@ -126,7 +128,11 @@ class RssPollServiceTest {
     void 多个索引器的种子被汇总后一次性交给引擎() throws Exception {
         when(indexerService.listEnabled()).thenReturn(List.of(
                 indexer(1, 600, null, 0), indexer(2, 600, null, 0)));
-        when(torznabClient.fetch(any())).thenReturn(List.of(torrent("a")), List.of(torrent("b")));
+        // 用 thenAnswer 而非 thenReturn 顺序打桩：并发下调用顺序不确定
+        when(torznabClient.fetch(any())).thenAnswer((Answer<List<TorrentInfo>>) invocation -> {
+            PtIndexerPlus idx = invocation.getArgument(0);
+            return List.of(torrent("t-" + idx.getId()));
+        });
 
         service().poll();
 

@@ -1,17 +1,26 @@
 package com.ruoyi.openliststrm.pt.subscription;
 
+import com.ruoyi.common.utils.Threads;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.openliststrm.helper.TgHelper;
+import com.ruoyi.openliststrm.mybatisplus.domain.PtFilterConfigPlus;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtIndexerPlus;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
+import com.ruoyi.openliststrm.mybatisplus.service.IPtFilterConfigPlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtIndexerPlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
+import com.ruoyi.openliststrm.pt.filter.FilterCriteria;
+import com.ruoyi.openliststrm.pt.filter.FilterCriteriaFactory;
+import com.ruoyi.openliststrm.pt.filter.SortDimension;
+import com.ruoyi.openliststrm.pt.filter.TorrentFilterEngine;
 import com.ruoyi.openliststrm.pt.indexer.IndexerCapability;
 import com.ruoyi.openliststrm.pt.indexer.IndexerCapabilityCache;
 import com.ruoyi.openliststrm.pt.indexer.TorznabClient;
 import com.ruoyi.openliststrm.pt.model.TorrentInfo;
+import com.ruoyi.openliststrm.pt.subscription.dto.PushSelectedRequest;
+import com.ruoyi.openliststrm.pt.subscription.dto.SearchCandidateDTO;
 import com.ruoyi.openliststrm.pt.subscription.dto.SupplementResult;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -19,13 +28,16 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
+import java.util.stream.Collectors;
 
 /**
  * 搜索补集编排：三级回退（ID 精确搜索 → 中文标题 → 英文/原语言标题）找候选，
@@ -45,6 +57,9 @@ public class SearchSupplementService {
     private final IPtSubscriptionEpisodePlusService episodeService;
     private final SubscriptionMatcher matcher;
     private final IndexerCapabilityCache capabilityCache;
+    private final IPtFilterConfigPlusService filterConfigService;
+    private final TorrentFilterEngine filterEngine;
+    private final TmdbSearchService tmdbSearchService;
 
     /**
      * 对所有启用索引器并发搜索时的最大同时请求数。索引器数量可能远超此值，多出的排队等待，
@@ -59,6 +74,9 @@ public class SearchSupplementService {
                                    IPtSubscriptionEpisodePlusService episodeService,
                                    SubscriptionMatcher matcher,
                                    IndexerCapabilityCache capabilityCache,
+                                   IPtFilterConfigPlusService filterConfigService,
+                                   TorrentFilterEngine filterEngine,
+                                   TmdbSearchService tmdbSearchService,
                                    @Value("${pt.search.max-concurrency:3}") int maxConcurrency) {
         this.indexerService = indexerService;
         this.torznabClient = torznabClient;
@@ -67,7 +85,18 @@ public class SearchSupplementService {
         this.episodeService = episodeService;
         this.matcher = matcher;
         this.capabilityCache = capabilityCache;
+        this.filterConfigService = filterConfigService;
+        this.filterEngine = filterEngine;
+        this.tmdbSearchService = tmdbSearchService;
         this.maxConcurrency = Math.max(1, maxConcurrency);
+    }
+
+    /**
+     * 搜索补集（自动推送模式，与旧调用兼容）。
+     * 等价于 {@link #supplement(Integer, int, String, boolean)} 传 manualSelect=false。
+     */
+    public SupplementResult supplement(Integer subId, int episode, String keyword) {
+        return supplement(subId, episode, keyword, false);
     }
 
     /**
@@ -76,28 +105,97 @@ public class SearchSupplementService {
      * 三级回退：ID 精确搜索（索引器支持时）→ 中文标题 → 英文/原语言标题，任一级过滤后有
      * 匹配就停止，不再尝试后面的级别；过滤标准（{@link #filterByTarget}）全程不变。
      * </p>
+     * <p>
+     * 当 {@code manualSelect} 为 true 时，不会自动推送最优结果，而是将所有候选种子
+     * 以 DTO 形式返回，供前端展示让用户手动选择后再推送。
+     * </p>
      *
      * @throws IllegalArgumentException 订阅不存在、订阅未在订阅中(ACTIVE)，或 episode 不合法
      */
-    public SupplementResult supplement(Integer subId, int episode, String keyword) {
+    public SupplementResult supplement(Integer subId, int episode, String keyword, boolean manualSelect) {
         PtSubscriptionPlus sub = requireSearchable(subId);
         validateEpisode(sub, episode);
 
         int totalCandidates = 0;
 
+        // 第一优先级：IMDB/TMDB ID 精确搜索
         List<TorrentInfo> idCandidates = searchByExternalId(sub, episode);
         fillParsedAll(idCandidates);
         totalCandidates += idCandidates.size();
-        List<TorrentInfo> matched = filterByTarget(sub, episode, idCandidates);
 
-        if (matched.isEmpty()) {
+        if (manualSelect) {
+            // 手动模式：收集所有来源的候选种子（ID精确 + 关键词 + 英文名），不自动推送
+            List<TorrentInfo> allMatched = new ArrayList<>();
+            // ID 搜索结果已是精确匹配，直接纳入
+            allMatched.addAll(idCandidates);
+
+            // 关键词搜索
+            List<TorrentInfo> kwCandidates = searchAcrossIndexers(keyword);
+            fillParsedAll(kwCandidates);
+            totalCandidates += kwCandidates.size();
+            allMatched.addAll(filterByTarget(sub, episode, kwCandidates));
+
+            // 英文/原语言标题兜底
+            String altKeyword = buildAltKeyword(sub, episode);
+            if (altKeyword != null) {
+                List<TorrentInfo> altCandidates = searchAcrossIndexers(altKeyword);
+                fillParsedAll(altCandidates);
+                totalCandidates += altCandidates.size();
+                // 去重：已存在的 guid 不重复添加
+                Set<String> existingGuids = allMatched.stream()
+                        .map(t -> t.getIndexerId() + ":" + t.getGuid())
+                        .collect(java.util.stream.Collectors.toSet());
+                for (TorrentInfo t : filterByTarget(sub, episode, altCandidates)) {
+                    if (existingGuids.add(t.getIndexerId() + ":" + t.getGuid())) {
+                        allMatched.add(t);
+                    }
+                }
+            }
+
+            // 应用 PT 过滤规则：淘汰不满足条件的候选，按配置维度排序
+            PtFilterConfigPlus globalConfig = filterConfigService.getConfig();
+            FilterCriteria criteria = FilterCriteriaFactory.build(globalConfig, sub.getFilterOverride());
+            String originalLanguage = tmdbSearchService.getOriginalLanguage(
+                    sub.getMediaType(), sub.getTmdbId());
+            List<TorrentFilterEngine.Verdict> verdicts = filterEngine.evaluate(allMatched, criteria, originalLanguage);
+            List<TorrentInfo> survivors = verdicts.stream()
+                    .filter(TorrentFilterEngine.Verdict::accepted)
+                    .map(TorrentFilterEngine.Verdict::torrent)
+                    .collect(Collectors.toCollection(ArrayList::new));
+
+            // 按配置的排序维度排序（与自动推送模式的择优逻辑一致）
+            Comparator<TorrentInfo> sortComparator = null;
+            for (SortDimension dimension : criteria.sortPriority()) {
+                Comparator<TorrentInfo> next = dimension.comparator(criteria);
+                sortComparator = (sortComparator == null) ? next : sortComparator.thenComparing(next);
+            }
+            if (sortComparator != null) {
+                survivors.sort(sortComparator);
+            }
+
+            sub.setLastSearchTime(new Date());
+            subscriptionService.updateById(sub);
+
+            log.info("订阅[{}] {} 关键词[{}]手动搜索补集：原始{}个，过滤后{}个",
+                    sub.getId(), sub.getTitle(), keyword, totalCandidates, survivors.size());
+            return new SupplementResult(false, totalCandidates, toCandidateDtos(survivors));
+        }
+
+        // 以下为自动推送模式（原逻辑保持不变）
+        boolean pushed = false;
+        if (!idCandidates.isEmpty()) {
+            pushed = subscriptionEngine.pushBest(sub, episode, idCandidates);
+        }
+
+        List<TorrentInfo> matched = new ArrayList<>();
+        if (!pushed) {
             List<TorrentInfo> candidates = searchAcrossIndexers(keyword);
             fillParsedAll(candidates);
             totalCandidates += candidates.size();
             matched = filterByTarget(sub, episode, candidates);
         }
 
-        if (matched.isEmpty()) {
+        if (!pushed && matched.isEmpty()) {
             String altKeyword = buildAltKeyword(sub, episode);
             if (altKeyword != null) {
                 List<TorrentInfo> altCandidates = searchAcrossIndexers(altKeyword);
@@ -107,7 +205,9 @@ public class SearchSupplementService {
             }
         }
 
-        boolean pushed = subscriptionEngine.pushBest(sub, episode, matched);
+        if (!pushed) {
+            pushed = subscriptionEngine.pushBest(sub, episode, matched);
+        }
 
         sub.setLastSearchTime(new Date());
         subscriptionService.updateById(sub);
@@ -118,10 +218,81 @@ public class SearchSupplementService {
     }
 
     /**
-     * 建订阅后一次性补搜历史资源：电影只搜一次；剧集先试整季包，季包搜不到再对仍缺失的
-     * 集逐一兜底。供 {@link SubscriptionSearchOnCreateTrigger} 异步调用——顶层不抛异常，
-     * 季包搜索与每一集的搜索都各自 try/catch，任一目标失败不影响其余目标继续搜索。
-     * 全部目标都没能推送成功时发一次通知，避免用户只能靠翻 pt_search_log 排查"为什么没搜到"。
+     * 手动选择模式：将用户选中的候选种子（由前端传递必要信息）推送到下载器。
+     * <p>
+     * 前端在展示候选列表后，用户点击某个候选，前端将种子的关键信息传回，
+     * 本方法构造一个 {@link TorrentInfo} 后走既有推送链路。
+     * </p>
+     *
+     * @return 是否成功推送
+     * @throws IllegalArgumentException 订阅不存在、订阅未在订阅中(ACTIVE)，或 episode 不合法
+     */
+    public boolean pushSelected(Integer subId, int episode, PushSelectedRequest request) {
+        PtSubscriptionPlus sub = requireSearchable(subId);
+        validateEpisode(sub, episode);
+
+        TorrentInfo torrent = new TorrentInfo();
+        torrent.setTitle(request.getTitle());
+        torrent.setSize(request.getSize());
+        torrent.setSeeders(request.getSeeders());
+        torrent.setPeers(request.getPeers());
+        torrent.setDownloadVolumeFactor(request.getDownloadVolumeFactor());
+        torrent.setIndexerId(request.getIndexerId());
+        torrent.setGuid(request.getGuid());
+        torrent.setDownloadUrl(request.getDownloadUrl());
+        torrent.setInfoHash(request.getInfoHash());
+        torrent.setDescription(request.getDescription());
+        torrent.setPubDate(request.getPubDate());
+
+        subscriptionEngine.fillParsed(torrent);
+        boolean pushed = subscriptionEngine.pushBest(sub, episode, List.of(torrent));
+
+        log.info("订阅[{}] {} 手动选择推送[{}]：{}",
+                sub.getId(), sub.getTitle(), torrent.getTitle(), pushed ? "已推送" : "推送失败");
+        return pushed;
+    }
+
+    /**
+     * 将 TorrentInfo 列表转换为前端展示用的 SearchCandidateDTO 列表，
+     * 附带索引器名称用于展示。
+     */
+    private List<SearchCandidateDTO> toCandidateDtos(List<TorrentInfo> torrents) {
+        // 预加载索引器 ID→名称映射，避免逐条查库
+        Map<Integer, String> indexerNames = indexerService.list().stream()
+                .collect(Collectors.toMap(PtIndexerPlus::getId, PtIndexerPlus::getName,
+                        (a, b) -> a));
+        return torrents.stream()
+                .map(t -> SearchCandidateDTO.builder()
+                        .title(t.getTitle())
+                        .size(t.getSize())
+                        .seeders(t.getSeeders())
+                        .peers(t.getPeers())
+                        .free(t.isFree())
+                        .resolution(t.getParsedResolution())
+                        .source(t.getParsedSource())
+                        .indexerName(indexerNames.getOrDefault(t.getIndexerId(), "未知"))
+                        .indexerId(t.getIndexerId())
+                        .guid(t.getGuid())
+                        .parsedYear(t.getParsedYear())
+                        .pubDate(t.getPubDate())
+                        .build())
+                .toList();
+    }
+
+    /**
+     * 建订阅后一次性补搜历史资源：电影只搜一次；剧集做一次全季节搜索获取候选，
+     * 先试整季包，季包未命中再对仍缺失的集从同一候选池中逐集匹配推送。
+     * <p>
+     * 与旧实现（逐集调用 {@link #supplement} 分别搜索）相比，避免了对同级别的
+     * 多集缺失时反复向所有索引器发起搜索——由 O(N×M) 降为 O(N+M)，N=三级搜索,
+     * M=缺集数,每次只做本地匹配和择优推送。
+     * </p>
+     * <p>
+     * 供 {@link SubscriptionSearchOnCreateTrigger} 异步调用——顶层不抛异常，
+     * 任一步的异常被各自 try/catch 捕获，不影响其他步骤继续。
+     * 全部目标都没能推送成功时发一次通知，避免用户只能靠翻 pt_search_log
+     * 排查"为什么没搜到"。
+     * </p>
      */
     public void supplementOnCreate(Integer subId) {
         PtSubscriptionPlus sub = subscriptionService.getById(subId);
@@ -149,33 +320,74 @@ public class SearchSupplementService {
             return;
         }
 
+        // 单次全季节搜索（三级回退：ID → 中文 → 英文/原语言）
+        List<TorrentInfo> candidates = searchSeasonCandidates(sub);
+
+        // 先试季包
         boolean seasonPushed = false;
-        try {
-            seasonPushed = supplement(subId, SubscriptionMatcher.SEASON_PACK,
-                    sub.getTitle() + " S" + pad(sub.getSeason())).isPushed();
-        } catch (Exception e) {
-            log.warn("订阅[{}] 建订阅补搜整季包失败：{}", subId, e.getMessage());
+        if (!candidates.isEmpty()) {
+            List<TorrentInfo> seasonCandidates = filterByTarget(sub, SubscriptionMatcher.SEASON_PACK, candidates);
+            if (!seasonCandidates.isEmpty()) {
+                try {
+                    seasonPushed = subscriptionEngine.pushBest(sub, SubscriptionMatcher.SEASON_PACK, seasonCandidates);
+                } catch (Exception e) {
+                    log.warn("订阅[{}] 建订阅补搜整季包推送异常：{}", subId, e.getMessage());
+                }
+            }
         }
 
+        // 季包未命中：从同一候选池逐集匹配推送
         boolean anyEpisodePushed = false;
-        List<PtSubscriptionEpisodePlus> remaining = episodeService.listBySubscription(subId);
-        for (PtSubscriptionEpisodePlus ep : remaining) {
-            if (!SubscriptionService.STATE_MISSING.equals(ep.getState())) {
-                continue;
-            }
-            try {
-                String keyword = sub.getTitle() + " S" + pad(sub.getSeason()) + "E" + pad(ep.getEpisode());
-                if (supplement(subId, ep.getEpisode(), keyword).isPushed()) {
-                    anyEpisodePushed = true;
+        if (!seasonPushed && !candidates.isEmpty()) {
+            for (PtSubscriptionEpisodePlus ep : episodes) {
+                if (!SubscriptionService.STATE_MISSING.equals(ep.getState())) {
+                    continue;
                 }
-            } catch (Exception e) {
-                log.warn("订阅[{}] 建订阅补搜第{}集失败：{}", subId, ep.getEpisode(), e.getMessage());
+                try {
+                    if (subscriptionEngine.pushBest(sub, ep.getEpisode(), candidates)) {
+                        anyEpisodePushed = true;
+                    }
+                } catch (Exception e) {
+                    log.warn("订阅[{}] 建订阅补搜第{}集推送失败：{}", subId, ep.getEpisode(), e.getMessage());
+                }
             }
         }
 
         if (!seasonPushed && !anyEpisodePushed) {
             notifyNoResult(sub);
         }
+    }
+
+    /**
+     * 全季节搜索：三级回退（ID 精确搜索 → 中文标题 → 英文/原语言标题），
+     * 返回结果不经 {@code filterByTarget} 过滤，供调用方自行按季包/逐集匹配。
+     * 各级搜索到有结果即停止，候选已做过 {@link SubscriptionEngine#fillParsed}。
+     *
+     * @return 搜索到的全部候选种子；全为空返回空列表
+     */
+    private List<TorrentInfo> searchSeasonCandidates(PtSubscriptionPlus sub) {
+        List<TorrentInfo> candidates = searchByExternalId(sub, SubscriptionMatcher.SEASON_PACK);
+        fillParsedAll(candidates);
+        if (!candidates.isEmpty()) {
+            return candidates;
+        }
+
+        String keyword = sub.getTitle() + " S" + pad(sub.getSeason());
+        candidates = searchAcrossIndexers(keyword);
+        fillParsedAll(candidates);
+        if (!candidates.isEmpty()) {
+            return candidates;
+        }
+
+        String originalTitle = sub.getOriginalTitle();
+        if (StringUtils.isNotBlank(originalTitle)
+                && !matcher.normalizeAll(originalTitle).equals(matcher.normalizeAll(sub.getTitle()))) {
+            String altKeyword = originalTitle + " S" + pad(sub.getSeason());
+            candidates = searchAcrossIndexers(altKeyword);
+            fillParsedAll(candidates);
+        }
+
+        return candidates;
     }
 
     private void notifyNoResult(PtSubscriptionPlus sub) {
@@ -204,13 +416,14 @@ public class SearchSupplementService {
         Semaphore limiter = new Semaphore(maxConcurrency);
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             List<CompletableFuture<Void>> futures = indexers.stream()
-                    .map(indexer -> CompletableFuture.runAsync(() -> runLimited(limiter, () -> {
-                        try {
-                            merged.addAll(torznabClient.search(indexer, keyword));
-                        } catch (Exception e) {
-                            log.warn("索引器[{}]关键词搜索失败：{}", indexer.getName(), e.getMessage());
-                        }
-                    }), executor))
+                    .map(indexer -> CompletableFuture.runAsync(Threads.wrap(() ->
+                            runLimited(limiter, () -> {
+                                try {
+                                    merged.addAll(torznabClient.search(indexer, keyword));
+                                } catch (Exception e) {
+                                    log.warn("索引器[{}]关键词搜索失败：{}", indexer.getName(), e.getMessage());
+                                }
+                            })), executor))
                     .toList();
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
         }
@@ -235,7 +448,7 @@ public class SearchSupplementService {
         Semaphore limiter = new Semaphore(maxConcurrency);
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             List<CompletableFuture<Void>> futures = indexers.stream()
-                    .map(indexer -> CompletableFuture.runAsync(() -> {
+                    .map(indexer -> CompletableFuture.runAsync(Threads.wrap(() -> {
                         IdSearchParam param = resolveIdParam(sub, indexer, movie);
                         if (param == null) {
                             return;
@@ -248,7 +461,7 @@ public class SearchSupplementService {
                                 log.warn("索引器[{}]按{}搜索失败：{}", indexer.getName(), param.name(), e.getMessage());
                             }
                         });
-                    }, executor))
+                    }), executor))
                     .toList();
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
         }
@@ -386,6 +599,11 @@ public class SearchSupplementService {
      * 电影候选校验标准与 {@link SubscriptionMatcher} 的电影分支保持一致：
      * 带季/集信息的一定是剧集/综艺，标题需归一化后与订阅有交集，年份必须完全一致
      * （同名翻拍常见，宁可漏也不能串台）。
+     * <p>
+     * 注意：{@link SubscriptionEngine#fillParsed} 填入的 {@code parsedTitle} 依赖
+     * {@code MediaParser.parseLocal} 的解析结果，特殊格式的种子标题可能解析失败（产生 null）。
+     * 此时回退到种子的原始标题 {@code torrent.getTitle()} 做归一化比对，避免漏掉有效候选。
+     * </p>
      */
     private List<TorrentInfo> filterMovieCandidates(PtSubscriptionPlus sub, List<TorrentInfo> candidates) {
         Set<String> subTitles = matcher.normalizeAll(sub.getTitle(), sub.getOriginalTitle());
@@ -394,7 +612,12 @@ public class SearchSupplementService {
             if (candidate.getParsedSeason() != null || candidate.getParsedEpisode() != null) {
                 continue;
             }
-            Set<String> torrentTitles = matcher.normalizeAll(candidate.getParsedTitle(), candidate.getParsedTitleEn());
+            // parsedTitle/parsedTitleEn 可能为 null（MediaParser 解析失败），
+            // 此时回退到原始种子标题 getTitle() 做归一化
+            String t1 = candidate.getParsedTitle();
+            String t2 = candidate.getParsedTitleEn();
+            String tFallback = (t1 == null && t2 == null) ? candidate.getTitle() : null;
+            Set<String> torrentTitles = matcher.normalizeAll(t1, t2, tFallback);
             if (Collections.disjoint(torrentTitles, subTitles)) {
                 continue;
             }

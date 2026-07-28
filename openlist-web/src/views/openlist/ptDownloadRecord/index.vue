@@ -46,7 +46,7 @@
       </div>
 
       <div class="card-grid" v-if="loading && taskList.length === 0">
-        <div v-for="n in 6" :key="n" class="record-card-skeleton">
+        <div v-for="n in skeletonCount" :key="n" class="record-card-skeleton">
           <el-skeleton animated>
             <template #template>
               <el-skeleton-item variant="text" style="width: 60%; height: 16px; margin-bottom: 10px" />
@@ -63,20 +63,28 @@
           v-for="item in taskList"
           :key="item.id"
           class="record-card"
-          :class="{ 'record-card--failed': item.state === 'FAILED' }"
+          :class="{ 'record-card--failed': item.state === 'FAILED', selectable: selectionMode && item.state === 'FAILED' }"
+          @click="selectionMode && item.state === 'FAILED' && toggleRecordSelect(item)"
         >
           <el-checkbox
             v-if="selectionMode && item.state === 'FAILED'"
             class="record-card-checkbox"
             :model-value="selectedIds.includes(item.id)"
-            @change="toggleRecordSelect(item)"
+            @click.stop="toggleRecordSelect(item)"
           />
           <div class="record-header">
             <span class="record-title" :title="item.title">{{ item.title }}</span>
             <el-tag :type="stateTagType(item.state)" size="small">{{ stateLabel(item.state) }}</el-tag>
           </div>
           <div class="record-sub">
-            {{ item.subTitle || '订阅已删除' }}
+            <router-link
+              v-if="item.subId"
+              :to="{ path: '/openlist/ptSubscription', query: { id: item.subId } }"
+              class="record-sub-link"
+            >
+              {{ item.subTitle || '订阅已删除' }}
+            </router-link>
+            <span v-else>{{ item.subTitle || '订阅已删除' }}</span>
             <span v-if="item.episodeLabel" class="record-episode">· {{ item.episodeLabel }}</span>
           </div>
           <el-progress
@@ -160,11 +168,22 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { WarningFilled } from '@element-plus/icons-vue'
 import { usePtDownloadRecord } from '@/composables/usePtDownloadRecord'
 
 const showSearch = ref(window.innerWidth >= 768)
+
+const skeletonCount = ref(6)
+
+function updateSkeletonCount() {
+  const cardMinWidth = 320 + 14
+  const containerWidth = window.innerWidth - 32 - 32
+  skeletonCount.value = Math.max(3, Math.min(12, Math.floor(containerWidth / cardMinWidth)))
+}
+
+onMounted(() => { updateSkeletonCount(); window.addEventListener('resize', updateSkeletonCount) })
+onUnmounted(() => { window.removeEventListener('resize', updateSkeletonCount) })
 
 const {
   taskList, loading, total, queryParams, getList, handleQuery, resetQuery, queryRef,
@@ -246,6 +265,8 @@ const formatSize = (bytes: number): string => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 
 .batch-toolbar {
@@ -258,6 +279,9 @@ const formatSize = (bytes: number): string => {
   background: var(--osr-bg-page);
   font-size: 13px;
   color: var(--osr-text-secondary);
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 
 .pagination-wrapper {
@@ -269,7 +293,7 @@ const formatSize = (bytes: number): string => {
 
 .card-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
   gap: 14px;
   min-height: 120px;
 }
@@ -279,7 +303,7 @@ const formatSize = (bytes: number): string => {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 14px 16px;
+  padding: 14px;
   border: 1px solid var(--osr-border-light);
   border-radius: var(--osr-radius-md);
   transition: box-shadow var(--osr-transition-fast), border-color var(--osr-transition-fast);
@@ -288,24 +312,30 @@ const formatSize = (bytes: number): string => {
     box-shadow: var(--osr-shadow-md);
     border-color: var(--osr-border-base);
   }
+
+  &.selectable {
+    cursor: pointer;
+    &:hover {
+      border-color: var(--osr-primary-light-5);
+    }
+  }
 }
 
 .record-card-checkbox {
   position: absolute;
   top: 10px;
-  right: 10px;
+  left: 10px;
   z-index: 1;
 }
 
 .record-card--failed {
   border-left: 3px solid var(--osr-danger);
-  padding-left: 13px;
 }
 
 .record-card-skeleton {
   --el-skeleton-color: var(--osr-border-light);
   --el-skeleton-to-color: var(--osr-bg-page);
-  padding: 14px 16px;
+  padding: 14px;
   border: 1px solid var(--osr-border-light);
   border-radius: var(--osr-radius-md);
 }
@@ -319,7 +349,7 @@ const formatSize = (bytes: number): string => {
   .record-title {
     flex: 1;
     min-width: 0;
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 600;
     color: var(--osr-text-primary);
     overflow: hidden;
@@ -340,6 +370,15 @@ const formatSize = (bytes: number): string => {
   }
 }
 
+.record-sub-link {
+  color: var(--osr-primary);
+  text-decoration: none;
+  &:hover {
+    text-decoration: underline;
+    color: var(--osr-primary-light-3);
+  }
+}
+
 .record-row {
   display: flex;
   align-items: center;
@@ -348,7 +387,7 @@ const formatSize = (bytes: number): string => {
 
   .label {
     flex-shrink: 0;
-    width: 78px;
+    width: 58px;
     color: var(--osr-text-secondary);
   }
 
@@ -403,12 +442,27 @@ const formatSize = (bytes: number): string => {
     }
   }
 
+  .action-bar {
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
+
+    .action-left {
+      gap: 4px;
+    }
+  }
+
   .table-card :deep(.el-card__body) {
     padding: 12px;
   }
 
   .card-grid {
     grid-template-columns: 1fr;
+  }
+
+  .record-card-checkbox {
+    left: 6px;
+    top: 6px;
   }
 }
 </style>

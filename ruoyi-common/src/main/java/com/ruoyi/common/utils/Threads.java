@@ -2,6 +2,7 @@ package com.ruoyi.common.utils;
 
 import java.util.Map;
 import java.util.concurrent.Callable;
+import java.util.function.Supplier;
 import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
@@ -158,6 +159,44 @@ public class Threads
                 String childTraceId = ThreadTraceIdUtil.createChildTraceId();
                 MDC.put(ThreadTraceIdUtil.TRACE_ID_KEY, childTraceId);
                 task.run();
+            } finally {
+                MDC.clear();
+            }
+        };
+    }
+
+    /**
+     * 包装 Supplier 任务，传递 traceId 到目标线程（用于 CompletableFuture.supplyAsync）。
+     */
+    public static <T> Supplier<T> wrapSupplier(Supplier<T> task) {
+        Map<String, String> context = MDC.getCopyOfContextMap();
+        return () -> {
+            try {
+                if (context != null) {
+                    MDC.setContextMap(context);
+                }
+                String childTraceId = ThreadTraceIdUtil.createChildTraceId();
+                MDC.put(ThreadTraceIdUtil.TRACE_ID_KEY, childTraceId);
+                return task.get();
+            } finally {
+                MDC.clear();
+            }
+        };
+    }
+
+    /**
+     * 包装 Callable 任务，传递 traceId 到目标线程。
+     */
+    public static <T> Callable<T> wrapCallable(Callable<T> task) {
+        Map<String, String> context = MDC.getCopyOfContextMap();
+        return () -> {
+            try {
+                if (context != null) {
+                    MDC.setContextMap(context);
+                }
+                String childTraceId = ThreadTraceIdUtil.createChildTraceId();
+                MDC.put(ThreadTraceIdUtil.TRACE_ID_KEY, childTraceId);
+                return task.call();
             } finally {
                 MDC.clear();
             }

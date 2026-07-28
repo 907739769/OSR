@@ -1,6 +1,7 @@
 package com.ruoyi.openliststrm.pt.task;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.ruoyi.common.utils.Threads;
 import com.ruoyi.common.utils.ThreadTraceIdUtil;
 import com.ruoyi.common.utils.spring.SpringUtils;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtDownloaderPlus;
@@ -45,7 +46,7 @@ public class DownloadTrackTask {
     @EventListener(ApplicationReadyEvent.class)
     public void start() {
         ThreadTraceIdUtil.initTraceId();
-        scheduler.scheduleAtFixedRate(this::poll, Instant.now().plusSeconds(30), Duration.ofSeconds(30));
+        scheduler.scheduleAtFixedRate(Threads.wrap(this::poll), Instant.now().plusSeconds(30), Duration.ofSeconds(30));
         log.info("DownloadTrackTask started");
     }
 

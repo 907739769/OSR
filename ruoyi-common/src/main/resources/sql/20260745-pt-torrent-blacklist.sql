@@ -1,5 +1,5 @@
 -- ----------------------------
--- 20260743: 新增 PT 种子/发布组手动黑名单功能（建表 + 菜单）
+-- 20260745: 新增 PT 种子/发布组手动黑名单功能（建表 + 菜单）
 -- 建表 pt_torrent_blacklist，唯一索引 uk_type_value(type, value) 防止同一种子/发布组被
 -- 重复拉黑，也让 PtTorrentBlacklistPlusServiceImpl.blockRecordGuid/blockRecordReleaseGroup
 -- 的幂等判断有约束兜底。

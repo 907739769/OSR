@@ -42,7 +42,8 @@ public final class FilterCriteriaFactory {
                 FilterCriteria.splitCsv(strOf(patch, "resolutionPriority", global.getResolutionPriority())),
                 FilterCriteria.splitCsv(strOf(patch, "resolutionWhitelist", global.getResolutionWhitelist())),
                 SortDimension.parseCsv(strOf(patch, "sortPriority", global.getSortPriority())),
-                longOf(patch, "preferredSize", global.getPreferredSize()));
+                longOf(patch, "preferredSize", global.getPreferredSize()),
+                isFreeOnly(strOf(patch, "requireChineseSubtitle", global.getRequireChineseSubtitle())));
     }
 
     /**

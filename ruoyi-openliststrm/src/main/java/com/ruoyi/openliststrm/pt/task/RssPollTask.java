@@ -1,5 +1,6 @@
 package com.ruoyi.openliststrm.pt.task;
 
+import com.ruoyi.common.utils.Threads;
 import com.ruoyi.common.utils.ThreadTraceIdUtil;
 import com.ruoyi.common.utils.spring.SpringUtils;
 import jakarta.annotation.PreDestroy;
@@ -36,7 +37,7 @@ public class RssPollTask {
     @EventListener(ApplicationReadyEvent.class)
     public void start() {
         ThreadTraceIdUtil.initTraceId();
-        scheduler.scheduleAtFixedRate(this::poll, Instant.now().plusSeconds(60), Duration.ofSeconds(60));
+        scheduler.scheduleAtFixedRate(Threads.wrap(this::poll), Instant.now().plusSeconds(60), Duration.ofSeconds(60));
         log.info("RssPollTask started");
     }
 

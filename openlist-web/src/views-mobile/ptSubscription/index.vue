@@ -19,14 +19,18 @@
             <el-option label="已暂停" value="PAUSED" />
           </el-select>
         </el-form-item>
+        <el-form-item label="排序" prop="sortBy">
+          <el-select v-model="queryParams.sortBy" placeholder="排序" clearable style="width: 100%" @change="handleQuery">
+            <el-option label="默认（最新创建）" value="" />
+            <el-option label="上次命中时间" value="lastMatchTime" />
+          </el-select>
+        </el-form-item>
       </el-form>
     </MobileSearchPanel>
 
-    <!-- 提示：新增订阅需要 TMDb 选片向导，暂只支持电脑端操作 -->
-
     <!-- 列表 -->
     <div class="task-list" v-loading="loading">
-      <div v-for="item in taskList" :key="item.id" class="sub-card">
+      <div v-for="item in taskList" :key="item.id" class="sub-card" :class="{ selected: selectedIds.includes(item.id) }" @click="toggleSubSelect(item)">
         <div class="sub-poster">
           <img
             v-if="item.posterPath && !posterErrorIds.has(item.id)"
@@ -68,21 +72,37 @@
               @change="toggleAutoSearch(item)"
             />
           </div>
-          <div class="sub-actions">
+          <div class="sub-actions" @click.stop>
             <el-button link type="primary" size="small" @click="showProgress(item)">进度</el-button>
-            <el-button link type="primary" size="small" @click="openSeasonSearch(item)">搜索补齐</el-button>
-            <el-button link type="primary" size="small" @click="handleRefresh(item)">对账</el-button>
             <el-button link type="primary" size="small" @click="goDownloadRecords(item)">下载记录</el-button>
-            <el-button link type="primary" size="small" @click="showSearchLogs(item)">匹配日志</el-button>
-            <el-button link type="primary" size="small" @click="openFilterOverride(item)">过滤规则</el-button>
-            <el-button v-if="item.status !== 'PAUSED'" link type="warning" size="small" @click="handlePause(item)">暂停</el-button>
-            <el-button v-else link type="success" size="small" @click="handleResume(item)">恢复</el-button>
-            <el-button link type="danger" size="small" @click="handleRemove(item)">删除</el-button>
+            <el-button link type="info" size="small" @click="openActionDrawer(item)">···</el-button>
           </div>
         </div>
       </div>
 
       <el-empty v-if="!loading && taskList.length === 0" description="暂无订阅" />
+    </div>
+
+    <!-- 操作抽屉 -->
+    <el-drawer v-model="actionDrawerOpen" direction="btt" size="auto" :with-header="true" title="更多操作" append-to-body class="modern-drawer">
+      <div class="drawer-actions" v-if="actionDrawerTarget">
+        <el-button v-if="actionDrawerTarget.status !== 'PAUSED'" type="warning" @click="handlePause(actionDrawerTarget); actionDrawerOpen = false" style="margin-left: 0">暂停</el-button>
+        <el-button v-else type="success" @click="handleResume(actionDrawerTarget); actionDrawerOpen = false" style="margin-left: 0">恢复</el-button>
+        <el-button type="primary" @click="openSeasonSearch(actionDrawerTarget); actionDrawerOpen = false" style="margin-left: 0">搜索补齐</el-button>
+        <el-button @click="handleRefresh(actionDrawerTarget); actionDrawerOpen = false" style="margin-left: 0">对账</el-button>
+        <el-button @click="showSearchLogs(actionDrawerTarget); actionDrawerOpen = false" style="margin-left: 0">匹配日志</el-button>
+        <el-button @click="openFilterOverride(actionDrawerTarget); actionDrawerOpen = false" style="margin-left: 0">过滤规则</el-button>
+        <el-button type="danger" @click="handleRemove(actionDrawerTarget); actionDrawerOpen = false" style="margin-left: 0">删除</el-button>
+      </div>
+    </el-drawer>
+
+    <!-- 批量操作 -->
+    <div class="batch-bar" v-if="selectedIds.length > 0">
+      <span class="selected-count">已选 {{ selectedIds.length }} 项</span>
+      <el-button link type="warning" size="small" @click="handleBatchPause">批量暂停</el-button>
+      <el-button link type="success" size="small" @click="handleBatchResume">批量恢复</el-button>
+      <el-button link type="danger" size="small" @click="handleDelete()">批量删除</el-button>
+      <el-button link size="small" @click="selectedIds.length = 0">取消</el-button>
     </div>
 
     <!-- 分页 -->
@@ -276,7 +296,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive } from 'vue'
+import { reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { Picture } from '@element-plus/icons-vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
@@ -296,13 +316,23 @@ const {
   openSeasonSearch, openEpisodeSearch, confirmSearch, toggleAutoSearch,
   handleRefresh, handlePause, handleResume, handleRemove,
   totalPages, prevPage, nextPage, handleSizeChange,
-  searchCollapsed
+  searchCollapsed,
+  selectedIds, toggleSubSelect, handleBatchPause, handleBatchResume, handleDelete
 } = usePtSubscription()
 
 /** TMDb 海报路径拼完整图片地址，w200 宽度足够列表缩略图使用 */
 const posterUrl = (path: string) => `https://image.tmdb.org/t/p/w200${path}`
 /** 海报加载失败的订阅 id 集合，命中则展示占位图标而非裂图 */
 const posterErrorIds = reactive(new Set<number>())
+
+/** 操作抽屉状态 */
+const actionDrawerOpen = ref(false)
+const actionDrawerTarget = ref<any>(null)
+
+const openActionDrawer = (row: any) => {
+  actionDrawerTarget.value = row
+  actionDrawerOpen.value = true
+}
 
 const goDownloadRecords = (row: any) => {
   router.push({ path: '/openlist/ptDownloadRecord', query: { subId: row.id } })
@@ -326,6 +356,30 @@ const goDownloadRecords = (row: any) => {
   flex: 1;
 }
 
+.batch-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 14px;
+  background: var(--osr-primary-light-9);
+  border: 1px solid var(--osr-primary-light-7);
+  border-radius: var(--osr-radius-md);
+  font-size: 13px;
+
+  .selected-count {
+    font-weight: 600;
+    color: var(--osr-primary);
+    margin-right: 4px;
+    white-space: nowrap;
+  }
+
+  .el-button {
+    font-size: 12px;
+    padding: 0 4px;
+    height: auto;
+  }
+}
+
 .sub-card {
   display: flex;
   gap: 10px;
@@ -333,6 +387,17 @@ const goDownloadRecords = (row: any) => {
   border-radius: var(--osr-radius-lg);
   padding: 12px;
   box-shadow: var(--osr-shadow-base);
+  border: 2px solid transparent;
+  transition: all var(--osr-transition-fast);
+
+  &.selected {
+    border-color: var(--osr-primary-light-5);
+    background: var(--osr-primary-light-9);
+  }
+
+  &:active {
+    transform: scale(0.99);
+  }
 }
 
 .sub-poster {
@@ -524,6 +589,34 @@ const goDownloadRecords = (row: any) => {
 
   .el-radio-group {
     flex: 1;
+  }
+}
+
+.modern-drawer {
+  :deep(.el-drawer__body) {
+    padding: 16px;
+  }
+
+  :deep(.el-button + .el-button) {
+    margin-left: 0;
+  }
+
+  .drawer-actions {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    width: 100%;
+
+    .el-button {
+      width: 100% !important;
+      justify-content: center;
+      height: 44px;
+      font-size: 15px;
+      border-radius: var(--osr-radius-md);
+      margin-left: 0 !important;
+      margin-right: 0 !important;
+    }
   }
 }
 </style>

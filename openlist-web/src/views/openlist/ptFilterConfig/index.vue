@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <el-card v-loading="loading" class="table-card">
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="140px" :style="{ maxWidth: '760px' }">
+      <el-form ref="formRef" :model="form" :rules="rules" label-width="140px" label-position="top" class="filter-form">
         <el-divider content-position="left">硬性过滤（不满足即淘汰）</el-divider>
 
         <el-form-item label="最低做种数" prop="minSeeders">
@@ -10,13 +10,13 @@
         </el-form-item>
 
         <el-form-item label="体积下限">
-          <el-input-number v-model="form.minSize" :min="0" :step="1073741824" :style="{ width: '240px' }" />
-          <span class="form-tip">字节，0 表示不限</span>
+          <el-input-number v-model="form.minSize" :min="0" :max="999" :style="{ width: '160px' }" />
+          <span class="form-tip">GB，0 表示不限</span>
         </el-form-item>
 
         <el-form-item label="体积上限">
-          <el-input-number v-model="form.maxSize" :min="0" :step="1073741824" :style="{ width: '240px' }" />
-          <span class="form-tip">字节，0 表示不限</span>
+          <el-input-number v-model="form.maxSize" :min="0" :max="999" :style="{ width: '160px' }" />
+          <span class="form-tip">GB，0 表示不限</span>
         </el-form-item>
 
         <el-form-item label="仅要免费种">
@@ -25,6 +25,16 @@
             <el-radio value="1">是</el-radio>
           </el-radio-group>
           <span class="form-tip">开启后 50% 促销种也会被淘汰，只留完全免费的</span>
+        </el-form-item>
+
+        <el-form-item label="外语电影需中字">
+          <el-radio-group v-model="form.requireChineseSubtitle">
+            <el-radio value="0">否</el-radio>
+            <el-radio value="1">是</el-radio>
+          </el-radio-group>
+          <span class="form-tip">
+            外语电影（TMDb 原始语言非中文）的种子标题或描述中未检测到中文字幕标识（CHS/CHT/中字等）时直接淘汰。中文电影自动跳过此规则
+          </span>
         </el-form-item>
 
         <el-form-item label="分辨率白名单">
@@ -52,8 +62,8 @@
         </el-form-item>
 
         <el-form-item label="偏好体积">
-          <el-input-number v-model="form.preferredSize" :min="0" :step="1073741824" :style="{ width: '240px' }" />
-          <span class="form-tip">字节，0 表示体积不参与择优比较</span>
+          <el-input-number v-model="form.preferredSize" :min="0" :max="999" :style="{ width: '160px' }" />
+          <span class="form-tip">GB，0 表示体积不参与择优比较</span>
         </el-form-item>
 
         <el-form-item label="维度优先顺序">
@@ -110,6 +120,70 @@ const { loading, saving, formRef, form, rules, sortOrder, labelOf, moveUp, moveD
 }
 
 .dimension-label {
-  min-width: 220px;
+  min-width: 100px;
+  flex: 1;
+}
+
+.form-tip {
+  font-size: 12px;
+  color: var(--osr-text-secondary);
+  line-height: 1.5;
+}
+
+@media (max-width: 768px) {
+  .page-container {
+    padding: 0;
+  }
+
+  .table-card :deep(.el-card__body) {
+    padding: 12px;
+  }
+
+  .filter-form {
+    width: 100%;
+  }
+
+  .filter-form :deep(.el-form-item) {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    margin-bottom: 14px;
+  }
+
+  .filter-form :deep(.el-form-item__label) {
+    padding-bottom: 4px;
+    height: auto;
+    line-height: 1.4;
+  }
+
+  .filter-form :deep(.el-form-item__content) {
+    flex-wrap: wrap;
+    margin-left: 0 !important;
+    width: 100%;
+  }
+
+  .filter-form :deep(.el-input),
+  .filter-form :deep(.el-input-number),
+  .filter-form :deep(.el-select) {
+    width: 100% !important;
+    max-width: 100%;
+  }
+
+  .filter-form :deep(.el-radio-group) {
+    width: 100%;
+    display: flex;
+    gap: 12px;
+  }
+
+  .dimension-row {
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .dimension-label {
+    min-width: 0;
+    width: auto;
+    flex: 1;
+  }
 }
 </style>
