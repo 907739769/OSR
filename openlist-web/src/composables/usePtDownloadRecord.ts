@@ -3,6 +3,7 @@ import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getPtDownloadRecordListApi, retryPtDownloadRecordApi, batchRetryPtDownloadRecordApi } from '@/api/openlist/ptDownloadRecord'
 import type { PtDownloadRecordQuery } from '@/api/openlist/ptDownloadRecord'
+import { usePtStatusSocket } from './usePtStatusSocket'
 
 /**
  * PT 下载记录 composable：只读列表 + 失败重试，没有增删改，
@@ -48,6 +49,16 @@ export function usePtDownloadRecord() {
     if (queryRef.value) (queryRef.value as any).resetFields()
     handleQuery()
   }
+
+  // ---------- 实时状态推送：状态/进度原地更新，不用整页刷新 ----------
+  usePtStatusSocket({
+    onDownload: (event) => {
+      const row = taskList.value.find((item: any) => item.id === event.downloadId)
+      if (row) {
+        Object.assign(row, { state: event.state, progress: event.progress, failReason: event.failReason })
+      }
+    }
+  })
 
   // ---------- 重试 ----------
   const retryingIds = reactive(new Set<number>())

@@ -7,6 +7,10 @@ vi.mock('vue-router', () => ({
   useRoute: () => ({ query: {} })
 }))
 
+vi.mock('../usePtStatusSocket', () => ({
+  usePtStatusSocket: vi.fn()
+}))
+
 // getList 在 setup 阶段同步调用，mock 掉整个 API 模块避免真实网络请求。
 vi.mock('@/api/openlist/ptDownloadRecord', () => ({
   getPtDownloadRecordListApi: vi.fn().mockResolvedValue({ records: [], total: 0 }),
@@ -16,6 +20,7 @@ vi.mock('@/api/openlist/ptDownloadRecord', () => ({
 
 import { usePtDownloadRecord } from '../usePtDownloadRecord'
 import { batchRetryPtDownloadRecordApi, getPtDownloadRecordListApi } from '@/api/openlist/ptDownloadRecord'
+import { usePtStatusSocket } from '../usePtStatusSocket'
 
 describe('usePtDownloadRecord 的批量重试', () => {
   let confirmSpy: any
@@ -71,5 +76,32 @@ describe('usePtDownloadRecord 的批量重试', () => {
     expect(composable.selectedIds.value).toEqual([5])
     composable.toggleRecordSelect({ id: 5 })
     expect(composable.selectedIds.value).toEqual([])
+  })
+})
+
+describe('usePtDownloadRecord 实时状态推送', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(getPtDownloadRecordListApi as any).mockResolvedValue({ records: [], total: 0 })
+    ;(usePtStatusSocket as any).mockReturnValue({ connect: vi.fn(), disconnect: vi.fn() })
+  })
+
+  it('收到 download 事件后原地更新对应记录的状态/进度/失败原因', () => {
+    const composable = usePtDownloadRecord()
+    composable.taskList.value = [{ id: 1, state: 'PUSHED', progress: null, failReason: null }]
+
+    const handlers = (usePtStatusSocket as any).mock.calls[0][0]
+    handlers.onDownload({ type: 'download', downloadId: 1, subId: 5, episode: 1, state: 'DOWNLOADING', progress: 0.6 })
+
+    expect(composable.taskList.value[0].state).toBe('DOWNLOADING')
+    expect(composable.taskList.value[0].progress).toBe(0.6)
+  })
+
+  it('找不到对应记录时静默忽略，不抛异常', () => {
+    const composable = usePtDownloadRecord()
+    composable.taskList.value = [{ id: 1, state: 'PUSHED' }]
+
+    const handlers = (usePtStatusSocket as any).mock.calls[0][0]
+    expect(() => handlers.onDownload({ type: 'download', downloadId: 999, subId: 5, episode: 1, state: 'FAILED', failReason: '超时' })).not.toThrow()
   })
 })
