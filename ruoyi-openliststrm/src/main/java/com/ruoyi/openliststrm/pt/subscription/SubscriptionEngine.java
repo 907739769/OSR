@@ -20,6 +20,7 @@ import com.ruoyi.openliststrm.pt.indexer.GuidHasher;
 import com.ruoyi.openliststrm.pt.model.TorrentInfo;
 import com.ruoyi.openliststrm.pt.subscription.dto.MatchResult;
 import com.ruoyi.openliststrm.pt.task.DownloadRecordState;
+import com.ruoyi.openliststrm.pt.ws.PtStatusWebSocket;
 import com.ruoyi.openliststrm.rename.MediaParser;
 import com.ruoyi.openliststrm.rename.model.MediaInfo;
 import lombok.extern.slf4j.Slf4j;
@@ -244,6 +245,7 @@ public class SubscriptionEngine {
 
         sub.setLastMatchTime(new Date());
         subscriptionService.updateById(sub);
+        PtStatusWebSocket.pushSubscriptionEvent(sub);
 
         log.info("订阅[{}] {} 已推送种子：{}（占位 {} 集）",
                 sub.getId(), sub.getTitle(), best.getTitle(), claimed.size());

@@ -15,12 +15,14 @@ import com.ruoyi.openliststrm.pt.downloader.DownloaderClientFactory;
 import com.ruoyi.openliststrm.pt.downloader.IDownloaderClient;
 import com.ruoyi.openliststrm.pt.filter.TorrentFilterEngine;
 import com.ruoyi.openliststrm.pt.model.TorrentInfo;
+import com.ruoyi.openliststrm.pt.ws.PtStatusWebSocket;
 import com.ruoyi.openliststrm.rename.MediaParser;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
+import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
@@ -37,6 +39,8 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.same;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -692,5 +696,52 @@ class SubscriptionEngineTest {
         engine.process(List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p")));
 
         verify(searchLogService).recordSummary(eq(10), eq(1), eq(SearchLogService.SOURCE_RSS), anyString());
+    }
+
+    // ---------- WebSocket 状态推送 ----------
+
+    @Test
+    void 推送成功后_推送WebSocket订阅事件() throws Exception {
+        PtSubscriptionPlus sub = tvSub(10, "Some Show", 1, 1);
+        when(subscriptionService.listActive()).thenReturn(List.of(sub));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "MISSING")));
+
+        try (MockedStatic<PtStatusWebSocket> ws = mockStatic(PtStatusWebSocket.class)) {
+            engine.process(List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p")));
+
+            ws.verify(() -> PtStatusWebSocket.pushSubscriptionEvent(same(sub)));
+        }
+    }
+
+    @Test
+    void pushBest成功_也推送WebSocket订阅事件() throws Exception {
+        PtSubscriptionPlus sub = tvSub(10, "Some Show", 1, 3);
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(
+                episode(101, 1, "MISSING"), episode(102, 2, "MISSING"), episode(103, 3, "MISSING")));
+
+        try (MockedStatic<PtStatusWebSocket> ws = mockStatic(PtStatusWebSocket.class)) {
+            boolean pushed = engine.pushBest(sub, 2, List.of(torrent("Some.Show.S01E02.1080p", "g1", 10, "1080p")));
+
+            assertTrue(pushed);
+            ws.verify(() -> PtStatusWebSocket.pushSubscriptionEvent(same(sub)));
+        }
+    }
+
+    @Test
+    void 推送失败回滚_不推送WebSocket订阅事件() throws Exception {
+        when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Some Show", 1, 1)));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "MISSING")));
+        when(recordService.save(any())).thenAnswer(inv -> {
+            ((PtDownloadRecordPlus) inv.getArgument(0)).setId(999);
+            return true;
+        });
+        org.mockito.Mockito.doThrow(new IOException("qb down"))
+                .when(downloaderClient).addTorrent(any(), anyString(), anyString(), anyString());
+
+        try (MockedStatic<PtStatusWebSocket> ws = mockStatic(PtStatusWebSocket.class)) {
+            engine.process(List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p")));
+
+            ws.verify(() -> PtStatusWebSocket.pushSubscriptionEvent(any()), never());
+        }
     }
 }
