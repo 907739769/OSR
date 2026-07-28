@@ -6,11 +6,13 @@ import com.ruoyi.openliststrm.mybatisplus.domain.PtDownloaderPlus;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtFilterConfigPlus;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
+import com.ruoyi.openliststrm.mybatisplus.domain.PtTorrentBlacklistPlus;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtDownloadRecordPlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtDownloaderPlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtFilterConfigPlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
+import com.ruoyi.openliststrm.mybatisplus.service.IPtTorrentBlacklistPlusService;
 import com.ruoyi.openliststrm.pt.downloader.DownloaderClientFactory;
 import com.ruoyi.openliststrm.pt.downloader.IDownloaderClient;
 import com.ruoyi.openliststrm.pt.filter.TorrentFilterEngine;
@@ -58,6 +60,7 @@ class SubscriptionEngineTest {
     @Mock private DownloaderClientFactory downloaderClientFactory;
     @Mock private IDownloaderClient downloaderClient;
     @Mock private SearchLogService searchLogService;
+    @Mock private IPtTorrentBlacklistPlusService blacklistService;
 
     private SubscriptionEngine engine;
 
@@ -66,7 +69,8 @@ class SubscriptionEngineTest {
         engine = new SubscriptionEngine(
                 subscriptionService, episodeService, recordService, downloaderService,
                 filterConfigService, downloaderClientFactory,
-                new TorrentFilterEngine(), new SubscriptionMatcher(), searchLogService);
+                new TorrentFilterEngine(), new SubscriptionMatcher(), searchLogService, blacklistService);
+        when(blacklistService.list()).thenReturn(new ArrayList<>());
 
         PtFilterConfigPlus config = new PtFilterConfigPlus();
         config.setMinSeeders(0);
@@ -743,5 +747,47 @@ class SubscriptionEngineTest {
 
             ws.verify(() -> PtStatusWebSocket.pushSubscriptionEvent(any()), never());
         }
+    }
+
+    // ---------- 黑名单 ----------
+
+    @Test
+    void 黑名单命中GUID_淘汰不推送() throws Exception {
+        when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Some Show", 1, 1)));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "MISSING")));
+        PtTorrentBlacklistPlus rule = new PtTorrentBlacklistPlus();
+        rule.setType(PtTorrentBlacklistPlus.TYPE_GUID);
+        rule.setValue(com.ruoyi.openliststrm.pt.indexer.GuidHasher.hash("g1"));
+        when(blacklistService.list()).thenReturn(List.of(rule));
+
+        int pushed = engine.process(List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p")));
+
+        assertEquals(0, pushed);
+        verify(downloaderClient, never()).addTorrent(any(), anyString(), anyString(), anyString());
+        ArgumentCaptor<List> verdicts = ArgumentCaptor.forClass(List.class);
+        verify(searchLogService).recordVerdicts(eq(10), eq(1), eq(SearchLogService.SOURCE_RSS), verdicts.capture());
+        TorrentFilterEngine.Verdict verdict = (TorrentFilterEngine.Verdict) verdicts.getValue().get(0);
+        assertFalse(verdict.accepted());
+        assertTrue(verdict.rejectReason().contains("拉黑"));
+    }
+
+    @Test
+    void pushBest路径_黑名单命中发布组_淘汰不推送() {
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "MISSING")));
+        PtTorrentBlacklistPlus rule = new PtTorrentBlacklistPlus();
+        rule.setType(PtTorrentBlacklistPlus.TYPE_RELEASE_GROUP);
+        rule.setValue("CHDWEB");
+        when(blacklistService.list()).thenReturn(List.of(rule));
+        PtSubscriptionPlus sub = tvSub(10, "Some Show", 1, 1);
+
+        // 末尾补 .mkv：MediaParser.extractBase 把最后一个 "." 之后的内容当成文件扩展名剥离，
+        // 真种子标题没有扩展名时最后一段（这里是发布组）会被误当扩展名吞掉，导致 parsedReleaseGroup 解析不出来。
+        // 这是 MediaParser 既有的行为（服务于真实文件重命名场景），不属于本任务改动范围，
+        // 这里用一个占位扩展名规避，让本用例真实覆盖“发布组黑名单命中”这条路径。
+        TorrentInfo candidate = torrent("Show.Name.S01E01.1080p.WEB-DL.H264-CHDWEB.mkv", "g1", 10, "1080p");
+        boolean pushed = engine.pushBest(sub, 1, List.of(candidate));
+
+        assertFalse(pushed);
+        verify(searchLogService).recordVerdicts(eq(10), eq(1), eq(SearchLogService.SOURCE_SUPPLEMENT), any(List.class));
     }
 }

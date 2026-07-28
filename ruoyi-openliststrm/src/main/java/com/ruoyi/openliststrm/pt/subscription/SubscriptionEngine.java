@@ -12,9 +12,11 @@ import com.ruoyi.openliststrm.mybatisplus.service.IPtDownloaderPlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtFilterConfigPlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
+import com.ruoyi.openliststrm.mybatisplus.service.IPtTorrentBlacklistPlusService;
 import com.ruoyi.openliststrm.pt.downloader.DownloaderClientFactory;
 import com.ruoyi.openliststrm.pt.filter.FilterCriteria;
 import com.ruoyi.openliststrm.pt.filter.FilterCriteriaFactory;
+import com.ruoyi.openliststrm.pt.filter.TorrentBlacklist;
 import com.ruoyi.openliststrm.pt.filter.TorrentFilterEngine;
 import com.ruoyi.openliststrm.pt.indexer.GuidHasher;
 import com.ruoyi.openliststrm.pt.model.TorrentInfo;
@@ -65,6 +67,7 @@ public class SubscriptionEngine {
     private final TorrentFilterEngine filterEngine;
     private final SubscriptionMatcher matcher;
     private final SearchLogService searchLogService;
+    private final IPtTorrentBlacklistPlusService blacklistService;
 
     /**
      * 本地标题解析器。parseLocal 只做本地正则抽取，不查 TMDb、不调 AI，所以传 null 客户端即可；
@@ -81,7 +84,8 @@ public class SubscriptionEngine {
                               DownloaderClientFactory downloaderClientFactory,
                               TorrentFilterEngine filterEngine,
                               SubscriptionMatcher matcher,
-                              SearchLogService searchLogService) {
+                              SearchLogService searchLogService,
+                              IPtTorrentBlacklistPlusService blacklistService) {
         this.subscriptionService = subscriptionService;
         this.episodeService = episodeService;
         this.recordService = recordService;
@@ -91,6 +95,7 @@ public class SubscriptionEngine {
         this.filterEngine = filterEngine;
         this.matcher = matcher;
         this.searchLogService = searchLogService;
+        this.blacklistService = blacklistService;
     }
 
     /**
@@ -104,6 +109,7 @@ public class SubscriptionEngine {
             return 0;
         }
         PtFilterConfigPlus globalConfig = filterConfigService.getConfig();
+        TorrentBlacklist blacklist = TorrentBlacklist.from(blacklistService.list());
 
         // 按 (订阅id, 集号) 分组；集号 -1 表示季包
         Map<String, List<TorrentInfo>> groups = new LinkedHashMap<>();
@@ -127,7 +133,7 @@ public class SubscriptionEngine {
         for (Map.Entry<String, List<TorrentInfo>> entry : groups.entrySet()) {
             MatchResult match = groupMatch.get(entry.getKey());
             if (handleGroup(match, entry.getValue(), globalConfig, episodeCache,
-                    enabledDownloaders, downloaderLoadCache, SearchLogService.SOURCE_RSS)) {
+                    enabledDownloaders, downloaderLoadCache, SearchLogService.SOURCE_RSS, blacklist)) {
                 pushed++;
             }
         }
@@ -142,12 +148,18 @@ public class SubscriptionEngine {
      */
     public boolean pushBest(PtSubscriptionPlus sub, int episode, List<TorrentInfo> candidates) {
         PtFilterConfigPlus globalConfig = filterConfigService.getConfig();
+        TorrentBlacklist blacklist = TorrentBlacklist.from(blacklistService.list());
+        // 调用方（如 SearchSupplementService）通常已经调用过 fillParsed，这里幂等地补一遍，
+        // 防止遗漏解析导致 parsedReleaseGroup 缺失、发布组黑名单形同虚设
+        for (TorrentInfo candidate : candidates) {
+            fillParsed(candidate);
+        }
         MatchResult match = new MatchResult(sub, episode);
         Map<Integer, List<PtSubscriptionEpisodePlus>> episodeCache = new LinkedHashMap<>();
         List<PtDownloaderPlus> enabledDownloaders = loadEnabledDownloaders();
         Map<Integer, Long> downloaderLoadCache = loadDownloaderLoadCounts(enabledDownloaders);
         return handleGroup(match, candidates, globalConfig, episodeCache,
-                enabledDownloaders, downloaderLoadCache, SearchLogService.SOURCE_SUPPLEMENT);
+                enabledDownloaders, downloaderLoadCache, SearchLogService.SOURCE_SUPPLEMENT, blacklist);
     }
 
     /**
@@ -158,7 +170,8 @@ public class SubscriptionEngine {
                                 Map<Integer, List<PtSubscriptionEpisodePlus>> episodeCache,
                                 List<PtDownloaderPlus> enabledDownloaders,
                                 Map<Integer, Long> downloaderLoadCache,
-                                String source) {
+                                String source,
+                                TorrentBlacklist blacklist) {
         PtSubscriptionPlus sub = match.getSubscription();
         List<PtSubscriptionEpisodePlus> allEpisodes = episodeCache.computeIfAbsent(
                 sub.getId(), episodeService::listBySubscription);
@@ -178,7 +191,7 @@ public class SubscriptionEngine {
         }
 
         FilterCriteria criteria = FilterCriteriaFactory.build(globalConfig, sub.getFilterOverride());
-        List<TorrentFilterEngine.Verdict> verdicts = filterEngine.evaluate(fresh, criteria);
+        List<TorrentFilterEngine.Verdict> verdicts = filterEngine.evaluate(fresh, criteria, blacklist);
         searchLogService.recordVerdicts(sub.getId(), match.getEpisode(), source, verdicts);
         List<TorrentInfo> survivors = verdicts.stream()
                 .filter(TorrentFilterEngine.Verdict::accepted)
@@ -265,6 +278,7 @@ public class SubscriptionEngine {
         torrent.setParsedEpisode(toInt(info.getEpisode()));
         torrent.setParsedResolution(info.getResolution());
         torrent.setParsedSource(info.getSource());
+        torrent.setParsedReleaseGroup(info.getReleaseGroup());
     }
 
     private Integer toInt(String value) {
