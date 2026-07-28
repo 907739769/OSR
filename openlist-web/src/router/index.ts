@@ -110,7 +110,8 @@ const componentMap: Record<string, Component | (() => Promise<any>)> = {
     () => import('@/views/openlist/ptDownloadRecord/index.vue'),
     () => import('@/views-mobile/ptDownloadRecord/index.vue')
   ),
-  'openlist/ptStatsDashboard/index': () => import('@/views/openlist/ptStatsDashboard/index.vue')
+  'openlist/ptStatsDashboard/index': () => import('@/views/openlist/ptStatsDashboard/index.vue'),
+  'openlist/ptTorrentBlacklist/index': () => import('@/views/openlist/ptTorrentBlacklist/index.vue')
 }
 
 /**
