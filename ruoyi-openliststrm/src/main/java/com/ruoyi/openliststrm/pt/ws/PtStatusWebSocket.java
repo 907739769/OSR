@@ -141,17 +141,32 @@ public class PtStatusWebSocket {
 
     /**
      * 遍历当前所有连接逐个发送；单个 session 发送失败（客户端已断开等）只记 debug 日志并从集合
-     * 摘除，不影响其余 session 收到消息，方法本身不抛出受检异常，调用方无需包 try/catch。
+     * 摘除、主动关闭该连接，不影响其余 session 收到消息，方法本身不抛出受检异常，调用方无需包 try/catch。
+     * <p>
+     * 本方法会被多个独立线程并发调用（{@code DownloadTrackTask} 轮询、{@code RssPollTask} 轮询、
+     * 搜索补集、下载记录重试等 REST 请求线程），而 {@code Session#getBasicRemote()} 返回的
+     * {@code RemoteEndpoint.Basic} 不是线程安全的——同一 session 若被两个线程同时调用
+     * {@code sendText}，容器会抛 {@code IllegalStateException}。因此对每个 session 的发送用
+     * {@code synchronized(session)} 串行化，与 {@code LogWebSocket} 那种"单线程 tail 写"模型不同，
+     * 不能省略这层同步。
+     * </p>
      */
     private static void broadcast(String message) {
         for (Session session : SESSIONS) {
             try {
                 if (session.isOpen()) {
-                    session.getBasicRemote().sendText(message);
+                    synchronized (session) {
+                        session.getBasicRemote().sendText(message);
+                    }
                 }
             } catch (Exception e) {
-                log.debug("PT 状态推送发送失败，已移除该连接：{}", e.getMessage());
+                log.debug("PT 状态推送发送失败，已移除并关闭该连接：{}", e.getMessage());
                 SESSIONS.remove(session);
+                try {
+                    session.close();
+                } catch (Exception closeEx) {
+                    log.debug("关闭失效 WebSocket 连接时出错", closeEx);
+                }
             }
         }
     }
