@@ -126,8 +126,10 @@ public class RssPollService {
     /**
      * 拉取单个索引器：成功则清零 fail_count，失败则累加并可能自动停用。
      * 各索引器互不依赖，线程安全地写入 collector。
+     * 包可见（而非 private）是为了让测试绕开 poll() 里的虚拟线程池，直接在测试线程调用——
+     * 否则 MockedStatic&lt;TgHelper&gt; 只在注册线程生效，跨到虚拟线程会被判定为零交互。
      */
-    private void pollOne(PtIndexerPlus indexer, List<TorrentInfo> collector) {
+    void pollOne(PtIndexerPlus indexer, List<TorrentInfo> collector) {
         try {
             List<TorrentInfo> fetched = torznabClient.fetch(indexer);
             collector.addAll(fetched);

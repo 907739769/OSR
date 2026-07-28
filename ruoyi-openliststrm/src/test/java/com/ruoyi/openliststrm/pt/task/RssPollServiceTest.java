@@ -162,11 +162,12 @@ class RssPollServiceTest {
 
     @Test
     void 连续失败第3次_发一次告警() throws Exception {
-        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1, 600, null, 2)));
+        // 直接调用 pollOne（同步，测试线程），避免 poll() 内部虚拟线程池导致 MockedStatic 跨线程失效
+        PtIndexerPlus idx = indexer(1, 600, null, 2);
         when(torznabClient.fetch(any())).thenThrow(new IOException("connection refused"));
 
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
-            service().poll();
+            service().pollOne(idx, new java.util.ArrayList<>());
 
             tg.verify(() -> TgHelper.sendMsg(argThat(m -> m.contains("已连续失败 3 次"))));
         }
@@ -188,11 +189,11 @@ class RssPollServiceTest {
 
     @Test
     void 连续失败达到第10次_自动停用并告警一次() throws Exception {
-        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1, 600, null, 9)));
+        PtIndexerPlus idx = indexer(1, 600, null, 9);
         when(torznabClient.fetch(any())).thenThrow(new IOException("connection refused"));
 
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
-            service().poll();
+            service().pollOne(idx, new java.util.ArrayList<>());
 
             ArgumentCaptor<PtIndexerPlus> captor = ArgumentCaptor.forClass(PtIndexerPlus.class);
             verify(indexerService).updateById(captor.capture());
@@ -216,11 +217,11 @@ class RssPollServiceTest {
 
     @Test
     void 达到第3次告警阈值时不会同时触发停用() throws Exception {
-        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1, 600, null, 2)));
+        PtIndexerPlus idx = indexer(1, 600, null, 2);
         when(torznabClient.fetch(any())).thenThrow(new IOException("connection refused"));
 
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
-            service().poll();
+            service().pollOne(idx, new java.util.ArrayList<>());
 
             ArgumentCaptor<PtIndexerPlus> captor = ArgumentCaptor.forClass(PtIndexerPlus.class);
             verify(indexerService).updateById(captor.capture());
