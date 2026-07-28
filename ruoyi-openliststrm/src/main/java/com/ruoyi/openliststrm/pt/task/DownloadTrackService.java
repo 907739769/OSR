@@ -14,6 +14,7 @@ import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusServ
 import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.ruoyi.openliststrm.pt.downloader.model.DownloaderTorrent;
 import com.ruoyi.openliststrm.pt.subscription.SubscriptionEpisodeState;
+import com.ruoyi.openliststrm.pt.ws.PtStatusWebSocket;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
@@ -153,6 +154,7 @@ public class DownloadTrackService {
         record.setState(STATE_DOWNLOADING);
         record.setProgress(progress);
         recordService.updateById(record);
+        PtStatusWebSocket.pushDownloadEvent(record, STATE_DOWNLOADING, progress, null);
     }
 
     private DownloaderTorrent findByTag(List<DownloaderTorrent> torrents, String trackingTag) {
@@ -195,6 +197,7 @@ public class DownloadTrackService {
         if (!changed) {
             return; // 并发/重叠轮询已处理过，避免重复通知
         }
+        PtStatusWebSocket.pushDownloadEvent(record, STATE_COMPLETED, 1.0, null);
         notifySafely("✅ 下载完成：" + record.getTitle());
         log.info("下载记录[{}] 已完成：{}", record.getId(), record.getTitle());
         // 集状态不动，仍是 IN_FLIGHT；下载器关联了 STRM 任务时异步触发一次增量生成+提前对账，
@@ -243,6 +246,7 @@ public class DownloadTrackService {
         if (!changed) {
             return; // 已被并发轮次置为终态，避免重复通知
         }
+        PtStatusWebSocket.pushDownloadEvent(record, STATE_FAILED, null, reason);
         notifySafely("❌ 下载失败：" + record.getTitle() + "，已释放待下轮重新匹配");
         log.warn("下载记录[{}] 失败，{} 个集回退缺失：{}", record.getId(), episodes.size(), record.getTitle());
         if (blockedCount > 0) {

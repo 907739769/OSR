@@ -10,6 +10,7 @@ import com.ruoyi.openliststrm.mybatisplus.service.IPtDownloadRecordPlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.ruoyi.openliststrm.pt.downloader.model.DownloaderTorrent;
+import com.ruoyi.openliststrm.pt.ws.PtStatusWebSocket;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -28,6 +29,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
@@ -376,5 +378,76 @@ class DownloadTrackServiceTest {
         ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
         verify(recordService).updateById(captor.capture());
         assertEquals("DOWNLOADING", captor.getValue().getState());
+    }
+
+    // ---------- WebSocket 状态推送 ----------
+
+    @Test
+    void 下载中更新_推送WebSocket下载事件() {
+        PtDownloadRecordPlus r = record(100, 2, "osr-pt-aaa", "PUSHED", 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+
+        try (MockedStatic<PtStatusWebSocket> ws = mockStatic(PtStatusWebSocket.class)) {
+            service().track(downloader(), List.of(torrent("osr-pt,osr-pt-aaa", 0.35)));
+
+            ws.verify(() -> PtStatusWebSocket.pushDownloadEvent(same(r), eq("DOWNLOADING"), eq(0.35), isNull()));
+        }
+    }
+
+    @Test
+    void 完成后_推送WebSocket下载事件() {
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+        PtDownloadRecordPlus r = record(100, 2, "osr-pt-aaa", "DOWNLOADING", 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        PtDownloaderPlus dl = downloader();
+
+        try (MockedStatic<PtStatusWebSocket> ws = mockStatic(PtStatusWebSocket.class)) {
+            service().track(dl, List.of(torrent("osr-pt,osr-pt-aaa", 1.0)));
+
+            ws.verify(() -> PtStatusWebSocket.pushDownloadEvent(same(r), eq("COMPLETED"), eq(1.0), isNull()));
+        }
+    }
+
+    @Test
+    void 完成但记录已被并发置终态_不推送WebSocket事件() {
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(false);
+        PtDownloadRecordPlus r = record(100, 2, "osr-pt-aaa", "DOWNLOADING", 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+
+        try (MockedStatic<PtStatusWebSocket> ws = mockStatic(PtStatusWebSocket.class);
+             MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
+            service().track(downloader(), List.of(torrent("osr-pt,osr-pt-aaa", 1.0)));
+
+            ws.verify(() -> PtStatusWebSocket.pushDownloadEvent(any(), any(), any(), any()), never());
+        }
+    }
+
+    @Test
+    void 失败后_推送WebSocket下载事件() {
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+        PtDownloadRecordPlus r = record(100, 2, "osr-pt-aaa", "DOWNLOADING", 20 * 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of(episodeRow(500)));
+
+        try (MockedStatic<PtStatusWebSocket> ws = mockStatic(PtStatusWebSocket.class)) {
+            service().track(downloader(), List.of(torrent("osr-pt,osr-pt-other", 0.5)));
+
+            ws.verify(() -> PtStatusWebSocket.pushDownloadEvent(same(r), eq("FAILED"), isNull(),
+                    eq("下载器中已找不到该种子（可能被删除或元数据解析失败）")));
+        }
+    }
+
+    @Test
+    void 失败但记录已被并发置终态_不推送WebSocket事件() {
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(false);
+        PtDownloadRecordPlus r = record(100, 2, "osr-pt-aaa", "DOWNLOADING", 20 * 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of(episodeRow(500)));
+
+        try (MockedStatic<PtStatusWebSocket> ws = mockStatic(PtStatusWebSocket.class)) {
+            service().track(downloader(), List.of(torrent("osr-pt,osr-pt-other", 0.5)));
+
+            ws.verify(() -> PtStatusWebSocket.pushDownloadEvent(any(), any(), any(), any()), never());
+        }
     }
 }
