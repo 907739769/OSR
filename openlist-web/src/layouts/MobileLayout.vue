@@ -62,7 +62,7 @@
       <!-- Content -->
       <div class="mobile-content">
         <router-view v-slot="{ Component, route: currentRoute }">
-          <transition name="fade" mode="out-in">
+          <transition name="fade">
             <keep-alive v-if="currentRoute.meta?.keepAlive" :max="6">
               <component :is="Component" :key="currentRoute.path" />
             </keep-alive>
