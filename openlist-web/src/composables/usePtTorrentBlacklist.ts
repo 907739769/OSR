@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useTaskList } from './useTaskList'
 import {
   getPtTorrentBlacklistListApi,
@@ -37,7 +37,29 @@ export function usePtTorrentBlacklist() {
 
   const searchCollapsed = ref(true)
 
+  // ---------- 移动端 - 分页辅助 ----------
+  const totalPages = computed(() => Math.ceil(base.total.value / base.queryParams.pageSize!) || 1)
+
+  const prevPage = () => {
+    if (base.queryParams.pageNum! > 1) {
+      base.queryParams.pageNum!--
+      base.getList()
+    }
+  }
+
+  const nextPage = () => {
+    if (base.queryParams.pageNum! < totalPages.value) {
+      base.queryParams.pageNum!++
+      base.getList()
+    }
+  }
+
+  const handleSizeChange = () => {
+    base.queryParams.pageNum = 1
+    base.getList()
+  }
+
   base.getList()
 
-  return { ...base, searchCollapsed }
+  return { ...base, searchCollapsed, totalPages, prevPage, nextPage, handleSizeChange }
 }

@@ -62,4 +62,5 @@ src/
 - 不要绕过路由守卫，权限校验在 store 中统一处理
 - 不要在组件中写大量业务逻辑，抽到 composables/
 - 移动端页面不要使用 PC 端组件 (Element Plus PC 组件)
+- 每个页面都要考虑H5端的适配
 - 列表页不要各自实现分页/搜索逻辑，复用 `useTaskList`/`useRecordList`
