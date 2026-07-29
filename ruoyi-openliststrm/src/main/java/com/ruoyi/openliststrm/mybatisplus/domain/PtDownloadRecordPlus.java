@@ -80,6 +80,10 @@ public class PtDownloadRecordPlus extends BaseEntity {
     @TableField("progress")
     private Double progress;
 
+    /** 是否已完成文件级过滤（排除季包/区间匹配中非目标集数的文件），避免每轮轮询重复调用下载器 API */
+    @TableField("files_selected")
+    private Boolean filesSelected;
+
     /** 失败原因 */
     @TableField("fail_reason")
     private String failReason;

@@ -9,7 +9,10 @@ import com.ruoyi.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtDownloadRecordPlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
+import com.ruoyi.openliststrm.pt.downloader.DownloaderClientFactory;
+import com.ruoyi.openliststrm.pt.downloader.IDownloaderClient;
 import com.ruoyi.openliststrm.pt.downloader.model.DownloaderTorrent;
+import com.ruoyi.openliststrm.pt.downloader.model.DownloaderTorrentFile;
 import com.ruoyi.openliststrm.pt.ws.PtStatusWebSocket;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -22,9 +25,11 @@ import org.mockito.quality.Strictness;
 
 import java.util.Date;
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -45,12 +50,15 @@ class DownloadTrackServiceTest {
     @Mock private IPtSubscriptionEpisodePlusService episodeService;
     @Mock private DownloadCompletionSyncTrigger completionSyncTrigger;
     @Mock private IPtSubscriptionPlusService subscriptionService;
+    @Mock private DownloaderClientFactory downloaderClientFactory;
+    @Mock private IDownloaderClient downloaderClient;
 
     private DownloadTrackService service() {
         // 默认桩：查不到任何订阅（对应"订阅已删除"分支），使全部现有用例回退全局默认值 24 小时，
         // 与改造前的行为保持一致，不用逐个用例改断言。
         when(subscriptionService.listByIds(any())).thenReturn(List.of());
-        return new DownloadTrackService(recordService, episodeService, completionSyncTrigger, subscriptionService, 3, 24);
+        return new DownloadTrackService(recordService, episodeService, completionSyncTrigger, subscriptionService,
+                downloaderClientFactory, 3, 24);
     }
 
     private PtDownloaderPlus downloader() {
@@ -258,6 +266,74 @@ class DownloadTrackServiceTest {
         ep.setState("IN_FLIGHT");
         ep.setFailCount(failCount);
         return ep;
+    }
+
+    private PtSubscriptionEpisodePlus episodeRow(int id, int failCount, int episode) {
+        PtSubscriptionEpisodePlus ep = episodeRow(id, failCount);
+        ep.setEpisode(episode);
+        return ep;
+    }
+
+    private DownloaderTorrentFile file(int index, String name) {
+        DownloaderTorrentFile f = new DownloaderTorrentFile();
+        f.setIndex(index);
+        f.setName(name);
+        return f;
+    }
+
+    // ---------- 按目标集数过滤季包文件 ----------
+
+    @Test
+    void 季包命中_只排除非目标集数的文件() throws Exception {
+        // 订阅只缺 2、3 集，种子是 S01E01-04 的季包
+        PtDownloadRecordPlus r = record(100, -1, "osr-pt-pack", "PUSHED", 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(episodeService.list(any(Wrapper.class))).thenReturn(
+                List.of(episodeRow(501, 0, 2), episodeRow(502, 0, 3)));
+        when(downloaderClientFactory.get(any())).thenReturn(downloaderClient);
+        when(downloaderClient.listFiles(any(), eq("h"))).thenReturn(List.of(
+                file(0, "Show.Name.S01E01.1080p.mkv"),
+                file(1, "Show.Name.S01E02.1080p.mkv"),
+                file(2, "Show.Name.S01E03.1080p.mkv"),
+                file(3, "Show.Name.S01E04.1080p.mkv"),
+                file(4, "Show.Name.S01.nfo")));
+
+        service().track(downloader(), List.of(torrent("osr-pt,osr-pt-pack", 0.1)));
+
+        ArgumentCaptor<Set<Integer>> captor = ArgumentCaptor.forClass(Set.class);
+        verify(downloaderClient).excludeFiles(any(), eq("h"), captor.capture());
+        assertEquals(Set.of(0, 3), captor.getValue());
+        ArgumentCaptor<PtDownloadRecordPlus> recordCaptor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService, times(2)).updateById(recordCaptor.capture());
+        assertEquals(true, recordCaptor.getAllValues().get(0).getFilesSelected());
+    }
+
+    @Test
+    void 种子元数据未就绪_不排除文件也不标记selected() throws Exception {
+        PtDownloadRecordPlus r = record(100, -1, "osr-pt-pack", "PUSHED", 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of(episodeRow(501, 0, 2)));
+        when(downloaderClientFactory.get(any())).thenReturn(downloaderClient);
+        when(downloaderClient.listFiles(any(), eq("h"))).thenReturn(List.of());
+
+        service().track(downloader(), List.of(torrent("osr-pt,osr-pt-pack", 0.1)));
+
+        verify(downloaderClient, never()).excludeFiles(any(), any(), any());
+        ArgumentCaptor<PtDownloadRecordPlus> recordCaptor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService, times(1)).updateById(recordCaptor.capture());
+        assertNull(recordCaptor.getValue().getFilesSelected());
+    }
+
+    @Test
+    void 已完成文件过滤的记录_不重复调用下载器() {
+        PtDownloadRecordPlus r = record(100, -1, "osr-pt-pack", "PUSHED", 60_000);
+        r.setFilesSelected(true);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+
+        service().track(downloader(), List.of(torrent("osr-pt,osr-pt-pack", 0.1)));
+
+        verify(downloaderClientFactory, never()).get(any());
+        verify(episodeService, never()).list(any(Wrapper.class));
     }
 
     // ---------- 失败重试熔断 ----------

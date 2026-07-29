@@ -585,6 +585,35 @@ class SubscriptionEngineTest {
     }
 
     @Test
+    void resolveTargets_集数区间_只占位区间内的缺失集() throws Exception {
+        // 种子标题 S01E02-04（区间 2~4），订阅缺 1、2、3、4 集：只有 2、3、4 该被占位，1 不动
+        PtSubscriptionPlus sub = tvSub(10, "Some Show", 1, 4);
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(
+                episode(101, 1, "MISSING"), episode(102, 2, "MISSING"),
+                episode(103, 3, "MISSING"), episode(104, 4, "MISSING")));
+
+        PtDownloaderPlus downloader = new PtDownloaderPlus();
+        downloader.setId(1);
+        downloader.setType("QBITTORRENT");
+        downloader.setSavePath("/data/downloads");
+        downloader.setTag("osr-pt");
+        downloader.setEnabled("1");
+
+        boolean pushed = engine.handleGroup(new MatchResult(sub, 2, 4),
+                List.of(torrent("Some.Show.S01E02-04.1080p", "g-range", 10, "1080p")),
+                filterConfigService.getConfig(),
+                new LinkedHashMap<>(),
+                List.of(downloader),
+                new LinkedHashMap<>(),
+                SearchLogService.SOURCE_RSS,
+                TorrentBlacklist.EMPTY);
+
+        assertTrue(pushed);
+        // 只占位第 2、3、4 集，第 1 集不动
+        verify(episodeService, org.mockito.Mockito.times(3)).update(any(), any(Wrapper.class));
+    }
+
+    @Test
     void pushBest_电影目标episode恒为0() throws Exception {
         PtSubscriptionPlus movie = new PtSubscriptionPlus();
         movie.setId(20);

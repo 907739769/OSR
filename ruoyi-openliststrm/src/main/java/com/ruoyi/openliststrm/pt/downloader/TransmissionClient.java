@@ -6,6 +6,7 @@ import com.alibaba.fastjson2.JSONObject;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtDownloaderPlus;
 import com.ruoyi.openliststrm.pt.downloader.model.DownloaderTorrent;
+import com.ruoyi.openliststrm.pt.downloader.model.DownloaderTorrentFile;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.HttpUrl;
 import okhttp3.MediaType;
@@ -22,6 +23,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -163,6 +165,47 @@ public class TransmissionClient implements IDownloaderClient {
             values.add(labels.getString(i));
         }
         return String.join(",", values);
+    }
+
+    @Override
+    public List<DownloaderTorrentFile> listFiles(PtDownloaderPlus config, String hash) throws IOException {
+        JSONObject args = new JSONObject();
+        args.put("ids", List.of(hash));
+        args.put("fields", List.of("files"));
+        JSONObject result = call(config, "torrent-get", args);
+
+        List<DownloaderTorrentFile> files = new ArrayList<>();
+        JSONObject arguments = result.getJSONObject("arguments");
+        JSONArray torrents = arguments == null ? null : arguments.getJSONArray("torrents");
+        if (torrents == null || torrents.isEmpty()) {
+            // 元数据尚未解析完成、或种子不存在时返回空列表，交由调用方判断下一轮重试
+            return files;
+        }
+        JSONArray rawFiles = torrents.getJSONObject(0).getJSONArray("files");
+        if (rawFiles == null) {
+            return files;
+        }
+        for (int i = 0; i < rawFiles.size(); i++) {
+            JSONObject item = rawFiles.getJSONObject(i);
+            DownloaderTorrentFile file = new DownloaderTorrentFile();
+            file.setIndex(i);
+            file.setName(item.getString("name"));
+            file.setSize(item.getLongValue("length"));
+            files.add(file);
+        }
+        return files;
+    }
+
+    @Override
+    public void excludeFiles(PtDownloaderPlus config, String hash, Set<Integer> fileIndexes) throws IOException {
+        if (fileIndexes == null || fileIndexes.isEmpty()) {
+            return;
+        }
+        JSONObject args = new JSONObject();
+        args.put("ids", List.of(hash));
+        args.put("files-unwanted", List.copyOf(fileIndexes));
+        call(config, "torrent-set", args);
+        log.info("下载器[{}] 种子[{}] 已排除 {} 个文件（非目标集数）", config.getName(), hash, fileIndexes.size());
     }
 
     // ---------- 内部：JSON-RPC 调用 + 会话管理 ----------

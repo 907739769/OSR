@@ -81,6 +81,42 @@ class MediaParserLocalTest {
     }
 
     @Test
+    void parseLocal_集数区间_S01E01dash03_识别为区间() {
+        MediaInfo info = parser.parseLocal("Some.Show.S01E01-03.1080p.WEB-DL");
+
+        assertEquals("01", info.getSeason());
+        assertEquals("01", info.getEpisode());
+        assertEquals("03", info.getEpisodeEnd());
+    }
+
+    @Test
+    void parseLocal_集数区间_S01E01dashE03_识别为区间() {
+        MediaInfo info = parser.parseLocal("Some.Show.S01E01-E03.1080p.WEB-DL");
+
+        assertEquals("01", info.getSeason());
+        assertEquals("01", info.getEpisode());
+        assertEquals("03", info.getEpisodeEnd());
+    }
+
+    @Test
+    void parseLocal_单集无区间后缀_episodeEnd为空() {
+        MediaInfo info = parser.parseLocal("Some.Show.S01E01.1080p.WEB-DL");
+
+        assertEquals("01", info.getEpisode());
+        assertNull(info.getEpisodeEnd());
+    }
+
+    @Test
+    void parseLocal_区间结尾不大于起始_不当作区间处理() {
+        // 起始集号本身两位数字后紧跟连字符+数字的噪声（如误配的分辨率片段），
+        // 结尾 <= 起始时不应被当成区间
+        MediaInfo info = parser.parseLocal("Some.Show.S01E05-01.1080p.WEB-DL");
+
+        assertEquals("05", info.getEpisode());
+        assertNull(info.getEpisodeEnd());
+    }
+
+    @Test
     void parseLocal_保留原始名称() {
         String raw = "Some.Show.S01E05.1080p.mkv";
 

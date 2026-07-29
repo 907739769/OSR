@@ -74,6 +74,9 @@ public class TorrentInfo {
     /** 解析出的集号，电影为 null */
     private Integer parsedEpisode;
 
+    /** 解析出的集数区间结尾，如标题为 "S01E01-03" 时为 3；非区间或电影为 null */
+    private Integer parsedEpisodeEnd;
+
     /** 解析出的分辨率，如 1080p、2160p */
     private String parsedResolution;
 
