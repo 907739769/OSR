@@ -383,6 +383,7 @@ class SearchSupplementServiceTest {
         TorrentInfo match = torrent("Some.Show.S01E03.1080p");
         match.setParsedSeason(1);
         match.setParsedEpisode(3);
+        match.setParsedTitle("Some Show");
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(mismatch, match));
         when(subscriptionEngine.pushBest(eq(sub), eq(3), anyList())).thenReturn(true);
 
@@ -801,6 +802,7 @@ class SearchSupplementServiceTest {
         TorrentInfo seasonPack = torrent("Some.Show.S01.1080p");
         seasonPack.setParsedSeason(1);
         seasonPack.setParsedEpisode(null);
+        seasonPack.setParsedTitle("Some Show");
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(seasonPack));
         when(subscriptionEngine.pushBest(eq(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList())).thenReturn(true);
 
@@ -960,6 +962,7 @@ class SearchSupplementServiceTest {
         TorrentInfo seasonPack = torrent("Some.Show.S01.1080p");
         seasonPack.setParsedSeason(1);
         seasonPack.setParsedEpisode(null);
+        seasonPack.setParsedTitle("Some Show");
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(seasonPack));
         when(subscriptionEngine.pushBest(eq(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList())).thenReturn(true);
 

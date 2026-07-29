@@ -328,8 +328,10 @@ export function usePtSubscription() {
     if (!searchDialogTarget.value) return
     pushingSelected.value = true
     try {
+      // 候选自带解析出的集号时按候选走（可能是季包目标下混入的单集资源），否则回退到弹窗目标的集号
+      const episode = candidate.parsedEpisode ?? searchDialogTarget.value.episode
       await pushSelectedCandidateApi(searchDialogTarget.value.subId, {
-        episode: searchDialogTarget.value.episode,
+        episode,
         title: candidate.title,
         size: candidate.size,
         seeders: candidate.seeders,

@@ -53,4 +53,7 @@ public class SearchCandidateDTO {
 
     /** 种子发布时间 */
     private String pubDate;
+
+    /** 解析出的集号；为 null 表示整季合集（或电影） */
+    private Integer parsedEpisode;
 }

@@ -126,14 +126,22 @@ public class SearchSupplementService {
         if (manualSelect) {
             // 手动模式：收集所有来源的候选种子（ID精确 + 关键词 + 英文名），不自动推送
             List<TorrentInfo> allMatched = new ArrayList<>();
-            // ID 搜索结果已是精确匹配，直接纳入
-            allMatched.addAll(idCandidates);
+
+            // 目标为整季包时，人工挑选场景不必像自动推送那样严格收窄到"纯季包"——
+            // 连载剧集完结前基本没有季包，否则用户在手动模式下会看不到任何候选（见 filterByTargetManual）
+            Set<Integer> missingEpisodes = (episode == SubscriptionMatcher.SEASON_PACK
+                    && !SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType()))
+                    ? missingEpisodeNumbers(sub) : Set.of();
+
+            // ID 搜索结果已由 imdb/tmdb id 精确锁定剧集本身，不需要再核对标题，
+            // 但索引器对季参数的支持程度不一，仍需核对季号，避免把别的季当成目标季
+            allMatched.addAll(filterIdCandidates(sub, episode, idCandidates, missingEpisodes));
 
             // 关键词搜索
             List<TorrentInfo> kwCandidates = searchAcrossIndexers(keyword);
             fillParsedAll(kwCandidates);
             totalCandidates += kwCandidates.size();
-            allMatched.addAll(filterByTarget(sub, episode, kwCandidates));
+            allMatched.addAll(filterByTargetManual(sub, episode, kwCandidates, missingEpisodes));
 
             // 英文/原语言标题兜底
             String altKeyword = buildAltKeyword(sub, episode);
@@ -145,7 +153,7 @@ public class SearchSupplementService {
                 Set<String> existingGuids = allMatched.stream()
                         .map(t -> t.getIndexerId() + ":" + t.getGuid())
                         .collect(java.util.stream.Collectors.toSet());
-                for (TorrentInfo t : filterByTarget(sub, episode, altCandidates)) {
+                for (TorrentInfo t : filterByTargetManual(sub, episode, altCandidates, missingEpisodes)) {
                     if (existingGuids.add(t.getIndexerId() + ":" + t.getGuid())) {
                         allMatched.add(t);
                     }
@@ -176,15 +184,19 @@ public class SearchSupplementService {
             sub.setLastSearchTime(new Date());
             subscriptionService.updateById(sub);
 
-            log.info("订阅[{}] {} 关键词[{}]手动搜索补集：原始{}个，过滤后{}个",
-                    sub.getId(), sub.getTitle(), keyword, totalCandidates, survivors.size());
+            log.info("订阅[{}] {} 关键词[{}]手动搜索补集：原始{}个，季集匹配后{}个，规则过滤后{}个"
+                    + "（开启 DEBUG 日志可看到每个候选具体被哪一步、哪条规则淘汰）",
+                    sub.getId(), sub.getTitle(), keyword, totalCandidates, allMatched.size(), survivors.size());
             return new SupplementResult(false, totalCandidates, toCandidateDtos(survivors));
         }
 
-        // 以下为自动推送模式（原逻辑保持不变）
+        // 以下为自动推送模式
         boolean pushed = false;
-        if (!idCandidates.isEmpty()) {
-            pushed = subscriptionEngine.pushBest(sub, episode, idCandidates);
+        // ID 搜索结果不需要核对标题，但仍需核对季号（严格模式：目标为整季包时只认真正的季包，
+        // 不放行单集——自动推送要保证准确，不像手动模式有人工兜底）
+        List<TorrentInfo> idMatched = filterIdCandidates(sub, episode, idCandidates, null);
+        if (!idMatched.isEmpty()) {
+            pushed = subscriptionEngine.pushBest(sub, episode, idMatched);
         }
 
         List<TorrentInfo> matched = new ArrayList<>();
@@ -275,6 +287,7 @@ public class SearchSupplementService {
                         .guid(t.getGuid())
                         .parsedYear(t.getParsedYear())
                         .pubDate(t.getPubDate())
+                        .parsedEpisode(t.getParsedEpisode())
                         .build())
                 .toList();
     }
@@ -566,21 +579,26 @@ public class SearchSupplementService {
     /**
      * 数据一致性校验：搜索补集的候选来自模糊全文搜索或 ID 搜索，未经过 {@link SubscriptionMatcher} 确认，
      * 必须在交给 {@link SubscriptionEngine#pushBest} 之前自行校验候选是否真的匹配目标订阅，否则错配种子会被
-     * handleGroup 无差别占位/推送（剧集会永久卡在 IN_FLIGHT，电影会直接下载错内容）。ID 命中的候选同样要
-     * 过这层校验——防的是索引器对 ID 参数实现有 bug（比如把 imdbid 当普通关键词分词处理）。
+     * handleGroup 无差别占位/推送（剧集会永久卡在 IN_FLIGHT，电影会直接下载错内容）。
      *
      * <p>电影订阅没有季/集号可比对，改为校验标题（复用 {@link SubscriptionMatcher} 同一套归一化
-     * 全等规则）与年份，并排除带季/集信息的候选（说明是剧集/综艺）。</p>
+     * 全等规则）与年份，并排除带季/集信息的候选（说明是剧集/综艺）。剧集订阅除了核对季/集号，
+     * 同样要核对标题——只比对季号会导致任意一部"恰好也在第 N 季"的不相关剧集被当成候选放行
+     * （实测案例：关键词搜索返回的候选实际是完全无关的另一部剧,仅因为季号都是 5 就会被放行）。</p>
      */
     private List<TorrentInfo> filterByTarget(PtSubscriptionPlus sub, int episode, List<TorrentInfo> candidates) {
         if (SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType())) {
             return filterMovieCandidates(sub, candidates);
         }
         Integer subSeason = sub.getSeason();
+        Set<String> subTitles = matcher.normalizeAll(sub.getTitle(), sub.getOriginalTitle());
         List<TorrentInfo> matched = new ArrayList<>();
         for (TorrentInfo candidate : candidates) {
             Integer parsedSeason = candidate.getParsedSeason();
             if (parsedSeason == null || !parsedSeason.equals(subSeason)) {
+                continue;
+            }
+            if (!titleMatches(subTitles, candidate)) {
                 continue;
             }
             Integer parsedEpisode = candidate.getParsedEpisode();
@@ -593,6 +611,100 @@ public class SearchSupplementService {
             }
         }
         return matched;
+    }
+
+    /**
+     * 手动模式下目标为整季包时的候选筛选：除了真正的季包，还纳入该订阅当前仍缺失的单集资源。
+     * <p>
+     * 与自动推送模式（{@link #filterByTarget}）不同，人工挑选场景不需要靠"只收纯季包"这么严格
+     * 的收窄来防误推——用户本身就是最后一道校验。连载剧集完结前 PT 站基本没有季包资源，
+     * 严格收窄会导致手动模式几乎永远看不到候选（历史问题：某订阅一次搜到 103 个原始候选，
+     * 因为全被当作非季包剔除，最终只剩 1 个）。标题校验不放松，理由同 {@link #filterByTarget}。
+     * </p>
+     * <p>电影、或目标本身就是具体集号时，行为与 {@link #filterByTarget} 完全一致。</p>
+     */
+    private List<TorrentInfo> filterByTargetManual(PtSubscriptionPlus sub, int episode,
+                                                     List<TorrentInfo> candidates, Set<Integer> missingEpisodes) {
+        if (episode != SubscriptionMatcher.SEASON_PACK
+                || SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType())) {
+            return filterByTarget(sub, episode, candidates);
+        }
+        Integer subSeason = sub.getSeason();
+        Set<String> subTitles = matcher.normalizeAll(sub.getTitle(), sub.getOriginalTitle());
+        List<TorrentInfo> matched = new ArrayList<>();
+        for (TorrentInfo candidate : candidates) {
+            Integer parsedSeason = candidate.getParsedSeason();
+            if (parsedSeason == null || !parsedSeason.equals(subSeason)) {
+                log.debug("候选被季号过滤：{} —— 解析季号={}，订阅季号={}",
+                        candidate.getTitle(), parsedSeason, subSeason);
+                continue;
+            }
+            if (!titleMatches(subTitles, candidate)) {
+                log.debug("候选被标题过滤：{} —— 与订阅《{}》标题不匹配", candidate.getTitle(), sub.getTitle());
+                continue;
+            }
+            Integer parsedEpisode = candidate.getParsedEpisode();
+            if (parsedEpisode == null || missingEpisodes.contains(parsedEpisode)) {
+                matched.add(candidate);
+            } else {
+                log.debug("候选被集号过滤：{} —— 解析集号={} 不在缺失集合内", candidate.getTitle(), parsedEpisode);
+            }
+        }
+        return matched;
+    }
+
+    /**
+     * ID 搜索候选的季号校验（不含标题）：命中 imdb/tmdb id 已经精确锁定剧集本身，不需要再核对标题，
+     * 但索引器对 season 参数的支持程度不一（有的按季返回全季资源，不严格卡集号），仍需在本地核对
+     * 季号，否则别的季的资源可能被当成目标季误推。电影订阅信任 ID 搜索结果，原样放行。
+     *
+     * @param missingEpisodes 目标为整季包时允许放行的"当前缺失集号"集合；传 {@code null} 表示严格模式——
+     *                        只放行真正的季包，不放行任何单集（供自动推送场景使用，人工兜底场景传实际缺失集合）
+     */
+    private List<TorrentInfo> filterIdCandidates(PtSubscriptionPlus sub, int episode,
+                                                  List<TorrentInfo> candidates, Set<Integer> missingEpisodes) {
+        if (SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType())) {
+            return candidates;
+        }
+        Integer subSeason = sub.getSeason();
+        List<TorrentInfo> matched = new ArrayList<>();
+        for (TorrentInfo candidate : candidates) {
+            Integer parsedSeason = candidate.getParsedSeason();
+            if (parsedSeason == null || !parsedSeason.equals(subSeason)) {
+                log.debug("ID搜索候选被季号过滤：{} —— 解析季号={}，订阅季号={}",
+                        candidate.getTitle(), parsedSeason, subSeason);
+                continue;
+            }
+            Integer parsedEpisode = candidate.getParsedEpisode();
+            if (episode == SubscriptionMatcher.SEASON_PACK) {
+                if (parsedEpisode == null || (missingEpisodes != null && missingEpisodes.contains(parsedEpisode))) {
+                    matched.add(candidate);
+                }
+            } else if (parsedEpisode != null && parsedEpisode == episode) {
+                matched.add(candidate);
+            }
+        }
+        return matched;
+    }
+
+    /** 订阅当前处于缺失(MISSING)状态的集号集合，供 {@link #filterByTargetManual}/{@link #filterIdCandidates} 放行单集候选使用 */
+    private Set<Integer> missingEpisodeNumbers(PtSubscriptionPlus sub) {
+        return episodeService.listBySubscription(sub.getId()).stream()
+                .filter(ep -> SubscriptionService.STATE_MISSING.equals(ep.getState()))
+                .map(PtSubscriptionEpisodePlus::getEpisode)
+                .collect(Collectors.toSet());
+    }
+
+    /**
+     * TV 候选标题校验：解析标题（中/英文任一命中即可）与订阅标题归一化后有交集即视为匹配；
+     * parsedTitle/parsedTitleEn 都解析失败时回退到种子原始标题，避免特殊命名格式漏判。
+     */
+    private boolean titleMatches(Set<String> subTitles, TorrentInfo candidate) {
+        String t1 = candidate.getParsedTitle();
+        String t2 = candidate.getParsedTitleEn();
+        String tFallback = (t1 == null && t2 == null) ? candidate.getTitle() : null;
+        Set<String> torrentTitles = matcher.normalizeAll(t1, t2, tFallback);
+        return !Collections.disjoint(torrentTitles, subTitles);
     }
 
     /**
@@ -612,13 +724,7 @@ public class SearchSupplementService {
             if (candidate.getParsedSeason() != null || candidate.getParsedEpisode() != null) {
                 continue;
             }
-            // parsedTitle/parsedTitleEn 可能为 null（MediaParser 解析失败），
-            // 此时回退到原始种子标题 getTitle() 做归一化
-            String t1 = candidate.getParsedTitle();
-            String t2 = candidate.getParsedTitleEn();
-            String tFallback = (t1 == null && t2 == null) ? candidate.getTitle() : null;
-            Set<String> torrentTitles = matcher.normalizeAll(t1, t2, tFallback);
-            if (Collections.disjoint(torrentTitles, subTitles)) {
+            if (!titleMatches(subTitles, candidate)) {
                 continue;
             }
             if (StringUtils.isBlank(candidate.getParsedYear()) || StringUtils.isBlank(sub.getYear())

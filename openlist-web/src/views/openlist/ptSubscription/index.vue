@@ -316,6 +316,12 @@
       </div>
       <el-table v-else :data="candidates" highlight-current-row height="420" size="small" @current-change="(row: any) => selectedCandidate = row">
         <el-table-column type="index" label="#" width="48" align="center" />
+        <el-table-column label="目标" width="70" align="center">
+          <template #default="scope">
+            <el-tag v-if="scope.row.parsedEpisode" size="small" type="warning">第{{ scope.row.parsedEpisode }}集</el-tag>
+            <el-tag v-else size="small" type="success">整季</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column label="来源" width="100">
           <template #default="scope">
             <el-tag size="small" type="info">{{ scope.row.indexerName }}</el-tag>
