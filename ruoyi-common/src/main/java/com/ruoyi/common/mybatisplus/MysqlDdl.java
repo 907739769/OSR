@@ -70,7 +70,8 @@ public class MysqlDdl extends SimpleDdl {
                 "sql/20260745-pt-torrent-blacklist.sql",
                 "sql/20260746-pt-indexer-poll-cursor.sql",
                 "sql/20260747-pt-subscription-auto-search-no-result.sql",
-                "sql/20260748-pt-auto-add-rule.sql"
+                "sql/20260748-pt-auto-add-rule.sql",
+                "sql/20260749-pt-download-record-files-selected.sql"
         );
     }
 }

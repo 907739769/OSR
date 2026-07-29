@@ -71,8 +71,15 @@ public class SubscriptionMatcher {
             return null;
         }
         // 有季无集 = 季包
-        int episode = torrent.getParsedEpisode() == null ? SEASON_PACK : torrent.getParsedEpisode();
-        return new MatchResult(sub, episode);
+        if (torrent.getParsedEpisode() == null) {
+            return new MatchResult(sub, SEASON_PACK);
+        }
+        // 集数区间（如 S01E01-03）：区间结尾必须严格大于起始集号才算区间，否则按单集处理
+        Integer episodeEnd = torrent.getParsedEpisodeEnd();
+        if (episodeEnd != null && episodeEnd > torrent.getParsedEpisode()) {
+            return new MatchResult(sub, torrent.getParsedEpisode(), episodeEnd);
+        }
+        return new MatchResult(sub, torrent.getParsedEpisode());
     }
 
     /**

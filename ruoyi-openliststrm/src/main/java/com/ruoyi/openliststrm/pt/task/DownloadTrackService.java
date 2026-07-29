@@ -12,16 +12,22 @@ import com.ruoyi.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtDownloadRecordPlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
+import com.ruoyi.openliststrm.pt.downloader.DownloaderClientFactory;
 import com.ruoyi.openliststrm.pt.downloader.model.DownloaderTorrent;
+import com.ruoyi.openliststrm.pt.downloader.model.DownloaderTorrentFile;
 import com.ruoyi.openliststrm.pt.subscription.SubscriptionEpisodeState;
 import com.ruoyi.openliststrm.pt.ws.PtStatusWebSocket;
+import com.ruoyi.openliststrm.rename.MediaParser;
+import com.ruoyi.openliststrm.rename.model.MediaInfo;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -58,17 +64,27 @@ public class DownloadTrackService {
     private final IPtSubscriptionEpisodePlusService episodeService;
     private final DownloadCompletionSyncTrigger completionSyncTrigger;
     private final IPtSubscriptionPlusService subscriptionService;
+    private final DownloaderClientFactory downloaderClientFactory;
+
+    /**
+     * MediaParser 不是 Spring bean（一直靠 new 管理，见 SubscriptionEngine 同名字段注释），
+     * 若走构造器注入会导致本类装配时找不到对应 bean 而启动失败。这里只做本地正则解析，
+     * 传 null 客户端与 SubscriptionEngine.fillParsed 用法一致，不查 TMDb、不调 AI。
+     */
+    private final MediaParser mediaParser = new MediaParser(null, null);
 
     public DownloadTrackService(IPtDownloadRecordPlusService recordService,
                                 IPtSubscriptionEpisodePlusService episodeService,
                                 DownloadCompletionSyncTrigger completionSyncTrigger,
                                 IPtSubscriptionPlusService subscriptionService,
+                                DownloaderClientFactory downloaderClientFactory,
                                 @Value("${pt.download.max-consecutive-failures:3}") int maxConsecutiveFailures,
                                 @Value("${pt.download.zombie-timeout-hours:24}") int zombieTimeoutHoursDefault) {
         this.recordService = recordService;
         this.episodeService = episodeService;
         this.completionSyncTrigger = completionSyncTrigger;
         this.subscriptionService = subscriptionService;
+        this.downloaderClientFactory = downloaderClientFactory;
         this.maxConsecutiveFailures = maxConsecutiveFailures;
         this.zombieTimeoutMillisDefault = zombieTimeoutHoursDefault * 3600_000L;
     }
@@ -99,7 +115,10 @@ public class DownloadTrackService {
                 }
                 // 未超宽限期：qB 可能还在解析元数据，本轮跳过
             } else {
-                // 种子还在下载器但未完成
+                // 种子还在下载器但未完成：先尝试按目标集数过滤文件（幂等，仅第一次成功后才标记跳过）
+                if (!Boolean.TRUE.equals(record.getFilesSelected())) {
+                    trySelectFiles(downloader, record, matched);
+                }
                 if (age >= zombieTimeoutMillis) {
                     fail(record, FailReasonCode.ZOMBIE_TIMEOUT,
                             "下载超过 " + (zombieTimeoutMillis / 3600000) + " 小时仍未完成，判定为僵尸种子");
@@ -107,6 +126,72 @@ public class DownloadTrackService {
                     markDownloading(record, matched.getProgress());
                 }
             }
+        }
+    }
+
+    /**
+     * 按下载记录关联的目标集号，过滤种子内非目标集数的文件（排除下载）。
+     * <p>
+     * 目标集号来自 {@code pt_subscription_episode.download_id}——这张表是"缺集的唯一真相来源"，
+     * 推送种子时占位的那批集已经写好了这个关联，这里直接复用，不必再猜"这条种子该覆盖哪几集"。
+     * 单集下载天然只有 1 个目标集号，跑一遍本逻辑也无害（该保留的文件不会被排除）。
+     * </p>
+     * <p>
+     * 任何异常都只记 warn、不标记 {@code filesSelected}，留给下一轮 30 秒轮询重试；
+     * 种子刚加入下载器、元数据还没解析完成时 {@code listFiles} 会返回空列表，同样等下一轮重试。
+     * </p>
+     */
+    private void trySelectFiles(PtDownloaderPlus downloader, PtDownloadRecordPlus record, DownloaderTorrent matched) {
+        try {
+            List<PtSubscriptionEpisodePlus> targets = episodeService.list(
+                    new QueryWrapper<PtSubscriptionEpisodePlus>().eq("download_id", record.getId()));
+            if (targets.isEmpty()) {
+                // 理论上不该发生：claim() 推送种子时必然写好 download_id 关联。保守起见不标记
+                // filesSelected，留给下一轮重试，避免异常数据下误吞掉本该处理的场景。
+                return;
+            }
+            Set<Integer> targetEpisodes = targets.stream()
+                    .map(PtSubscriptionEpisodePlus::getEpisode)
+                    .collect(Collectors.toSet());
+
+            List<DownloaderTorrentFile> files = downloaderClientFactory.get(downloader)
+                    .listFiles(downloader, matched.getHash());
+            if (files.isEmpty()) {
+                // 元数据尚未解析完成，本轮跳过，不标记 selected
+                return;
+            }
+
+            Set<Integer> excludeIndexes = new HashSet<>();
+            for (DownloaderTorrentFile file : files) {
+                MediaInfo info = mediaParser.parseLocal(file.getName());
+                Integer episode = toInt(info.getEpisode());
+                // 解析不出集号的文件（NFO、字幕、样片等）默认保留，不做排除
+                if (episode != null && !targetEpisodes.contains(episode)) {
+                    excludeIndexes.add(file.getIndex());
+                }
+            }
+            if (!excludeIndexes.isEmpty()) {
+                downloaderClientFactory.get(downloader).excludeFiles(downloader, matched.getHash(), excludeIndexes);
+            }
+            markFilesSelected(record);
+        } catch (Exception e) {
+            log.warn("下载记录[{}] 按目标集数过滤文件失败，下一轮重试：{}", record.getId(), e.getMessage());
+        }
+    }
+
+    private void markFilesSelected(PtDownloadRecordPlus record) {
+        record.setFilesSelected(true);
+        recordService.updateById(record);
+    }
+
+    private Integer toInt(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return Integer.valueOf(value.trim());
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 

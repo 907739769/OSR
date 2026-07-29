@@ -6,6 +6,7 @@ import com.alibaba.fastjson2.JSONObject;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtDownloaderPlus;
 import com.ruoyi.openliststrm.pt.downloader.model.DownloaderTorrent;
+import com.ruoyi.openliststrm.pt.downloader.model.DownloaderTorrentFile;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.FormBody;
 import okhttp3.HttpUrl;
@@ -20,7 +21,9 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.stream.Collectors;
 
 /**
  * qBittorrent Web API v2 客户端。
@@ -115,6 +118,41 @@ public class QbittorrentClient implements IDownloaderClient {
             result.add(torrent);
         }
         return result;
+    }
+
+    @Override
+    public List<DownloaderTorrentFile> listFiles(PtDownloaderPlus config, String hash) throws IOException {
+        String json = get(config, "/api/v2/torrents/files", Map.of("hash", hash));
+        List<DownloaderTorrentFile> result = new ArrayList<>();
+        if (StringUtils.isBlank(json)) {
+            // 元数据尚未解析完成时 qB 返回空数组，交由调用方判断下一轮重试
+            return result;
+        }
+        JSONArray array = parseJsonArray(json);
+        for (int i = 0; i < array.size(); i++) {
+            JSONObject item = array.getJSONObject(i);
+            DownloaderTorrentFile file = new DownloaderTorrentFile();
+            file.setIndex(item.getIntValue("index"));
+            file.setName(item.getString("name"));
+            file.setSize(item.getLongValue("size"));
+            result.add(file);
+        }
+        return result;
+    }
+
+    @Override
+    public void excludeFiles(PtDownloaderPlus config, String hash, Set<Integer> fileIndexes) throws IOException {
+        if (fileIndexes == null || fileIndexes.isEmpty()) {
+            return;
+        }
+        String ids = fileIndexes.stream().map(String::valueOf).collect(Collectors.joining("|"));
+        FormBody body = new FormBody.Builder()
+                .add("hash", hash)
+                .add("id", ids)
+                .add("priority", "0")
+                .build();
+        post(config, "/api/v2/torrents/filePrio", body);
+        log.info("下载器[{}] 种子[{}] 已排除 {} 个文件（非目标集数）", config.getName(), hash, fileIndexes.size());
     }
 
     // ---------- 内部：带会话管理的请求执行 ----------

@@ -56,6 +56,12 @@ class SubscriptionMatcherTest {
         return t;
     }
 
+    private TorrentInfo torrentRange(String parsedTitle, Integer season, Integer episode, Integer episodeEnd) {
+        TorrentInfo t = torrent(parsedTitle, null, season, episode);
+        t.setParsedEpisodeEnd(episodeEnd);
+        return t;
+    }
+
     // ---------- 剧集 ----------
 
     @Test
@@ -122,6 +128,26 @@ class SubscriptionMatcherTest {
 
         assertNotNull(result);
         assertEquals(12, result.getEpisode());
+    }
+
+    @Test
+    void 剧集_集数区间_返回起始集号与区间结尾() {
+        MatchResult result = matcher.match(torrentRange("Some Show", 1, 1, 3),
+                List.of(tvSub(10, "Some Show", 1)));
+
+        assertNotNull(result);
+        assertEquals(1, result.getEpisode());
+        assertEquals(3, result.getEpisodeEnd());
+    }
+
+    @Test
+    void 剧集_区间结尾等于起始_按单集处理() {
+        MatchResult result = matcher.match(torrentRange("Some Show", 1, 5, 5),
+                List.of(tvSub(10, "Some Show", 1)));
+
+        assertNotNull(result);
+        assertEquals(5, result.getEpisode());
+        assertNull(result.getEpisodeEnd());
     }
 
     // ---------- 电影 ----------

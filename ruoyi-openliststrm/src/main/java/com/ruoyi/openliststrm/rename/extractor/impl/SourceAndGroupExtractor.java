@@ -16,6 +16,9 @@ public class SourceAndGroupExtractor implements Extractor {
 
     private static final Pattern SOURCE = Pattern.compile("\\b(WEB-?DL|WEB-?Rip|Blu-?Ray|BRRip|HDRip|HDTV|BDRip|CAM|WEB|DVD|DVDRip)\\b", Pattern.CASE_INSENSITIVE);
     private static final Pattern GROUP_END = Pattern.compile("(?:[-@]|\\s@)\\s*([A-Za-z0-9_\\.-]+)$");
+
+    /** "03"、"E03" 这类纯集号/带 E 前缀的集号不是发布组名，是季集区间的结尾（如 S01E01-03、S01E01-E03） */
+    private static final Pattern EPISODE_LIKE = Pattern.compile("^E?\\d{1,4}$", Pattern.CASE_INSENSITIVE);
     private static final Pattern GROUP_BRACKET = Pattern.compile("^\\[([A-Za-z0-9_\\.-]+)\\]");
 
     @Override
@@ -57,7 +60,10 @@ public class SourceAndGroupExtractor implements Extractor {
             }
         } else {
             Matcher ge = GROUP_END.matcher(name);
-            if (ge.find()) {
+            // 曾经的实际 bug：季集区间（S01E01-03、S01E01-E03）的结尾 "03"/"E03" 会被
+            // GROUP_END 误判成发布组名并连同分隔符一起截掉，导致 YearSeasonEpisodeExtractor
+            // 永远看不到区间结尾。发布组名不会是纯集号形态，命中该形态时不当发布组处理。
+            if (ge.find() && !EPISODE_LIKE.matcher(ge.group(1)).matches()) {
                 info.setReleaseGroup(ge.group(1));
                 name = name.substring(0, ge.start()).trim();
             }

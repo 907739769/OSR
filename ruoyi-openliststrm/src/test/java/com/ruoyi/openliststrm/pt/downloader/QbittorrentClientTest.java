@@ -6,6 +6,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtDownloaderPlus;
 import com.ruoyi.openliststrm.pt.downloader.model.DownloaderTorrent;
+import com.ruoyi.openliststrm.pt.downloader.model.DownloaderTorrentFile;
 import okhttp3.OkHttpClient;
 import org.slf4j.LoggerFactory;
 import okhttp3.mockwebserver.MockResponse;
@@ -17,6 +18,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -250,5 +252,71 @@ class QbittorrentClientTest {
 
         IOException ex = assertThrows(IOException.class, () -> client.listByTag(config(12), "osr-pt"));
         assertTrue(ex.getMessage().length() < 500);
+    }
+
+    // ---------- listFiles / excludeFiles（按目标集数过滤季包文件） ----------
+
+    @Test
+    void listFiles_解析JSON为文件列表() throws Exception {
+        server.enqueue(loginOk());
+        server.enqueue(new MockResponse().setBody("""
+                [
+                  {"index":0,"name":"Show.S01E01.mkv","size":100},
+                  {"index":1,"name":"Show.S01E02.mkv","size":200}
+                ]
+                """));
+
+        List<DownloaderTorrentFile> files = client.listFiles(config(13), "aabbcc");
+
+        assertEquals(2, files.size());
+        assertEquals(0, files.get(0).getIndex());
+        assertEquals("Show.S01E01.mkv", files.get(0).getName());
+        assertEquals(100, files.get(0).getSize());
+    }
+
+    @Test
+    void listFiles_元数据未就绪返回空数组_不抛异常() throws Exception {
+        server.enqueue(loginOk());
+        server.enqueue(new MockResponse().setBody("[]"));
+
+        List<DownloaderTorrentFile> files = client.listFiles(config(14), "aabbcc");
+
+        assertTrue(files.isEmpty());
+    }
+
+    @Test
+    void listFiles_请求带上hash参数() throws Exception {
+        server.enqueue(loginOk());
+        server.enqueue(new MockResponse().setBody("[]"));
+
+        client.listFiles(config(15), "aabbcc");
+
+        server.takeRequest();
+        RecordedRequest req = server.takeRequest();
+        assertEquals("/api/v2/torrents/files", req.getPath().split("\\?")[0]);
+        assertEquals("aabbcc", req.getRequestUrl().queryParameter("hash"));
+    }
+
+    @Test
+    void excludeFiles_提交filePrio请求_文件序号用竖线分隔() throws Exception {
+        server.enqueue(loginOk());
+        server.enqueue(new MockResponse().setBody(""));
+
+        client.excludeFiles(config(16), "aabbcc", Set.of(1, 3));
+
+        server.takeRequest();
+        RecordedRequest req = server.takeRequest();
+        assertEquals("/api/v2/torrents/filePrio", req.getPath());
+        String body = req.getBody().readUtf8();
+        assertTrue(body.contains("hash=aabbcc"));
+        assertTrue(body.contains("priority=0"));
+        assertTrue(body.contains("id=1%7C3") || body.contains("id=3%7C1"));
+    }
+
+    @Test
+    void excludeFiles_排除集合为空_不发请求() throws Exception {
+        client.excludeFiles(config(17), "aabbcc", Set.of());
+
+        assertEquals(0, server.getRequestCount());
     }
 }

@@ -21,6 +21,7 @@ public class MediaInfo {
     private String year;
     private String season; // S
     private String episode; // E or episode number
+    private String episodeEnd; // 区间结尾集数，如 S01E01-03 中的 "03"；非区间时为空
     private String tmdbId;
 
     // 集级元数据（从 TMDB /tv/{id}/season/{number} 获取）

@@ -15,8 +15,10 @@ public class YearSeasonEpisodeExtractor implements Extractor {
     // 年份：19xx 或 20xx
     private static final Pattern YEAR = Pattern.compile("\\b(19\\d{2}|20\\d{2})\\b");
 
-    // 1. 标准 S01E01 格式 (支持 S01E01-E02 多集)
-    private static final Pattern S_E = Pattern.compile("\\bS(\\d{1,2})\\s?E(\\d{1,4})(?:[-eE](\\d{1,4}))?\\b", Pattern.CASE_INSENSITIVE);
+    // 1. 标准 S01E01 格式 (支持 S01E01-03、S01E01-E03 两种区间写法)
+    // 区间分隔符要么是 "-E"/"-"，要么单独一个 "E"；不能用简单的字符类 [-eE] 一次只吃一个字符，
+    // 否则 "-E03" 会因为 "-" 吃掉分隔符后紧跟的 "E" 不是数字而匹配失败（曾经的实际 bug）。
+    private static final Pattern S_E = Pattern.compile("\\bS(\\d{1,2})\\s?E(\\d{1,4})(?:(?:-E|-|E)(\\d{1,4}))?\\b", Pattern.CASE_INSENSITIVE);
 
     // 2. 纯 S01 或 纯 EP01
     private static final Pattern S_ONLY = Pattern.compile("\\bS(\\d{1,2})\\b", Pattern.CASE_INSENSITIVE);
@@ -76,6 +78,18 @@ public class YearSeasonEpisodeExtractor implements Extractor {
             seIndex = se.start();
             info.setSeason(formatNumber(se.group(1)));
             info.setEpisode(formatNumber(se.group(2)));
+            // group(3) 是区间结尾集数 (如 S01E01-03 里的 "03")，仅当确实大于起始集数才算区间，
+            // 防止把 "E01-1080p" 之类噪声误判为区间
+            String endRaw = se.group(3);
+            if (StringUtils.isNotBlank(endRaw)) {
+                try {
+                    if (Integer.parseInt(endRaw) > Integer.parseInt(se.group(2))) {
+                        info.setEpisodeEnd(formatNumber(endRaw));
+                    }
+                } catch (NumberFormatException ignored) {
+                    // 数字格式异常时不当作区间处理
+                }
+            }
 
             name = name.substring(0, Math.min(seIndex, yearIndex));
             return name.trim();

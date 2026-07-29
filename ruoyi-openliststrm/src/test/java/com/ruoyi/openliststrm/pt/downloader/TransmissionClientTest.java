@@ -6,6 +6,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtDownloaderPlus;
 import com.ruoyi.openliststrm.pt.downloader.model.DownloaderTorrent;
+import com.ruoyi.openliststrm.pt.downloader.model.DownloaderTorrentFile;
 import okhttp3.OkHttpClient;
 import okhttp3.mockwebserver.MockResponse;
 import okhttp3.mockwebserver.MockWebServer;
@@ -17,6 +18,7 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -244,5 +246,74 @@ class TransmissionClientTest {
         server.takeRequest();
         RecordedRequest retry = server.takeRequest();
         assertTrue(retry.getHeader("Authorization").startsWith("Basic "));
+    }
+
+    // ---------- listFiles / excludeFiles（按目标集数过滤季包文件） ----------
+
+    @Test
+    void listFiles_解析torrentGet返回的files数组() throws Exception {
+        server.enqueue(sessionRequired());
+        server.enqueue(new MockResponse().setBody("""
+                {"result":"success","arguments":{"torrents":[
+                  {"files":[
+                    {"name":"Show.S01E01.mkv","length":100},
+                    {"name":"Show.S01E02.mkv","length":200}
+                  ]}
+                ]}}
+                """));
+
+        List<DownloaderTorrentFile> files = client.listFiles(config(13), "aabbcc");
+
+        assertEquals(2, files.size());
+        assertEquals(0, files.get(0).getIndex());
+        assertEquals("Show.S01E01.mkv", files.get(0).getName());
+        assertEquals(100, files.get(0).getSize());
+        assertEquals(1, files.get(1).getIndex());
+    }
+
+    @Test
+    void listFiles_元数据未就绪torrents为空_返回空列表() throws Exception {
+        server.enqueue(sessionRequired());
+        server.enqueue(new MockResponse().setBody("{\"result\":\"success\",\"arguments\":{\"torrents\":[]}}"));
+
+        List<DownloaderTorrentFile> files = client.listFiles(config(14), "aabbcc");
+
+        assertTrue(files.isEmpty());
+    }
+
+    @Test
+    void listFiles_请求携带hash作为ids() throws Exception {
+        server.enqueue(sessionRequired());
+        server.enqueue(new MockResponse().setBody("{\"result\":\"success\",\"arguments\":{\"torrents\":[]}}"));
+
+        client.listFiles(config(15), "aabbcc");
+
+        server.takeRequest();
+        RecordedRequest req = server.takeRequest();
+        String body = req.getBody().readUtf8();
+        assertTrue(body.contains("torrent-get"));
+        assertTrue(body.contains("aabbcc"));
+    }
+
+    @Test
+    void excludeFiles_调用torrentSet携带filesUnwanted() throws Exception {
+        server.enqueue(sessionRequired());
+        server.enqueue(new MockResponse().setBody("{\"result\":\"success\",\"arguments\":{}}"));
+
+        client.excludeFiles(config(16), "aabbcc", Set.of(1, 3));
+
+        server.takeRequest();
+        RecordedRequest req = server.takeRequest();
+        String body = req.getBody().readUtf8();
+        assertTrue(body.contains("torrent-set"));
+        assertTrue(body.contains("files-unwanted"));
+        assertTrue(body.contains("aabbcc"));
+    }
+
+    @Test
+    void excludeFiles_排除集合为空_不发请求() throws Exception {
+        client.excludeFiles(config(17), "aabbcc", Set.of());
+
+        assertEquals(0, server.getRequestCount());
     }
 }

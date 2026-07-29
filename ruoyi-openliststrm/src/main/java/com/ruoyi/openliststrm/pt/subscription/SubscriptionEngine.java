@@ -335,6 +335,7 @@ public class SubscriptionEngine {
         torrent.setParsedYear(info.getYear());
         torrent.setParsedSeason(toInt(info.getSeason()));
         torrent.setParsedEpisode(toInt(info.getEpisode()));
+        torrent.setParsedEpisodeEnd(toInt(info.getEpisodeEnd()));
         torrent.setParsedResolution(info.getResolution());
         torrent.setParsedSource(info.getSource());
         torrent.setParsedReleaseGroup(info.getReleaseGroup());
@@ -352,7 +353,8 @@ public class SubscriptionEngine {
     }
 
     /**
-     * 确定要占位的集：普通集就它自己，季包则是该订阅所有 MISSING 的集。
+     * 确定要占位的集：普通集就它自己，季包则是该订阅所有 MISSING 的集，
+     * 区间匹配（如 S01E01-03）则是区间内所有 MISSING 的集。
      */
     private List<PtSubscriptionEpisodePlus> resolveTargets(MatchResult match,
                                                            List<PtSubscriptionEpisodePlus> allEpisodes) {
@@ -360,6 +362,15 @@ public class SubscriptionEngine {
         if (match.getEpisode() == SubscriptionMatcher.SEASON_PACK) {
             for (PtSubscriptionEpisodePlus ep : allEpisodes) {
                 if (STATE_MISSING.equals(ep.getState())) {
+                    targets.add(ep);
+                }
+            }
+            return targets;
+        }
+        if (match.getEpisodeEnd() != null) {
+            for (PtSubscriptionEpisodePlus ep : allEpisodes) {
+                if (ep.getEpisode() >= match.getEpisode() && ep.getEpisode() <= match.getEpisodeEnd()
+                        && STATE_MISSING.equals(ep.getState())) {
                     targets.add(ep);
                 }
             }
