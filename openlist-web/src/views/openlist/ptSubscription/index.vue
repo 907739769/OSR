@@ -273,6 +273,31 @@
             集
           </div>
           <p v-else class="all-done">全部集已入库</p>
+
+          <div class="episode-detail-toggle" @click="loadEpisodeDetail">
+            {{ episodeDetailOpen ? '收起全部集' : '查看全部集' }}
+            <el-icon :class="{ 'is-open': episodeDetailOpen }"><ArrowDown /></el-icon>
+          </div>
+          <div v-if="episodeDetailOpen" class="episode-detail-list" v-loading="episodeDetailLoading">
+            <div v-for="ep in episodeDetail" :key="ep.episode" class="episode-detail-row">
+              <span class="ep-num">第{{ ep.episode }}集</span>
+              <el-tag
+                size="small"
+                :type="ep.state === 'IN_LIBRARY' ? 'success' : ep.state === 'IN_FLIGHT' ? 'primary' : ep.state === 'BLOCKED' ? 'danger' : 'info'"
+              >
+                {{ episodeStateLabel(ep.state) }}
+              </el-tag>
+              <el-button
+                v-if="ep.state === 'IN_LIBRARY' || ep.state === 'BLOCKED'"
+                link
+                type="warning"
+                size="small"
+                :loading="resettingEpisode === ep.episode"
+                @click="handleResetEpisode(ep)"
+              >重置</el-button>
+            </div>
+            <el-empty v-if="!episodeDetailLoading && episodeDetail.length === 0" description="暂无数据" :image-size="40" />
+          </div>
         </template>
       </div>
       <template #footer>
@@ -513,6 +538,8 @@ const {
   subscribeOpen, searchLoading, subscribeLoading, searchResults, searchForm,
   picked, pickedSeason, openSubscribeDialog, doSearch, pick, confirmSubscribe,
   progressOpen, progressLoading, progress, currentSubscription, showProgress,
+  episodeDetailOpen, episodeDetailLoading, episodeDetail, resettingEpisode,
+  loadEpisodeDetail, handleResetEpisode,
   searchLogOpen, searchLogLoading, searchLogs, showSearchLogs,
   filterOverrideOpen, filterOverrideSaving, filterOverrideForm,
   openFilterOverride, saveFilterOverride,
@@ -542,6 +569,11 @@ function updateSkeletonCount() {
 
 onMounted(() => { updateSkeletonCount(); window.addEventListener('resize', updateSkeletonCount) })
 onUnmounted(() => { window.removeEventListener('resize', updateSkeletonCount) })
+
+const EPISODE_STATE_LABELS: Record<string, string> = {
+  MISSING: '缺失', IN_FLIGHT: '在途', IN_LIBRARY: '已入库', BLOCKED: '已熔断'
+}
+const episodeStateLabel = (state: string) => EPISODE_STATE_LABELS[state] || state
 
 const goDownloadRecords = (row: any) => {
   router.push({ path: '/openlist/ptDownloadRecord', query: { subId: row.id } })
@@ -884,6 +916,47 @@ const handleMoreCommand = (cmd: string, row: any) => {
   display: inline-flex;
   align-items: center;
   margin-right: 4px;
+}
+
+.episode-detail-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--osr-border-light);
+  font-size: 13px;
+  color: var(--osr-primary);
+  cursor: pointer;
+
+  .el-icon {
+    transition: transform var(--osr-transition-fast);
+
+    &.is-open {
+      transform: rotate(180deg);
+    }
+  }
+}
+
+.episode-detail-list {
+  margin-top: 8px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.episode-detail-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: 13px;
+  border-bottom: 1px solid var(--osr-border-light);
+
+  .ep-num {
+    width: 60px;
+    flex-shrink: 0;
+    color: var(--osr-text-primary);
+  }
 }
 
 .override-tip {

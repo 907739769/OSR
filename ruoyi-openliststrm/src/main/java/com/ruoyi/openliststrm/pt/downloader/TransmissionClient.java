@@ -1,0 +1,269 @@
+package com.ruoyi.openliststrm.pt.downloader;
+
+import com.alibaba.fastjson2.JSONArray;
+import com.alibaba.fastjson2.JSONException;
+import com.alibaba.fastjson2.JSONObject;
+import com.ruoyi.common.utils.StringUtils;
+import com.ruoyi.openliststrm.mybatisplus.domain.PtDownloaderPlus;
+import com.ruoyi.openliststrm.pt.downloader.model.DownloaderTorrent;
+import lombok.extern.slf4j.Slf4j;
+import okhttp3.HttpUrl;
+import okhttp3.MediaType;
+import okhttp3.OkHttpClient;
+import okhttp3.Request;
+import okhttp3.RequestBody;
+import okhttp3.Response;
+import okhttp3.ResponseBody;
+import org.springframework.stereotype.Component;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+
+/**
+ * Transmission RPC 客户端。
+ * <p>
+ * 会话机制与 qBittorrent 不同：Transmission 用 {@code X-Transmission-Session-Id} 头做 CSRF 防护，
+ * 首次请求（或 session id 过期）会收到 HTTP 409，响应头带新的 session id，
+ * 缓存后携带该头重试一次即可，无需像 qB 那样走用户名密码登录。
+ * </p>
+ *
+ * @author Jack
+ */
+@Slf4j
+@Component
+public class TransmissionClient implements IDownloaderClient {
+
+    private static final String TYPE = "TRANSMISSION";
+    private static final String RPC_PATH = "/transmission/rpc";
+    private static final String SESSION_HEADER = "X-Transmission-Session-Id";
+    private static final MediaType JSON = MediaType.parse("application/json; charset=utf-8");
+
+    private final OkHttpClient httpClient;
+
+    /** downloaderId -> session id */
+    private final Map<Integer, String> sessionIdCache = new ConcurrentHashMap<>();
+
+    public TransmissionClient(OkHttpClient sharedOkHttpClient) {
+        this.httpClient = sharedOkHttpClient;
+    }
+
+    @Override
+    public String type() {
+        return TYPE;
+    }
+
+    @Override
+    public boolean testConnection(PtDownloaderPlus config) {
+        try {
+            call(config, "session-get", null);
+            log.info("下载器[{}]连通", config.getName());
+            return true;
+        } catch (Exception e) {
+            log.warn("下载器[{}]连通性测试失败：{}", config.getName(), e.getMessage());
+            return false;
+        }
+    }
+
+    @Override
+    public void addTorrent(PtDownloaderPlus config, String downloadUrl, String savePath, String tag) throws IOException {
+        JSONObject args = new JSONObject();
+        args.put("filename", downloadUrl);
+        args.put("download-dir", savePath);
+        JSONObject result = call(config, "torrent-add", args);
+        log.info("已推送种子到下载器[{}]：{}", config.getName(), maskUrl(downloadUrl));
+
+        // 打标签是独立的第二步：labels 是 Transmission 3.0+ 才支持的字段，若目标版本较旧，
+        // 这一步失败不该连累种子已经添加成功的事实，只记 warn。
+        Integer torrentId = extractTorrentId(result);
+        if (torrentId == null) {
+            return;
+        }
+        try {
+            JSONObject setArgs = new JSONObject();
+            setArgs.put("ids", List.of(torrentId));
+            setArgs.put("labels", List.of(tag));
+            call(config, "torrent-set", setArgs);
+        } catch (Exception e) {
+            log.warn("下载器[{}]打标签失败（种子已添加成功，不影响下载）：{}", config.getName(), e.getMessage());
+        }
+    }
+
+    private Integer extractTorrentId(JSONObject result) {
+        JSONObject arguments = result.getJSONObject("arguments");
+        if (arguments == null) {
+            return null;
+        }
+        JSONObject added = arguments.getJSONObject("torrent-added");
+        if (added == null) {
+            added = arguments.getJSONObject("torrent-duplicate");
+        }
+        return added == null ? null : added.getInteger("id");
+    }
+
+    /**
+     * 去掉 URL 的查询串再记日志，避免索引器下载链接里的凭据（如 Prowlarr 的 apikey）明文进日志。
+     */
+    private String maskUrl(String url) {
+        if (StringUtils.isBlank(url)) {
+            return url;
+        }
+        int idx = url.indexOf('?');
+        return idx < 0 ? url : url.substring(0, idx) + "?<已省略参数>";
+    }
+
+    @Override
+    public List<DownloaderTorrent> listByTag(PtDownloaderPlus config, String tag) throws IOException {
+        JSONObject args = new JSONObject();
+        args.put("fields", List.of("id", "name", "percentDone", "status", "downloadDir", "labels", "hashString"));
+        JSONObject result = call(config, "torrent-get", args);
+
+        List<DownloaderTorrent> list = new ArrayList<>();
+        JSONObject arguments = result.getJSONObject("arguments");
+        JSONArray torrents = arguments == null ? null : arguments.getJSONArray("torrents");
+        if (torrents == null) {
+            return list;
+        }
+        // Transmission RPC 没有服务端按 label 过滤的参数，本地按返回的 labels 数组过滤
+        for (int i = 0; i < torrents.size(); i++) {
+            JSONObject item = torrents.getJSONObject(i);
+            JSONArray labels = item.getJSONArray("labels");
+            if (labels == null || !containsLabel(labels, tag)) {
+                continue;
+            }
+            DownloaderTorrent torrent = new DownloaderTorrent();
+            String hash = item.getString("hashString");
+            torrent.setHash(hash == null ? null : hash.toLowerCase());
+            torrent.setName(item.getString("name"));
+            torrent.setProgress(item.getDoubleValue("percentDone"));
+            torrent.setRawState(String.valueOf(item.getIntValue("status")));
+            torrent.setSavePath(item.getString("downloadDir"));
+            torrent.setTags(joinLabels(labels));
+            list.add(torrent);
+        }
+        return list;
+    }
+
+    private boolean containsLabel(JSONArray labels, String tag) {
+        for (int i = 0; i < labels.size(); i++) {
+            if (tag.equals(labels.getString(i))) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String joinLabels(JSONArray labels) {
+        List<String> values = new ArrayList<>();
+        for (int i = 0; i < labels.size(); i++) {
+            values.add(labels.getString(i));
+        }
+        return String.join(",", values);
+    }
+
+    // ---------- 内部：JSON-RPC 调用 + 会话管理 ----------
+
+    /**
+     * 执行一次 RPC 调用并校验 {@code result == "success"}。
+     *
+     * @throws IOException 网络异常、下载器拒绝、或响应不是合法 JSON
+     */
+    private JSONObject call(PtDownloaderPlus config, String method, JSONObject arguments) throws IOException {
+        JSONObject body = new JSONObject();
+        body.put("method", method);
+        body.put("arguments", arguments == null ? new JSONObject() : arguments);
+
+        String raw = executeWithSession(config, sid -> buildRequest(config, body, sid));
+        JSONObject json = parseJsonObject(raw);
+        String result = json.getString("result");
+        if (!"success".equalsIgnoreCase(result)) {
+            throw new IOException("Transmission 返回失败：" + result);
+        }
+        return json;
+    }
+
+    private Request buildRequest(PtDownloaderPlus config, JSONObject body, String sessionId) throws IOException {
+        HttpUrl url = HttpUrl.parse(config.baseUrl() + RPC_PATH);
+        if (url == null) {
+            throw new IOException("无法解析下载器地址：" + config.baseUrl());
+        }
+        RequestBody reqBody = RequestBody.create(body.toJSONString(), JSON);
+        Request.Builder builder = new Request.Builder().url(url).post(reqBody);
+        if (sessionId != null) {
+            builder.header(SESSION_HEADER, sessionId);
+        }
+        String basicAuth = basicAuthHeader(config);
+        if (basicAuth != null) {
+            builder.header("Authorization", basicAuth);
+        }
+        return builder.build();
+    }
+
+    private String basicAuthHeader(PtDownloaderPlus config) {
+        if (StringUtils.isBlank(config.getUsername())) {
+            return null;
+        }
+        String credentials = config.getUsername() + ":" + StringUtils.defaultString(config.getPassword(), "");
+        return "Basic " + Base64.getEncoder().encodeToString(credentials.getBytes(StandardCharsets.UTF_8));
+    }
+
+    /**
+     * 使用缓存 session id 执行请求；遇 409（session 缺失或过期）取响应头里的新 id，重试一次。
+     */
+    private String executeWithSession(PtDownloaderPlus config, RequestFactory factory) throws IOException {
+        String sid = sessionIdCache.get(config.getId());
+
+        try (Response response = httpClient.newCall(factory.build(sid)).execute()) {
+            if (response.code() != 409) {
+                return readSuccessful(response);
+            }
+            sid = response.header(SESSION_HEADER);
+            if (sid == null) {
+                throw new IOException("Transmission 未返回 " + SESSION_HEADER);
+            }
+            sessionIdCache.put(config.getId(), sid);
+        }
+
+        try (Response retry = httpClient.newCall(factory.build(sid)).execute()) {
+            return readSuccessful(retry);
+        }
+    }
+
+    private String readSuccessful(Response response) throws IOException {
+        if (!response.isSuccessful()) {
+            throw new IOException("Transmission 返回 HTTP " + response.code());
+        }
+        ResponseBody body = response.body();
+        return body == null ? "" : body.string();
+    }
+
+    /**
+     * 解析 JSON 对象；反向代理故障等场景响应体不是合法 JSON 时，
+     * FastJSON2 会抛出未受检的 JSONException，这里转成 IOException，
+     * 与"网络异常 → IOException → 调用方本轮跳过、下轮重来"的契约保持一致。
+     */
+    private JSONObject parseJsonObject(String json) throws IOException {
+        try {
+            return JSONObject.parseObject(json);
+        } catch (JSONException e) {
+            throw new IOException("Transmission 返回的响应不是合法 JSON：" + truncate(json), e);
+        }
+    }
+
+    /** 异常消息里只截取响应体前 200 字符，避免把整个 HTML 错误页塞进异常消息 */
+    private static String truncate(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text.length() <= 200 ? text : text.substring(0, 200) + "...(截断)";
+    }
+
+    @FunctionalInterface
+    private interface RequestFactory {
+        Request build(String sessionId) throws IOException;
+    }
+}

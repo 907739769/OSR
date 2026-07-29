@@ -203,6 +203,19 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
     }
 
     /**
+     * 手动把某一集重置为缺失，用于用户从 Emby 误删或想重新洗版某集。
+     */
+    @PostMapping("/{id}/episodes/{episode}/reset")
+    public Result<Void> resetEpisode(@PathVariable("id") Integer id, @PathVariable("episode") Integer episode) {
+        try {
+            subscriptionBiz.resetEpisode(id, episode);
+            return Result.success();
+        } catch (IllegalArgumentException e) {
+            return Result.error(e.getMessage());
+        }
+    }
+
+    /**
      * 暂停订阅。
      */
     @PostMapping("/{id}/pause")

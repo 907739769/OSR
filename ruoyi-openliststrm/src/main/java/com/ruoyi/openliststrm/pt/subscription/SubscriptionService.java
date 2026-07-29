@@ -1,5 +1,6 @@
 package com.ruoyi.openliststrm.pt.subscription;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtMediaServerPlus;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
@@ -76,9 +77,18 @@ public class SubscriptionService {
             throw new IllegalArgumentException("订阅剧集必须指定季号");
         }
 
-        TmdbSearchItem detail = tmdbSearchService.getDetail(request.getMediaType(), request.getTmdbId());
         int season = movie ? MOVIE_SEASON : request.getSeason();
-        int totalEpisodes = movie ? 1 : tmdbSearchService.getSeasonEpisodeCount(request.getTmdbId(), season);
+        TmdbSearchItem detail;
+        int totalEpisodes;
+        try {
+            detail = tmdbSearchService.getDetail(request.getMediaType(), request.getTmdbId());
+            totalEpisodes = movie ? 1 : tmdbSearchService.getSeasonEpisodeCount(request.getTmdbId(), season);
+        } catch (IllegalArgumentException e) {
+            // TMDbApiService 内部已对网络异常/5xx/429 做过3次指数退避重试，这里拿到的已经是最终结果，
+            // 再重试一次没有意义。唯一能改善的是让用户分得清"服务暂时不可用"和"ID/季号真的不对"。
+            throw new IllegalArgumentException(
+                    "获取 TMDb 详情失败（TMDb 服务可能暂时不可用，或该 ID/季号有误），请稍后重试：" + e.getMessage(), e);
+        }
 
         Set<Integer> inLibrary = queryLibrary(request.getMediaType(), request.getTmdbId(), season);
 
@@ -229,6 +239,31 @@ public class SubscriptionService {
             }
         }
         return new BatchOperationResult(success, failed);
+    }
+
+    /**
+     * 手动把某一集重置为 MISSING。
+     * <p>
+     * {@link #refresh} 是"只升级不降级"的对账逻辑，这里是打破它的显式人工出口——
+     * 用户从 Emby 误删某集，或想让某集重新走一轮下载（洗版）时使用。
+     * </p>
+     *
+     * @throws IllegalArgumentException 订阅或该集不存在
+     */
+    @Transactional
+    public void resetEpisode(Integer subId, Integer episode) {
+        requireSubscription(subId);
+        PtSubscriptionEpisodePlus ep = episodeService.getOne(new LambdaQueryWrapper<PtSubscriptionEpisodePlus>()
+                .eq(PtSubscriptionEpisodePlus::getSubId, subId)
+                .eq(PtSubscriptionEpisodePlus::getEpisode, episode));
+        if (ep == null) {
+            throw new IllegalArgumentException("集不存在：sub=" + subId + " episode=" + episode);
+        }
+        ep.setState(STATE_MISSING);
+        ep.setFailCount(0);
+        ep.setDownloadId(null);
+        episodeService.updateById(ep);
+        log.info("订阅[{}] 第{}集已手动重置为缺失", subId, episode);
     }
 
     // ---------- 内部 ----------

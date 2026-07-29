@@ -60,7 +60,7 @@
           <div class="card-body">
             <div class="card-row">
               <span class="label">类型</span>
-              <span class="value">{{ item.type === 'QBITTORRENT' ? 'qBittorrent' : item.type }}</span>
+              <span class="value">{{ downloaderTypeLabel(item.type) }}</span>
             </div>
             <div class="card-row">
               <span class="label">地址</span>
@@ -113,6 +113,7 @@
         <el-form-item label="类型" prop="type">
           <el-select v-model="form.type" :style="{ width: '100%' }">
             <el-option label="qBittorrent" value="QBITTORRENT" />
+            <el-option label="Transmission" value="TRANSMISSION" />
           </el-select>
         </el-form-item>
         <el-form-item label="主机" prop="host">
@@ -165,6 +166,12 @@ import { ref } from 'vue'
 import { usePtDownloader } from '@/composables/usePtDownloader'
 
 const showSearch = ref(window.innerWidth >= 768)
+
+const DOWNLOADER_TYPE_LABELS: Record<string, string> = {
+  QBITTORRENT: 'qBittorrent',
+  TRANSMISSION: 'Transmission'
+}
+const downloaderTypeLabel = (type: string) => DOWNLOADER_TYPE_LABELS[type] || type
 
 const {
   taskList, loading, total, queryParams, getList, handleQuery, resetQuery, queryRef,

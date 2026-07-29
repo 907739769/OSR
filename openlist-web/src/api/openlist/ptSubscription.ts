@@ -46,6 +46,11 @@ export function getSubscriptionEpisodesApi(id: number) {
   return request.get<any, any[]>(`/openliststrm/pt-subscriptions/${id}/episodes`)
 }
 
+/** 手动把某一集重置为缺失，用于用户从媒体库误删或想重新洗版某集 */
+export function resetEpisodeApi(id: number, episode: number) {
+  return request.post(`/openliststrm/pt-subscriptions/${id}/episodes/${episode}/reset`)
+}
+
 /** 立即与媒体库对账刷新 */
 export function refreshSubscriptionApi(id: number) {
   return request.post(`/openliststrm/pt-subscriptions/${id}/refresh`)

@@ -10,6 +10,8 @@ import {
   tmdbSearchApi,
   subscribeApi,
   getSubscriptionProgressApi,
+  getSubscriptionEpisodesApi,
+  resetEpisodeApi,
   refreshSubscriptionApi,
   pauseSubscriptionApi,
   resumeSubscriptionApi,
@@ -142,12 +144,58 @@ export function usePtSubscription() {
     progressOpen.value = true
     progressLoading.value = true
     progress.value = null
+    episodeDetailOpen.value = false
+    episodeDetail.value = []
     try {
       progress.value = await getSubscriptionProgressApi(row.id)
     } catch (e) {
       console.error(e)
     } finally {
       progressLoading.value = false
+    }
+  }
+
+  // ---------- 每集明细（进度弹窗内"查看全部集"展开区） ----------
+
+  const episodeDetailOpen = ref(false)
+  const episodeDetailLoading = ref(false)
+  const episodeDetail = ref<any[]>([])
+  const resettingEpisode = ref<number | null>(null)
+
+  const loadEpisodeDetail = async () => {
+    if (!currentSubscription.value) return
+    episodeDetailOpen.value = !episodeDetailOpen.value
+    if (!episodeDetailOpen.value || episodeDetail.value.length) return
+    episodeDetailLoading.value = true
+    try {
+      episodeDetail.value = (await getSubscriptionEpisodesApi(currentSubscription.value.id)) || []
+    } catch (e) {
+      console.error(e)
+    } finally {
+      episodeDetailLoading.value = false
+    }
+  }
+
+  /** 重置某一集为缺失：只对 IN_LIBRARY/BLOCKED 这类"卡住"的状态开放，需二次确认 */
+  const handleResetEpisode = async (ep: any) => {
+    if (!currentSubscription.value) return
+    try {
+      await ElMessageBox.confirm(
+        `确认将第 ${ep.episode} 集重置为缺失？重置后需要重新匹配/下载。`,
+        '提示',
+        { type: 'warning' }
+      )
+      resettingEpisode.value = ep.episode
+      await resetEpisodeApi(currentSubscription.value.id, ep.episode)
+      ElMessage.success('已重置')
+      // 重置成功后重新拉一次明细与进度汇总，两处都要保持一致
+      episodeDetail.value = (await getSubscriptionEpisodesApi(currentSubscription.value.id)) || []
+      progress.value = await getSubscriptionProgressApi(currentSubscription.value.id)
+      base.getList()
+    } catch (e) {
+      if (e !== 'cancel') console.error(e)
+    } finally {
+      resettingEpisode.value = null
     }
   }
 
@@ -557,6 +605,9 @@ export function usePtSubscription() {
     picked, pickedSeason, openSubscribeDialog, doSearch, pick, confirmSubscribe,
     // 进度
     progressOpen, progressLoading, progress, currentSubscription, showProgress,
+    // 每集明细 + 手动重置
+    episodeDetailOpen, episodeDetailLoading, episodeDetail, resettingEpisode,
+    loadEpisodeDetail, handleResetEpisode,
     // 匹配日志
     searchLogOpen, searchLogLoading, searchLogs, showSearchLogs,
     // 过滤规则覆盖

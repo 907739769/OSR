@@ -31,7 +31,7 @@ public class PtDownloaderPlus extends BaseEntity {
     @TableField("name")
     private String name;
 
-    /** 下载器类型，当前仅 QBITTORRENT */
+    /** 下载器类型，QBITTORRENT / TRANSMISSION */
     @TableField("type")
     private String type;
 
