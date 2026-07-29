@@ -17,6 +17,11 @@ export function deletePtSubscriptionApi(id: number) {
   return request.delete(`/openliststrm/pt-subscriptions/${id}`)
 }
 
+/** 按 id 查单条订阅详情，用于下载记录页跳转定位 */
+export function getPtSubscriptionByIdApi(id: number) {
+  return request.get<any, any>(`/openliststrm/pt-subscriptions/${id}`)
+}
+
 /** TMDb 搜索，供建订阅时选片 */
 export function tmdbSearchApi(mediaType: string, keyword: string) {
   return request.get<any, any[]>('/openliststrm/pt-subscriptions/tmdb-search', {

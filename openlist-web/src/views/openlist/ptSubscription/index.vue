@@ -522,11 +522,12 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, onUnmounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { Picture, ArrowDown } from '@element-plus/icons-vue'
 import { usePtSubscription } from '@/composables/usePtSubscription'
 
 const router = useRouter()
+const route = useRoute()
 const showSearch = ref(window.innerWidth >= 768)
 /** 海报加载失败的订阅 id 集合，命中则展示占位图标而非裂图 */
 const posterErrorIds = reactive(new Set<number>())
@@ -537,7 +538,7 @@ const {
   taskList, loading, total, queryParams, getList, handleQuery, resetQuery, queryRef,
   subscribeOpen, searchLoading, subscribeLoading, searchResults, searchForm,
   picked, pickedSeason, openSubscribeDialog, doSearch, pick, confirmSubscribe,
-  progressOpen, progressLoading, progress, currentSubscription, showProgress,
+  progressOpen, progressLoading, progress, currentSubscription, showProgress, showProgressById,
   episodeDetailOpen, episodeDetailLoading, episodeDetail, resettingEpisode,
   loadEpisodeDetail, handleResetEpisode,
   searchLogOpen, searchLogLoading, searchLogs, showSearchLogs,
@@ -567,7 +568,12 @@ function updateSkeletonCount() {
   skeletonCount.value = Math.max(3, Math.min(12, Math.floor(containerWidth / cardMinWidth)))
 }
 
-onMounted(() => { updateSkeletonCount(); window.addEventListener('resize', updateSkeletonCount) })
+onMounted(() => {
+  updateSkeletonCount()
+  window.addEventListener('resize', updateSkeletonCount)
+  const subId = Number(route.query.id)
+  if (subId) showProgressById(subId)
+})
 onUnmounted(() => { window.removeEventListener('resize', updateSkeletonCount) })
 
 const EPISODE_STATE_LABELS: Record<string, string> = {

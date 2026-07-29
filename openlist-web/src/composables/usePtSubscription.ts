@@ -20,7 +20,8 @@ import {
   getSubscriptionSearchLogsApi,
   batchPauseSubscriptionApi,
   batchResumeSubscriptionApi,
-  batchDeletePtSubscriptionApi
+  batchDeletePtSubscriptionApi,
+  getPtSubscriptionByIdApi
 } from '@/api/openlist/ptSubscription'
 import type { SearchParams } from '@/types'
 
@@ -44,7 +45,7 @@ export function usePtSubscription() {
     idField: 'id',
     initForm: () => ({ id: undefined }),
     rules: {},
-    defaultQuery: { title: undefined, mediaType: undefined, status: 'ACTIVE', sortBy: undefined }
+    defaultQuery: { title: undefined, mediaType: undefined, status: 'ACTIVE', sortBy: undefined, pageSize: 12 }
   })
 
   // ---------- 实时状态推送：订阅命中时间原地更新，不用整页刷新 ----------
@@ -152,6 +153,16 @@ export function usePtSubscription() {
       console.error(e)
     } finally {
       progressLoading.value = false
+    }
+  }
+
+  /** 从下载记录页跳转过来时，按 id 查该条订阅并直接弹出进度，而不是过滤列表 */
+  const showProgressById = async (id: number) => {
+    try {
+      const row = await getPtSubscriptionByIdApi(id)
+      if (row) await showProgress(row)
+    } catch (e) {
+      console.error(e)
     }
   }
 
@@ -604,7 +615,7 @@ export function usePtSubscription() {
     subscribeOpen, searchLoading, subscribeLoading, searchResults, searchForm,
     picked, pickedSeason, openSubscribeDialog, doSearch, pick, confirmSubscribe,
     // 进度
-    progressOpen, progressLoading, progress, currentSubscription, showProgress,
+    progressOpen, progressLoading, progress, currentSubscription, showProgress, showProgressById,
     // 每集明细 + 手动重置
     episodeDetailOpen, episodeDetailLoading, episodeDetail, resettingEpisode,
     loadEpisodeDetail, handleResetEpisode,

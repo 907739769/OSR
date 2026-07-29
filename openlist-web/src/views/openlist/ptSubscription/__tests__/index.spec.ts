@@ -5,7 +5,8 @@ import { ref, reactive } from 'vue'
 // 页面 <script setup> 里直接调用 useRouter()，测试环境没有安装 vue-router 插件，
 // mock 掉整个模块避免路由相关报错。
 vi.mock('vue-router', () => ({
-  useRouter: () => ({ push: vi.fn() })
+  useRouter: () => ({ push: vi.fn() }),
+  useRoute: () => ({ query: {} })
 }))
 
 // usePtSubscription 在 setup 阶段同步调用 base.getList() 发真实请求，
@@ -52,6 +53,7 @@ function baseComposable(overrides: Record<string, any> = {}) {
     progress: ref(null),
     currentSubscription: ref(null),
     showProgress: vi.fn(),
+    showProgressById: vi.fn(),
     searchLogOpen: ref(false),
     searchLogLoading: ref(false),
     searchLogs: ref([]),
