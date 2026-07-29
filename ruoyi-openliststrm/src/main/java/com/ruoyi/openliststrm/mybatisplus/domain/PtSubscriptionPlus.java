@@ -92,6 +92,10 @@ public class PtSubscriptionPlus extends BaseEntity {
     @TableField("last_search_time")
     private Date lastSearchTime;
 
+    /** 上一轮定期自动补搜是否落空 0-否(有命中或未跑过) 1-是，用于通知去重避免每轮重复打扰 */
+    @TableField("last_auto_search_no_result")
+    private String lastAutoSearchNoResult;
+
     /** 排序方式：lastMatchTime=按上次命中时间倒序；其余/空=默认按 id 倒序。仅供列表查询用，不落库 */
     @TableField(exist = false)
     private String sortBy;

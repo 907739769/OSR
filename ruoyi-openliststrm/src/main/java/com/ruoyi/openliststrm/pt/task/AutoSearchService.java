@@ -1,23 +1,21 @@
 package com.ruoyi.openliststrm.pt.task;
 
+import com.ruoyi.openliststrm.helper.TgHelper;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtFilterConfigPlus;
-import com.ruoyi.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtFilterConfigPlusService;
-import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.ruoyi.openliststrm.pt.subscription.SearchSupplementService;
-import com.ruoyi.openliststrm.pt.subscription.SubscriptionEpisodeState;
-import com.ruoyi.openliststrm.pt.subscription.SubscriptionMatcher;
-import com.ruoyi.openliststrm.pt.subscription.SubscriptionService;
+import com.ruoyi.openliststrm.pt.subscription.dto.SearchAndPushSummary;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
 
 /**
- * 自动补搜业务逻辑：对开启了 auto_search 且到期的订阅，按季/整部粒度发起一次搜索。
- * 只做整季/整部粒度（不逐集搜索），避免缺集很多的老剧每轮对索引器打太多请求。
+ * 自动补搜业务逻辑：对开启了 auto_search 且到期的订阅，发起一次搜索，
+ * 季包优先、未命中则从同一候选池本地逐集匹配补散集（见 {@link SearchSupplementService#searchAndPushMissing}），
+ * 每个到期订阅每轮仍只发一次搜索请求，不会因为支持散集而增加对索引器的请求量。
  *
  * @author Jack
  */
@@ -25,21 +23,19 @@ import java.util.List;
 @Service
 public class AutoSearchService {
 
-    private static final String STATE_MISSING = SubscriptionEpisodeState.MISSING.value();
     private static final String AUTO_SEARCH_ON = "1";
+    private static final String NO_RESULT = "1";
+    private static final String HAS_RESULT = "0";
     private static final int DEFAULT_INTERVAL_HOURS = 24;
 
     private final IPtSubscriptionPlusService subscriptionService;
-    private final IPtSubscriptionEpisodePlusService episodeService;
     private final IPtFilterConfigPlusService filterConfigService;
     private final SearchSupplementService searchSupplementService;
 
     public AutoSearchService(IPtSubscriptionPlusService subscriptionService,
-                             IPtSubscriptionEpisodePlusService episodeService,
                              IPtFilterConfigPlusService filterConfigService,
                              SearchSupplementService searchSupplementService) {
         this.subscriptionService = subscriptionService;
-        this.episodeService = episodeService;
         this.filterConfigService = filterConfigService;
         this.searchSupplementService = searchSupplementService;
     }
@@ -70,16 +66,32 @@ public class AutoSearchService {
         }
     }
 
+    /**
+     * 是否落空由 {@link SearchAndPushSummary#isSkipped()}（无缺集/订阅不可搜）以及
+     * {@link SearchAndPushSummary#anyPushed()} 共同决定；跳过的情况不触碰通知去重标记，
+     * 因为跳过既不是"落空"也不是"命中"，不该覆盖上一次真正搜索留下的状态。
+     * 通知只在状态从"上次落空"变为"本次落空"之外的边界触发一次，避免长期缺集的老剧
+     * 每轮（默认24小时）都收到一条"未搜到资源"的 TG 通知。
+     */
     private void trySearch(PtSubscriptionPlus sub) {
-        List<PtSubscriptionEpisodePlus> episodes = episodeService.listBySubscription(sub.getId());
-        boolean hasMissing = episodes.stream().anyMatch(ep -> STATE_MISSING.equals(ep.getState()));
-        if (!hasMissing) {
+        SearchAndPushSummary summary = searchSupplementService.searchAndPushMissing(sub.getId());
+        if (summary.isSkipped()) {
             return;
         }
-        boolean movie = SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType());
-        int episode = movie ? 0 : SubscriptionMatcher.SEASON_PACK;
-        String keyword = movie ? sub.getTitle() : sub.getTitle() + " S" + pad(sub.getSeason());
-        searchSupplementService.supplement(sub.getId(), episode, keyword);
+        boolean previouslyNoResult = NO_RESULT.equals(sub.getLastAutoSearchNoResult());
+        if (summary.anyPushed()) {
+            if (previouslyNoResult) {
+                sub.setLastAutoSearchNoResult(HAS_RESULT);
+                subscriptionService.updateById(sub);
+            }
+            return;
+        }
+        if (!previouslyNoResult) {
+            notifySafely("🔍 订阅[" + sub.getTitle() + "] 自动补搜连续未找到可用资源，"
+                    + "可等待 RSS 命中，或检查索引器配置（本提醒在下次搜到资源前只发一次）");
+            sub.setLastAutoSearchNoResult(NO_RESULT);
+            subscriptionService.updateById(sub);
+        }
     }
 
     private boolean isDue(PtSubscriptionPlus sub, int intervalHours, long now) {
@@ -95,8 +107,11 @@ public class AutoSearchService {
         return hours == null ? DEFAULT_INTERVAL_HOURS : hours;
     }
 
-    private String pad(Integer season) {
-        int s = season == null ? 0 : season;
-        return s < 10 ? "0" + s : String.valueOf(s);
+    private void notifySafely(String msg) {
+        try {
+            TgHelper.sendMsg(msg);
+        } catch (Exception e) {
+            log.debug("发送通知失败（不影响主流程）：{}", e.getMessage());
+        }
     }
 }

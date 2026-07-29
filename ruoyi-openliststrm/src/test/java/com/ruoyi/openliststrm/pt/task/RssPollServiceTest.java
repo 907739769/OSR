@@ -62,6 +62,12 @@ class RssPollServiceTest {
         return t;
     }
 
+    private TorrentInfo torrent(String title, String guid) {
+        TorrentInfo t = torrent(title);
+        t.setGuid(guid);
+        return t;
+    }
+
     @Test
     void 从未轮询过的索引器_视为到期_会拉取() throws Exception {
         when(indexerService.listEnabled()).thenReturn(List.of(indexer(1, 600, null, 0)));
@@ -149,6 +155,47 @@ class RssPollServiceTest {
         service().poll();
 
         verify(subscriptionEngine, never()).process(anyList());
+    }
+
+    // ---------- 拉取窗口覆盖度校验 ----------
+
+    @Test
+    void 首次拉取_记录游标不告警() throws Exception {
+        PtIndexerPlus idx = indexer(1, 600, null, 0);
+        when(torznabClient.fetch(any())).thenReturn(List.of(torrent("t1", "guid-1")));
+
+        try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
+            service().pollOne(idx, new java.util.ArrayList<>());
+
+            assertNotNull(idx.getLastSeenGuidHash());
+            tg.verify(() -> TgHelper.sendMsg(anyString()), never());
+        }
+    }
+
+    @Test
+    void 上轮游标仍在本轮结果中_不告警() throws Exception {
+        PtIndexerPlus idx = indexer(1, 600, null, 0);
+        idx.setLastSeenGuidHash(com.ruoyi.openliststrm.pt.indexer.GuidHasher.hash("guid-old"));
+        when(torznabClient.fetch(any())).thenReturn(List.of(torrent("t1", "guid-new"), torrent("t0", "guid-old")));
+
+        try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
+            service().pollOne(idx, new java.util.ArrayList<>());
+
+            tg.verify(() -> TgHelper.sendMsg(anyString()), never());
+        }
+    }
+
+    @Test
+    void 上轮游标未出现在本轮结果中_告警提示可能漏拉() throws Exception {
+        PtIndexerPlus idx = indexer(1, 600, null, 0);
+        idx.setLastSeenGuidHash(com.ruoyi.openliststrm.pt.indexer.GuidHasher.hash("guid-old"));
+        when(torznabClient.fetch(any())).thenReturn(List.of(torrent("t1", "guid-new")));
+
+        try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
+            service().pollOne(idx, new java.util.ArrayList<>());
+
+            tg.verify(() -> TgHelper.sendMsg(argThat(m -> m.contains("覆盖不全"))));
+        }
     }
 
     @Test

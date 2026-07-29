@@ -1,9 +1,11 @@
 package com.ruoyi.openliststrm.pt.task;
 
+import com.ruoyi.common.utils.StringUtils;
 import com.ruoyi.common.utils.Threads;
 import com.ruoyi.openliststrm.helper.TgHelper;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtIndexerPlus;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtIndexerPlusService;
+import com.ruoyi.openliststrm.pt.indexer.GuidHasher;
 import com.ruoyi.openliststrm.pt.indexer.TorznabClient;
 import com.ruoyi.openliststrm.pt.model.TorrentInfo;
 import com.ruoyi.openliststrm.pt.subscription.SubscriptionEngine;
@@ -133,6 +135,7 @@ public class RssPollService {
         try {
             List<TorrentInfo> fetched = torznabClient.fetch(indexer);
             collector.addAll(fetched);
+            checkCoverageGap(indexer, fetched);
             indexer.setLastPollTime(new Date());
             indexer.setLastStatus("OK");
             indexer.setFailCount(0);
@@ -189,6 +192,36 @@ public class RssPollService {
             return false;
         }
         return now - indexer.getDisabledAt().getTime() >= selfHealCooldownHours * 3600_000L;
+    }
+
+    /**
+     * 校验本轮拉取窗口是否完整覆盖了上一轮的位置：Torznab RSS 拉取无游标/时间参数支持，
+     * 每轮只能拿到索引器首页种子，若发布速度超过 (首页容量)/(轮询间隔)，两轮之间被挤出
+     * 首页的种子会被永久跳过且无法被 {@code excludeAlreadyRecorded} 之外的机制察觉。
+     * 假定 Torznab RSS 按发布时间降序返回（标准约定），取本轮首条种子的 guid 作为新游标；
+     * 若上一轮游标未出现在本轮结果中，说明存在覆盖不到的漏拉窗口，仅记警告+告警一次，
+     * 不尝试补救（Torznab RSS 语义上无法找回已漏掉的种子）。
+     */
+    private void checkCoverageGap(PtIndexerPlus indexer, List<TorrentInfo> fetched) {
+        // guid 缺失的条目无法参与游标计算（正常 Torznab 响应不会出现，防御性跳过而非抛异常中断整轮拉取）
+        String newestGuid = fetched.get(0).getGuid();
+        if (StringUtils.isBlank(newestGuid)) {
+            return;
+        }
+        String previousCursor = indexer.getLastSeenGuidHash();
+        if (previousCursor != null) {
+            boolean covered = fetched.stream()
+                    .map(TorrentInfo::getGuid)
+                    .filter(StringUtils::isNotBlank)
+                    .map(GuidHasher::hash)
+                    .anyMatch(previousCursor::equals);
+            if (!covered) {
+                log.warn("索引器[{}]本轮拉取窗口未覆盖上次记录点，期间可能有种子被跳过", indexer.getName());
+                notifySafely("⚠️ 索引器[" + indexer.getName() + "]拉取窗口覆盖不全，可能有种子被漏拉，"
+                        + "建议缩短轮询间隔或联系索引器提高单页返回数");
+            }
+        }
+        indexer.setLastSeenGuidHash(GuidHasher.hash(newestGuid));
     }
 
     private boolean isDue(PtIndexerPlus indexer, long now) {

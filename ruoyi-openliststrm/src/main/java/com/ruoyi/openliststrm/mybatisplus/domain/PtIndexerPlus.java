@@ -68,4 +68,8 @@ public class PtIndexerPlus extends BaseEntity {
     /** 自动停用/最近一次自愈探测失败的时间，用于冷却期计时 */
     @TableField("disabled_at")
     private Date disabledAt;
+
+    /** 上一轮拉取到的最新种子 guid 的 SHA-256 哈希，用于校验下一轮拉取窗口是否覆盖完整 */
+    @TableField("last_seen_guid_hash")
+    private String lastSeenGuidHash;
 }

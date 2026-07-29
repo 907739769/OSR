@@ -1,16 +1,17 @@
 package com.ruoyi.openliststrm.pt.task;
 
+import com.ruoyi.openliststrm.helper.TgHelper;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtFilterConfigPlus;
-import com.ruoyi.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtFilterConfigPlusService;
-import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.ruoyi.openliststrm.pt.subscription.SearchSupplementService;
-import com.ruoyi.openliststrm.pt.subscription.SubscriptionMatcher;
+import com.ruoyi.openliststrm.pt.subscription.dto.SearchAndPushSummary;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
+import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
@@ -18,9 +19,11 @@ import org.mockito.quality.Strictness;
 import java.util.Date;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -30,12 +33,11 @@ import static org.mockito.Mockito.when;
 class AutoSearchServiceTest {
 
     @Mock private IPtSubscriptionPlusService subscriptionService;
-    @Mock private IPtSubscriptionEpisodePlusService episodeService;
     @Mock private IPtFilterConfigPlusService filterConfigService;
     @Mock private SearchSupplementService searchSupplementService;
 
     private AutoSearchService service() {
-        return new AutoSearchService(subscriptionService, episodeService, filterConfigService, searchSupplementService);
+        return new AutoSearchService(subscriptionService, filterConfigService, searchSupplementService);
     }
 
     private PtSubscriptionPlus sub(int id, String mediaType, int season, String autoSearch, Date lastSearchTime) {
@@ -48,6 +50,7 @@ class AutoSearchServiceTest {
         s.setStatus("ACTIVE");
         s.setAutoSearch(autoSearch);
         s.setLastSearchTime(lastSearchTime);
+        s.setLastAutoSearchNoResult("0");
         return s;
     }
 
@@ -57,13 +60,6 @@ class AutoSearchServiceTest {
         return c;
     }
 
-    private PtSubscriptionEpisodePlus episode(int number, String state) {
-        PtSubscriptionEpisodePlus ep = new PtSubscriptionEpisodePlus();
-        ep.setEpisode(number);
-        ep.setState(state);
-        return ep;
-    }
-
     @Test
     void 未开启自动补搜的订阅_跳过() {
         when(subscriptionService.listActive()).thenReturn(List.of(sub(10, "TV", 1, "0", null)));
@@ -71,18 +67,19 @@ class AutoSearchServiceTest {
 
         service().run();
 
-        verify(searchSupplementService, never()).supplement(any(), anyInt(), anyString());
+        verify(searchSupplementService, never()).searchAndPushMissing(10);
     }
 
     @Test
     void 从未搜索过_视为到期_发起搜索() {
         when(subscriptionService.listActive()).thenReturn(List.of(sub(10, "TV", 1, "1", null)));
         when(filterConfigService.getConfig()).thenReturn(config(24));
-        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(1, "MISSING")));
+        when(searchSupplementService.searchAndPushMissing(10))
+                .thenReturn(new SearchAndPushSummary(false, true, 0));
 
         service().run();
 
-        verify(searchSupplementService).supplement(10, SubscriptionMatcher.SEASON_PACK, "Some Show S01");
+        verify(searchSupplementService).searchAndPushMissing(10);
     }
 
     @Test
@@ -93,7 +90,7 @@ class AutoSearchServiceTest {
 
         service().run();
 
-        verify(searchSupplementService, never()).supplement(any(), anyInt(), anyString());
+        verify(searchSupplementService, never()).searchAndPushMissing(10);
     }
 
     @Test
@@ -101,33 +98,35 @@ class AutoSearchServiceTest {
         Date old = new Date(System.currentTimeMillis() - 25L * 3600_000L);
         when(subscriptionService.listActive()).thenReturn(List.of(sub(10, "TV", 1, "1", old)));
         when(filterConfigService.getConfig()).thenReturn(config(24));
-        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(1, "MISSING")));
+        when(searchSupplementService.searchAndPushMissing(10))
+                .thenReturn(new SearchAndPushSummary(false, true, 0));
 
         service().run();
 
-        verify(searchSupplementService).supplement(10, SubscriptionMatcher.SEASON_PACK, "Some Show S01");
+        verify(searchSupplementService).searchAndPushMissing(10);
     }
 
     @Test
-    void 没有任何缺失集_跳过不发请求() {
+    void 无缺集或订阅不可搜_跳过不更新通知标记() {
         when(subscriptionService.listActive()).thenReturn(List.of(sub(10, "TV", 1, "1", null)));
         when(filterConfigService.getConfig()).thenReturn(config(24));
-        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(1, "IN_LIBRARY")));
+        when(searchSupplementService.searchAndPushMissing(10)).thenReturn(SearchAndPushSummary.skip());
 
         service().run();
 
-        verify(searchSupplementService, never()).supplement(any(), anyInt(), anyString());
+        verify(subscriptionService, never()).updateById(any(PtSubscriptionPlus.class));
     }
 
     @Test
-    void 电影订阅_目标集号恒为0() {
+    void 电影订阅_按id发起搜索() {
         when(subscriptionService.listActive()).thenReturn(List.of(sub(20, "MOVIE", 0, "1", null)));
         when(filterConfigService.getConfig()).thenReturn(config(24));
-        when(episodeService.listBySubscription(20)).thenReturn(List.of(episode(0, "MISSING")));
+        when(searchSupplementService.searchAndPushMissing(20))
+                .thenReturn(new SearchAndPushSummary(false, true, 0));
 
         service().run();
 
-        verify(searchSupplementService).supplement(20, 0, "Some Movie");
+        verify(searchSupplementService).searchAndPushMissing(20);
     }
 
     @Test
@@ -135,11 +134,12 @@ class AutoSearchServiceTest {
         Date old = new Date(System.currentTimeMillis() - 25L * 3600_000L);
         when(subscriptionService.listActive()).thenReturn(List.of(sub(10, "TV", 1, "1", old)));
         when(filterConfigService.getConfig()).thenReturn(config(null));
-        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(1, "MISSING")));
+        when(searchSupplementService.searchAndPushMissing(10))
+                .thenReturn(new SearchAndPushSummary(false, true, 0));
 
         service().run();
 
-        verify(searchSupplementService).supplement(10, SubscriptionMatcher.SEASON_PACK, "Some Show S01");
+        verify(searchSupplementService).searchAndPushMissing(10);
     }
 
     @Test
@@ -147,12 +147,85 @@ class AutoSearchServiceTest {
         when(subscriptionService.listActive()).thenReturn(List.of(
                 sub(10, "TV", 1, "1", null), sub(11, "TV", 1, "1", null)));
         when(filterConfigService.getConfig()).thenReturn(config(24));
-        when(episodeService.listBySubscription(any())).thenReturn(List.of(episode(1, "MISSING")));
-        when(searchSupplementService.supplement(10, SubscriptionMatcher.SEASON_PACK, "Some Show S01"))
-                .thenThrow(new RuntimeException("boom"));
+        when(searchSupplementService.searchAndPushMissing(10)).thenThrow(new RuntimeException("boom"));
+        when(searchSupplementService.searchAndPushMissing(11))
+                .thenReturn(new SearchAndPushSummary(false, true, 0));
 
         service().run();
 
-        verify(searchSupplementService).supplement(11, SubscriptionMatcher.SEASON_PACK, "Some Show S01");
+        verify(searchSupplementService).searchAndPushMissing(11);
     }
+
+    // ---------- 散集补齐 ----------
+
+    @Test
+    void 季包未命中但补到散集_视为命中不通知() throws Exception {
+        when(subscriptionService.listActive()).thenReturn(List.of(sub(10, "TV", 1, "1", null)));
+        when(filterConfigService.getConfig()).thenReturn(config(24));
+        when(searchSupplementService.searchAndPushMissing(10))
+                .thenReturn(new SearchAndPushSummary(false, false, 3));
+
+        try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
+            service().run();
+
+            tg.verify(() -> TgHelper.sendMsg(anyString()), never());
+        }
+    }
+
+    // ---------- 落空通知去重 ----------
+
+    @Test
+    void 首次落空_发一次通知并记录标记() throws Exception {
+        PtSubscriptionPlus s = sub(10, "TV", 1, "1", null);
+        when(subscriptionService.listActive()).thenReturn(List.of(s));
+        when(filterConfigService.getConfig()).thenReturn(config(24));
+        when(searchSupplementService.searchAndPushMissing(10))
+                .thenReturn(new SearchAndPushSummary(false, false, 0));
+
+        try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
+            service().run();
+
+            tg.verify(() -> TgHelper.sendMsg(argThat(m -> m.contains("未找到可用资源"))));
+            ArgumentCaptor<PtSubscriptionPlus> captor = ArgumentCaptor.forClass(PtSubscriptionPlus.class);
+            verify(subscriptionService).updateById(captor.capture());
+            assertEquals("1", captor.getValue().getLastAutoSearchNoResult());
+        }
+    }
+
+    @Test
+    void 已经落空过_连续落空不重复通知() throws Exception {
+        PtSubscriptionPlus s = sub(10, "TV", 1, "1", null);
+        s.setLastAutoSearchNoResult("1");
+        when(subscriptionService.listActive()).thenReturn(List.of(s));
+        when(filterConfigService.getConfig()).thenReturn(config(24));
+        when(searchSupplementService.searchAndPushMissing(10))
+                .thenReturn(new SearchAndPushSummary(false, false, 0));
+
+        try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
+            service().run();
+
+            tg.verify(() -> TgHelper.sendMsg(anyString()), never());
+            verify(subscriptionService, never()).updateById(any(PtSubscriptionPlus.class));
+        }
+    }
+
+    @Test
+    void 落空后再次命中_重置标记不发通知() throws Exception {
+        PtSubscriptionPlus s = sub(10, "TV", 1, "1", null);
+        s.setLastAutoSearchNoResult("1");
+        when(subscriptionService.listActive()).thenReturn(List.of(s));
+        when(filterConfigService.getConfig()).thenReturn(config(24));
+        when(searchSupplementService.searchAndPushMissing(10))
+                .thenReturn(new SearchAndPushSummary(false, true, 0));
+
+        try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
+            service().run();
+
+            tg.verify(() -> TgHelper.sendMsg(anyString()), never());
+            ArgumentCaptor<PtSubscriptionPlus> captor = ArgumentCaptor.forClass(PtSubscriptionPlus.class);
+            verify(subscriptionService).updateById(captor.capture());
+            assertEquals("0", captor.getValue().getLastAutoSearchNoResult());
+        }
+    }
+
 }

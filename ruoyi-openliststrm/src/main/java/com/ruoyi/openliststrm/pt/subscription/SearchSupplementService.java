@@ -20,6 +20,7 @@ import com.ruoyi.openliststrm.pt.indexer.IndexerCapabilityCache;
 import com.ruoyi.openliststrm.pt.indexer.TorznabClient;
 import com.ruoyi.openliststrm.pt.model.TorrentInfo;
 import com.ruoyi.openliststrm.pt.subscription.dto.PushSelectedRequest;
+import com.ruoyi.openliststrm.pt.subscription.dto.SearchAndPushSummary;
 import com.ruoyi.openliststrm.pt.subscription.dto.SearchCandidateDTO;
 import com.ruoyi.openliststrm.pt.subscription.dto.SupplementResult;
 import lombok.extern.slf4j.Slf4j;
@@ -295,30 +296,51 @@ public class SearchSupplementService {
     }
 
     /**
-     * 建订阅后一次性补搜历史资源：电影只搜一次；剧集做一次全季节搜索获取候选，
-     * 先试整季包，季包未命中再对仍缺失的集从同一候选池中逐集匹配推送。
-     * <p>
-     * 与旧实现（逐集调用 {@link #supplement} 分别搜索）相比，避免了对同级别的
-     * 多集缺失时反复向所有索引器发起搜索——由 O(N×M) 降为 O(N+M)，N=三级搜索,
-     * M=缺集数,每次只做本地匹配和择优推送。
-     * </p>
+     * 建订阅后一次性补搜历史资源。
      * <p>
      * 供 {@link SubscriptionSearchOnCreateTrigger} 异步调用——顶层不抛异常，
-     * 任一步的异常被各自 try/catch 捕获，不影响其他步骤继续。
-     * 全部目标都没能推送成功时发一次通知，避免用户只能靠翻 pt_search_log
-     * 排查"为什么没搜到"。
+     * 具体搜索/推送逻辑见 {@link #searchAndPushMissing}。全部目标都没能推送成功时
+     * 发一次通知，避免用户只能靠翻 pt_search_log 排查"为什么没搜到"。
      * </p>
      */
     public void supplementOnCreate(Integer subId) {
+        SearchAndPushSummary summary = searchAndPushMissing(subId);
+        if (summary.isSkipped()) {
+            return;
+        }
+        if (!summary.anyPushed()) {
+            PtSubscriptionPlus sub = subscriptionService.getById(subId);
+            if (sub != null) {
+                notifyNoResult(sub);
+            }
+        }
+    }
+
+    /**
+     * 单次搜索、按季包/散集粒度本地匹配后推送：电影只搜一次；剧集做一次全季节搜索获取候选，
+     * 先试整季包，季包未命中再对仍缺失的集从同一候选池中逐集匹配推送。
+     * <p>
+     * 与逐集调用 {@link #supplement} 分别搜索相比，避免了对同一订阅的多集缺失反复向所有
+     * 索引器发起搜索——由 O(N×M) 降为 O(N+M)，N=三级搜索，M=缺集数，每次只做本地匹配和
+     * 择优推送。同时供 {@link #supplementOnCreate}（建订阅时机）与定期自动补搜
+     * （{@code AutoSearchService}）复用，使自动补搜也能补到散集，而不是像旧实现那样
+     * 只搜严格意义的整季包（连载剧集完结前基本没有季包资源，旧实现对这类订阅形同虚设）。
+     * </p>
+     * <p>
+     * 顶层不抛异常，任一步的异常被各自 try/catch 捕获，不影响其他步骤继续；调用方按需
+     * 决定如何处理"全部落空"的情况（是否通知、通知频率）。
+     * </p>
+     */
+    public SearchAndPushSummary searchAndPushMissing(Integer subId) {
         PtSubscriptionPlus sub = subscriptionService.getById(subId);
         if (sub == null || !SubscriptionService.STATUS_ACTIVE.equals(sub.getStatus())) {
-            return;
+            return SearchAndPushSummary.skip();
         }
         List<PtSubscriptionEpisodePlus> episodes = episodeService.listBySubscription(subId);
         boolean hasMissing = episodes.stream()
                 .anyMatch(ep -> SubscriptionService.STATE_MISSING.equals(ep.getState()));
         if (!hasMissing) {
-            return;
+            return SearchAndPushSummary.skip();
         }
 
         boolean movie = SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType());
@@ -327,12 +349,9 @@ public class SearchSupplementService {
             try {
                 pushed = supplement(subId, 0, sub.getTitle()).isPushed();
             } catch (Exception e) {
-                log.warn("订阅[{}] 建订阅补搜失败：{}", subId, e.getMessage());
+                log.warn("订阅[{}] 补搜失败：{}", subId, e.getMessage());
             }
-            if (!pushed) {
-                notifyNoResult(sub);
-            }
-            return;
+            return new SearchAndPushSummary(false, pushed, 0);
         }
 
         // 单次全季节搜索（三级回退：ID → 中文 → 英文/原语言）
@@ -346,13 +365,13 @@ public class SearchSupplementService {
                 try {
                     seasonPushed = subscriptionEngine.pushBest(sub, SubscriptionMatcher.SEASON_PACK, seasonCandidates);
                 } catch (Exception e) {
-                    log.warn("订阅[{}] 建订阅补搜整季包推送异常：{}", subId, e.getMessage());
+                    log.warn("订阅[{}] 补搜整季包推送异常：{}", subId, e.getMessage());
                 }
             }
         }
 
         // 季包未命中：从同一候选池逐集匹配推送
-        boolean anyEpisodePushed = false;
+        int episodesPushed = 0;
         if (!seasonPushed && !candidates.isEmpty()) {
             for (PtSubscriptionEpisodePlus ep : episodes) {
                 if (!SubscriptionService.STATE_MISSING.equals(ep.getState())) {
@@ -360,17 +379,19 @@ public class SearchSupplementService {
                 }
                 try {
                     if (subscriptionEngine.pushBest(sub, ep.getEpisode(), candidates)) {
-                        anyEpisodePushed = true;
+                        episodesPushed++;
                     }
                 } catch (Exception e) {
-                    log.warn("订阅[{}] 建订阅补搜第{}集推送失败：{}", subId, ep.getEpisode(), e.getMessage());
+                    log.warn("订阅[{}] 补搜第{}集推送失败：{}", subId, ep.getEpisode(), e.getMessage());
                 }
             }
         }
 
-        if (!seasonPushed && !anyEpisodePushed) {
-            notifyNoResult(sub);
-        }
+        // 剧集分支不走 supplement()，需自行记录本次搜索时间供 AutoSearchService 到期判断
+        sub.setLastSearchTime(new Date());
+        subscriptionService.updateById(sub);
+
+        return new SearchAndPushSummary(false, seasonPushed, episodesPushed);
     }
 
     /**
