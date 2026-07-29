@@ -285,6 +285,8 @@ public class SearchSupplementService {
                         .indexerName(indexerNames.getOrDefault(t.getIndexerId(), "未知"))
                         .indexerId(t.getIndexerId())
                         .guid(t.getGuid())
+                        .downloadUrl(t.getDownloadUrl())
+                        .infoHash(t.getInfoHash())
                         .parsedYear(t.getParsedYear())
                         .pubDate(t.getPubDate())
                         .parsedEpisode(t.getParsedEpisode())

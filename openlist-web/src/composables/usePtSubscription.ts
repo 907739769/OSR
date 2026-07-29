@@ -339,7 +339,8 @@ export function usePtSubscription() {
         downloadVolumeFactor: candidate.free ? 0 : 1,
         indexerId: candidate.indexerId,
         guid: candidate.guid,
-        downloadUrl: '',
+        downloadUrl: candidate.downloadUrl,
+        infoHash: candidate.infoHash,
         pubDate: candidate.pubDate
       })
       ElMessage.success('已推送下载')

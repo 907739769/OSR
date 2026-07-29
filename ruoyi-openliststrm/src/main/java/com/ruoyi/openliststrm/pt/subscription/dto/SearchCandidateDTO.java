@@ -48,6 +48,12 @@ public class SearchCandidateDTO {
     /** 种子 GUID（去重标识），用于后续推送时定位 */
     private String guid;
 
+    /** 种子下载链接（.torrent/磁力链接），推送到下载器时必需 */
+    private String downloadUrl;
+
+    /** 种子 InfoHash */
+    private String infoHash;
+
     /** 种子标题的解析年份 */
     private String parsedYear;
 

@@ -279,7 +279,17 @@ public class SubscriptionEngine {
 
         String guidHash = GuidHasher.hash(best.getGuid());
         PtDownloadRecordPlus record = buildRecord(sub, match.getEpisode(), best, guidHash, downloader);
-        if (!recordService.save(record)) {
+        boolean saved;
+        try {
+            saved = recordService.save(record);
+        } catch (Exception e) {
+            // 并发轮询下同一 guid 可能同时通过 excludeAlreadyRecorded 检查，
+            // 落库时撞到 uk_indexer_guid 唯一索引会抛异常而非返回 false，需和 false 分支一样回滚，
+            // 否则已占位的集会永久卡在 IN_FLIGHT 且没有对应下载记录可供后续追踪回退。
+            log.warn("保存下载记录失败，已回滚：{}", best.getTitle(), e);
+            saved = false;
+        }
+        if (!saved) {
             releaseAll(claimed);
             downloaderLoadCache.merge(downloader.getId(), -1L, Long::sum);
             return false;
