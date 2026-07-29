@@ -117,6 +117,10 @@ const componentMap: Record<string, Component | (() => Promise<any>)> = {
   'openlist/ptTorrentBlacklist/index': createDeviceView(
     () => import('@/views/openlist/ptTorrentBlacklist/index.vue'),
     () => import('@/views-mobile/ptTorrentBlacklist/index.vue')
+  ),
+  'openlist/ptAutoAddRule/index': createDeviceView(
+    () => import('@/views/openlist/ptAutoAddRule/index.vue'),
+    () => import('@/views-mobile/ptAutoAddRule/index.vue')
   )
 }
 

@@ -155,6 +155,22 @@ public class TmdbSearchService {
         throw new IllegalArgumentException("TMDb 中剧集 " + tmdbId + " 不存在第 " + season + " 季");
     }
 
+    /**
+     * 取剧集当前最新一季的季号，供自动订阅热门剧集时决定订哪一季用。
+     * <p>
+     * 用 TMDb 详情里的 number_of_seasons 做启发式判断（假定季号从 1 连续编到该值，
+     * 不含特别篇的第 0 季）。取不到时兜底返回第 1 季。
+     * </p>
+     */
+    public int getLatestSeasonNumber(String tmdbId) {
+        JSONObject detail = readObject(tmDbApiService.getDetails(openlistConfig.getTmdbApiKey(), "tv", Integer.parseInt(tmdbId)));
+        if (detail == null) {
+            return 1;
+        }
+        Integer number = detail.getInteger("number_of_seasons");
+        return (number == null || number < 1) ? 1 : number;
+    }
+
     private TmdbSearchItem toItem(JSONObject json, String mediaType) {
         boolean tv = !TYPE_MOVIE.equalsIgnoreCase(mediaType);
         TmdbSearchItem item = new TmdbSearchItem();

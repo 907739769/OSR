@@ -2,7 +2,7 @@ import {
   Setting, Document, Picture, Monitor, Tools, Calendar, Coin, Promotion,
   Watermelon, Menu as IconMenu, VideoPlay, RefreshRight, EditPen,
   FolderOpened, DocumentCopy, MagicStick, Connection, Download, Film, Filter,
-  TrendCharts, CircleClose
+  TrendCharts, CircleClose, StarFilled
 } from '@element-plus/icons-vue'
 import type { Component } from 'vue'
 
@@ -37,7 +37,8 @@ const iconMap: Record<string, Component> = {
   'fa fa-server': Film,
   'fa fa-sliders': Filter,
   'fa fa-bar-chart': TrendCharts,
-  'fa fa-ban': CircleClose
+  'fa fa-ban': CircleClose,
+  'fa fa-fire': StarFilled
 }
 
 export function getIconComponent(icon?: string): Component | undefined {

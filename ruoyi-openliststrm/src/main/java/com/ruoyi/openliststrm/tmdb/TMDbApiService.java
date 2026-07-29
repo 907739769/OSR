@@ -187,6 +187,37 @@ public class TMDbApiService {
         return executeAndReturnString(req, "getTvContentRatings");
     }
 
+    /**
+     * 榜单接口：热门/流行趋势
+     * 接口: GET /trending/{movie|tv}/{day|week}
+     */
+    public String getTrending(String apiKey, String type, String timeWindow, int page) {
+        HttpUrl url = Objects.requireNonNull(HttpUrl.parse(BASE + "/trending/" + type + "/" + timeWindow))
+                .newBuilder()
+                .addQueryParameter("api_key", apiKey)
+                .addQueryParameter("language", language())
+                .addQueryParameter("page", String.valueOf(page))
+                .build();
+        Request req = new Request.Builder().url(url).get().build();
+        return executeAndReturnString(req, "getTrending");
+    }
+
+    /**
+     * 榜单接口：条件发现（评分/类型/地区等过滤）
+     * 接口: GET /discover/{movie|tv}
+     */
+    public String getDiscover(String apiKey, String type, java.util.Map<String, String> params, int page) {
+        HttpUrl.Builder b = Objects.requireNonNull(HttpUrl.parse(BASE + "/discover/" + type)).newBuilder()
+                .addQueryParameter("api_key", apiKey)
+                .addQueryParameter("language", language())
+                .addQueryParameter("page", String.valueOf(page));
+        if (params != null) {
+            params.forEach(b::addQueryParameter);
+        }
+        Request req = new Request.Builder().url(b.build()).get().build();
+        return executeAndReturnString(req, "getDiscover");
+    }
+
     private String language() {
         return config.getTmdbMetadataLanguage();
     }
