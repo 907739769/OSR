@@ -27,6 +27,18 @@ public class PtMediaServerRestController extends BaseCrudRestController<IPtMedia
     private MediaServerClientFactory mediaServerClientFactory;
 
     @Override
+    protected void maskSensitiveFields(PtMediaServerPlus entity) {
+        entity.setApiKey(null);
+    }
+
+    @Override
+    protected void mergeUnchangedSensitiveFields(PtMediaServerPlus incoming, PtMediaServerPlus existing) {
+        if (StringUtils.isBlank(incoming.getApiKey())) {
+            incoming.setApiKey(existing.getApiKey());
+        }
+    }
+
+    @Override
     protected Wrapper<PtMediaServerPlus> buildQueryWrapper(PtMediaServerPlus entity) {
         LambdaQueryWrapper<PtMediaServerPlus> wrapper = new LambdaQueryWrapper<>();
         if (StringUtils.isNotBlank(entity.getName())) {
@@ -44,6 +56,13 @@ public class PtMediaServerRestController extends BaseCrudRestController<IPtMedia
      */
     @PostMapping("/test")
     public Result<Void> test(@RequestBody PtMediaServerPlus entity) {
+        // 编辑已有媒体服务器时前端 API Key 框留空表示"沿用已保存的 API Key"，测试连接同样要用已保存的值
+        if (StringUtils.isBlank(entity.getApiKey()) && entity.getId() != null) {
+            PtMediaServerPlus existing = service.getById(entity.getId());
+            if (existing != null) {
+                entity.setApiKey(existing.getApiKey());
+            }
+        }
         if (StringUtils.isBlank(entity.getUrl()) || StringUtils.isBlank(entity.getApiKey())) {
             return Result.error("服务器地址与 API Key 不能为空");
         }

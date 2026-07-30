@@ -132,7 +132,12 @@
           <el-input v-model="form.username" placeholder="请输入用户名" />
         </el-form-item>
         <el-form-item label="密码" prop="password">
-          <el-input v-model="form.password" type="password" show-password placeholder="请输入密码" />
+          <el-input
+            v-model="form.password"
+            type="password"
+            show-password
+            :placeholder="form.id ? '留空则不修改密码' : '请输入密码'"
+          />
         </el-form-item>
         <el-form-item label="保存路径" prop="savePath">
           <el-input v-model="form.savePath" placeholder="种子保存路径" @blur="handleSavePathBlur" />

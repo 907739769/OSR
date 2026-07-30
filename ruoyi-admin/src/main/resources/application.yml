@@ -112,3 +112,8 @@ jwt:
   secret: ${JWT_SECRET:}
   expiration: 7200000
   refresh-expiration: 604800000
+
+# 敏感配置加密密钥（PT 下载器密码、索引器 apikey 等落库前加密）
+openliststrm:
+  security:
+    credential-secret: ${PT_CREDENTIAL_SECRET:}

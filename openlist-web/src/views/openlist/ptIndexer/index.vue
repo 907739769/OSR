@@ -126,7 +126,12 @@
           <el-input v-model="form.url" placeholder="如 http://jackett:9117/api/v2.0/indexers/xxx/results/torznab/api" />
         </el-form-item>
         <el-form-item label="apikey" prop="apiKey">
-          <el-input v-model="form.apiKey" type="password" show-password placeholder="请输入 Torznab apikey" />
+          <el-input
+            v-model="form.apiKey"
+            type="password"
+            show-password
+            :placeholder="form.id ? '留空则不修改 apikey' : '请输入 Torznab apikey'"
+          />
         </el-form-item>
         <el-form-item label="分类" prop="categories">
           <div class="category-field">

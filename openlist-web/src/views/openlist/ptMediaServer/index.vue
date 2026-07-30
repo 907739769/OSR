@@ -112,7 +112,12 @@
           <el-input v-model="form.url" placeholder="如 http://192.168.1.10:8096" />
         </el-form-item>
         <el-form-item label="API Key" prop="apiKey">
-          <el-input v-model="form.apiKey" type="password" show-password placeholder="请输入 API Key" />
+          <el-input
+            v-model="form.apiKey"
+            type="password"
+            show-password
+            :placeholder="form.id ? '留空则不修改 API Key' : '请输入 API Key'"
+          />
         </el-form-item>
         <el-form-item label="用户ID" prop="userId">
           <el-input v-model="form.userId" placeholder="留空则按服务器全库查询" />

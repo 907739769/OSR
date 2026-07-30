@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.ruoyi.common.mybatisplus.BaseEntity;
+import com.ruoyi.openliststrm.mybatisplus.handler.EncryptedStringTypeHandler;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -18,7 +19,7 @@ import lombok.Setter;
  */
 @Getter
 @Setter
-@TableName("pt_media_server")
+@TableName(value = "pt_media_server", autoResultMap = true)
 public class PtMediaServerPlus extends BaseEntity {
 
     private static final long serialVersionUID = 1L;
@@ -39,8 +40,8 @@ public class PtMediaServerPlus extends BaseEntity {
     @TableField("url")
     private String url;
 
-    /** API Key，明文存储 */
-    @TableField("api_key")
+    /** API Key，落库前经 {@link EncryptedStringTypeHandler} 透明加密，业务代码全程只接触明文 */
+    @TableField(value = "api_key", typeHandler = EncryptedStringTypeHandler.class)
     private String apiKey;
 
     /** 用户ID，可空 */

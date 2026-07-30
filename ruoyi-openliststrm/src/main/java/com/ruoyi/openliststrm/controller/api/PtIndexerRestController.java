@@ -30,6 +30,18 @@ public class PtIndexerRestController extends BaseCrudRestController<IPtIndexerPl
     private TorznabClient torznabClient;
 
     @Override
+    protected void maskSensitiveFields(PtIndexerPlus entity) {
+        entity.setApiKey(null);
+    }
+
+    @Override
+    protected void mergeUnchangedSensitiveFields(PtIndexerPlus incoming, PtIndexerPlus existing) {
+        if (StringUtils.isBlank(incoming.getApiKey())) {
+            incoming.setApiKey(existing.getApiKey());
+        }
+    }
+
+    @Override
     protected Wrapper<PtIndexerPlus> buildQueryWrapper(PtIndexerPlus entity) {
         LambdaQueryWrapper<PtIndexerPlus> wrapper = new LambdaQueryWrapper<>();
         if (StringUtils.isNotBlank(entity.getName())) {
@@ -47,6 +59,7 @@ public class PtIndexerRestController extends BaseCrudRestController<IPtIndexerPl
      */
     @PostMapping("/test")
     public Result<Void> test(@RequestBody PtIndexerPlus entity) {
+        fillSavedApiKeyIfBlank(entity);
         if (StringUtils.isBlank(entity.getUrl()) || StringUtils.isBlank(entity.getApiKey())) {
             return Result.error("接口地址与 apikey 不能为空");
         }
@@ -64,6 +77,7 @@ public class PtIndexerRestController extends BaseCrudRestController<IPtIndexerPl
      */
     @PostMapping("/categories")
     public Result<List<CategoryOption>> categories(@RequestBody PtIndexerPlus entity) {
+        fillSavedApiKeyIfBlank(entity);
         if (StringUtils.isBlank(entity.getUrl()) || StringUtils.isBlank(entity.getApiKey())) {
             return Result.error("接口地址与 apikey 不能为空");
         }
@@ -73,6 +87,18 @@ public class PtIndexerRestController extends BaseCrudRestController<IPtIndexerPl
             return Result.error(e.getMessage());
         } catch (Exception e) {
             return Result.error("获取分类失败：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 编辑已有索引器时前端 apikey 框留空表示"沿用已保存的 apikey"，测试连接/取分类同样要用已保存的值。
+     */
+    private void fillSavedApiKeyIfBlank(PtIndexerPlus entity) {
+        if (StringUtils.isBlank(entity.getApiKey()) && entity.getId() != null) {
+            PtIndexerPlus existing = service.getById(entity.getId());
+            if (existing != null) {
+                entity.setApiKey(existing.getApiKey());
+            }
         }
     }
 }

@@ -31,12 +31,34 @@ public abstract class BaseCrudRestController<S extends IService<T>, T> extends B
     protected abstract Wrapper<T> buildQueryWrapper(T entity);
 
     /**
+     * 返回给前端前对敏感字段脱敏（如密码、apikey）。默认不做任何处理，
+     * 含密码/apikey 等字段的子类需覆写，避免明文随接口响应下发。
+     */
+    protected void maskSensitiveFields(T entity)
+    {
+    }
+
+    /**
+     * 编辑时，若前端提交的敏感字段为空（表示用户未修改），用数据库中已有值回填，
+     * 避免因为 getById/list 已脱敏、前端表单留空提交后把已保存的密码/apikey 覆盖成空值。
+     * 默认不做任何处理，含敏感字段的子类需覆写。
+     */
+    protected void mergeUnchangedSensitiveFields(T incoming, T existing)
+    {
+    }
+
+    /**
      * 分页查询列表 - 支持 /xxx 和 /xxx/list
      */
     @GetMapping({"", "/list"})
     public Result<PageResult<T>> list(T entity)
     {
-        return Result.success(selectPage(service.getBaseMapper(), buildQueryWrapper(entity)));
+        PageResult<T> page = selectPage(service.getBaseMapper(), buildQueryWrapper(entity));
+        if (page.getRecords() != null)
+        {
+            page.getRecords().forEach(this::maskSensitiveFields);
+        }
+        return Result.success(page);
     }
 
     /**
@@ -50,6 +72,7 @@ public abstract class BaseCrudRestController<S extends IService<T>, T> extends B
         {
             return Result.error("记录不存在");
         }
+        maskSensitiveFields(record);
         return Result.success(record);
     }
 
@@ -69,8 +92,29 @@ public abstract class BaseCrudRestController<S extends IService<T>, T> extends B
     @PutMapping
     public Result<Void> edit(@RequestBody T entity)
     {
+        T existing = service.getById((java.io.Serializable) getEntityId(entity));
+        if (existing != null)
+        {
+            mergeUnchangedSensitiveFields(entity, existing);
+        }
         boolean result = service.updateById(entity);
         return result ? Result.success() : Result.error("修改失败");
+    }
+
+    /**
+     * 从实体上取主键值，供 edit 回填未修改的敏感字段前查旧记录用。
+     * 子类实体的主键字段固定名为 getId()（现有 *Plus 实体均如此），因此这里直接反射调用即可。
+     */
+    private Object getEntityId(T entity)
+    {
+        try
+        {
+            return entity.getClass().getMethod("getId").invoke(entity);
+        }
+        catch (ReflectiveOperationException e)
+        {
+            return null;
+        }
     }
 
     /**

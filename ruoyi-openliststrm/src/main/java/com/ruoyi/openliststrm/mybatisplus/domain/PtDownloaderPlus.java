@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.ruoyi.common.mybatisplus.BaseEntity;
+import com.ruoyi.openliststrm.mybatisplus.handler.EncryptedStringTypeHandler;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -18,7 +19,7 @@ import lombok.Setter;
  */
 @Getter
 @Setter
-@TableName("pt_downloader")
+@TableName(value = "pt_downloader", autoResultMap = true)
 public class PtDownloaderPlus extends BaseEntity {
 
     private static final long serialVersionUID = 1L;
@@ -51,8 +52,8 @@ public class PtDownloaderPlus extends BaseEntity {
     @TableField("username")
     private String username;
 
-    /** 密码，明文存储 */
-    @TableField("password")
+    /** 密码，落库前经 {@link EncryptedStringTypeHandler} 透明加密，业务代码全程只接触明文 */
+    @TableField(value = "password", typeHandler = EncryptedStringTypeHandler.class)
     private String password;
 
     /** 种子保存路径 */

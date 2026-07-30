@@ -27,6 +27,18 @@ public class PtDownloaderRestController extends BaseCrudRestController<IPtDownlo
     private DownloaderClientFactory downloaderClientFactory;
 
     @Override
+    protected void maskSensitiveFields(PtDownloaderPlus entity) {
+        entity.setPassword(null);
+    }
+
+    @Override
+    protected void mergeUnchangedSensitiveFields(PtDownloaderPlus incoming, PtDownloaderPlus existing) {
+        if (StringUtils.isBlank(incoming.getPassword())) {
+            incoming.setPassword(existing.getPassword());
+        }
+    }
+
+    @Override
     protected Wrapper<PtDownloaderPlus> buildQueryWrapper(PtDownloaderPlus entity) {
         LambdaQueryWrapper<PtDownloaderPlus> wrapper = new LambdaQueryWrapper<>();
         if (StringUtils.isNotBlank(entity.getName())) {
@@ -46,6 +58,13 @@ public class PtDownloaderRestController extends BaseCrudRestController<IPtDownlo
     public Result<Void> test(@RequestBody PtDownloaderPlus entity) {
         if (StringUtils.isBlank(entity.getHost()) || entity.getPort() == null) {
             return Result.error("主机与端口不能为空");
+        }
+        // 编辑已有下载器时前端密码框留空表示"沿用已保存的密码"，测试连接同样要用已保存的密码
+        if (StringUtils.isBlank(entity.getPassword()) && entity.getId() != null) {
+            PtDownloaderPlus existing = service.getById(entity.getId());
+            if (existing != null) {
+                entity.setPassword(existing.getPassword());
+            }
         }
         try {
             return downloaderClientFactory.get(entity).testConnection(entity)
