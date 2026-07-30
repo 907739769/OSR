@@ -117,6 +117,33 @@ class MediaParserLocalTest {
     }
 
     @Test
+    void parseLocal_多集拼接_S01E01E02E03_识别为区间() {
+        MediaInfo info = parser.parseLocal("Some.Show.S01E01E02E03.1080p.WEB-DL");
+
+        assertEquals("01", info.getSeason());
+        assertEquals("01", info.getEpisode());
+        assertEquals("03", info.getEpisodeEnd());
+    }
+
+    @Test
+    void parseLocal_无季号集数区间_E01dash03_识别为区间() {
+        MediaInfo info = parser.parseLocal("Some.Show.E01-03.1080p.WEB-DL");
+
+        assertEquals("01", info.getSeason());
+        assertEquals("01", info.getEpisode());
+        assertEquals("03", info.getEpisodeEnd());
+    }
+
+    @Test
+    void parseLocal_无季号多集拼接_E01E02E03_识别为区间() {
+        MediaInfo info = parser.parseLocal("Some.Show.E01E02E03.1080p.WEB-DL");
+
+        assertEquals("01", info.getSeason());
+        assertEquals("01", info.getEpisode());
+        assertEquals("03", info.getEpisodeEnd());
+    }
+
+    @Test
     void parseLocal_保留原始名称() {
         String raw = "Some.Show.S01E05.1080p.mkv";
 
