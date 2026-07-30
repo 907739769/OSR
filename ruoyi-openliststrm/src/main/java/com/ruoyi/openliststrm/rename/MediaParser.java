@@ -103,13 +103,23 @@ public class MediaParser {
      * @param name 种子标题或文件名，允许没有扩展名
      */
     public MediaInfo parseLocal(String name) {
-        return extractBase(name);
+        return extractBase(name, false);
     }
 
     private MediaInfo extractBase(String filename) {
+        return extractBase(filename, true);
+    }
+
+    /**
+     * @param stripExtension 是否按"文件名"处理，截取最后一个 . 之后的内容作为扩展名。
+     *                        种子/RSS 标题（{@link #parseLocal}）不是文件名，标题里出现的 "."
+     *                        只是普通分隔符（如 "...H265-FLUX" "...S01E05"），不能当扩展名截断，
+     *                        否则会把发布组、季集号等关键信息连同"扩展名"一起丢弃。
+     */
+    private MediaInfo extractBase(String filename, boolean stripExtension) {
         String extension = "";
         String baseName = filename;
-        if (filename.lastIndexOf('.') != -1) {
+        if (stripExtension && filename.lastIndexOf('.') != -1) {
             extension = filename.substring(filename.lastIndexOf('.') + 1).toLowerCase();
             baseName = filename.substring(0, filename.lastIndexOf('.')).trim();
         }

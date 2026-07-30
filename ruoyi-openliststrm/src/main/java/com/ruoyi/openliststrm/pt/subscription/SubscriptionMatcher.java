@@ -34,7 +34,13 @@ public class SubscriptionMatcher {
      * @return 匹配结果；匹配不上返回 null
      */
     public MatchResult match(TorrentInfo torrent, List<PtSubscriptionPlus> subscriptions) {
-        Set<String> torrentTitles = normalizeAll(torrent.getParsedTitle(), torrent.getParsedTitleEn());
+        // parsedTitle/parsedTitleEn 都解析失败（特殊命名格式）时回退到种子原始标题，避免漏判；
+        // 与 SearchSupplementService#titleMatches 的兜底策略保持一致，否则会出现
+        // RSS 自动匹配漏掉、手动搜索补集却能补回来的不一致体验。
+        String t1 = torrent.getParsedTitle();
+        String t2 = torrent.getParsedTitleEn();
+        String tFallback = (t1 == null && t2 == null) ? torrent.getTitle() : null;
+        Set<String> torrentTitles = normalizeAll(t1, t2, tFallback);
         if (torrentTitles.isEmpty()) {
             return null;
         }
@@ -83,9 +89,13 @@ public class SubscriptionMatcher {
     }
 
     /**
-     * 标题归一化：转小写、把点/下划线/连字符/连续空白压成单空格、去首尾空白。
+     * 标题归一化：转小写、全角空格/连字符/句号转半角、把点/下划线/连字符/连续空白压成单空格、去首尾空白。
      * <p>
      * 归一化后做<b>全等</b>比较而非子串包含——否则「The Office」会吃掉「The Office US」的种子。
+     * </p>
+     * <p>
+     * 日剧/韩剧标题常混用全角空格（U+3000）、全角连字符（－）、全角句号（．），Java 正则的 {@code \s}
+     * 不识别全角空格，不预先转换会导致订阅标题与种子标题归一化后不再逐字符相等，本该匹配的候选被漏判。
      * </p>
      */
     private String normalize(String title) {
@@ -93,6 +103,9 @@ public class SubscriptionMatcher {
             return null;
         }
         String normalized = title.toLowerCase(Locale.ROOT)
+                .replace('　', ' ')
+                .replace('－', '-')
+                .replace('．', '.')
                 .replaceAll("[._\\-]+", " ")
                 .replaceAll("\\s+", " ")
                 .trim();
