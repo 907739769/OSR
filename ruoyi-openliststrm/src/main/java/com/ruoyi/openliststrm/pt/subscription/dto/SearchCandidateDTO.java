@@ -62,4 +62,7 @@ public class SearchCandidateDTO {
 
     /** 解析出的集号；为 null 表示整季合集（或电影） */
     private Integer parsedEpisode;
+
+    /** 区间匹配的区间结尾集号（如 S01E01-E02 对应 parsedEpisode=1, parsedEpisodeEnd=2）；非区间匹配为 null */
+    private Integer parsedEpisodeEnd;
 }

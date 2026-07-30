@@ -124,6 +124,17 @@ class DownloadRecordAdminServiceTest {
     }
 
     @Test
+    void enrich_区间匹配集号标签显示为区间而非单集() {
+        PtDownloadRecordPlus r = record(1, 10, 1, "COMPLETED", 20, 30);
+        r.setEpisodeEnd(2);
+        when(subscriptionService.listByIds(List.of(10))).thenReturn(List.of(tvSub(10, "某剧", 2, "ACTIVE")));
+
+        var result = service().enrich(PageResult.of(List.of(r), 1, 1, 10));
+
+        assertEquals("S02E01-E02", result.getRecords().get(0).getEpisodeLabel());
+    }
+
+    @Test
     void enrich_季包集号标签() {
         PtDownloadRecordPlus r = record(1, 10, -1, "COMPLETED", 20, 30);
         when(subscriptionService.listByIds(List.of(10))).thenReturn(List.of(tvSub(10, "某剧", 2, "ACTIVE")));
@@ -258,6 +269,23 @@ class DownloadRecordAdminServiceTest {
                 List.of(blockedEpisode(501, 1), blockedEpisode(502, 2)));
         when(searchSupplementService.supplement(eq(10), eq(-1), eq("某剧 S01")))
                 .thenReturn(new SupplementResult(false, 0));
+
+        service().retry(1);
+
+        verify(episodeService, org.mockito.Mockito.times(2)).update(any(), any(Wrapper.class));
+    }
+
+    @Test
+    void retry_区间匹配记录_重置区间内所有BLOCKED集() {
+        // 原下载记录覆盖 S01E01-E02（episode=1, episodeEnd=2），重试时第 2 集也该被解除熔断，不能只重置第 1 集
+        PtDownloadRecordPlus r = record(1, 10, 1, "FAILED", 20, 30);
+        r.setEpisodeEnd(2);
+        when(recordService.getById(1)).thenReturn(r);
+        when(subscriptionService.getById(10)).thenReturn(tvSub(10, "某剧", 1, "ACTIVE"));
+        when(episodeService.list(any(Wrapper.class))).thenReturn(
+                List.of(blockedEpisode(500, 1), blockedEpisode(501, 2)));
+        when(searchSupplementService.supplement(eq(10), eq(1), eq("某剧 S01E01")))
+                .thenReturn(new SupplementResult(true, 1));
 
         service().retry(1);
 

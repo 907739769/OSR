@@ -254,6 +254,30 @@ class SearchSupplementServiceTest {
     }
 
     @Test
+    void supplement_手动模式_候选DTO带上区间结尾集号供前端展示区间而非单集() throws Exception {
+        // 种子实际覆盖 S01E01-E02（区间），若 DTO 丢了 parsedEpisodeEnd，前端只能显示成"第1集"
+        PtSubscriptionPlus sub = tvSub(10, 1, 4);
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+        TorrentInfo range = torrent("Some.Show.S01E01-E02.1080p");
+        range.setParsedSeason(1);
+        range.setParsedEpisode(1);
+        range.setParsedEpisodeEnd(2);
+        range.setIndexerId(1);
+        range.setGuid("g-range");
+        when(torznabClient.search(any(), anyString())).thenReturn(List.of(range));
+        when(filterConfigService.getConfig()).thenReturn(null);
+        when(filterEngine.evaluate(anyList(), any(), org.mockito.ArgumentMatchers.nullable(String.class)))
+                .thenAnswer(inv -> List.of(new TorrentFilterEngine.Verdict(range, null)));
+
+        SupplementResult result = service.supplement(10, 1, "Some Show S01E01", true);
+
+        assertEquals(1, result.getCandidates().size());
+        assertEquals(1, result.getCandidates().get(0).getParsedEpisode());
+        assertEquals(2, result.getCandidates().get(0).getParsedEpisodeEnd());
+    }
+
+    @Test
     void supplement_订阅不存在_抛异常() {
         when(subscriptionService.getById(99)).thenReturn(null);
 

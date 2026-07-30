@@ -278,7 +278,7 @@ public class SubscriptionEngine {
         }
 
         String guidHash = GuidHasher.hash(best.getGuid());
-        PtDownloadRecordPlus record = buildRecord(sub, match.getEpisode(), best, guidHash, downloader);
+        PtDownloadRecordPlus record = buildRecord(sub, match, best, guidHash, downloader);
         boolean saved;
         try {
             saved = recordService.save(record);
@@ -446,11 +446,12 @@ public class SubscriptionEngine {
         }
     }
 
-    private PtDownloadRecordPlus buildRecord(PtSubscriptionPlus sub, int episode, TorrentInfo torrent,
+    private PtDownloadRecordPlus buildRecord(PtSubscriptionPlus sub, MatchResult match, TorrentInfo torrent,
                                              String guidHash, PtDownloaderPlus downloader) {
         PtDownloadRecordPlus record = new PtDownloadRecordPlus();
         record.setSubId(sub.getId());
-        record.setEpisode(episode);
+        record.setEpisode(match.getEpisode());
+        record.setEpisodeEnd(match.getEpisodeEnd());
         record.setIndexerId(torrent.getIndexerId());
         record.setGuid(torrent.getGuid());
         record.setGuidHash(guidHash);

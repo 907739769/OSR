@@ -611,6 +611,12 @@ class SubscriptionEngineTest {
         assertTrue(pushed);
         // 只占位第 2、3、4 集，第 1 集不动
         verify(episodeService, org.mockito.Mockito.times(3)).update(any(), any(Wrapper.class));
+
+        // 下载记录要落库区间结尾集号，否则列表页只能显示成单集
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService).save(captor.capture());
+        assertEquals(2, captor.getValue().getEpisode());
+        assertEquals(4, captor.getValue().getEpisodeEnd());
     }
 
     @Test

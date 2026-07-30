@@ -91,7 +91,7 @@ public class DownloadRecordAdminService {
         view.setId(r.getId());
         view.setSubId(r.getSubId());
         view.setSubTitle(sub == null ? null : sub.getTitle());
-        view.setEpisodeLabel(episodeLabel(sub, r.getEpisode()));
+        view.setEpisodeLabel(episodeLabel(sub, r.getEpisode(), r.getEpisodeEnd()));
         view.setIndexerId(r.getIndexerId());
         view.setIndexerName(indexer == null ? null : indexer.getName());
         view.setDownloaderId(r.getDownloaderId());
@@ -108,13 +108,16 @@ public class DownloadRecordAdminService {
         return view;
     }
 
-    private String episodeLabel(PtSubscriptionPlus sub, int episode) {
+    private String episodeLabel(PtSubscriptionPlus sub, int episode, Integer episodeEnd) {
         if (sub != null && SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType())) {
             return "电影";
         }
         Integer season = sub == null ? null : sub.getSeason();
         if (episode == SubscriptionMatcher.SEASON_PACK) {
             return "S" + pad(season) + " 季包";
+        }
+        if (episodeEnd != null && episodeEnd > episode) {
+            return "S" + pad(season) + "E" + pad(episode) + "-E" + pad(episodeEnd);
         }
         return "S" + pad(season) + "E" + pad(episode);
     }
@@ -144,7 +147,7 @@ public class DownloadRecordAdminService {
         if (!SubscriptionService.STATUS_ACTIVE.equals(sub.getStatus())) {
             throw new IllegalArgumentException("订阅未在订阅中(当前状态 " + sub.getStatus() + ")，无法重试");
         }
-        resetBlockedEpisodes(sub.getId(), record.getEpisode());
+        resetBlockedEpisodes(sub.getId(), record.getEpisode(), record.getEpisodeEnd());
         String keyword = buildKeyword(sub, record.getEpisode());
         return searchSupplementService.supplement(sub.getId(), record.getEpisode(), keyword);
     }
@@ -173,14 +176,20 @@ public class DownloadRecordAdminService {
 
     /**
      * 把该订阅下处于 BLOCKED 的目标集重置回 MISSING、失败计数清零。
-     * 季包重试（episode 为哨兵值）清空该订阅下所有 BLOCKED 集，普通集只清对应那一条。
+     * 季包重试（episode 为哨兵值）清空该订阅下所有 BLOCKED 集；区间匹配（episodeEnd 非空）
+     * 清空区间内所有 BLOCKED 集，避免只重置起始集导致区间内其余集永远卡在 BLOCKED；
+     * 普通单集只清对应那一条。
      */
-    private void resetBlockedEpisodes(Integer subId, int episode) {
+    private void resetBlockedEpisodes(Integer subId, int episode, Integer episodeEnd) {
         QueryWrapper<PtSubscriptionEpisodePlus> query = new QueryWrapper<PtSubscriptionEpisodePlus>()
                 .eq("sub_id", subId)
                 .eq("state", EP_STATE_BLOCKED);
         if (episode != SubscriptionMatcher.SEASON_PACK) {
-            query.eq("episode", episode);
+            if (episodeEnd != null && episodeEnd > episode) {
+                query.ge("episode", episode).le("episode", episodeEnd);
+            } else {
+                query.eq("episode", episode);
+            }
         }
         List<PtSubscriptionEpisodePlus> blocked = episodeService.list(query);
         for (PtSubscriptionEpisodePlus ep : blocked) {

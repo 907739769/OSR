@@ -343,7 +343,10 @@
         <el-table-column type="index" label="#" width="48" align="center" />
         <el-table-column label="目标" width="70" align="center">
           <template #default="scope">
-            <el-tag v-if="scope.row.parsedEpisode" size="small" type="warning">第{{ scope.row.parsedEpisode }}集</el-tag>
+            <el-tag v-if="scope.row.parsedEpisode && scope.row.parsedEpisodeEnd > scope.row.parsedEpisode" size="small" type="warning">
+              第{{ scope.row.parsedEpisode }}-{{ scope.row.parsedEpisodeEnd }}集
+            </el-tag>
+            <el-tag v-else-if="scope.row.parsedEpisode" size="small" type="warning">第{{ scope.row.parsedEpisode }}集</el-tag>
             <el-tag v-else size="small" type="success">整季</el-tag>
           </template>
         </el-table-column>

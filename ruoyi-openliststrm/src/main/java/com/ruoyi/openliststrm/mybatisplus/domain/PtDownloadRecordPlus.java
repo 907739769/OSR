@@ -32,9 +32,13 @@ public class PtDownloadRecordPlus extends BaseEntity {
     @TableField("sub_id")
     private Integer subId;
 
-    /** 集号，电影恒为 0 */
+    /** 集号，电影恒为 0；区间匹配时为区间起始集号 */
     @TableField("episode")
     private Integer episode;
+
+    /** 区间匹配种子的区间结尾集号（如 S01E01-E02 对应 episode=1, episodeEnd=2）；非区间匹配为 null */
+    @TableField("episode_end")
+    private Integer episodeEnd;
 
     /** 来源索引器ID */
     @TableField("indexer_id")

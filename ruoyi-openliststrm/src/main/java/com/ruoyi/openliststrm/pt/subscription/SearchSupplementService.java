@@ -292,6 +292,7 @@ public class SearchSupplementService {
                         .parsedYear(t.getParsedYear())
                         .pubDate(t.getPubDate())
                         .parsedEpisode(t.getParsedEpisode())
+                        .parsedEpisodeEnd(t.getParsedEpisodeEnd())
                         .build())
                 .toList();
     }
