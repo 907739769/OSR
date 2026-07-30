@@ -203,6 +203,10 @@ public class RssPollService {
      * 不尝试补救（Torznab RSS 语义上无法找回已漏掉的种子）。
      */
     private void checkCoverageGap(PtIndexerPlus indexer, List<TorrentInfo> fetched) {
+        // 本轮无新种子是正常情况（索引器该轮未发布新内容），不能当作拉取失败处理
+        if (fetched.isEmpty()) {
+            return;
+        }
         // guid 缺失的条目无法参与游标计算（正常 Torznab 响应不会出现，防御性跳过而非抛异常中断整轮拉取）
         String newestGuid = fetched.get(0).getGuid();
         if (StringUtils.isBlank(newestGuid)) {
