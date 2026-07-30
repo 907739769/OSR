@@ -73,7 +73,63 @@ public class TmdbSearchService {
         }
         TmdbSearchItem item = toItem(detail, mediaType);
         item.setImdbId(resolveImdbId(mediaType, tmdbId, detail));
+        item.setEnglishTitle(resolveEnglishTitle(mediaType, tmdbId, detail));
         return item;
+    }
+
+    /**
+     * 解析真正的英文标题：原始语言本就是英文时直接取 original_title/name（省一次请求）；
+     * 否则（日剧/韩剧等）查 alternative_titles，取 US 别名，US 缺失时退而求其次取 GB。
+     * PT 站种子标题绝大多数是英文/罗马字，用真正的英文标题而非 original_title 匹配才不会漏判日韩剧。
+     */
+    private String resolveEnglishTitle(String mediaType, String tmdbId, JSONObject detail) {
+        String originalLanguage = detail.getString("original_language");
+        if ("en".equalsIgnoreCase(originalLanguage)) {
+            boolean tv = !TYPE_MOVIE.equalsIgnoreCase(mediaType);
+            return detail.getString(tv ? "name" : "title");
+        }
+        return fetchEnglishAlias(mediaType, tmdbId);
+    }
+
+    /**
+     * 查 /movie|tv/{id}/alternative_titles，取 iso_3166_1 为 US 的别名标题，取不到时退而求其次取 GB。
+     * 网络异常/无 key 等情况静默返回 null，交由调用方按"未知"处理（不阻断建订阅）。
+     */
+    private String fetchEnglishAlias(String mediaType, String tmdbId) {
+        try {
+            String raw = tmDbApiService.getAlternativeTitles(
+                    openlistConfig.getTmdbApiKey(), tmdbType(mediaType), Integer.parseInt(tmdbId));
+            JSONObject root = readObject(raw);
+            if (root == null) {
+                return null;
+            }
+            JSONArray titles = TYPE_MOVIE.equalsIgnoreCase(mediaType) ? root.getJSONArray("titles") : root.getJSONArray("results");
+            if (titles == null) {
+                return null;
+            }
+            String gbTitle = null;
+            for (int i = 0; i < titles.size(); i++) {
+                JSONObject t = titles.getJSONObject(i);
+                String country = t.getString("iso_3166_1");
+                String title = t.getString("title");
+                if (StringUtils.isBlank(title)) {
+                    title = t.getString("name");
+                }
+                if (StringUtils.isBlank(title)) {
+                    continue;
+                }
+                if ("US".equals(country)) {
+                    return title;
+                }
+                if ("GB".equals(country) && gbTitle == null) {
+                    gbTitle = title;
+                }
+            }
+            return gbTitle;
+        } catch (Exception e) {
+            log.warn("获取 TMDb 英文标题异常（tmdbId={}）：{}", tmdbId, e.getMessage());
+            return null;
+        }
     }
 
     /**

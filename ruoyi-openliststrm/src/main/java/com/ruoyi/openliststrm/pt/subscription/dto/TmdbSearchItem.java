@@ -19,8 +19,11 @@ public class TmdbSearchItem {
     /** 中文标题（剧集取 name，电影取 title） */
     private String title;
 
-    /** 原始标题（剧集取 original_name，电影取 original_title） */
+    /** 原始标题（剧集取 original_name，电影取 original_title），日韩剧等场景是日文/韩文，不是英文 */
     private String originalTitle;
+
+    /** 英文标题：原始语言即英文时直接取 original_title/name，否则查 alternative_titles 取 US/GB 别名；取不到为 null */
+    private String englishTitle;
 
     /** IMDb ID（如 tt0125664），电影从 TMDb 详情直接取，剧集需要额外查 external_ids */
     private String imdbId;

@@ -418,10 +418,19 @@ public class SearchSupplementService {
         fillParsedAll(kwCandidates);
         addDeduped(merged, seenGuids, kwCandidates);
 
-        String originalTitle = sub.getOriginalTitle();
-        if (StringUtils.isNotBlank(originalTitle)
-                && !matcher.normalizeAll(originalTitle).equals(matcher.normalizeAll(sub.getTitle()))) {
-            String altKeyword = originalTitle + " S" + pad(sub.getSeason());
+        // 英文标题 + 原语言标题都搜一遍（去重）：日韩剧的 originalTitle 是日文/韩文本身搜不到种子，
+        // 必须靠 englishTitle 才能命中英文种子标题；两者归一化后相同（或与主标题相同）时跳过重复搜索。
+        Set<Set<String>> searchedNorms = new HashSet<>();
+        searchedNorms.add(matcher.normalizeAll(sub.getTitle()));
+        for (String alt : new String[]{sub.getEnglishTitle(), sub.getOriginalTitle()}) {
+            if (StringUtils.isBlank(alt)) {
+                continue;
+            }
+            Set<String> altNorm = matcher.normalizeAll(alt);
+            if (!searchedNorms.add(altNorm)) {
+                continue;
+            }
+            String altKeyword = alt + " S" + pad(sub.getSeason());
             List<TorrentInfo> altCandidates = searchAcrossIndexers(altKeyword);
             fillParsedAll(altCandidates);
             addDeduped(merged, seenGuids, altCandidates);
@@ -558,26 +567,41 @@ public class SearchSupplementService {
     }
 
     /**
-     * 中文关键词搜不到匹配时的英文/原语言标题兜底：originalTitle 为空、或归一化后与 title 相同
-     * （中文原生内容，TMDb 原语言标题本来就是中文）时返回 null，跳过补搜。
-     * 季/集号后缀按 supplement() 已有的 episode/sub.getSeason() 重新拼，不依赖对入参 keyword
-     * 字符串做解析——用户手动改过关键词时也能正确拼出英文版。
+     * 中文关键词搜不到匹配时的英文/原语言标题兜底：优先用真正的英文标题（{@code englishTitle}，
+     * PT 站种子标题绝大多数是英文/罗马字，对日剧/韩剧尤其关键——它们的 originalTitle 是日文/韩文，
+     * 拿去搜索站点基本搜不到任何结果）；englishTitle 为空时退回 originalTitle（旧订阅未回填该字段，
+     * 或作品原始语言本来就是中文/英文的场景）。候选标题为空、或归一化后与 title 相同时返回 null，
+     * 跳过补搜。季/集号后缀按 supplement() 已有的 episode/sub.getSeason() 重新拼，不依赖对入参
+     * keyword 字符串做解析——用户手动改过关键词时也能正确拼出英文版。
      */
     private String buildAltKeyword(PtSubscriptionPlus sub, int episode) {
-        String originalTitle = sub.getOriginalTitle();
-        if (StringUtils.isBlank(originalTitle)) {
-            return null;
-        }
-        if (matcher.normalizeAll(originalTitle).equals(matcher.normalizeAll(sub.getTitle()))) {
+        String altTitle = resolveAltTitle(sub);
+        if (altTitle == null) {
             return null;
         }
         if (SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType())) {
-            return originalTitle;
+            return altTitle;
         }
         if (episode == SubscriptionMatcher.SEASON_PACK) {
-            return originalTitle + " S" + pad(sub.getSeason());
+            return altTitle + " S" + pad(sub.getSeason());
         }
-        return originalTitle + " S" + pad(sub.getSeason()) + "E" + pad(episode);
+        return altTitle + " S" + pad(sub.getSeason()) + "E" + pad(episode);
+    }
+
+    /**
+     * 兜底候选标题：englishTitle 存在且非中文原生内容时优先用它，否则退回 originalTitle。
+     */
+    private String resolveAltTitle(PtSubscriptionPlus sub) {
+        Set<String> titleNorm = matcher.normalizeAll(sub.getTitle());
+        String englishTitle = sub.getEnglishTitle();
+        if (StringUtils.isNotBlank(englishTitle) && !matcher.normalizeAll(englishTitle).equals(titleNorm)) {
+            return englishTitle;
+        }
+        String originalTitle = sub.getOriginalTitle();
+        if (StringUtils.isBlank(originalTitle) || matcher.normalizeAll(originalTitle).equals(titleNorm)) {
+            return null;
+        }
+        return originalTitle;
     }
 
     private String pad(Integer number) {
@@ -627,7 +651,7 @@ public class SearchSupplementService {
             return filterMovieCandidates(sub, candidates);
         }
         Integer subSeason = sub.getSeason();
-        Set<String> subTitles = matcher.normalizeAll(sub.getTitle(), sub.getOriginalTitle());
+        Set<String> subTitles = matcher.normalizeAll(sub.getTitle(), sub.getOriginalTitle(), sub.getEnglishTitle());
         List<TorrentInfo> matched = new ArrayList<>();
         for (TorrentInfo candidate : candidates) {
             Integer parsedSeason = candidate.getParsedSeason();
@@ -666,7 +690,7 @@ public class SearchSupplementService {
             return filterByTarget(sub, episode, candidates);
         }
         Integer subSeason = sub.getSeason();
-        Set<String> subTitles = matcher.normalizeAll(sub.getTitle(), sub.getOriginalTitle());
+        Set<String> subTitles = matcher.normalizeAll(sub.getTitle(), sub.getOriginalTitle(), sub.getEnglishTitle());
         List<TorrentInfo> matched = new ArrayList<>();
         for (TorrentInfo candidate : candidates) {
             Integer parsedSeason = candidate.getParsedSeason();
@@ -754,7 +778,7 @@ public class SearchSupplementService {
      * </p>
      */
     private List<TorrentInfo> filterMovieCandidates(PtSubscriptionPlus sub, List<TorrentInfo> candidates) {
-        Set<String> subTitles = matcher.normalizeAll(sub.getTitle(), sub.getOriginalTitle());
+        Set<String> subTitles = matcher.normalizeAll(sub.getTitle(), sub.getOriginalTitle(), sub.getEnglishTitle());
         List<TorrentInfo> matched = new ArrayList<>();
         for (TorrentInfo candidate : candidates) {
             if (candidate.getParsedSeason() != null || candidate.getParsedEpisode() != null) {

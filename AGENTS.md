@@ -99,7 +99,7 @@ docker compose up -d --build --no-deps backend
 - 打包镜像前需先 `mvn package` 生成 ruoyi-admin.jar
 - 容器内 `/data` 目录挂载宿主机，存放 upload/logs/strm 文件
 - MySQL 默认数据库名 `osr`，连接信息通过 `.env` 注入
-- 数据库初始化由 `com.ruoyi.common.mybatisplus.MysqlDdl` 自动执行（ruoyi-common/src/main/resources/sql/）
+- 数据库初始化由 `com.ruoyi.common.mybatisplus.MysqlDdl` 自动执行（ruoyi-common/src/main/resources/sql/）。**注意：`MysqlDdl.getSqlFiles()` 是硬编码的文件名清单，不是目录扫描**——新增 SQL 迁移脚本后必须手动把文件名追加到该方法返回的列表末尾，否则脚本只是静静躺在目录里，永远不会被执行
 - 后端端口 6895，前端 Nginx 端口 80，前端 dev server 端口 3000
 - API 路径统一 `/api/` 前缀，生产由 Nginx、开发由 Vite proxy 转发到后端
 - WebSocket 路径 `/websocket/`，超时 86400s (长连接)

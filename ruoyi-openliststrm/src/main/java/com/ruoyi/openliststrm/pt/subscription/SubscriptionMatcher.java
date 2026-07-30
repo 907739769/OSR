@@ -39,7 +39,7 @@ public class SubscriptionMatcher {
             return null;
         }
         for (PtSubscriptionPlus sub : subscriptions) {
-            Set<String> subTitles = normalizeAll(sub.getTitle(), sub.getOriginalTitle());
+            Set<String> subTitles = normalizeAll(sub.getTitle(), sub.getOriginalTitle(), sub.getEnglishTitle());
             if (Collections.disjoint(torrentTitles, subTitles)) {
                 continue;
             }

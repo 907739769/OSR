@@ -44,9 +44,13 @@ public class PtSubscriptionPlus extends BaseEntity {
     @TableField("title")
     private String title;
 
-    /** 英文原名，与中文 title 一起用于匹配种子标题 */
+    /** TMDb 原始语言标题：日剧/韩剧等场景是日文/韩文，不是英文；与中文 title 一起用于匹配种子标题 */
     @TableField("original_title")
     private String originalTitle;
+
+    /** 真正的英文标题（原始语言非英文时来自 TMDb alternative_titles 的 US/GB 别名），PT 站种子标题多为英文，匹配时优先用它 */
+    @TableField("english_title")
+    private String englishTitle;
 
     /** 年份 */
     @TableField("year")
