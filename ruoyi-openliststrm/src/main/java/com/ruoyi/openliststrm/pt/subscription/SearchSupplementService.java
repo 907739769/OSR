@@ -64,8 +64,13 @@ public class SearchSupplementService {
     private final TmdbSearchService tmdbSearchService;
 
     /**
-     * 对所有启用索引器并发搜索时的最大同时请求数。索引器数量可能远超此值，多出的排队等待，
-     * 避免一次搜索瞬间对所有站点同时发请求触发反爬限流（原实现是无限制并发，见需求背景）。
+     * 单次搜索调用内部的并发上限。
+     * <p>
+     * <b>这不是对站点的节流</b>——它是每次调用新建的，多个搜索同时进行时各自持有一份许可，
+     * 真实并发是它的若干倍。真正的节流在 {@link com.ruoyi.openliststrm.pt.indexer.IndexerRateLimiter}：
+     * 全局单例，按索引器串行化并强制最小请求间隔，RSS 轮询与搜索共用同一份配额。
+     * 这里保留本闸门只是为了限制单次调用同时在途的任务数量，不承担防封职责。
+     * </p>
      */
     private final int maxConcurrency;
 
@@ -250,7 +255,7 @@ public class SearchSupplementService {
         torrent.setSize(request.getSize());
         torrent.setSeeders(request.getSeeders());
         torrent.setPeers(request.getPeers());
-        torrent.setDownloadVolumeFactor(request.getDownloadVolumeFactor());
+        torrent.setDownloadVolumeFactor(request.resolveDownloadVolumeFactor());
         torrent.setIndexerId(request.getIndexerId());
         torrent.setGuid(request.getGuid());
         torrent.setDownloadUrl(request.getDownloadUrl());
@@ -282,6 +287,7 @@ public class SearchSupplementService {
                         .seeders(t.getSeeders())
                         .peers(t.getPeers())
                         .free(t.isFree())
+                        .downloadVolumeFactor(t.getDownloadVolumeFactor())
                         .resolution(t.getParsedResolution())
                         .source(t.getParsedSource())
                         .indexerName(indexerNames.getOrDefault(t.getIndexerId(), "未知"))

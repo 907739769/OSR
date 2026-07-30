@@ -13,9 +13,15 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Torznab 索引器客户端。负责 HTTP 拉取，解析委托 {@link TorznabParser}。
+ * <p>
+ * 所有出站请求都经由 {@link IndexerRateLimiter}——这里是打向 PT 站点的唯一收口，
+ * 把节流放在这一层而不是各个调用方，能保证 RSS 轮询、关键词搜索、ID 精确搜索、caps 探测
+ * 共用同一份并发上限与请求间隔，任何新增的调用路径都自动受约束。
+ * </p>
  *
  * @author Jack
  */
@@ -23,10 +29,24 @@ import java.util.List;
 @Component
 public class TorznabClient {
 
-    private final OkHttpClient httpClient;
+    /**
+     * 固定 UA。OkHttp 默认发 {@code okhttp/x.y.z}，部分 PT 站与 CF 前置会对默认 UA
+     * 做拦截或风控标记，用一个可识别的固定值更稳，出问题时对方也能认出是谁在打。
+     */
+    private static final String USER_AGENT = "OpenList-strm-RuoYi/1.0 (+PT-Subscription)";
 
-    public TorznabClient(OkHttpClient sharedOkHttpClient) {
-        this.httpClient = sharedOkHttpClient;
+    private final OkHttpClient httpClient;
+    private final IndexerRateLimiter rateLimiter;
+
+    public TorznabClient(OkHttpClient sharedOkHttpClient, IndexerRateLimiter rateLimiter) {
+        // 关掉 OkHttp 默认开启的 retryOnConnectionFailure：它会在连接层失败时静默重发，
+        // 对 PT 场景等于把每次请求悄悄变成两次，且上层的退避逻辑完全看不见这次重试。
+        // 读超时收到 60s——索引器代理到后端站点本就慢，30s 容易把正常响应误判成失败进而触发重试。
+        this.httpClient = sharedOkHttpClient.newBuilder()
+                .retryOnConnectionFailure(false)
+                .readTimeout(60, TimeUnit.SECONDS)
+                .build();
+        this.rateLimiter = rateLimiter;
     }
 
     /**
@@ -37,7 +57,7 @@ public class TorznabClient {
      */
     public List<TorrentInfo> fetch(PtIndexerPlus indexer) throws IOException {
         HttpUrl url = buildUrl(indexer, "search");
-        String body = execute(url);
+        String body = execute(indexer, url);
         List<TorrentInfo> list = TorznabParser.parse(body);
         for (TorrentInfo info : list) {
             info.setIndexerId(indexer.getId());
@@ -56,7 +76,7 @@ public class TorznabClient {
         HttpUrl url = buildUrl(indexer, "search").newBuilder()
                 .addQueryParameter("q", keyword)
                 .build();
-        String body = execute(url);
+        String body = execute(indexer, url);
         List<TorrentInfo> list = TorznabParser.parse(body);
         for (TorrentInfo info : list) {
             info.setIndexerId(indexer.getId());
@@ -70,7 +90,7 @@ public class TorznabClient {
      */
     public boolean testConnection(PtIndexerPlus indexer) {
         try {
-            execute(buildUrl(indexer, "caps"));
+            execute(indexer, buildUrl(indexer, "caps"));
             return true;
         } catch (Exception e) {
             log.warn("索引器[{}]连通性测试失败：{}", indexer.getName(), e.getMessage());
@@ -85,7 +105,7 @@ public class TorznabClient {
      */
     public IndexerCapability getCaps(PtIndexerPlus indexer) {
         try {
-            String body = execute(buildUrl(indexer, "caps"));
+            String body = execute(indexer, buildUrl(indexer, "caps"));
             return TorznabCapsParser.parse(body);
         } catch (Exception e) {
             log.warn("索引器[{}]能力探测失败：{}", indexer.getName(), e.getMessage());
@@ -101,7 +121,7 @@ public class TorznabClient {
      * @throws IllegalArgumentException 索引器地址非法
      */
     public List<CategoryOption> getCategories(PtIndexerPlus indexer) throws IOException {
-        String body = execute(buildUrl(indexer, "caps"));
+        String body = execute(indexer, buildUrl(indexer, "caps"));
         return TorznabCapsParser.parseCategories(body);
     }
 
@@ -127,7 +147,7 @@ public class TorznabClient {
                 builder.addQueryParameter("ep", String.valueOf(episode));
             }
         }
-        String body = execute(builder.build());
+        String body = execute(indexer, builder.build());
         List<TorrentInfo> list = TorznabParser.parse(body);
         for (TorrentInfo info : list) {
             info.setIndexerId(indexer.getId());
@@ -150,14 +170,44 @@ public class TorznabClient {
         return builder.build();
     }
 
-    private String execute(HttpUrl url) throws IOException {
-        Request request = new Request.Builder().url(url).get().build();
-        try (Response response = httpClient.newCall(request).execute()) {
-            if (!response.isSuccessful()) {
-                throw new IOException("索引器返回HTTP " + response.code());
+    /**
+     * 发起一次受限流保护的 GET，返回响应体文本。
+     *
+     * @throws IndexerHttpException 响应非 2xx，异常携带状态码与 Retry-After 供调用方决定退避策略
+     * @throws IOException          网络异常，或该索引器正处于限流冷却期（快速失败，不挂起线程）
+     */
+    private String execute(PtIndexerPlus indexer, HttpUrl url) throws IOException {
+        return rateLimiter.execute(indexer.getId(), () -> {
+            Request request = new Request.Builder()
+                    .url(url)
+                    .header("User-Agent", USER_AGENT)
+                    .get()
+                    .build();
+            try (Response response = httpClient.newCall(request).execute()) {
+                if (!response.isSuccessful()) {
+                    throw new IndexerHttpException(response.code(), parseRetryAfter(response));
+                }
+                ResponseBody body = response.body();
+                return body == null ? "" : body.string();
             }
-            ResponseBody body = response.body();
-            return body == null ? "" : body.string();
+        });
+    }
+
+    /**
+     * 解析 {@code Retry-After} 响应头的 delta-seconds 形式；缺失或非数字返回 null。
+     * HTTP-date 形式在索引器实现里几乎不出现，解析不了按"未给出"处理即可——
+     * 调用方本就有自己的默认冷却时长兜底，这里不值得为罕见格式引入日期解析。
+     */
+    private Integer parseRetryAfter(Response response) {
+        String raw = response.header("Retry-After");
+        if (StringUtils.isBlank(raw)) {
+            return null;
+        }
+        try {
+            int seconds = Integer.parseInt(raw.trim());
+            return seconds > 0 ? seconds : null;
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 }

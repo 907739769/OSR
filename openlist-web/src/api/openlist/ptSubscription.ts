@@ -87,7 +87,8 @@ export function pushSelectedCandidateApi(id: number, data: {
   size: number
   seeders: number
   peers: number
-  downloadVolumeFactor: number
+  /** 下载量系数原值：0=免费，0.5=半价，1=正常计量。省略时后端按 1.0 兜底，绝不会当成免费 */
+  downloadVolumeFactor?: number
   indexerId: number
   guid: string
   downloadUrl: string

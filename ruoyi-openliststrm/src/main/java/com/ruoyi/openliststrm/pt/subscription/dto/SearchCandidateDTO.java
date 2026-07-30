@@ -33,6 +33,16 @@ public class SearchCandidateDTO {
     /** 是否免费种 */
     private boolean free;
 
+    /**
+     * 下载量系数原值：0=免费，0.5=半价，1=正常计量。
+     * <p>
+     * 单有上面的布尔 {@code free} 不够：前端推送时只能反推出 0 或 1，半价促销种(0.5)会被压成 1.0，
+     * 导致 {@code SortDimension} 的促销优先排序在手动推送路径上失真。这里原样回传原值，
+     * 前端推送时照原样带回即可。
+     * </p>
+     */
+    private double downloadVolumeFactor;
+
     /** 解析出的分辨率，如 1080p、2160p */
     private String resolution;
 

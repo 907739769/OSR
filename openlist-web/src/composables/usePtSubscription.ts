@@ -395,7 +395,9 @@ export function usePtSubscription() {
         size: candidate.size,
         seeders: candidate.seeders,
         peers: candidate.peers,
-        downloadVolumeFactor: candidate.free ? 0 : 1,
+        // 原样回传后端给出的下载量系数，不要用 free 布尔反推：那样会把半价促销种(0.5)
+        // 压成 1.0，促销优先排序在推送路径上失真。后端对 undefined 按 1.0(正常计量)兜底。
+        downloadVolumeFactor: candidate.downloadVolumeFactor,
         indexerId: candidate.indexerId,
         guid: candidate.guid,
         downloadUrl: candidate.downloadUrl,

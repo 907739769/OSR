@@ -6,6 +6,8 @@ import com.ruoyi.openliststrm.helper.TgHelper;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtIndexerPlus;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtIndexerPlusService;
 import com.ruoyi.openliststrm.pt.indexer.GuidHasher;
+import com.ruoyi.openliststrm.pt.indexer.IndexerHttpException;
+import com.ruoyi.openliststrm.pt.indexer.IndexerRateLimiter;
 import com.ruoyi.openliststrm.pt.indexer.TorznabClient;
 import com.ruoyi.openliststrm.pt.model.TorrentInfo;
 import com.ruoyi.openliststrm.pt.subscription.SubscriptionEngine;
@@ -44,7 +46,21 @@ public class RssPollService {
     private static final String ENABLED = "1";
     private static final String DISABLED = "0";
 
-    /** 同时拉取多个到期索引器的最大并发数 */
+    /** 连续失败时轮询间隔的最大翻倍次数：2^5 = 32 倍，10 分钟的间隔最多退到 5 小时余 */
+    private static final int MAX_BACKOFF_SHIFT = 5;
+
+    /** 索引器未给出 Retry-After 时，命中 429/503 的默认冷却秒数 */
+    private static final int DEFAULT_THROTTLE_COOLDOWN_SECONDS = 300;
+
+    /**
+     * 同时拉取多个到期索引器的最大并发数。
+     * <p>
+     * 注意这只是本轮轮询内部的一道次级闸门，<b>不是</b>对站点的真正节流——真正的节流在
+     * {@link com.ruoyi.openliststrm.pt.indexer.IndexerRateLimiter}（全局单例，按索引器串行化
+     * 并强制最小请求间隔，且对搜索补集等其它入口一并生效）。历史上这里的注释曾把它当作
+     * "避免打爆站点"的手段，但每轮新建的信号量拦不住跨调用叠加的请求量。
+     * </p>
+     */
     private final int maxConcurrency;
 
     /**
@@ -55,15 +71,18 @@ public class RssPollService {
     private final IPtIndexerPlusService indexerService;
     private final TorznabClient torznabClient;
     private final SubscriptionEngine subscriptionEngine;
+    private final IndexerRateLimiter rateLimiter;
 
     public RssPollService(IPtIndexerPlusService indexerService,
                           TorznabClient torznabClient,
                           SubscriptionEngine subscriptionEngine,
+                          IndexerRateLimiter rateLimiter,
                           @Value("${pt.indexer.self-heal-cooldown-hours:2}") int selfHealCooldownHours,
                           @Value("${pt.indexer.max-concurrency:4}") int maxConcurrency) {
         this.indexerService = indexerService;
         this.torznabClient = torznabClient;
         this.subscriptionEngine = subscriptionEngine;
+        this.rateLimiter = rateLimiter;
         this.selfHealCooldownHours = selfHealCooldownHours;
         this.maxConcurrency = Math.max(1, maxConcurrency);
     }
@@ -130,32 +149,68 @@ public class RssPollService {
      * 各索引器互不依赖，线程安全地写入 collector。
      * 包可见（而非 private）是为了让测试绕开 poll() 里的虚拟线程池，直接在测试线程调用——
      * 否则 MockedStatic&lt;TgHelper&gt; 只在注册线程生效，跨到虚拟线程会被判定为零交互。
+     * <p>
+     * <b>无论成功失败都必须写 {@code lastPollTime}</b>。这个字段是 {@link #isDue} 的唯一依据，
+     * 早先只在成功分支写，导致拉取失败的索引器立刻又"到期"，被 60 秒的心跳每轮重打——
+     * 本该 10 分钟一次的轮询塌缩成 1 分钟一次。而站点返回 429/503 恰恰意味着"你打太快了"，
+     * 于是系统对限流信号的反应是把频率再提高 10 倍，正反馈直到被 ban。
+     * </p>
      */
     void pollOne(PtIndexerPlus indexer, List<TorrentInfo> collector) {
         try {
             List<TorrentInfo> fetched = torznabClient.fetch(indexer);
             collector.addAll(fetched);
             checkCoverageGap(indexer, fetched);
-            indexer.setLastPollTime(new Date());
             indexer.setLastStatus("OK");
             indexer.setFailCount(0);
             log.info("索引器[{}]拉取到 {} 条种子", indexer.getName(), fetched.size());
-        } catch (Exception e) {
-            int fails = (indexer.getFailCount() == null ? 0 : indexer.getFailCount()) + 1;
-            indexer.setFailCount(fails);
-            indexer.setLastStatus(truncate(e.getMessage()));
-            log.warn("索引器[{}]拉取失败（第{}次）：{}", indexer.getName(), fails, e.getMessage());
-            if (fails >= DISABLE_FAIL_THRESHOLD && ENABLED.equals(indexer.getEnabled())) {
-                indexer.setEnabled(DISABLED);
-                indexer.setDisabledAt(new Date());
-                log.warn("索引器[{}]连续失败 {} 次，已自动停用", indexer.getName(), fails);
-                notifySafely("🛑 索引器[" + indexer.getName() + "]已连续失败 " + fails + " 次，已自动停用，"
-                        + "冷却 " + selfHealCooldownHours + " 小时后将自动尝试恢复");
-            } else if (fails == ALERT_FAIL_THRESHOLD) {
-                notifySafely("⚠️ 索引器[" + indexer.getName() + "]已连续失败 " + fails + " 次：" + e.getMessage());
+        } catch (IndexerHttpException e) {
+            if (e.isThrottled()) {
+                handleThrottled(indexer, e);
+            } else {
+                handleFailure(indexer, e);
             }
+        } catch (Exception e) {
+            handleFailure(indexer, e);
         }
+        // 成功与失败共用：失败同样要推进轮询时钟，否则退避无从谈起
+        indexer.setLastPollTime(new Date());
         indexerService.updateById(indexer);
+    }
+
+    /**
+     * 命中 429/503：交给限流器冷却，<b>不计入 fail_count</b>。
+     * <p>
+     * 这两个状态说的是"慢一点"而不是"我坏了"——索引器配置完好，继续累加失败次数最终把它
+     * 自动停用属于误伤。冷却记在 {@link IndexerRateLimiter} 而非本类，因此对用户此刻手动
+     * 发起的搜索一并生效，不会有人绕过退避继续捅同一个站点。
+     * </p>
+     */
+    private void handleThrottled(PtIndexerPlus indexer, IndexerHttpException e) {
+        int cooldown = e.getRetryAfterSeconds() == null
+                ? DEFAULT_THROTTLE_COOLDOWN_SECONDS : e.getRetryAfterSeconds();
+        rateLimiter.penalize(indexer.getId(), cooldown);
+        indexer.setLastStatus(truncate("被限流(HTTP " + e.getStatusCode() + ")，冷却 " + cooldown + " 秒"));
+        log.warn("索引器[{}]被限流（HTTP {}），冷却 {} 秒后再试，本次不计入失败次数",
+                indexer.getName(), e.getStatusCode(), cooldown);
+    }
+
+    /** 真正的失败：累加 fail_count（进而拉长退避间隔），达阈值告警/自动停用 */
+    private void handleFailure(PtIndexerPlus indexer, Exception e) {
+        int fails = (indexer.getFailCount() == null ? 0 : indexer.getFailCount()) + 1;
+        indexer.setFailCount(fails);
+        indexer.setLastStatus(truncate(e.getMessage()));
+        log.warn("索引器[{}]拉取失败（第{}次），下次轮询间隔将退避至 {} 倍：{}",
+                indexer.getName(), fails, backoffMultiplier(fails), e.getMessage());
+        if (fails >= DISABLE_FAIL_THRESHOLD && ENABLED.equals(indexer.getEnabled())) {
+            indexer.setEnabled(DISABLED);
+            indexer.setDisabledAt(new Date());
+            log.warn("索引器[{}]连续失败 {} 次，已自动停用", indexer.getName(), fails);
+            notifySafely("🛑 索引器[" + indexer.getName() + "]已连续失败 " + fails + " 次，已自动停用，"
+                    + "冷却 " + selfHealCooldownHours + " 小时后将自动尝试恢复");
+        } else if (fails == ALERT_FAIL_THRESHOLD) {
+            notifySafely("⚠️ 索引器[" + indexer.getName() + "]已连续失败 " + fails + " 次：" + e.getMessage());
+        }
     }
 
     /**
@@ -228,12 +283,27 @@ public class RssPollService {
         indexer.setLastSeenGuidHash(GuidHasher.hash(newestGuid));
     }
 
+    /**
+     * 是否到期。基础间隔取索引器自身的 {@code pollInterval}（默认 600 秒），并按连续失败次数
+     * 指数退避——失败越多，下次去打扰它的间隔越长。成功一次 {@code failCount} 归零，
+     * 退避随之自动解除，不需要额外的恢复逻辑。
+     */
     private boolean isDue(PtIndexerPlus indexer, long now) {
         if (indexer.getLastPollTime() == null) {
             return true;
         }
         int interval = indexer.getPollInterval() == null ? 600 : indexer.getPollInterval();
-        return now - indexer.getLastPollTime().getTime() >= interval * 1000L;
+        int fails = indexer.getFailCount() == null ? 0 : indexer.getFailCount();
+        long effectiveInterval = interval * 1000L * backoffMultiplier(fails);
+        return now - indexer.getLastPollTime().getTime() >= effectiveInterval;
+    }
+
+    /** 连续失败次数 → 轮询间隔倍数：1, 2, 4, 8, 16, 32（封顶） */
+    private long backoffMultiplier(int failCount) {
+        if (failCount <= 0) {
+            return 1L;
+        }
+        return 1L << Math.min(failCount, MAX_BACKOFF_SHIFT);
     }
 
     private String truncate(String msg) {

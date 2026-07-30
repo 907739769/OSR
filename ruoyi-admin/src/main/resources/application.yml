@@ -117,3 +117,22 @@ jwt:
 openliststrm:
   security:
     credential-secret: ${PT_CREDENTIAL_SECRET:}
+
+# PT 订阅：索引器请求节流。所有打向 Torznab 的请求（RSS 轮询/关键词搜索/ID 搜索/caps 探测）
+# 都经由 IndexerRateLimiter 收口，这里的值直接决定站点侧看到的请求密度。
+# 调小 min-request-interval-ms 会显著提高被 NexusPHP 判定为异常访问的风险，非必要不要动。
+pt:
+  indexer:
+    # 同一索引器两次请求的最小间隔（毫秒）
+    min-request-interval-ms: 2000
+    # 跨所有索引器的全局并发上限
+    global-concurrency: 4
+    # 等待限流许可超过该时长直接跳过本次请求，避免用户手动搜索被冷却期挂死
+    max-wait-ms: 30000
+    # 单轮 RSS 轮询内部的次级并发闸门（真正的节流见上面三项）
+    max-concurrency: 4
+    # 连续失败自动停用后，多久做一次自愈探测（小时）
+    self-heal-cooldown-hours: 2
+  search:
+    # 单次搜索补集内部的并发闸门
+    max-concurrency: 3

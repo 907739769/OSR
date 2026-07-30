@@ -15,6 +15,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -41,7 +42,9 @@ class TorznabClientTest {
     void setUp() throws IOException {
         server = new MockWebServer();
         server.start();
-        client = new TorznabClient(new OkHttpClient());
+        // 测试用零间隔限流器：本类验证的是 URL 拼装与响应处理，不测节流本身
+        // （节流行为见 IndexerRateLimiterTest），留着 2 秒默认间隔只会让整个类慢几十秒
+        client = new TorznabClient(new OkHttpClient(), new IndexerRateLimiter(0L, 5000L, 8));
     }
 
     @AfterEach
@@ -97,6 +100,57 @@ class TorznabClientTest {
         server.enqueue(new MockResponse().setResponseCode(500).setBody("boom"));
 
         assertThrows(IOException.class, () -> client.fetch(indexer(null)));
+    }
+
+    @Test
+    void fetch_HTTP429_抛出带状态码与RetryAfter的异常() {
+        server.enqueue(new MockResponse().setResponseCode(429).setHeader("Retry-After", "120"));
+
+        IndexerHttpException e = assertThrows(IndexerHttpException.class, () -> client.fetch(indexer(null)));
+
+        assertEquals(429, e.getStatusCode());
+        assertEquals(120, e.getRetryAfterSeconds());
+        assertTrue(e.isThrottled());
+    }
+
+    @Test
+    void fetch_HTTP503无RetryAfter_识别为限流且秒数为null() {
+        server.enqueue(new MockResponse().setResponseCode(503));
+
+        IndexerHttpException e = assertThrows(IndexerHttpException.class, () -> client.fetch(indexer(null)));
+
+        assertEquals(503, e.getStatusCode());
+        assertNull(e.getRetryAfterSeconds());
+        assertTrue(e.isThrottled());
+    }
+
+    @Test
+    void fetch_HTTP500_不算限流_不该触发冷却而该计入失败次数() {
+        server.enqueue(new MockResponse().setResponseCode(500).setBody("boom"));
+
+        IndexerHttpException e = assertThrows(IndexerHttpException.class, () -> client.fetch(indexer(null)));
+
+        assertEquals(500, e.getStatusCode());
+        assertFalse(e.isThrottled());
+    }
+
+    @Test
+    void fetch_RetryAfter为HTTPDate格式_按未提供处理而非崩溃() {
+        server.enqueue(new MockResponse().setResponseCode(429)
+                .setHeader("Retry-After", "Wed, 21 Oct 2026 07:28:00 GMT"));
+
+        IndexerHttpException e = assertThrows(IndexerHttpException.class, () -> client.fetch(indexer(null)));
+
+        assertNull(e.getRetryAfterSeconds());
+    }
+
+    @Test
+    void 所有请求都带自定义UserAgent() throws Exception {
+        server.enqueue(new MockResponse().setBody(SAMPLE_XML));
+
+        client.fetch(indexer(null));
+
+        assertTrue(server.takeRequest().getHeader("User-Agent").startsWith("OpenList-strm-RuoYi/"));
     }
 
     @Test

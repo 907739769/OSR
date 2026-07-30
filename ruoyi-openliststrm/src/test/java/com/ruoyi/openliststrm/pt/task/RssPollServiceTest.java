@@ -3,6 +3,8 @@ package com.ruoyi.openliststrm.pt.task;
 import com.ruoyi.openliststrm.helper.TgHelper;
 import com.ruoyi.openliststrm.mybatisplus.domain.PtIndexerPlus;
 import com.ruoyi.openliststrm.mybatisplus.service.IPtIndexerPlusService;
+import com.ruoyi.openliststrm.pt.indexer.IndexerHttpException;
+import com.ruoyi.openliststrm.pt.indexer.IndexerRateLimiter;
 import com.ruoyi.openliststrm.pt.indexer.TorznabClient;
 import com.ruoyi.openliststrm.pt.model.TorrentInfo;
 import com.ruoyi.openliststrm.pt.subscription.SubscriptionEngine;
@@ -30,6 +32,7 @@ import static org.mockito.Mockito.when;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import org.mockito.stubbing.Answer;
 
@@ -41,8 +44,12 @@ class RssPollServiceTest {
     @Mock private TorznabClient torznabClient;
     @Mock private SubscriptionEngine subscriptionEngine;
 
+    private IndexerRateLimiter rateLimiter;
+
     private RssPollService service() {
-        return new RssPollService(indexerService, torznabClient, subscriptionEngine, 2, 4);
+        // 零间隔限流器：本类验证轮询编排与退避账目，不测节流本身
+        rateLimiter = new IndexerRateLimiter(0L, 5000L, 8);
+        return new RssPollService(indexerService, torznabClient, subscriptionEngine, rateLimiter, 2, 4);
     }
 
     private PtIndexerPlus indexer(int id, Integer pollInterval, java.util.Date lastPoll, int failCount) {
@@ -340,5 +347,88 @@ class RssPollServiceTest {
 
         verify(torznabClient, never()).testConnection(any());
         verify(indexerService, never()).updateById(any());
+    }
+
+    // ---------- 失败退避：防止失败索引器被 60 秒心跳每轮重打 ----------
+
+    @Test
+    void 拉取失败_同样推进lastPollTime() throws Exception {
+        // 回归用例：早先 lastPollTime 只在成功分支写，失败的索引器会立刻又"到期"，
+        // 被心跳每轮重打，把 10 分钟的轮询周期塌缩成 1 分钟
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1, 600, null, 0)));
+        when(torznabClient.fetch(any())).thenThrow(new IOException("connection refused"));
+
+        service().poll();
+
+        ArgumentCaptor<PtIndexerPlus> captor = ArgumentCaptor.forClass(PtIndexerPlus.class);
+        verify(indexerService).updateById(captor.capture());
+        assertNotNull(captor.getValue().getLastPollTime());
+    }
+
+    @Test
+    void 连续失败2次的索引器_轮询间隔退避到4倍_未到期不拉取() throws Exception {
+        // 周期 600 秒、已失败 2 次 → 有效间隔 600×4=2400 秒；距上次仅 700 秒，不该重试
+        when(indexerService.listEnabled()).thenReturn(
+                List.of(indexer(1, 600, new java.util.Date(System.currentTimeMillis() - 700_000), 2)));
+
+        service().poll();
+
+        verify(torznabClient, never()).fetch(any());
+    }
+
+    @Test
+    void 连续失败2次但已过退避间隔_恢复拉取() throws Exception {
+        when(indexerService.listEnabled()).thenReturn(
+                List.of(indexer(1, 600, new java.util.Date(System.currentTimeMillis() - 2_500_000), 2)));
+        when(torznabClient.fetch(any())).thenReturn(List.of(torrent("t1")));
+
+        service().poll();
+
+        verify(torznabClient).fetch(any());
+    }
+
+    // ---------- 429/503：只冷却，不计失败 ----------
+
+    @Test
+    void 命中429_不计入失败次数_并让该索引器进入RetryAfter指定的冷却() throws Exception {
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1, 600, null, 0)));
+        when(torznabClient.fetch(any())).thenThrow(new IndexerHttpException(429, 120));
+
+        RssPollService svc = service();
+        svc.poll();
+
+        ArgumentCaptor<PtIndexerPlus> captor = ArgumentCaptor.forClass(PtIndexerPlus.class);
+        verify(indexerService).updateById(captor.capture());
+        // 限流不是"索引器坏了"，累加失败次数最终会把配置完好的索引器误停用
+        assertEquals(0, captor.getValue().getFailCount());
+        long remaining = rateLimiter.remainingCooldownMillis(1);
+        assertTrue(remaining > 100_000 && remaining <= 120_000,
+                "应按 Retry-After 冷却约 120 秒，实际剩余 " + remaining + "ms");
+    }
+
+    @Test
+    void 命中503且无RetryAfter_使用默认冷却() throws Exception {
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1, 600, null, 0)));
+        when(torznabClient.fetch(any())).thenThrow(new IndexerHttpException(503, null));
+
+        RssPollService svc = service();
+        svc.poll();
+
+        long remaining = rateLimiter.remainingCooldownMillis(1);
+        assertTrue(remaining > 250_000 && remaining <= 300_000,
+                "无 Retry-After 时应落到 300 秒默认冷却，实际剩余 " + remaining + "ms");
+    }
+
+    @Test
+    void 命中500_仍按普通失败处理_计入失败次数() throws Exception {
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1, 600, null, 0)));
+        when(torznabClient.fetch(any())).thenThrow(new IndexerHttpException(500, null));
+
+        service().poll();
+
+        ArgumentCaptor<PtIndexerPlus> captor = ArgumentCaptor.forClass(PtIndexerPlus.class);
+        verify(indexerService).updateById(captor.capture());
+        assertEquals(1, captor.getValue().getFailCount());
+        assertEquals(0, rateLimiter.remainingCooldownMillis(1));
     }
 }
