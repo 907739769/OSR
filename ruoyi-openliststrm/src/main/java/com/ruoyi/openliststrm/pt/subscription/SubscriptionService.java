@@ -78,6 +78,16 @@ public class SubscriptionService {
         }
 
         int season = movie ? MOVIE_SEASON : request.getSeason();
+        String mediaType = movie ? TYPE_MOVIE : "TV";
+        boolean duplicated = subscriptionService.exists(new LambdaQueryWrapper<PtSubscriptionPlus>()
+                .eq(PtSubscriptionPlus::getTmdbId, request.getTmdbId())
+                .eq(PtSubscriptionPlus::getMediaType, mediaType)
+                .eq(PtSubscriptionPlus::getSeason, season));
+        if (duplicated) {
+            throw new IllegalArgumentException(movie ? "该电影已订阅过，请勿重复订阅"
+                    : "该剧集第" + season + "季已订阅过，请勿重复订阅");
+        }
+
         TmdbSearchItem detail;
         int totalEpisodes;
         try {
@@ -94,7 +104,7 @@ public class SubscriptionService {
 
         PtSubscriptionPlus sub = new PtSubscriptionPlus();
         sub.setTmdbId(request.getTmdbId());
-        sub.setMediaType(movie ? TYPE_MOVIE : "TV");
+        sub.setMediaType(mediaType);
         sub.setTitle(detail.getTitle());
         sub.setOriginalTitle(detail.getOriginalTitle());
         sub.setEnglishTitle(detail.getEnglishTitle());

@@ -111,9 +111,13 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
             sub = subscriptionBiz.subscribe(request);
         } catch (IllegalArgumentException e) {
             return Result.error(e.getMessage());
+        } catch (org.springframework.dao.DuplicateKeyException e) {
+            // Service 层已做重复订阅前置校验，这里只兜并发场景下的极小概率竞态，不透出原始 SQL 错误
+            log.warn("建订阅时命中唯一约束冲突（并发重复提交）：{}", e.getMessage());
+            return Result.error("该作品的这一季可能已被同时提交订阅，请刷新后查看");
         } catch (Exception e) {
-            // 唯一约束冲突（同一作品同一季重复订阅）会在这里被兜住
-            return Result.error("建立订阅失败，该作品的这一季可能已订阅过：" + e.getMessage());
+            log.error("建立订阅失败", e);
+            return Result.error("建立订阅失败，请稍后重试");
         }
         if (SubscriptionService.STATUS_ACTIVE.equals(sub.getStatus())) {
             try {
