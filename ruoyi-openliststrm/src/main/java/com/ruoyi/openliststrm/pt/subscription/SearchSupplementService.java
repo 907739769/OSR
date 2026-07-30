@@ -372,15 +372,22 @@ public class SearchSupplementService {
             }
         }
 
-        // 季包未命中：从同一候选池逐集匹配推送
+        // 季包未命中：从同一候选池逐集匹配推送。候选池里混有季包种子（parsedEpisode 为 null），
+        // pushBest/handleGroup 本身不校验候选是否对应目标集号（信任调用方已用 filterByTarget 收窄），
+        // 这里必须先按具体集号过滤，只留下真正的单集资源，否则季包会被当成"这一集的最佳候选"
+        // 反复整包下载，每集占位一次却各自下了一遍完整季包。
         int episodesPushed = 0;
         if (!seasonPushed && !candidates.isEmpty()) {
             for (PtSubscriptionEpisodePlus ep : episodes) {
                 if (!SubscriptionService.STATE_MISSING.equals(ep.getState())) {
                     continue;
                 }
+                List<TorrentInfo> episodeCandidates = filterByTarget(sub, ep.getEpisode(), candidates);
+                if (episodeCandidates.isEmpty()) {
+                    continue;
+                }
                 try {
-                    if (subscriptionEngine.pushBest(sub, ep.getEpisode(), candidates)) {
+                    if (subscriptionEngine.pushBest(sub, ep.getEpisode(), episodeCandidates)) {
                         episodesPushed++;
                     }
                 } catch (Exception e) {
@@ -666,11 +673,26 @@ public class SearchSupplementService {
                 if (parsedEpisode == null) {
                     matched.add(candidate);
                 }
-            } else if (parsedEpisode != null && parsedEpisode == episode) {
+            } else if (episodeInRange(episode, parsedEpisode, candidate.getParsedEpisodeEnd())) {
                 matched.add(candidate);
             }
         }
         return matched;
+    }
+
+    /**
+     * 目标集号是否落在候选种子解析出的集号区间内：单集资源 parsedEpisodeEnd 为 null，
+     * 区间等价于 [parsedEpisode, parsedEpisode]；区间打包资源（如 S01E01-E02）此前只按
+     * {@code parsedEpisode == episode} 精确比较，导致搜某一集缺失时，若唯一候选是把该集和
+     * 别的集打包在一起的区间种子（该集不是区间起始集），会被误判为"没有候选"而永远搜不到
+     * ——不是显示错误，是真的从未推送成功。
+     */
+    private boolean episodeInRange(int episode, Integer parsedEpisode, Integer parsedEpisodeEnd) {
+        if (parsedEpisode == null) {
+            return false;
+        }
+        int rangeEnd = (parsedEpisodeEnd != null && parsedEpisodeEnd > parsedEpisode) ? parsedEpisodeEnd : parsedEpisode;
+        return episode >= parsedEpisode && episode <= rangeEnd;
     }
 
     /**
@@ -704,7 +726,7 @@ public class SearchSupplementService {
                 continue;
             }
             Integer parsedEpisode = candidate.getParsedEpisode();
-            if (parsedEpisode == null || missingEpisodes.contains(parsedEpisode)) {
+            if (parsedEpisode == null || rangeIntersectsMissing(parsedEpisode, candidate.getParsedEpisodeEnd(), missingEpisodes)) {
                 matched.add(candidate);
             } else {
                 log.debug("候选被集号过滤：{} —— 解析集号={} 不在缺失集合内", candidate.getTitle(), parsedEpisode);
@@ -737,14 +759,32 @@ public class SearchSupplementService {
             }
             Integer parsedEpisode = candidate.getParsedEpisode();
             if (episode == SubscriptionMatcher.SEASON_PACK) {
-                if (parsedEpisode == null || (missingEpisodes != null && missingEpisodes.contains(parsedEpisode))) {
+                if (parsedEpisode == null || (missingEpisodes != null
+                        && rangeIntersectsMissing(parsedEpisode, candidate.getParsedEpisodeEnd(), missingEpisodes))) {
                     matched.add(candidate);
                 }
-            } else if (parsedEpisode != null && parsedEpisode == episode) {
+            } else if (episodeInRange(episode, parsedEpisode, candidate.getParsedEpisodeEnd())) {
                 matched.add(candidate);
             }
         }
         return matched;
+    }
+
+    /**
+     * 候选种子解析出的集号区间是否与"当前缺失集号集合"有交集，供整季包场景放行区间打包资源
+     * （如 S01E01-E02，只要区间内有一集仍缺失就该放行，不能像单集那样只看起始集号是否在集合里）。
+     */
+    private boolean rangeIntersectsMissing(Integer parsedEpisode, Integer parsedEpisodeEnd, Set<Integer> missingEpisodes) {
+        if (parsedEpisode == null) {
+            return false;
+        }
+        int rangeEnd = (parsedEpisodeEnd != null && parsedEpisodeEnd > parsedEpisode) ? parsedEpisodeEnd : parsedEpisode;
+        for (int e = parsedEpisode; e <= rangeEnd; e++) {
+            if (missingEpisodes.contains(e)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /** 订阅当前处于缺失(MISSING)状态的集号集合，供 {@link #filterByTargetManual}/{@link #filterIdCandidates} 放行单集候选使用 */

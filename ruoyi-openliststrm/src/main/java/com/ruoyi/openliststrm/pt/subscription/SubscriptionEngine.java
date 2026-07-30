@@ -239,6 +239,22 @@ public class SubscriptionEngine {
             return false;
         }
 
+        // 选中的种子可能是区间打包（如 E01-E02），实际覆盖的集数比调用方传入的单集目标（match.episode）更多——
+        // pushBest()/SearchSupplementService 按缺失单集逐一搜索时，MatchResult 只带调用方传入的那一个集号，
+        // episodeEnd 恒为 null（区间信息只在 RSS 路径的 SubscriptionMatcher.match() 里才会算出来）。
+        // 这里按 best 实际解析出的区间重新计算 match 本身（而不仅仅是 targets），否则区间内除目标集外的
+        // 其它缺失集：1) 不会被标成 IN_FLIGHT，永远显示"缺失"；2) trySelectFiles() 按 download_id 关联的
+        // 集号做文件过滤，没占位的集会被当成"非目标文件"整个排除下载，实际根本没有在下载；3) 若只改
+        // targets 不改 match，buildRecord 落库的 episode/episodeEnd 仍是旧的单集范围，
+        // DownloadRecordAdminService#resetBlockedEpisodes 之后按这个范围重置会漏掉那一集，
+        // 下载失败/被拉黑后该集会永久卡在 IN_FLIGHT 且没有对应下载记录可追踪回退。
+        if (match.getEpisode() != SubscriptionMatcher.SEASON_PACK
+                && best.getParsedEpisode() != null && best.getParsedEpisodeEnd() != null
+                && best.getParsedEpisodeEnd() > best.getParsedEpisode()) {
+            match = new MatchResult(sub, best.getParsedEpisode(), best.getParsedEpisodeEnd());
+            targets = resolveTargets(match, allEpisodes);
+        }
+
         // 「选下载器 + 判容量 + 占位自增」必须在同一把锁内原子完成：process() 用虚拟线程并行处理
         // 各分组，若三步分开做，两个分组可能都在对方自增前读到同一个"最闲"下载器，
         // 负载均衡形同虚设。downloaderLoadCache 在一次 process()/pushBest() 调用内唯一，

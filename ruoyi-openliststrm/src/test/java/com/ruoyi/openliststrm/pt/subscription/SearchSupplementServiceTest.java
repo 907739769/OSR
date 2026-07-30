@@ -100,6 +100,10 @@ class SearchSupplementServiceTest {
     private TorrentInfo torrent(String title) {
         TorrentInfo t = new TorrentInfo();
         t.setTitle(title);
+        // guid 按标题赋值，保证不同候选去重键不同：真实索引器返回的 guid 恒非空
+        // （TorznabParser 未提供时回退 downloadUrl），guid 都为 null 只是测试夹具的简化，
+        // 但会导致 addDeduped() 按 (indexerId, guid) 去重时把两个不同集的候选误判为同一条丢弃一个。
+        t.setGuid(title);
         return t;
     }
 
@@ -849,9 +853,11 @@ class SearchSupplementServiceTest {
         TorrentInfo ep1torrent = torrent("Some.Show.S01E01.1080p");
         ep1torrent.setParsedSeason(1);
         ep1torrent.setParsedEpisode(1);
+        ep1torrent.setParsedTitle("Some Show");
         TorrentInfo ep2torrent = torrent("Some.Show.S01E02.1080p");
         ep2torrent.setParsedSeason(1);
         ep2torrent.setParsedEpisode(2);
+        ep2torrent.setParsedTitle("Some Show");
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(ep1torrent, ep2torrent));
         when(subscriptionEngine.pushBest(eq(sub), eq(1), anyList())).thenReturn(true);
         when(subscriptionEngine.pushBest(eq(sub), eq(2), anyList())).thenReturn(true);
@@ -878,11 +884,13 @@ class SearchSupplementServiceTest {
         TorrentInfo ep1 = torrent("Some.Show.S01E01.1080p");
         ep1.setParsedSeason(1);
         ep1.setParsedEpisode(1);
+        ep1.setParsedTitle("Some Show");
         when(torznabClient.search(any(), eq("Some Show S01"))).thenReturn(List.of(ep1));
 
         TorrentInfo ep2 = torrent("Breaking.Bad.S01E02.1080p");
         ep2.setParsedSeason(1);
         ep2.setParsedEpisode(2);
+        ep2.setParsedTitle("Breaking Bad");
         when(torznabClient.search(any(), eq("Breaking Bad S01"))).thenReturn(List.of(ep2));
 
         when(subscriptionEngine.pushBest(eq(sub), eq(1), anyList())).thenReturn(true);
@@ -925,9 +933,11 @@ class SearchSupplementServiceTest {
         TorrentInfo ep1 = torrent("Some.Show.S01E01.1080p");
         ep1.setParsedSeason(1);
         ep1.setParsedEpisode(1);
+        ep1.setParsedTitle("Some Show");
         TorrentInfo ep2 = torrent("Some.Show.S01E02.1080p");
         ep2.setParsedSeason(1);
         ep2.setParsedEpisode(2);
+        ep2.setParsedTitle("Some Show");
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(ep1, ep2));
         when(subscriptionEngine.pushBest(eq(sub), eq(1), anyList())).thenReturn(true);
         when(subscriptionEngine.pushBest(eq(sub), eq(2), anyList())).thenReturn(true);
@@ -950,9 +960,11 @@ class SearchSupplementServiceTest {
         TorrentInfo ep1 = torrent("Some.Show.S01E01.1080p");
         ep1.setParsedSeason(1);
         ep1.setParsedEpisode(1);
+        ep1.setParsedTitle("Some Show");
         TorrentInfo ep2 = torrent("Some.Show.S01E02.1080p");
         ep2.setParsedSeason(1);
         ep2.setParsedEpisode(2);
+        ep2.setParsedTitle("Some Show");
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(ep1, ep2));
         when(subscriptionEngine.pushBest(eq(sub), eq(1), anyList())).thenThrow(new RuntimeException("boom"));
         when(subscriptionEngine.pushBest(eq(sub), eq(2), anyList())).thenReturn(true);
@@ -1042,9 +1054,11 @@ class SearchSupplementServiceTest {
         TorrentInfo ep1 = torrent("Some.Show.S01E01.1080p");
         ep1.setParsedSeason(1);
         ep1.setParsedEpisode(1);
+        ep1.setParsedTitle("Some Show");
         TorrentInfo ep2 = torrent("Some.Show.S01E02.1080p");
         ep2.setParsedSeason(1);
         ep2.setParsedEpisode(2);
+        ep2.setParsedTitle("Some Show");
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(ep1, ep2));
         when(subscriptionEngine.pushBest(eq(sub), eq(1), anyList())).thenReturn(true);
 
