@@ -840,6 +840,40 @@ class SearchSupplementServiceTest {
     }
 
     @Test
+    void supplementOnCreate_中文关键词与英文兜底候选合并_而非命中即停() throws Exception {
+        // 中文标题关键词搜索只命中第1集，英文原名兜底命中第2集；
+        // 修复前"命中即停"会导致原名搜索根本不会发起，第2集永远补不到
+        PtSubscriptionPlus sub = tvSub(10, 1, 2);
+        sub.setOriginalTitle("Breaking Bad");
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        List<PtSubscriptionEpisodePlus> episodes = List.of(
+                episode(1, "MISSING"), episode(2, "MISSING"));
+        when(episodeService.listBySubscription(10)).thenReturn(episodes);
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+
+        TorrentInfo ep1 = torrent("Some.Show.S01E01.1080p");
+        ep1.setParsedSeason(1);
+        ep1.setParsedEpisode(1);
+        when(torznabClient.search(any(), eq("Some Show S01"))).thenReturn(List.of(ep1));
+
+        TorrentInfo ep2 = torrent("Breaking.Bad.S01E02.1080p");
+        ep2.setParsedSeason(1);
+        ep2.setParsedEpisode(2);
+        when(torznabClient.search(any(), eq("Breaking Bad S01"))).thenReturn(List.of(ep2));
+
+        when(subscriptionEngine.pushBest(eq(sub), eq(1), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushBest(eq(sub), eq(2), anyList())).thenReturn(true);
+
+        service.supplementOnCreate(10);
+
+        verify(torznabClient).search(any(), eq("Some Show S01"));
+        verify(torznabClient).search(any(), eq("Breaking Bad S01"));
+        // 两级搜索都要发起，且候选池合并后两集都能推送成功
+        verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(1), anyList());
+        verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(2), anyList());
+    }
+
+    @Test
     void supplementOnCreate_逐集兜底关键词按season两位数格式拼() throws Exception {
         PtSubscriptionPlus sub = tvSub(10, 2, 5);
         when(subscriptionService.getById(10)).thenReturn(sub);

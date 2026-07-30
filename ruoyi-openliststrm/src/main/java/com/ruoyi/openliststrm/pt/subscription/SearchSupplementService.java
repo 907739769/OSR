@@ -31,6 +31,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -395,35 +396,46 @@ public class SearchSupplementService {
     }
 
     /**
-     * 全季节搜索：三级回退（ID 精确搜索 → 中文标题 → 英文/原语言标题），
-     * 返回结果不经 {@code filterByTarget} 过滤，供调用方自行按季包/逐集匹配。
-     * 各级搜索到有结果即停止，候选已做过 {@link SubscriptionEngine#fillParsed}。
+     * 全季节搜索：三级回退（ID 精确搜索 → 中文标题 → 英文/原语言标题）结果按 (indexerId, guid)
+     * 去重后合并返回，而非命中即停——某一级搜索有结果不代表候选池已完整，比如 ID 搜索只对季包
+     * 生效时，具体缺失的散集可能只出现在关键词搜索的结果里，命中即停会让散集补全依赖下一轮
+     * 自动补搜周期，拉长实际补全时间。返回结果不经 {@code filterByTarget} 过滤，供调用方自行
+     * 按季包/逐集匹配。候选已做过 {@link SubscriptionEngine#fillParsed}。
      *
-     * @return 搜索到的全部候选种子；全为空返回空列表
+     * @return 搜索到的全部候选种子（已去重）；全为空返回空列表
      */
     private List<TorrentInfo> searchSeasonCandidates(PtSubscriptionPlus sub) {
-        List<TorrentInfo> candidates = searchByExternalId(sub, SubscriptionMatcher.SEASON_PACK);
-        fillParsedAll(candidates);
-        if (!candidates.isEmpty()) {
-            return candidates;
-        }
+        List<TorrentInfo> merged = new ArrayList<>();
+        Set<String> seenGuids = new HashSet<>();
+
+        List<TorrentInfo> idCandidates = searchByExternalId(sub, SubscriptionMatcher.SEASON_PACK);
+        fillParsedAll(idCandidates);
+        addDeduped(merged, seenGuids, idCandidates);
 
         String keyword = sub.getTitle() + " S" + pad(sub.getSeason());
-        candidates = searchAcrossIndexers(keyword);
-        fillParsedAll(candidates);
-        if (!candidates.isEmpty()) {
-            return candidates;
-        }
+        List<TorrentInfo> kwCandidates = searchAcrossIndexers(keyword);
+        fillParsedAll(kwCandidates);
+        addDeduped(merged, seenGuids, kwCandidates);
 
         String originalTitle = sub.getOriginalTitle();
         if (StringUtils.isNotBlank(originalTitle)
                 && !matcher.normalizeAll(originalTitle).equals(matcher.normalizeAll(sub.getTitle()))) {
             String altKeyword = originalTitle + " S" + pad(sub.getSeason());
-            candidates = searchAcrossIndexers(altKeyword);
-            fillParsedAll(candidates);
+            List<TorrentInfo> altCandidates = searchAcrossIndexers(altKeyword);
+            fillParsedAll(altCandidates);
+            addDeduped(merged, seenGuids, altCandidates);
         }
 
-        return candidates;
+        return merged;
+    }
+
+    /** 按 (indexerId, guid) 去重后追加，与手动搜索模式（见 {@link #supplement}）用同一去重口径 */
+    private void addDeduped(List<TorrentInfo> target, Set<String> seenGuids, List<TorrentInfo> source) {
+        for (TorrentInfo t : source) {
+            if (seenGuids.add(t.getIndexerId() + ":" + t.getGuid())) {
+                target.add(t);
+            }
+        }
     }
 
     private void notifyNoResult(PtSubscriptionPlus sub) {
