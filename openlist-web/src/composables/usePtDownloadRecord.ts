@@ -24,7 +24,7 @@ export function usePtDownloadRecord() {
 
   const queryParams = reactive<PtDownloadRecordQuery>({
     pageNum: 1,
-    pageSize: 10,
+    pageSize: 12,
     subId: initialSubId,
     state: undefined,
     title: undefined

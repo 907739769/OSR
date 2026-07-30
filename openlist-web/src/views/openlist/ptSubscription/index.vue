@@ -172,7 +172,7 @@
           v-model:current-page="queryParams.pageNum"
           v-model:page-size="queryParams.pageSize"
           :total="total"
-          :page-sizes="[10, 20, 50]"
+          :page-sizes="[12, 24, 48]"
           layout="total, sizes, prev, pager, next, jumper"
           @current-change="getList"
           @size-change="getList"
