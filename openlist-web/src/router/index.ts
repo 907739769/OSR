@@ -235,6 +235,23 @@ function extractLeafRoutes(menus: MenuRoute[]): MenuRoute[] {
   return leaves
 }
 
+/**
+ * 根据 componentMap 的 key（如 'openlist/strmRecord/index'）找到当前已注册的路由 path。
+ * 菜单 path 由后端 DB 配置，历史遗留数据前缀不统一（/openliststrm/xxx、/openlist/xxx 都存在），
+ * 不能靠字符串猜测，只能用组件引用反查已注册路由。
+ */
+export function getRoutePathForComponent(componentKey: string): string | null {
+  const target = componentMap[componentKey]
+  if (!target) return null
+  for (const r of router.getRoutes()) {
+    const rr = r as any
+    if (rr.components?.default === target || rr.component === target) {
+      return r.path
+    }
+  }
+  return null
+}
+
 export function addDynamicRoutes(menuList: MenuRoute[]) {
   if (!Array.isArray(menuList) || menuList.length === 0) {
     return

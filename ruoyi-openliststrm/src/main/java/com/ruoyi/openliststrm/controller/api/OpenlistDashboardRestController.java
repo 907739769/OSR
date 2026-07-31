@@ -2,6 +2,8 @@ package com.ruoyi.openliststrm.controller.api;
 
 import com.ruoyi.common.core.domain.Result;
 import com.ruoyi.common.utils.StringUtils;
+import com.ruoyi.openliststrm.dashboard.stats.DashboardStatsService;
+import com.ruoyi.openliststrm.dashboard.stats.dto.DashboardTrendPointDTO;
 import com.ruoyi.openliststrm.enums.CopyStatusEnum;
 import com.ruoyi.openliststrm.enums.StrmStatusEnum;
 import com.ruoyi.openliststrm.mybatisplus.domain.OpenlistCopyPlus;
@@ -28,6 +30,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 仪表盘统计 REST API控制器
@@ -46,6 +49,12 @@ public class OpenlistDashboardRestController {
 
     @Autowired
     private IRenameDetailPlusService renameDetailPlusService;
+
+    @Autowired
+    private DashboardStatsService dashboardStatsService;
+
+    private static final Set<String> ALLOWED_TREND_TYPES = Set.of("copy", "strm", "rename");
+    private static final Set<Integer> ALLOWED_TREND_DAYS = Set.of(7, 14, 30);
 
     /**
      * 获取仪表盘统计数据。
@@ -114,6 +123,18 @@ public class OpenlistDashboardRestController {
     public Result<Map<String, Long>> renameStats(@RequestParam(value = "range", defaultValue = "today") String range) {
         Map<String, Long> result = getStatsByStatus("rename", range);
         return Result.success(result);
+    }
+
+    /**
+     * COPY/STRM/Rename 按天分组的趋势数据，取代原来只有当日/昨日/全部快照的饼图。
+     * type 只允许 copy/strm/rename，days 只允许 7/14/30，非法值一律回退默认，避免越权触发大范围扫描。
+     */
+    @GetMapping("/trend")
+    public Result<List<DashboardTrendPointDTO>> trend(@RequestParam("type") String type,
+                                                        @RequestParam(value = "days", required = false) Integer days) {
+        String safeType = ALLOWED_TREND_TYPES.contains(type) ? type : "strm";
+        int safeDays = days != null && ALLOWED_TREND_DAYS.contains(days) ? days : 7;
+        return Result.success(dashboardStatsService.trend(safeType, safeDays));
     }
 
     private Map<String, Long> getStatsByStatus(String type, String range) {
