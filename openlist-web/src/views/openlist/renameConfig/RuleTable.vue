@@ -27,6 +27,7 @@
               :items="genreOptions"
               item-title="label"
               item-value="value"
+              :return-object="false"
               multiple chips closable-chips
               :disabled="row.isFallback === '1'"
               placeholder="不限"
@@ -42,6 +43,7 @@
               :items="LANGUAGE_OPTIONS"
               item-title="label"
               item-value="value"
+              :return-object="false"
               multiple chips closable-chips
               :disabled="row.isFallback === '1'"
               placeholder="不限"
@@ -57,6 +59,7 @@
               :items="COUNTRY_OPTIONS"
               item-title="label"
               item-value="value"
+              :return-object="false"
               multiple chips closable-chips
               :disabled="row.isFallback === '1'"
               placeholder="不限"
