@@ -1,22 +1,21 @@
 <template>
   <transition :name="isMobile ? 'slide-up' : 'slide-left'">
     <div v-if="needRefresh" class="app-update-prompt" :class="isMobile ? 'is-mobile' : 'is-desktop'">
-      <el-icon class="update-icon"><Refresh /></el-icon>
+      <v-icon icon="mdi-refresh" class="update-icon" />
       <div class="update-text">
         <span class="update-title">新版本已就绪</span>
         <span v-if="!isMobile" class="update-desc">刷新后即可使用最新功能</span>
       </div>
-      <el-button type="primary" size="small" :loading="updating" @click="applyUpdate">
+      <v-btn color="primary" size="small" :loading="updating" @click="applyUpdate">
         刷新
-      </el-button>
-      <el-icon class="dismiss-btn" @click="dismiss"><Close /></el-icon>
+      </v-btn>
+      <v-icon icon="mdi-close" class="dismiss-btn" @click="dismiss" />
     </div>
   </transition>
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Refresh, Close } from '@element-plus/icons-vue'
 import { useAppStore } from '@/stores/app'
 import { useAppUpdate } from '@/composables/useAppUpdate'
 

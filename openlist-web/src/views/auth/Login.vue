@@ -1,36 +1,48 @@
 <template>
   <div class="login-container">
-    <el-card class="login-card">
+    <v-card class="login-card">
       <h2 class="login-title">OpenList-strm-RuoYi</h2>
-      <el-form ref="loginFormRef" :model="loginForm" :rules="loginRules" class="login-form">
-        <el-form-item prop="username">
-          <el-input v-model="loginForm.username" placeholder="用户名" :prefix-icon="User" size="large" />
-        </el-form-item>
-        <el-form-item prop="password">
-          <el-input v-model="loginForm.password" type="password" placeholder="密码" :prefix-icon="Lock" size="large" show-password @keyup.enter="handleLogin" />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" size="large" :loading="loading" class="login-btn" @click="handleLogin">
-            登 录
-          </el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
+      <v-form ref="loginFormRef" class="login-form">
+        <v-text-field
+          v-model="loginForm.username"
+          placeholder="用户名"
+          prepend-inner-icon="mdi-account-outline"
+          size="large"
+          variant="outlined"
+          density="comfortable"
+          class="mb-2"
+          :rules="[(v: any) => !!v || '请输入用户名']"
+        />
+        <v-text-field
+          v-model="loginForm.password"
+          type="password"
+          placeholder="密码"
+          prepend-inner-icon="mdi-lock-outline"
+          size="large"
+          variant="outlined"
+          density="comfortable"
+          class="mb-2"
+          :rules="[(v: any) => !!v || '请输入密码']"
+          @keyup.enter="handleLogin"
+        />
+        <v-btn color="primary" size="large" block :loading="loading" class="login-btn" @click="handleLogin">
+          登 录
+        </v-btn>
+      </v-form>
+    </v-card>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { User, Lock } from '@element-plus/icons-vue'
+import { message } from '@/composables/useMessage'
 import { useUserStore } from '@/stores/user'
-import type { FormInstance } from 'element-plus'
 
 const router = useRouter()
 const route = useRoute()
 const userStore = useUserStore()
-const loginFormRef = ref<FormInstance>()
+const loginFormRef = ref<any>()
 const loading = ref(false)
 
 const loginForm = reactive({
@@ -38,20 +50,15 @@ const loginForm = reactive({
   password: ''
 })
 
-const loginRules = {
-  username: [{ required: true, message: '请输入用户名', trigger: 'blur' }],
-  password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
-}
-
 const handleLogin = async () => {
   const form = loginFormRef.value
   if (!form) return
-  const valid = await form.validate().catch(() => false)
+  const { valid } = await form.validate()
   if (!valid) return
   loading.value = true
   try {
     await userStore.login(loginForm)
-    ElMessage.success('登录成功')
+    message.success('登录成功')
     const redirect = (route.query.redirect as string) || '/'
     router.push(redirect)
   } catch {

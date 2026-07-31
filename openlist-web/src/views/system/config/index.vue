@@ -4,21 +4,21 @@
     <div class="page-header">
       <div class="page-header-left">
         <div class="page-header-icon">
-          <el-icon><Setting /></el-icon>
+          <v-icon icon="mdi-cog-outline" />
         </div>
         <div>
           <h2 class="page-title">参数设置</h2>
           <p class="page-desc">系统全局参数配置 — 开关直接切换即时生效，其余点击 ✏️ 编辑后保存</p>
         </div>
       </div>
-      <el-button type="primary" plain :icon="Refresh" :loading="refreshing" @click="handleRefreshCache">
+      <v-btn color="primary" variant="outlined" prepend-icon="mdi-refresh" :loading="refreshing" @click="handleRefreshCache">
         刷新缓存
-      </el-button>
+      </v-btn>
     </div>
 
     <!-- Loading -->
     <div v-if="loading" class="page-loading">
-      <el-icon class="is-loading" :size="36"><Loading /></el-icon>
+      <v-progress-circular indeterminate color="primary" size="36" />
       <p>正在加载参数配置...</p>
     </div>
 
@@ -31,7 +31,7 @@
       >
         <div class="section-header">
           <div class="section-icon">
-            <el-icon :size="18"><component :is="section.icon" /></el-icon>
+            <v-icon :icon="section.icon" size="18" />
           </div>
           <h3>{{ section.title }}</h3>
           <span class="section-count">{{ section.items.length }}</span>
@@ -51,27 +51,27 @@
               </div>
               <div class="config-item__actions">
                 <!-- Inline switch for boolean configs -->
-                <el-switch
+                <v-switch
                   v-if="metaOf(item).type === 'switch' && editingId !== item.configId"
                   :model-value="item.configValue === '1'"
                   :loading="switchSavingId === item.configId"
-                  inline-prompt
-                  active-text="开"
-                  inactive-text="关"
-                  @change="(val: any) => toggleSwitch(item, val)"
+                  color="primary"
+                  density="compact"
+                  hide-details
+                  @update:model-value="(val: any) => toggleSwitch(item, val)"
                 />
                 <!-- 明确的编辑按钮（PC + 移动端均清晰可见） -->
-                <el-button
+                <v-btn
                   v-else-if="editingId !== item.configId"
-                  type="primary"
-                  plain
+                  color="primary"
+                  variant="outlined"
                   size="small"
-                  :icon="EditPen"
+                  prepend-icon="mdi-pencil-outline"
                   @click="startEdit(item)"
                 >
                   编辑
-                </el-button>
-                <el-tag v-else size="small" type="warning">编辑中</el-tag>
+                </v-btn>
+                <v-chip v-else size="small" color="warning" variant="tonal">编辑中</v-chip>
               </div>
             </div>
 
@@ -84,78 +84,87 @@
               class="config-item__value"
             >
               <span class="value-text" :class="{ 'value-text--empty': !item.configValue }">{{ displayValue(item) }}</span>
-              <el-tooltip v-if="isSensitive(item.configKey) && item.configValue" :content="item.configValue" placement="top" :show-after="300">
-                <el-icon class="value-expand" :size="14"><ZoomIn /></el-icon>
-              </el-tooltip>
+              <v-tooltip v-if="isSensitive(item.configKey) && item.configValue" :text="item.configValue" location="top" open-delay="300">
+                <template #activator="{ props: tooltipProps }">
+                  <v-icon v-bind="tooltipProps" icon="mdi-magnify-plus-outline" class="value-expand" size="14" />
+                </template>
+              </v-tooltip>
             </div>
 
             <!-- Edit Mode -->
             <template v-if="editingId === item.configId">
               <div class="edit-body">
                 <!-- number -->
-                <el-input-number
+                <v-text-field
                   v-if="metaOf(item).type === 'number'"
-                  v-model="editNumber"
+                  v-model.number="editNumber"
+                  type="number"
                   :min="metaOf(item).min"
                   :max="metaOf(item).max"
-                  :step="1"
-                  controls-position="right"
+                  step="1"
+                  density="compact"
+                  variant="outlined"
+                  hide-details
                   class="edit-number"
                 />
                 <span v-if="metaOf(item).type === 'number' && metaOf(item).unit" class="edit-unit">{{ metaOf(item).unit }}</span>
 
                 <!-- select -->
-                <el-select
+                <v-combobox
                   v-else-if="metaOf(item).type === 'select'"
                   v-model="editForm.configValue"
+                  :items="metaOf(item).options"
+                  item-title="label"
+                  item-value="value"
+                  density="compact"
+                  variant="outlined"
+                  hide-details
                   class="edit-select"
                   placeholder="请选择"
-                  filterable
-                  allow-create
-                >
-                  <el-option
-                    v-for="opt in metaOf(item).options"
-                    :key="opt.value"
-                    :label="opt.label"
-                    :value="opt.value"
-                  />
-                </el-select>
+                />
 
                 <!-- password -->
-                <el-input
+                <v-text-field
                   v-else-if="metaOf(item).type === 'password'"
                   v-model="editForm.configValue"
                   type="password"
-                  show-password
                   placeholder="请输入参数值"
+                  density="compact"
+                  variant="outlined"
+                  hide-details
                   class="edit-input"
-                  :class="{ 'edit-input--error': editError }"
+                  :error="!!editError"
                 />
 
                 <!-- textarea -->
-                <el-input
+                <v-textarea
                   v-else-if="metaOf(item).type === 'textarea'"
                   v-model="editForm.configValue"
-                  type="textarea"
-                  :rows="3"
+                  rows="3"
                   placeholder="请输入参数值"
+                  density="compact"
+                  variant="outlined"
+                  hide-details
                   class="edit-input"
-                  :class="{ 'edit-input--error': editError }"
+                  :error="!!editError"
                 />
 
                 <!-- text (default) -->
-                <el-input
+                <v-text-field
                   v-else
                   v-model="editForm.configValue"
                   placeholder="请输入参数值"
+                  density="compact"
+                  variant="outlined"
+                  hide-details
                   class="edit-input"
-                  :class="{ 'edit-input--error': editError }"
+                  :error="!!editError"
                 />
               </div>
-              <el-text v-if="editError" class="edit-error" size="small" type="danger">{{ editError }}</el-text>
+              <p v-if="editError" class="edit-error text-caption text-error">{{ editError }}</p>
               <div class="edit-actions">
-                <el-button size="default" @click="cancelEdit">取消</el-button>
-                <el-button type="primary" size="default" :loading="saving" @click="saveEdit(item)">保存</el-button>
+                <v-btn variant="outlined" @click="cancelEdit">取消</v-btn>
+                <v-btn color="primary" variant="flat" :loading="saving" @click="saveEdit(item)">保存</v-btn>
               </div>
             </template>
           </div>
@@ -163,26 +172,21 @@
       </div>
 
       <!-- Empty State -->
-      <el-empty v-if="configSections.length === 0" description="暂无参数配置" :image-size="160" />
+      <v-empty-state v-if="configSections.length === 0" icon="mdi-cog-off-outline" title="暂无参数配置" />
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { ElMessage } from 'element-plus'
-import {
-  Setting, Loading, ZoomIn, EditPen, Refresh,
-  Monitor, Connection, ChatDotRound,
-  ChatLineSquare, Lightning
-} from '@element-plus/icons-vue'
+import { message } from '@/composables/useMessage'
 import { getConfigListApi, updateConfigApi } from '@/api/system/config'
 import type { SysConfig } from '@/types/system'
 
 interface ConfigSection {
   key: string
   title: string
-  icon: any
+  icon: string
   items: SysConfig[]
 }
 
@@ -285,34 +289,34 @@ const configSections = computed<ConfigSection[]>(() => {
 
     // OpenAI 相关
     if (key.includes('openai') || name.includes('openai') || name.includes('OpenAI') || name.includes('gpt') || name.includes('GPT')) {
-      addSection('openai', 'OpenAI 配置', ChatDotRound)
+      addSection('openai', 'OpenAI 配置', 'mdi-robot-outline')
       sections['openai'].items.push(config)
       return
     }
 
     // TMDB 相关
     if (key.includes('tmdb') || name.includes('TMDB') || name.includes('tmdb') || name.includes('TMDb')) {
-      addSection('tmdb', 'TMDb 影视配置', Lightning)
+      addSection('tmdb', 'TMDb 影视配置', 'mdi-flash-outline')
       sections['tmdb'].items.push(config)
       return
     }
 
     // Telegram 相关
     if (key.includes('tg.') || name.includes('tg') || name.includes('TG') || name.includes('Telegram') || name.includes('telegram')) {
-      addSection('tg', 'Telegram 机器人', ChatLineSquare)
+      addSection('tg', 'Telegram 机器人', 'mdi-telegram')
       sections['tg'].items.push(config)
       return
     }
 
     // Copy / STRM 相关
     if (key.includes('copy') || key.includes('strm') || name.includes('复制') || name.includes('STRM') || name.includes('strm')) {
-      addSection('copy', '复制 & STRM 任务', Connection)
+      addSection('copy', '复制 & STRM 任务', 'mdi-swap-horizontal')
       sections['copy'].items.push(config)
       return
     }
 
     // Openlist 基础配置（默认归入此类）
-    addSection('openlist', 'Openlist 基础配置', Monitor)
+    addSection('openlist', 'Openlist 基础配置', 'mdi-monitor')
     sections['openlist'].items.push(config)
   }
 
@@ -332,7 +336,7 @@ const getList = async () => {
     configList.value = res.records || []
   } catch (error) {
     console.error(error)
-    ElMessage.error('加载参数配置失败')
+    message.error('加载参数配置失败')
   } finally {
     loading.value = false
   }
@@ -384,9 +388,9 @@ const toggleSwitch = async (config: SysConfig, val: boolean) => {
       remark: config.remark
     })
     config.configValue = newValue
-    ElMessage.success(`${config.configName} 已${val ? '开启' : '关闭'}`)
+    message.success(`${config.configName} 已${val ? '开启' : '关闭'}`)
   } catch (error: any) {
-    ElMessage.error(error.msg || error.message || '保存失败')
+    message.error(error.msg || error.message || '保存失败')
   } finally {
     switchSavingId.value = null
   }
@@ -435,7 +439,7 @@ const saveEdit = async (original: SysConfig) => {
       updateTime: original.updateTime,
       remark: original.remark
     })
-    ElMessage.success('保存成功')
+    message.success('保存成功')
     editingId.value = null
     await getList()
   } catch (error: any) {
@@ -448,9 +452,9 @@ const saveEdit = async (original: SysConfig) => {
 const copyText = async (text: string) => {
   try {
     await navigator.clipboard.writeText(text)
-    ElMessage.success('已复制键名到剪贴板')
+    message.success('已复制键名到剪贴板')
   } catch {
-    ElMessage.error('复制失败')
+    message.error('复制失败')
   }
 }
 
@@ -459,9 +463,9 @@ const handleRefreshCache = async () => {
   try {
     const { refreshCacheApi } = await import('@/api/system/config')
     await refreshCacheApi()
-    ElMessage.success('缓存已刷新')
+    message.success('缓存已刷新')
   } catch (error: any) {
-    ElMessage.error(error.msg || error.message || '刷新缓存失败')
+    message.error(error.msg || error.message || '刷新缓存失败')
   } finally {
     refreshing.value = false
   }
@@ -726,15 +730,6 @@ getList()
     font-size: 13px;
     color: var(--osr-text-secondary);
     flex-shrink: 0;
-  }
-}
-
-.edit-input {
-  &--error {
-    :deep(.el-textarea__inner),
-    :deep(.el-input__wrapper) {
-      box-shadow: 0 0 0 1px var(--el-color-danger) inset;
-    }
   }
 }
 

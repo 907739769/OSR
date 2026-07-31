@@ -4,7 +4,7 @@
     <div class="page-header">
       <div class="page-header-left">
         <div class="page-header-icon">
-          <el-icon><List /></el-icon>
+          <v-icon icon="mdi-format-list-bulleted" />
         </div>
         <div>
           <h2 class="page-title">字典数据</h2>
@@ -16,51 +16,55 @@
     </div>
 
     <!-- Table Card -->
-    <el-card class="table-card">
+    <v-card class="table-card">
       <div class="action-bar">
         <div class="action-left">
-          <el-button @click="handleBack">
-            <el-icon><ArrowLeft /></el-icon> 返回
-          </el-button>
-          <el-button type="primary" @click="handleAdd">
-            <el-icon><Plus /></el-icon> 新增
-          </el-button>
+          <v-btn variant="outlined" prepend-icon="mdi-arrow-left" @click="handleBack">
+            返回
+          </v-btn>
+          <v-btn color="primary" prepend-icon="mdi-plus" @click="handleAdd">
+            新增
+          </v-btn>
         </div>
       </div>
 
       <!-- Desktop Table -->
-      <el-table v-if="appStore.device === 'desktop'" v-loading="loading" :data="dataList" class="modern-table">
-        <el-table-column label="字典标签" prop="dictLabel" min-width="120" show-overflow-tooltip />
-        <el-table-column label="字典键值" prop="dictValue" width="120" align="center" show-overflow-tooltip />
-        <el-table-column label="状态" align="center" width="90">
-          <template #default="scope">
-            <el-tag :type="scope.row.status === '0' ? 'success' : 'danger'" effect="light">
-              {{ scope.row.status === '0' ? '正常' : '停用' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="备注" prop="remark" min-width="120" show-overflow-tooltip />
-        <el-table-column label="创建时间" prop="createTime" width="170" align="center" />
-        <el-table-column label="操作" align="center" width="150" fixed="right">
-          <template #default="scope">
-            <el-button link type="primary" @click="handleUpdate(scope.row)">
-              <el-icon><EditPen /></el-icon> 编辑
-            </el-button>
-            <el-button link type="danger" @click="handleDelete(scope.row)">
-              <el-icon><Delete /></el-icon> 删除
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+      <v-data-table-server
+        v-if="appStore.device === 'desktop'"
+        :loading="loading"
+        :items="dataList"
+        :items-length="total"
+        :headers="headers"
+        :items-per-page="queryParams.pageSize"
+        :page="queryParams.pageNum"
+        class="modern-table"
+        @update:page="onPageChange"
+        @update:items-per-page="onSizeChange"
+      >
+        <template #item.status="{ item }">
+          <v-chip size="small" :color="item.status === '0' ? 'success' : 'error'" variant="tonal">
+            {{ item.status === '0' ? '正常' : '停用' }}
+          </v-chip>
+        </template>
+        <template #item.actions="{ item }">
+          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(item)">
+            编辑
+          </v-btn>
+          <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(item)">
+            删除
+          </v-btn>
+        </template>
+      </v-data-table-server>
 
       <!-- Mobile Card List -->
-      <div v-if="appStore.device === 'mobile'" v-loading="loading" class="mobile-card-list">
-        <div v-for="item in dataList" :key="item.dictCode" class="mobile-card">
+      <div v-if="appStore.device === 'mobile'" class="mobile-card-list">
+        <v-progress-linear v-if="loading" indeterminate color="primary" />
+        <v-card v-for="item in dataList" :key="item.dictCode" variant="outlined" class="mobile-card">
           <div class="mobile-card-header">
             <span class="mobile-card-title">{{ item.dictLabel }}</span>
-            <el-tag size="small" :type="item.status === '0' ? 'success' : 'danger'">
+            <v-chip size="small" :color="item.status === '0' ? 'success' : 'error'" variant="tonal">
               {{ item.status === '0' ? '正常' : '停用' }}
-            </el-tag>
+            </v-chip>
           </div>
           <div class="mobile-card-body">
             <div class="mobile-card-row">
@@ -73,65 +77,83 @@
             </div>
           </div>
           <div class="mobile-card-actions">
-            <el-button link type="primary" size="small" @click="handleUpdate(item)">
-              <el-icon><EditPen /></el-icon> 编辑
-            </el-button>
-            <el-button link type="danger" size="small" @click="handleDelete(item)">
-              <el-icon><Delete /></el-icon> 删除
-            </el-button>
+            <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(item)">
+              编辑
+            </v-btn>
+            <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(item)">
+              删除
+            </v-btn>
           </div>
-        </div>
-        <el-empty v-if="!dataList.length" description="暂无数据" />
+        </v-card>
+        <v-empty-state v-if="!loading && !dataList.length" icon="mdi-inbox-outline" title="暂无数据" />
       </div>
 
-      <div class="pagination-wrapper">
-        <el-pagination
-          v-model:current-page="queryParams.pageNum"
-          v-model:page-size="queryParams.pageSize"
-          :total="total"
-          :page-sizes="[10, 20, 50]"
-          layout="total, sizes, prev, pager, next, jumper"
-          @current-change="getList"
-          @size-change="getList"
+      <!-- Pagination (mobile; desktop paginates via v-data-table-server) -->
+      <div v-if="appStore.device === 'mobile'" class="pagination-wrapper">
+        <v-pagination
+          v-model="queryParams.pageNum"
+          :length="Math.ceil(total / queryParams.pageSize) || 1"
+          density="comfortable"
+          @update:model-value="getList"
         />
       </div>
-    </el-card>
+    </v-card>
 
     <!-- Dialog -->
-    <el-dialog v-model="open" :title="title" :width="appStore.device === 'mobile' ? '90%' : '520px'" append-to-body class="modern-dialog">
-      <el-form ref="dataRef" :model="form" :rules="rules" label-width="100px">
-        <el-form-item label="字典类型">
-          <el-input v-model="form.dictType" :disabled="true" placeholder="未选择字典类型" />
-        </el-form-item>
-        <el-form-item label="字典标签" prop="dictLabel">
-          <el-input v-model="form.dictLabel" placeholder="请输入字典标签" />
-        </el-form-item>
-        <el-form-item label="字典键值" prop="dictValue">
-          <el-input v-model="form.dictValue" placeholder="请输入字典键值" />
-        </el-form-item>
-        <el-form-item label="状态" prop="status">
-          <el-radio-group v-model="form.status">
-            <el-radio value="0">正常</el-radio>
-            <el-radio value="1">停用</el-radio>
-          </el-radio-group>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="cancel">取消</el-button>
-        <el-button type="primary" @click="submitForm">确定</el-button>
-      </template>
-    </el-dialog>
+    <v-dialog v-model="open" :width="appStore.device === 'mobile' ? '90%' : '520px'" class="modern-dialog">
+      <v-card :title="title">
+        <v-card-text>
+          <v-form ref="dataRef">
+            <v-text-field
+              v-model="form.dictType"
+              label="字典类型"
+              disabled
+              placeholder="未选择字典类型"
+              variant="outlined"
+              density="comfortable"
+              class="mb-2"
+            />
+            <v-text-field
+              v-model="form.dictLabel"
+              label="字典标签"
+              placeholder="请输入字典标签"
+              variant="outlined"
+              density="comfortable"
+              class="mb-2"
+              :rules="[(v: any) => !!v || '字典标签不能为空']"
+            />
+            <v-text-field
+              v-model="form.dictValue"
+              label="字典键值"
+              placeholder="请输入字典键值"
+              variant="outlined"
+              density="comfortable"
+              class="mb-2"
+              :rules="[(v: any) => !!v || '字典键值不能为空']"
+            />
+            <v-radio-group v-model="form.status" label="状态" inline hide-details>
+              <v-radio label="正常" value="0" />
+              <v-radio label="停用" value="1" />
+            </v-radio-group>
+          </v-form>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="outlined" @click="cancel">取消</v-btn>
+          <v-btn color="primary" variant="flat" @click="submitForm">确定</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, Plus, EditPen, Delete, List } from '@element-plus/icons-vue'
+import { message } from '@/composables/useMessage'
+import { confirm } from '@/composables/useConfirm'
 import { getDictDataListApi, addDictDataApi, deleteDictDataApi, updateDictDataApi } from '@/api/system/dict'
 import { useAppStore } from '@/stores/app'
-import type { FormInstance } from 'element-plus'
 import type { SearchParams } from '@/types'
 import type { SysDictData } from '@/types/system'
 
@@ -152,18 +174,22 @@ const total = ref(0)
 const title = ref('')
 const open = ref(false)
 
+const headers = [
+  { title: '字典标签', key: 'dictLabel', minWidth: '120' },
+  { title: '字典键值', key: 'dictValue', align: 'center' as const, width: '120' },
+  { title: '状态', key: 'status', align: 'center' as const, width: '90' },
+  { title: '备注', key: 'remark', minWidth: '120' },
+  { title: '创建时间', key: 'createTime', width: '170', align: 'center' as const },
+  { title: '操作', key: 'actions', align: 'center' as const, width: '150', sortable: false }
+]
+
 const queryParams = reactive<SearchParams>({
   pageNum: 1,
   pageSize: 10,
   dictType: undefined
 })
 
-const dataRef = ref<FormInstance>()
-
-const rules = {
-  dictLabel: [{ required: true, message: '字典标签不能为空', trigger: 'blur' }],
-  dictValue: [{ required: true, message: '字典键值不能为空', trigger: 'blur' }]
-}
+const dataRef = ref<any>()
 
 const form = reactive<Partial<SysDictData>>({ dictCode: undefined, dictLabel: undefined, dictValue: undefined, dictType: undefined, dictSort: undefined, listClass: 'default', cssClass: '', isDefault: 'N', status: '0' })
 
@@ -191,6 +217,17 @@ const getList = async () => {
   } finally {
     loading.value = false
   }
+}
+
+const onPageChange = (page: number) => {
+  queryParams.pageNum = page
+  getList()
+}
+
+const onSizeChange = (size: number) => {
+  queryParams.pageSize = size
+  queryParams.pageNum = 1
+  getList()
 }
 
 const handleAdd = () => {
@@ -221,9 +258,9 @@ const handleUpdate = (row?: any) => {
 
 const handleDelete = async (row: any) => {
   try {
-    await ElMessageBox.confirm(`是否确认删除字典编码为"${row.dictCode}"的数据项？`, '警告', { type: 'warning' })
+    await confirm({ message: `是否确认删除字典编码为"${row.dictCode}"的数据项？`, title: '警告', type: 'warning' })
     await deleteDictDataApi(row.dictCode)
-    ElMessage.success('删除成功')
+    message.success('删除成功')
     getList()
   } catch (e) {
     if (e !== 'cancel') console.error(e)
@@ -240,7 +277,7 @@ const reset = () => {
   form.cssClass = ''
   form.isDefault = 'N'
   form.status = '0'
-  dataRef.value?.resetFields()
+  dataRef.value?.resetValidation()
 }
 
 const cancel = () => {
@@ -251,22 +288,20 @@ const cancel = () => {
 const submitForm = async () => {
   const formEl = dataRef.value
   if (!formEl) return
-  await formEl.validate(async (valid: boolean) => {
-    if (valid) {
-      try {
-        if (form.dictCode) {
-          await updateDictDataApi(form as SysDictData)
-        } else {
-          await addDictDataApi(form as SysDictData)
-        }
-        ElMessage.success('操作成功')
-        open.value = false
-        getList()
-      } catch (error) {
-        console.error(error)
-      }
+  const { valid } = await formEl.validate()
+  if (!valid) return
+  try {
+    if (form.dictCode) {
+      await updateDictDataApi(form as SysDictData)
+    } else {
+      await addDictDataApi(form as SysDictData)
     }
-  })
+    message.success('操作成功')
+    open.value = false
+    getList()
+  } catch (error) {
+    console.error(error)
+  }
 }
 
 getList()
@@ -349,15 +384,9 @@ getList()
    Table Card
    ============================================ */
 .table-card {
-  border: none;
-  border-radius: var(--osr-radius-lg);
-  box-shadow: var(--osr-shadow-base);
-
-  :deep(.el-card__body) {
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-  }
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
 }
 
 /* ============================================
@@ -391,15 +420,7 @@ getList()
     .page-desc { font-size: 12px; }
   }
 
-  :deep(.el-table) {
-    font-size: 13px;
-
-    .el-table__cell {
-      padding: 8px 0;
-    }
-  }
-
-  .table-card :deep(.el-card__body) {
+  .table-card {
     padding: 12px;
   }
 
@@ -413,9 +434,6 @@ getList()
   }
 
   .mobile-card {
-    background: var(--osr-surface);
-    border-radius: 8px;
-    border: 1px solid var(--osr-border-light);
     overflow: hidden;
 
     .mobile-card-header {
@@ -435,7 +453,6 @@ getList()
         text-overflow: ellipsis;
         white-space: nowrap;
         margin-right: 8px;
-        i { color: var(--osr-primary); margin-right: 4px; }
       }
     }
 

@@ -1,10 +1,10 @@
 <template>
   <div class="error-page">
-    <el-result icon="warning" title="404" sub-title="页面不存在">
-      <template #extra>
-        <el-button type="primary" @click="goHome">返回首页</el-button>
+    <v-empty-state icon="mdi-alert-outline" title="404" text="页面不存在">
+      <template #actions>
+        <v-btn color="primary" @click="goHome">返回首页</v-btn>
       </template>
-    </el-result>
+    </v-empty-state>
   </div>
 </template>
 

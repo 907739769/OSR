@@ -1,30 +1,31 @@
 /* ============================================
    OSR Design Tokens
-   Teal/Emerald + Light Gray Sidebar
+   胶片琥珀 + 深空靛蓝 —— 与 src/plugins/vuetify.ts 里的 osrLight 主题保持同色系，
+   供页面里未走 Vuetify 组件的自定义卡片/头部装饰使用（保留作为过渡兼容层）
    ============================================ */
 
 :root {
-  /* Primary - Teal/Emerald */
-  --osr-primary: #0d9488;
-  --osr-primary-light-9: #f0fdfa;
-  --osr-primary-light-8: #ccfbf1;
-  --osr-primary-light-7: #99f6e8;
-  --osr-primary-light-6: #5eead4;
-  --osr-primary-light-5: #2dd4bf;
-  --osr-primary-light-4: #14b8a6;
-  --osr-primary-light-3: #0d9488;
-  --osr-primary-light-2: #0f766e;
-  --osr-primary-light-1: #115e59;
+  /* Primary - 胶片琥珀 */
+  --osr-primary: #b4690e;
+  --osr-primary-light-9: #fbf1e4;
+  --osr-primary-light-8: #f6e1c4;
+  --osr-primary-light-7: #f0d0a3;
+  --osr-primary-light-6: #e9bd7e;
+  --osr-primary-light-5: #e0a548;
+  --osr-primary-light-4: #c98a1e;
+  --osr-primary-light-3: #b4690e;
+  --osr-primary-light-2: #8f5308;
+  --osr-primary-light-1: #6b3d05;
 
   /* Colors */
-  --osr-success: #22c55e;
-  --osr-success-light: #f0fdf4;
-  --osr-warning: #f59e0b;
-  --osr-warning-light: #fffbeb;
-  --osr-danger: #ef4444;
-  --osr-danger-light: #fef2f2;
-  --osr-info: #64748b;
-  --osr-info-light: #f8fafc;
+  --osr-success: #3f8f5f;
+  --osr-success-light: #eaf5ee;
+  --osr-warning: #c98a1e;
+  --osr-warning-light: #faf1e0;
+  --osr-danger: #c0362c;
+  --osr-danger-light: #fbeae9;
+  --osr-info: #4c6c93;
+  --osr-info-light: #eaeff5;
 
   /* Surfaces */
   --osr-bg: #ffffff;

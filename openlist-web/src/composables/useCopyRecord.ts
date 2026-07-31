@@ -23,9 +23,9 @@ const STATUS_TEXT: Record<string, string> = {
   '4': '未知'
 }
 
-const STATUS_TYPE: Record<string, 'warning' | 'danger' | 'success' | 'info'> = {
+const STATUS_TYPE: Record<string, 'warning' | 'error' | 'success' | 'info'> = {
   '1': 'warning',
-  '2': 'danger',
+  '2': 'error',
   '3': 'success'
 }
 

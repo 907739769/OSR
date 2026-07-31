@@ -1,31 +1,42 @@
 <template>
   <div class="mobile-page">
     <MobileSearchPanel v-model:collapsed="searchCollapsed" :loading="loading" @search="handleQuery" @reset="resetQuery">
-      <el-form ref="queryRef" :model="queryParams" label-width="72px">
-        <el-form-item label="规则名称" prop="name">
-          <el-input v-model="queryParams.name" placeholder="规则名称" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="媒体类型" prop="mediaType">
-          <el-select v-model="queryParams.mediaType" placeholder="全部类型" clearable style="width: 100%">
-            <el-option label="电影" value="MOVIE" />
-            <el-option label="剧集" value="TV" />
-          </el-select>
-        </el-form-item>
-      </el-form>
+      <v-form ref="queryRef">
+        <v-text-field
+          v-model="queryParams.name"
+          label="规则名称"
+          placeholder="规则名称"
+          clearable
+          density="compact"
+          variant="outlined"
+          class="mb-3"
+          @keyup.enter="handleQuery"
+        />
+        <v-select
+          v-model="queryParams.mediaType"
+          label="媒体类型"
+          :items="[{ title: '电影', value: 'MOVIE' }, { title: '剧集', value: 'TV' }]"
+          placeholder="全部类型"
+          clearable
+          density="compact"
+          variant="outlined"
+        />
+      </v-form>
     </MobileSearchPanel>
 
-    <el-button class="fab-add" type="primary" size="large" round @click="handleAdd('新增热门自动订阅规则')">
-      <el-icon><Plus /></el-icon> 新增
-    </el-button>
+    <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="mdi-plus" @click="handleAdd('新增热门自动订阅规则')">
+      新增
+    </v-btn>
 
-    <div class="task-list" v-loading="loading">
+    <div class="task-list">
+      <v-progress-linear v-if="loading" indeterminate color="primary" />
       <div v-for="item in taskList" :key="item.id" class="task-card">
         <div class="card-content">
           <div class="card-top">
             <span class="task-name" :title="item.name">{{ item.name }}</span>
-            <el-tag :type="item.enabled === '1' ? 'success' : 'info'" size="small" effect="light">
+            <v-chip :color="item.enabled === '1' ? 'success' : 'info'" size="small" variant="tonal">
               {{ item.enabled === '1' ? '启用' : '停用' }}
-            </el-tag>
+            </v-chip>
           </div>
           <div class="card-detail">
             <div class="detail-row">
@@ -43,14 +54,14 @@
           </div>
         </div>
         <div class="card-actions">
-          <el-button link type="primary" size="small" :loading="runningIds.has(item.id)" @click="handleRun(item)">执行</el-button>
-          <el-button link type="primary" size="small" @click="handleShowLogs(item)">日志</el-button>
-          <el-button link type="primary" size="small" @click="handleUpdate(item, '编辑规则')">编辑</el-button>
-          <el-button link type="danger" size="small" :icon="Delete" @click="handleDelete(item)">删除</el-button>
+          <v-btn variant="text" color="primary" size="small" :loading="runningIds.has(item.id)" @click="handleRun(item)">执行</v-btn>
+          <v-btn variant="text" color="primary" size="small" @click="handleShowLogs(item)">日志</v-btn>
+          <v-btn variant="text" color="primary" size="small" @click="handleUpdate(item, '编辑规则')">编辑</v-btn>
+          <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(item)">删除</v-btn>
         </div>
       </div>
 
-      <el-empty v-if="!loading && taskList.length === 0" description="暂无规则" />
+      <v-empty-state v-if="!loading && taskList.length === 0" icon="mdi-inbox-outline" title="暂无规则" />
     </div>
 
     <MobilePager
@@ -63,82 +74,135 @@
       @size-change="handleSizeChange"
     />
 
-    <el-dialog v-model="open" :title="dialogTitle" width="90%" append-to-body class="modern-dialog">
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
-        <el-form-item label="规则名称" prop="name">
-          <el-input v-model="form.name" placeholder="如：每周热门电影" />
-        </el-form-item>
-        <el-form-item label="是否启用" prop="enabled">
-          <el-switch v-model="form.enabled" active-value="1" inactive-value="0" />
-        </el-form-item>
-        <el-form-item label="媒体类型" prop="mediaType">
-          <el-radio-group v-model="form.mediaType">
-            <el-radio value="MOVIE">电影</el-radio>
-            <el-radio value="TV">剧集</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="数据源" prop="source">
-          <el-select v-model="form.source" style="width: 100%">
-            <el-option label="TMDb 每日热门" value="TMDB_TRENDING_DAY" />
-            <el-option label="TMDb 每周热门" value="TMDB_TRENDING_WEEK" />
-            <el-option label="TMDb 条件发现" value="TMDB_DISCOVER" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="排除类型" prop="genreExclude">
-          <el-select
-            v-model="genreExcludeArr" multiple collapse-tags collapse-tags-tooltip clearable
-            placeholder="不排除任何类型" style="width: 100%"
-          >
-            <el-option v-for="g in genreOptions" :key="g.id" :label="g.label" :value="g.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="最低评分" prop="minVoteAverage">
-          <el-input-number v-model="form.minVoteAverage" :min="0" :max="10" :step="0.5" style="width: 100%" />
-        </el-form-item>
-        <el-form-item label="最低人数" prop="minVoteCount">
-          <el-input-number v-model="form.minVoteCount" :min="0" style="width: 100%" />
-        </el-form-item>
-        <el-form-item label="地区" prop="region" v-if="form.source === 'TMDB_DISCOVER'">
-          <el-select v-model="form.region" clearable placeholder="不限地区" style="width: 100%">
-            <el-option v-for="r in REGION_OPTIONS" :key="r.code" :label="r.label" :value="r.code" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="单轮上限" prop="maxAddPerRun">
-          <el-input-number v-model="form.maxAddPerRun" :min="1" :max="50" style="width: 100%" />
-        </el-form-item>
-        <el-form-item label="执行间隔" prop="intervalHours">
-          <el-input-number v-model="form.intervalHours" :min="1" :max="720" style="width: 100%" />
-        </el-form-item>
-        <el-form-item label="下载器" prop="downloaderId">
-          <el-select v-model="form.downloaderId" clearable placeholder="空则用默认" style="width: 100%">
-            <el-option v-for="d in downloaderOptions" :key="d.id" :label="d.name" :value="d.id" />
-          </el-select>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="open = false">取消</el-button>
-        <el-button type="primary" :loading="submitLoading" @click="submitForm">确定</el-button>
-      </template>
-    </el-dialog>
+    <v-dialog v-model="open" max-width="90%">
+      <v-card :title="dialogTitle">
+        <v-card-text>
+          <v-form ref="formRef">
+            <v-text-field
+              v-model="form.name"
+              label="规则名称"
+              placeholder="如：每周热门电影"
+              :rules="nameRules"
+              class="mb-3"
+            />
+            <div class="form-item">
+              <label class="form-label">是否启用</label>
+              <v-switch v-model="form.enabled" true-value="1" false-value="0" color="primary" hide-details />
+            </div>
+            <div class="form-item">
+              <label class="form-label">媒体类型</label>
+              <v-radio-group v-model="form.mediaType" inline hide-details>
+                <v-radio label="电影" value="MOVIE" />
+                <v-radio label="剧集" value="TV" />
+              </v-radio-group>
+            </div>
+            <v-select
+              v-model="form.source"
+              label="数据源"
+              :items="[
+                { title: 'TMDb 每日热门', value: 'TMDB_TRENDING_DAY' },
+                { title: 'TMDb 每周热门', value: 'TMDB_TRENDING_WEEK' },
+                { title: 'TMDb 条件发现', value: 'TMDB_DISCOVER' }
+              ]"
+              class="mb-3"
+            />
+            <v-select
+              v-model="genreExcludeArr"
+              label="排除类型"
+              :items="genreOptions"
+              item-title="label"
+              item-value="id"
+              multiple
+              chips
+              closable-chips
+              clearable
+              placeholder="不排除任何类型"
+              class="mb-3"
+            />
+            <v-text-field
+              v-model.number="form.minVoteAverage"
+              type="number"
+              label="最低评分"
+              :min="0"
+              :max="10"
+              step="0.5"
+              class="mb-3"
+            />
+            <v-text-field
+              v-model.number="form.minVoteCount"
+              type="number"
+              label="最低人数"
+              :min="0"
+              class="mb-3"
+            />
+            <v-select
+              v-if="form.source === 'TMDB_DISCOVER'"
+              v-model="form.region"
+              label="地区"
+              :items="REGION_OPTIONS"
+              item-title="label"
+              item-value="code"
+              clearable
+              placeholder="不限地区"
+              class="mb-3"
+            />
+            <v-text-field
+              v-model.number="form.maxAddPerRun"
+              type="number"
+              label="单轮上限"
+              :min="1"
+              :max="50"
+              class="mb-3"
+            />
+            <v-text-field
+              v-model.number="form.intervalHours"
+              type="number"
+              label="执行间隔"
+              :min="1"
+              :max="720"
+              class="mb-3"
+            />
+            <v-select
+              v-model="form.downloaderId"
+              label="下载器"
+              :items="downloaderOptions"
+              item-title="name"
+              item-value="id"
+              clearable
+              placeholder="空则用默认"
+            />
+          </v-form>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="outlined" @click="open = false">取消</v-btn>
+          <v-btn color="primary" variant="flat" :loading="submitLoading" @click="handleSubmitClick">确定</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
-    <el-dialog v-model="logDialogVisible" title="执行日志" width="90%" append-to-body class="modern-dialog">
-      <div class="log-list" v-loading="logLoading">
-        <div v-for="log in logList" :key="log.id" class="log-item">
-          <div class="log-top">
-            <span class="log-title" :title="log.title">{{ log.title || '-' }}</span>
-            <el-tag :type="resultTagType(log.result)" size="small">{{ resultLabel(log.result) }}</el-tag>
+    <v-dialog v-model="logDialogVisible" max-width="90%">
+      <v-card title="执行日志">
+        <v-card-text>
+          <div class="log-list">
+            <v-progress-linear v-if="logLoading" indeterminate color="primary" />
+            <div v-for="log in logList" :key="log.id" class="log-item">
+              <div class="log-top">
+                <span class="log-title" :title="log.title">{{ log.title || '-' }}</span>
+                <v-chip :color="resultTagType(log.result)" size="small" variant="tonal">{{ resultLabel(log.result) }}</v-chip>
+              </div>
+              <div class="log-meta">{{ log.createTime }}<span v-if="log.season"> · 第{{ log.season }}季</span></div>
+              <div class="log-message" v-if="log.message">{{ log.message }}</div>
+            </div>
+            <v-empty-state v-if="!logLoading && logList.length === 0" icon="mdi-inbox-outline" title="暂无日志" />
           </div>
-          <div class="log-meta">{{ log.createTime }}<span v-if="log.season"> · 第{{ log.season }}季</span></div>
-          <div class="log-message" v-if="log.message">{{ log.message }}</div>
-        </div>
-        <el-empty v-if="!logLoading && logList.length === 0" description="暂无日志" />
-      </div>
-    </el-dialog>
+        </v-card-text>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { Delete, Plus } from '@element-plus/icons-vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import { usePtAutoAddRule, REGION_OPTIONS } from '@/composables/usePtAutoAddRule'
@@ -154,6 +218,25 @@ const {
   logDialogVisible, logLoading, logList, handleShowLogs,
   genreOptions, genreExcludeArr, downloaderOptions
 } = usePtAutoAddRule()
+
+// Element Plus 表单规则是 { required, message, trigger } 对象格式，
+// Vuetify 的 v-text-field :rules 需要函数格式，这里就地转换，不改动 composable
+const toRuleFns = (ruleList: any[]) =>
+  (ruleList || []).map((rule: any) => (value: any) => {
+    if (rule.required && (value === null || value === undefined || value === '')) {
+      return rule.message || '不能为空'
+    }
+    return true
+  })
+
+const nameRules = toRuleFns(rules.name)
+
+const handleSubmitClick = async () => {
+  if (!formRef.value) return
+  const { valid } = await formRef.value.validate()
+  if (!valid) return
+  submitForm()
+}
 
 const sourceLabel = (source: string) => {
   const map: Record<string, string> = {
@@ -174,12 +257,12 @@ const resultLabel = (result: string) => {
   return map[result] || result
 }
 
-const resultTagType = (result: string): 'success' | 'info' | 'warning' | 'danger' => {
-  const map: Record<string, 'success' | 'info' | 'warning' | 'danger'> = {
+const resultTagType = (result: string): 'success' | 'info' | 'warning' | 'error' => {
+  const map: Record<string, 'success' | 'info' | 'warning' | 'error'> = {
     ADDED: 'success',
     SKIPPED_EXISTS: 'info',
     SKIPPED_FILTER: 'warning',
-    FAILED: 'danger'
+    FAILED: 'error'
   }
   return map[result] || 'info'
 }
@@ -267,6 +350,17 @@ const resultTagType = (result: string): 'success' | 'info' | 'warning' | 'danger
   }
 }
 
+.form-item {
+  margin-bottom: 16px;
+
+  .form-label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 13px;
+    color: var(--osr-text-secondary);
+  }
+}
+
 .fab-add {
   position: fixed;
   right: 20px;
@@ -325,12 +419,6 @@ const resultTagType = (result: string): 'success' | 'info' | 'warning' | 'danger
   .log-message {
     font-size: 12px;
     color: var(--osr-text-primary);
-  }
-}
-
-:deep(.modern-dialog) {
-  .el-dialog__body {
-    padding: 16px;
   }
 }
 </style>

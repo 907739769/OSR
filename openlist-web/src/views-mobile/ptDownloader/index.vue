@@ -2,35 +2,43 @@
   <div class="mobile-page">
     <!-- 搜索 -->
     <MobileSearchPanel v-model:collapsed="searchCollapsed" :loading="loading" @search="handleQuery" @reset="resetQuery">
-      <el-form ref="queryRef" :model="queryParams" label-width="72px">
-        <el-form-item label="名称" prop="name">
-          <el-input v-model="queryParams.name" placeholder="请输入名称" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="状态" prop="enabled">
-          <el-select v-model="queryParams.enabled" placeholder="全部状态" clearable style="width: 100%">
-            <el-option label="启用" value="1" />
-            <el-option label="停用" value="0" />
-          </el-select>
-        </el-form-item>
-      </el-form>
+      <v-text-field
+        v-model="queryParams.name"
+        label="名称"
+        placeholder="请输入名称"
+        clearable
+        density="compact"
+        variant="outlined"
+        @keyup.enter="handleQuery"
+      />
+      <v-select
+        v-model="queryParams.enabled"
+        :items="[{ title: '启用', value: '1' }, { title: '停用', value: '0' }]"
+        label="状态"
+        placeholder="全部状态"
+        clearable
+        density="compact"
+        variant="outlined"
+      />
     </MobileSearchPanel>
 
     <!-- 批量操作 -->
     <div class="batch-bar" v-if="selectedIds.length > 0">
       <span class="selected-count">已选 {{ selectedIds.length }} 项</span>
-      <el-button link type="danger" size="small" @click="handleDelete(undefined, `是否确认删除编号为“${selectedIds}”的下载器？`)">
-        <el-icon><Delete /></el-icon> 批量删除
-      </el-button>
-      <el-button link size="small" @click="clearSelection">取消</el-button>
+      <v-btn variant="text" color="error" size="small" @click="handleDelete(undefined, `是否确认删除编号为“${selectedIds}”的下载器？`)">
+        批量删除
+      </v-btn>
+      <v-btn variant="text" size="small" @click="clearSelection">取消</v-btn>
     </div>
 
     <!-- 新增 FAB -->
-    <el-button class="fab-add" type="primary" size="large" round @click="handleAdd('新增下载器')">
-      <el-icon><Plus /></el-icon> 新增
-    </el-button>
+    <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="mdi-plus" @click="handleAdd('新增下载器')">
+      新增
+    </v-btn>
 
     <!-- 列表 -->
-    <div class="task-list" v-loading="loading">
+    <div class="task-list">
+      <v-progress-linear v-if="loading" indeterminate color="primary" />
       <div
         v-for="item in taskList"
         :key="item.id"
@@ -39,18 +47,17 @@
         @click="handleCardClick($event, item.id)"
       >
         <div class="card-checkbox">
-          <el-checkbox
+          <v-checkbox-btn
             :model-value="selectedIds.includes(item.id)"
-            size="large"
-            @change="toggleSelect(item.id)"
+            @update:model-value="toggleSelect(item.id)"
           />
         </div>
         <div class="card-content">
           <div class="card-top">
             <span class="task-name">{{ item.name }}</span>
-            <el-tag :type="item.enabled === '1' ? 'success' : 'danger'" size="small" effect="light">
+            <v-chip :color="item.enabled === '1' ? 'success' : 'error'" size="small" variant="tonal">
               {{ item.enabled === '1' ? '启用' : '停用' }}
-            </el-tag>
+            </v-chip>
           </div>
           <div class="card-detail">
             <div class="detail-row">
@@ -72,16 +79,12 @@
           </div>
         </div>
         <div class="card-actions" @click.stop>
-          <el-button link type="primary" size="small" :icon="Edit" @click="handleUpdate(item, '修改下载器')">
-            修改
-          </el-button>
-          <el-button link type="danger" size="small" :icon="Delete" @click="handleDelete(item)">
-            删除
-          </el-button>
+          <v-btn variant="text" color="primary" size="small" icon="mdi-pencil-outline" @click="handleUpdate(item, '修改下载器')" />
+          <v-btn variant="text" color="error" size="small" icon="mdi-delete-outline" @click="handleDelete(item)" />
         </div>
       </div>
 
-      <el-empty v-if="!loading && taskList.length === 0" description="暂无下载器" />
+      <v-empty-state v-if="!loading && taskList.length === 0" icon="mdi-inbox-outline" title="暂无下载器" />
     </div>
 
     <!-- 分页 -->
@@ -96,65 +99,91 @@
     />
 
     <!-- 新增/编辑弹窗 -->
-    <el-dialog v-model="open" :title="dialogTitle" width="90%" append-to-body class="modern-dialog">
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
-        <el-form-item label="名称" prop="name">
-          <el-input v-model="form.name" placeholder="请输入名称" />
-        </el-form-item>
-        <el-form-item label="类型" prop="type">
-          <el-select v-model="form.type" style="width: 100%">
-            <el-option label="qBittorrent" value="QBITTORRENT" />
-            <el-option label="Transmission" value="TRANSMISSION" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="主机" prop="host">
-          <el-input v-model="form.host" placeholder="主机名或 IP，不含协议与端口" />
-        </el-form-item>
-        <el-form-item label="端口" prop="port">
-          <el-input-number v-model="form.port" :min="1" :max="65535" style="width: 100%" />
-        </el-form-item>
-        <el-form-item label="HTTPS" prop="useHttps">
-          <el-radio-group v-model="form.useHttps">
-            <el-radio value="0">关闭</el-radio>
-            <el-radio value="1">开启</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="用户名" prop="username">
-          <el-input v-model="form.username" placeholder="请输入用户名" />
-        </el-form-item>
-        <el-form-item label="密码" prop="password">
-          <el-input
-            v-model="form.password"
-            type="password"
-            show-password
-            :placeholder="form.id ? '留空则不修改密码' : '请输入密码'"
-          />
-        </el-form-item>
-        <el-form-item label="保存路径" prop="savePath">
-          <el-input v-model="form.savePath" placeholder="种子保存路径" @blur="handleSavePathBlur" />
-          <div v-if="savePathWarning" class="save-path-warning">{{ savePathWarning }}</div>
-        </el-form-item>
-        <el-form-item label="标签" prop="tag">
-          <el-input v-model="form.tag" placeholder="推送种子时打的标签" />
-        </el-form-item>
-        <el-form-item label="状态" prop="enabled">
-          <el-radio-group v-model="form.enabled">
-            <el-radio value="1">启用</el-radio>
-            <el-radio value="0">停用</el-radio>
-          </el-radio-group>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button :loading="testLoading" @click="handleTest">测试连接</el-button>
-        <el-button @click="open = false">取消</el-button>
-        <el-button type="primary" :loading="submitLoading" @click="submitForm">确定</el-button>
-      </template>
-    </el-dialog>
+    <v-dialog v-model="open" width="90%" class="modern-dialog">
+      <v-card :title="dialogTitle">
+        <v-card-text>
+          <v-form ref="formRef">
+            <v-text-field
+              v-model="form.name"
+              label="名称"
+              placeholder="请输入名称"
+              :rules="toRules(rules.name)"
+              class="mb-2"
+            />
+            <v-select
+              v-model="form.type"
+              label="类型"
+              :items="[{ title: 'qBittorrent', value: 'QBITTORRENT' }, { title: 'Transmission', value: 'TRANSMISSION' }]"
+              class="mb-2"
+            />
+            <v-text-field
+              v-model="form.host"
+              label="主机"
+              placeholder="主机名或 IP，不含协议与端口"
+              :rules="toRules(rules.host)"
+              class="mb-2"
+            />
+            <v-text-field
+              v-model.number="form.port"
+              label="端口"
+              type="number"
+              min="1"
+              max="65535"
+              :rules="toRules(rules.port)"
+              class="mb-2"
+            />
+            <v-radio-group v-model="form.useHttps" inline label="HTTPS" hide-details class="mb-2">
+              <v-radio label="关闭" value="0" />
+              <v-radio label="开启" value="1" />
+            </v-radio-group>
+            <v-text-field
+              v-model="form.username"
+              label="用户名"
+              placeholder="请输入用户名"
+              class="mb-2"
+            />
+            <v-text-field
+              v-model="form.password"
+              label="密码"
+              type="password"
+              :placeholder="form.id ? '留空则不修改密码' : '请输入密码'"
+              class="mb-2"
+            />
+            <div class="mb-2">
+              <v-text-field
+                v-model="form.savePath"
+                label="保存路径"
+                placeholder="种子保存路径"
+                :rules="toRules(rules.savePath)"
+                @blur="handleSavePathBlur"
+              />
+              <div v-if="savePathWarning" class="save-path-warning">{{ savePathWarning }}</div>
+            </div>
+            <v-text-field
+              v-model="form.tag"
+              label="标签"
+              placeholder="推送种子时打的标签"
+              :rules="toRules(rules.tag)"
+              class="mb-2"
+            />
+            <v-radio-group v-model="form.enabled" inline label="状态" hide-details>
+              <v-radio label="启用" value="1" />
+              <v-radio label="停用" value="0" />
+            </v-radio-group>
+          </v-form>
+        </v-card-text>
+        <v-card-actions>
+          <v-btn :loading="testLoading" @click="handleTest">测试连接</v-btn>
+          <v-spacer />
+          <v-btn @click="open = false">取消</v-btn>
+          <v-btn color="primary" variant="flat" :loading="submitLoading" @click="submitForm">确定</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { Edit, Delete, Plus } from '@element-plus/icons-vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import { usePtDownloader } from '@/composables/usePtDownloader'
@@ -166,7 +195,7 @@ const DOWNLOADER_TYPE_LABELS: Record<string, string> = {
 const downloaderTypeLabel = (type: string) => DOWNLOADER_TYPE_LABELS[type] || type
 
 const {
-  taskList, loading, total, queryParams, queryRef,
+  taskList, loading, total, queryParams,
   handleQuery, resetQuery,
   selectedIds, toggleSelect, handleCardClick, clearSelection,
   open, dialogTitle, submitLoading, formRef, form, rules,
@@ -175,6 +204,18 @@ const {
   totalPages, prevPage, nextPage, handleSizeChange,
   searchCollapsed
 } = usePtDownloader()
+
+// 将 Element Plus 风格的校验规则对象转换为 Vuetify 的规则函数数组
+const toRules = (fieldRules?: any[]) => {
+  return (fieldRules || []).map((r: any) => (value: any) => {
+    if (r.required && (value === undefined || value === null || value === '')) return r.message
+    if (r.type === 'number' && value !== null && value !== undefined && value !== '') {
+      if (r.min !== undefined && Number(value) < r.min) return r.message
+      if (r.max !== undefined && Number(value) > r.max) return r.message
+    }
+    return true
+  })
+}
 </script>
 
 <style scoped lang="scss">
@@ -182,7 +223,7 @@ const {
   margin-top: 4px;
   font-size: 12px;
   line-height: 1.5;
-  color: var(--el-color-warning);
+  color: rgb(var(--v-theme-warning));
 }
 
 .mobile-page {
@@ -208,12 +249,6 @@ const {
     color: var(--osr-primary);
     margin-right: 4px;
     white-space: nowrap;
-  }
-
-  .el-button {
-    font-size: 12px;
-    padding: 0 4px;
-    height: auto;
   }
 }
 
@@ -305,17 +340,10 @@ const {
   .card-actions {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 2px;
     flex-shrink: 0;
-    padding-left: 8px;
+    padding-left: 4px;
     border-left: 1px solid var(--osr-border-light);
-
-    .el-button {
-      font-size: 11px;
-      padding: 2px 4px;
-      height: auto;
-      white-space: nowrap;
-    }
   }
 }
 
@@ -324,9 +352,6 @@ const {
   right: 20px;
   bottom: calc(56px + 16px + env(safe-area-inset-bottom, 0px));
   z-index: 1000;
-  padding: 12px 20px;
-  font-size: 14px;
-  font-weight: 500;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   transition: all var(--osr-transition-fast);
 
@@ -337,14 +362,6 @@ const {
   @media (min-width: 768px) {
     right: 40px;
     bottom: calc(56px + 24px);
-    padding: 14px 24px;
-    font-size: 15px;
-  }
-}
-
-:deep(.modern-dialog) {
-  .el-dialog__body {
-    padding: 16px;
   }
 }
 </style>

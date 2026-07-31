@@ -2,36 +2,46 @@
   <div class="mobile-page">
     <!-- 搜索 -->
     <MobileSearchPanel v-model:collapsed="searchCollapsed" :loading="loading" @search="handleQuery" @reset="resetQuery">
-      <el-form ref="queryRef" :model="queryParams" label-width="72px">
-        <el-form-item label="标题" prop="title">
-          <el-input v-model="queryParams.title" placeholder="请输入种子标题" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="状态" prop="state">
-          <el-select v-model="queryParams.state" placeholder="全部状态" clearable style="width: 100%">
-            <el-option label="已推送" value="PUSHED" />
-            <el-option label="下载中" value="DOWNLOADING" />
-            <el-option label="已完成" value="COMPLETED" />
-            <el-option label="失败" value="FAILED" />
-          </el-select>
-        </el-form-item>
-      </el-form>
+      <v-form ref="queryRef">
+        <v-text-field
+          v-model="queryParams.title"
+          label="标题"
+          placeholder="请输入种子标题"
+          clearable
+          density="comfortable"
+          variant="outlined"
+          hide-details
+          @keyup.enter="handleQuery"
+        />
+        <v-select
+          v-model="queryParams.state"
+          :items="stateOptions"
+          label="状态"
+          placeholder="全部状态"
+          clearable
+          density="comfortable"
+          variant="outlined"
+          hide-details
+        />
+      </v-form>
     </MobileSearchPanel>
 
     <!-- 批量选择 -->
     <div class="list-toolbar">
-      <el-button text size="small" class="batch-toggle-btn" @click="selectionMode = !selectionMode">
+      <v-btn variant="text" size="small" class="batch-toggle-btn" @click="selectionMode = !selectionMode">
         {{ selectionMode ? '退出批量操作' : '批量操作' }}
-      </el-button>
+      </v-btn>
     </div>
 
     <div class="batch-bar" v-if="selectionMode">
       <span class="selected-count">已选 {{ selectedIds.length }} 项</span>
-      <el-button link type="primary" size="small" class="batch-retry-btn" :disabled="!selectedIds.length" @click="handleBatchRetry">批量重试</el-button>
-      <el-button link size="small" @click="selectionMode = false">取消</el-button>
+      <v-btn variant="text" color="primary" size="small" class="batch-retry-btn" :disabled="!selectedIds.length" @click="handleBatchRetry">批量重试</v-btn>
+      <v-btn variant="text" size="small" @click="selectionMode = false">取消</v-btn>
     </div>
 
     <!-- 列表 -->
-    <div class="task-list" v-loading="loading">
+    <div class="task-list">
+      <v-progress-linear v-if="loading" indeterminate color="primary" class="list-loading" />
       <div
         v-for="item in taskList"
         :key="item.id"
@@ -39,27 +49,30 @@
         :class="{ selected: selectionMode && item.state === 'FAILED' && selectedIds.includes(item.id) }"
       >
         <div class="card-checkbox" v-if="selectionMode && item.state === 'FAILED'">
-          <el-checkbox
+          <v-checkbox
             :model-value="selectedIds.includes(item.id)"
-            size="large"
-            @change="toggleRecordSelect(item)"
+            density="compact"
+            hide-details
+            @click.stop="toggleRecordSelect(item)"
           />
         </div>
         <div class="card-content">
           <div class="card-top">
             <span class="task-name">{{ item.title }}</span>
-            <el-tag :type="stateTagType(item.state)" size="small" effect="light">
+            <v-chip :color="stateTagType(item.state)" size="small" variant="tonal">
               {{ stateLabel(item.state) }}
-            </el-tag>
+            </v-chip>
           </div>
           <div class="card-sub">
             {{ item.subTitle || '订阅已删除' }}
             <span v-if="item.episodeLabel">· {{ item.episodeLabel }}</span>
           </div>
-          <el-progress
+          <v-progress-linear
             v-if="item.state === 'DOWNLOADING' || item.state === 'COMPLETED'"
-            :percentage="Math.round((item.progress || 0) * 100)"
-            :status="item.state === 'COMPLETED' ? 'success' : undefined"
+            :model-value="Math.round((item.progress || 0) * 100)"
+            :color="item.state === 'COMPLETED' ? 'success' : 'primary'"
+            height="6"
+            rounded
           />
           <div class="card-detail">
             <div class="detail-row">
@@ -80,21 +93,21 @@
             </div>
           </div>
           <div class="card-fail" v-if="item.state === 'FAILED'">
-            <el-icon><WarningFilled /></el-icon>
-            <el-tag v-if="item.failReasonCode" size="small" :type="failReasonTagType(item.failReasonCode)">
+            <v-icon icon="mdi-alert-circle" size="16" />
+            <v-chip v-if="item.failReasonCode" size="small" :color="failReasonTagType(item.failReasonCode)" variant="tonal">
               {{ failReasonCodeLabel(item.failReasonCode) }}
-            </el-tag>
+            </v-chip>
             <span>{{ item.failReason || '未知原因' }}</span>
           </div>
         </div>
         <div class="card-actions" v-if="item.state === 'FAILED'">
-          <el-button link type="primary" size="small" :loading="retryingIds.has(item.id)" @click="handleRetry(item)">
+          <v-btn variant="text" color="primary" size="small" :loading="retryingIds.has(item.id)" @click="handleRetry(item)">
             重试
-          </el-button>
+          </v-btn>
         </div>
       </div>
 
-      <el-empty v-if="!loading && taskList.length === 0" description="暂无下载记录" />
+      <v-empty-state v-if="!loading && taskList.length === 0" icon="mdi-inbox-outline" title="暂无下载记录" />
     </div>
 
     <!-- 分页 -->
@@ -111,7 +124,6 @@
 </template>
 
 <script setup lang="ts">
-import { WarningFilled } from '@element-plus/icons-vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import { usePtDownloadRecord } from '@/composables/usePtDownloadRecord'
@@ -125,6 +137,13 @@ const {
   searchCollapsed
 } = usePtDownloadRecord()
 
+const stateOptions = [
+  { title: '已推送', value: 'PUSHED' },
+  { title: '下载中', value: 'DOWNLOADING' },
+  { title: '已完成', value: 'COMPLETED' },
+  { title: '失败', value: 'FAILED' }
+]
+
 const stateLabel = (state: string) => {
   switch (state) {
     case 'PUSHED': return '已推送'
@@ -135,11 +154,11 @@ const stateLabel = (state: string) => {
   }
 }
 
-const stateTagType = (state: string): 'success' | 'warning' | 'danger' | 'info' => {
+const stateTagType = (state: string): 'success' | 'warning' | 'error' | 'info' => {
   switch (state) {
     case 'COMPLETED': return 'success'
     case 'DOWNLOADING': return 'warning'
-    case 'FAILED': return 'danger'
+    case 'FAILED': return 'error'
     default: return 'info'
   }
 }
@@ -152,8 +171,8 @@ const failReasonCodeLabel = (code: string) => {
   }
 }
 
-const failReasonTagType = (code: string): 'warning' | 'danger' => {
-  return code === 'ZOMBIE_TIMEOUT' ? 'warning' : 'danger'
+const failReasonTagType = (code: string): 'warning' | 'error' => {
+  return code === 'ZOMBIE_TIMEOUT' ? 'warning' : 'error'
 }
 
 const formatSize = (bytes: number): string => {
@@ -196,11 +215,13 @@ const formatSize = (bytes: number): string => {
     white-space: nowrap;
   }
 
-  .el-button {
+  .v-btn {
     font-size: 12px;
-    padding: 0 4px;
-    height: auto;
   }
+}
+
+.list-loading {
+  border-radius: var(--osr-radius-md);
 }
 
 .task-list {
@@ -300,8 +321,8 @@ const formatSize = (bytes: number): string => {
     gap: 6px;
     padding: 6px 8px;
     border-radius: var(--osr-radius-sm);
-    background: var(--el-color-danger-light-9);
-    color: var(--el-color-danger);
+    background: var(--osr-danger-light);
+    color: var(--osr-danger);
     font-size: 11px;
     line-height: 1.5;
   }

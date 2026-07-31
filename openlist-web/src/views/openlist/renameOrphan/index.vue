@@ -1,112 +1,115 @@
 <template>
   <div class="page-container">
     <!-- Search Panel -->
-    <el-card class="search-card" v-if="showSearch">
-      <el-form :model="queryParams" ref="queryRef" :inline="true" label-width="80px">
-        <el-form-item label="影视名称" prop="title">
-          <el-input v-model="queryParams.title" placeholder="请输入影视名称" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="原因" prop="reason">
-          <el-select v-model="queryParams.reason" placeholder="全部原因" clearable :style="{ width: '160px' }">
-            <el-option label="本地文件丢失" value="local_missing" />
-            <el-option label="网盘源丢失" value="source_missing" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="状态" prop="status">
-          <el-select v-model="queryParams.status" placeholder="全部状态" clearable :style="{ width: '120px' }">
-            <el-option label="待处理" value="0" />
-            <el-option label="已清理" value="1" />
-            <el-option label="已忽略" value="2" />
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleQuery">
-            <el-icon><Search /></el-icon> 搜索
-          </el-button>
-          <el-button @click="resetQuery">
-            <el-icon><Refresh /></el-icon> 重置
-          </el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
+    <v-card v-if="showSearch" class="search-card">
+      <v-form ref="queryRef" @submit.prevent="handleQuery">
+        <div class="search-fields">
+          <v-text-field
+            v-model="queryParams.title"
+            label="影视名称"
+            placeholder="请输入影视名称"
+            clearable
+            density="compact"
+            variant="outlined"
+            hide-details
+            @keyup.enter="handleQuery"
+          />
+          <v-select
+            v-model="queryParams.reason"
+            label="原因"
+            :items="[{ title: '本地文件丢失', value: 'local_missing' }, { title: '网盘源丢失', value: 'source_missing' }]"
+            placeholder="全部原因"
+            clearable
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="reason-select"
+          />
+          <v-select
+            v-model="queryParams.status"
+            label="状态"
+            :items="[{ title: '待处理', value: '0' }, { title: '已清理', value: '1' }, { title: '已忽略', value: '2' }]"
+            placeholder="全部状态"
+            clearable
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="status-select"
+          />
+          <div class="search-actions">
+            <v-btn color="primary" prepend-icon="mdi-magnify" @click="handleQuery">搜索</v-btn>
+            <v-btn variant="outlined" prepend-icon="mdi-refresh" @click="resetQuery">重置</v-btn>
+          </div>
+        </div>
+      </v-form>
+    </v-card>
 
     <!-- Table Card -->
-    <el-card class="table-card">
+    <v-card class="table-card">
       <div class="action-bar">
         <div class="action-left">
-          <el-button type="primary" :loading="scanning" @click="handleScanNow">
-            <el-icon><Refresh /></el-icon> 立即扫描
-          </el-button>
-          <el-button type="danger" :disabled="multiple" @click="handleBatchClean()">
-            <el-icon><Delete /></el-icon> 批量清理
-          </el-button>
-          <el-button type="warning" :disabled="multiple" @click="handleBatchIgnore()">
-            <el-icon><Warning /></el-icon> 批量忽略
-          </el-button>
+          <v-btn color="primary" prepend-icon="mdi-refresh" :loading="scanning" @click="handleScanNow">
+            立即扫描
+          </v-btn>
+          <v-btn color="error" prepend-icon="mdi-delete-outline" :disabled="multiple" @click="handleBatchClean()">
+            批量清理
+          </v-btn>
+          <v-btn color="warning" prepend-icon="mdi-alert-outline" :disabled="multiple" @click="handleBatchIgnore()">
+            批量忽略
+          </v-btn>
         </div>
-        <el-button text @click="showSearch = !showSearch">
-          <el-icon><Filter /></el-icon>
+        <v-btn variant="text" prepend-icon="mdi-filter-outline" @click="showSearch = !showSearch">
           {{ showSearch ? '隐藏搜索' : '显示搜索' }}
-        </el-button>
+        </v-btn>
       </div>
 
-      <el-table v-loading="loading" :data="recordList" @selection-change="handleSelectionChange" class="modern-table">
-        <el-table-column type="selection" width="50" align="center" />
-        <el-table-column label="标题" min-width="200">
-          <template #default="scope">
-            <span>{{ scope.row.title || '未知' }}</span>
-            <span v-if="scope.row.year" class="orphan-year">（{{ scope.row.year }}）</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="原因" width="130" align="center">
-          <template #default="scope">
-            <el-tag v-if="scope.row.reason === 'local_missing'" type="warning" size="small">本地文件丢失</el-tag>
-            <el-tag v-else-if="scope.row.reason === 'source_missing'" type="danger" size="small">网盘源丢失</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="重命名后路径" min-width="320">
-          <template #default="scope">
-            <span class="orphan-path" :title="`${scope.row.newPath}/${scope.row.newName}`">{{ scope.row.newPath }}/{{ scope.row.newName }}</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" width="90" align="center">
-          <template #default="scope">
-            <el-tag v-if="scope.row.status === '0'" type="info" size="small">待处理</el-tag>
-            <el-tag v-else-if="scope.row.status === '1'" type="success" size="small">已清理</el-tag>
-            <el-tag v-else type="info" size="small">已忽略</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="发现时间" prop="foundTime" width="170" align="center" />
-        <el-table-column label="操作" align="center" width="180" fixed="right">
-          <template #default="scope">
-            <el-button link type="danger" @click="handleCleanOne(scope.row)" v-if="scope.row.status === '0'">
-              <el-icon><Delete /></el-icon> 清理
-            </el-button>
-            <el-button link type="warning" @click="handleIgnoreOne(scope.row)" v-if="scope.row.status === '0'">
-              <el-icon><Warning /></el-icon> 忽略
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <div class="pagination-wrapper">
-        <el-pagination
-          v-model:current-page="queryParams.pageNum"
-          v-model:page-size="queryParams.pageSize"
-          :total="total"
-          :page-sizes="[10, 20, 50]"
-          layout="total, sizes, prev, pager, next, jumper"
-          @current-change="getList"
-          @size-change="getList"
-        />
-      </div>
-    </el-card>
+      <v-data-table-server
+        :loading="loading"
+        :items="recordList"
+        :items-length="total"
+        :headers="headers"
+        :items-per-page="queryParams.pageSize"
+        :page="queryParams.pageNum"
+        show-select
+        item-value="id"
+        return-object
+        :model-value="selectedRows"
+        class="modern-table"
+        @update:model-value="onSelectionChange"
+        @update:page="onPageChange"
+        @update:items-per-page="onSizeChange"
+      >
+        <template #item.title="{ item }">
+          <span>{{ item.title || '未知' }}</span>
+          <span v-if="item.year" class="orphan-year">（{{ item.year }}）</span>
+        </template>
+        <template #item.reason="{ item }">
+          <v-chip v-if="item.reason === 'local_missing'" size="small" color="warning" variant="tonal">本地文件丢失</v-chip>
+          <v-chip v-else-if="item.reason === 'source_missing'" size="small" color="error" variant="tonal">网盘源丢失</v-chip>
+        </template>
+        <template #item.path="{ item }">
+          <span class="orphan-path" :title="`${item.newPath}/${item.newName}`">{{ item.newPath }}/{{ item.newName }}</span>
+        </template>
+        <template #item.status="{ item }">
+          <v-chip v-if="item.status === '0'" size="small" color="info" variant="tonal">待处理</v-chip>
+          <v-chip v-else-if="item.status === '1'" size="small" color="success" variant="tonal">已清理</v-chip>
+          <v-chip v-else size="small" color="info" variant="tonal">已忽略</v-chip>
+        </template>
+        <template #item.actions="{ item }">
+          <v-btn v-if="item.status === '0'" variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleCleanOne(item)">
+            清理
+          </v-btn>
+          <v-btn v-if="item.status === '0'" variant="text" color="warning" size="small" prepend-icon="mdi-alert-outline" @click="handleIgnoreOne(item)">
+            忽略
+          </v-btn>
+        </template>
+      </v-data-table-server>
+    </v-card>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { Search, Refresh, Delete, Filter, Warning } from '@element-plus/icons-vue'
 import { useRenameOrphanList } from '@/composables/useRenameOrphanList'
 
 const showSearch = ref(window.innerWidth >= 768)
@@ -120,6 +123,34 @@ const {
   handleIgnoreOne, handleBatchIgnore
 } = useRenameOrphanList()
 
+const headers = [
+  { title: '标题', key: 'title', minWidth: '200' },
+  { title: '原因', key: 'reason', align: 'center' as const, width: '130' },
+  { title: '重命名后路径', key: 'path', minWidth: '320', sortable: false },
+  { title: '状态', key: 'status', align: 'center' as const, width: '90' },
+  { title: '发现时间', key: 'foundTime', width: '170', align: 'center' as const },
+  { title: '操作', key: 'actions', align: 'center' as const, width: '180', sortable: false }
+]
+
+// v-data-table-server 的多选需要一个本地 ref 承接当前选中的行对象，
+// 再转给 useRenameOrphanList 的 handleSelectionChange 去派生 selectedIds/multiple
+const selectedRows = ref<any[]>([])
+const onSelectionChange = (rows: any[]) => {
+  selectedRows.value = rows
+  handleSelectionChange(rows)
+}
+
+const onPageChange = (page: number) => {
+  queryParams.pageNum = page
+  getList()
+}
+
+const onSizeChange = (size: number) => {
+  queryParams.pageSize = size
+  queryParams.pageNum = 1
+  getList()
+}
+
 getList()
 </script>
 
@@ -131,25 +162,40 @@ getList()
 }
 
 .search-card {
-  border: none;
-  border-radius: var(--osr-radius-lg);
-  box-shadow: var(--osr-shadow-base);
+  padding: 14px 16px;
+}
 
-  :deep(.el-card__body) {
-    padding: 14px 16px;
+.search-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px;
+
+  > .v-text-field {
+    width: 220px;
+    flex: 0 0 auto;
+  }
+
+  .reason-select {
+    width: 180px;
+  }
+
+  .status-select {
+    width: 140px;
+  }
+
+  .search-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 2px;
   }
 }
 
 .table-card {
-  border: none;
-  border-radius: var(--osr-radius-lg);
-  box-shadow: var(--osr-shadow-base);
-
-  :deep(.el-card__body) {
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-  }
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
 }
 
 .action-bar {
@@ -179,23 +225,39 @@ getList()
   display: block;
 }
 
-.pagination-wrapper {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: auto;
-  padding-top: 12px;
-}
-
 @media (max-width: 768px) {
-  .search-card :deep(.el-form) {
-    .el-form-item {
-      margin-right: 0;
+  .page-container {
+    gap: 10px;
+  }
+
+  .search-fields {
+    > .v-text-field,
+    .reason-select,
+    .status-select {
+      width: 100%;
     }
 
-    .el-input,
-    .el-select {
-      width: 100% !important;
+    .search-actions {
+      width: 100%;
+
+      .v-btn {
+        flex: 1;
+      }
     }
+  }
+
+  .action-bar {
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-bottom: 10px;
+
+    .action-left {
+      gap: 4px;
+    }
+  }
+
+  .table-card {
+    padding: 12px;
   }
 }
 </style>

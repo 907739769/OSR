@@ -1,5 +1,5 @@
 import { ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { message } from '@/composables/useMessage'
 import {
   getRenameTemplateApi,
   previewRenameTemplateApi,
@@ -31,7 +31,7 @@ export function useRenameConfig() {
       await doPreview()
     } catch (e) {
       console.error('[重命名规则设置] 加载模板失败:', e)
-      ElMessage.error('加载模板失败')
+      message.error('加载模板失败')
     } finally {
       templateLoading.value = false
     }
@@ -58,7 +58,7 @@ export function useRenameConfig() {
     templateSaving.value = true
     try {
       await updateRenameTemplateApi(template.value)
-      ElMessage.success('模板保存成功')
+      message.success('模板保存成功')
     } catch (e) {
       // 具体错误文案（如"模板渲染失败：..."）已经由 request.ts 的响应拦截器统一 toast 过了，这里不重复弹一次
       console.error('[重命名规则设置] 保存模板失败:', e)
@@ -80,7 +80,7 @@ export function useRenameConfig() {
       tvRules.value = await getCategoryRulesApi('tv') as any
     } catch (e) {
       console.error('[重命名规则设置] 加载分类规则失败:', e)
-      ElMessage.error('加载分类规则失败')
+      message.error('加载分类规则失败')
     } finally {
       rulesLoading.value = false
     }
@@ -121,7 +121,7 @@ export function useRenameConfig() {
     rulesSaving.value = true
     try {
       await saveCategoryRulesApi(mediaType, listRef(mediaType).value)
-      ElMessage.success('分类规则保存成功')
+      message.success('分类规则保存成功')
       await loadRules()
     } catch (e) {
       // 具体错误文案（如"必须保留且只能保留一条兜底规则"）已经由 request.ts 的响应拦截器统一 toast 过了，这里不重复弹一次

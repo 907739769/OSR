@@ -1,18 +1,18 @@
 <template>
   <div class="mobile-pt-stats">
     <div class="toolbar">
-      <el-radio-group v-model="rangeDays" size="small" @change="onRangeChange">
-        <el-radio-button :label="7">近7天</el-radio-button>
-        <el-radio-button :label="30">近30天</el-radio-button>
-        <el-radio-button :label="90">近90天</el-radio-button>
-      </el-radio-group>
-      <el-button :icon="Refresh" size="small" @click="loadAll">刷新</el-button>
+      <v-btn-toggle v-model="rangeDays" color="primary" density="compact" variant="outlined" mandatory @update:model-value="onRangeChange">
+        <v-btn :value="7" size="small">近7天</v-btn>
+        <v-btn :value="30" size="small">近30天</v-btn>
+        <v-btn :value="90" size="small">近90天</v-btn>
+      </v-btn-toggle>
+      <v-btn prepend-icon="mdi-refresh" size="small" variant="outlined" @click="loadAll">刷新</v-btn>
     </div>
 
     <div class="stat-grid">
       <div v-for="(stat, index) in statCards" :key="index" class="stat-card" :class="stat.type">
         <div class="stat-icon">
-          <el-icon :size="22"><component :is="stat.icon" /></el-icon>
+          <v-icon :icon="stat.icon" size="22" />
         </div>
         <div class="stat-info">
           <div class="stat-value">{{ stat.value }}</div>
@@ -50,7 +50,8 @@
       <div class="chart-header">
         <span class="chart-title">Top 活跃订阅</span>
       </div>
-      <div v-loading="topSubscriptionsLoading">
+      <div>
+        <v-progress-linear v-if="topSubscriptionsLoading" indeterminate color="primary" class="list-loading" />
         <div v-for="row in topSubscriptions" :key="row.title" class="top-sub-item">
           <div class="top-sub-title">{{ row.title }}</div>
           <div class="top-sub-meta">
@@ -71,7 +72,6 @@ import * as echarts from 'echarts/core'
 import { LineChart, BarChart, PieChart } from 'echarts/charts'
 import { TitleComponent, TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { Document, Connection, Download, CircleCheck, Clock, Refresh } from '@element-plus/icons-vue'
 import {
   getPtStatsOverviewApi,
   getPtStatsTrendApi,
@@ -80,14 +80,13 @@ import {
   getPtStatsTopSubscriptionsApi,
   type PtStatsActiveSubscription
 } from '@/api/openlist/ptStats'
-import type { Component } from 'vue'
 
 echarts.use([LineChart, BarChart, PieChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent, CanvasRenderer])
 
 interface StatCard {
   label: string
   value: number | string
-  icon: Component
+  icon: string
   type: 'primary' | 'success' | 'warning' | 'info'
 }
 
@@ -131,11 +130,11 @@ async function loadOverview() {
   try {
     const data = await getPtStatsOverviewApi()
     statCards.value = [
-      { label: '总订阅数', value: data.totalSubscriptions, icon: Document, type: 'primary' },
-      { label: '活跃订阅数', value: data.activeSubscriptions, icon: Connection, type: 'success' },
-      { label: '下载记录总数', value: data.totalDownloadRecords, icon: Download, type: 'info' },
-      { label: '成功率', value: data.totalDownloadRecords > 0 ? data.successRate + '%' : '--', icon: CircleCheck, type: 'success' },
-      { label: '平均下载耗时', value: data.avgDurationMinutes > 0 ? Math.round(data.avgDurationMinutes) + ' 分钟' : '--', icon: Clock, type: 'warning' }
+      { label: '总订阅数', value: data.totalSubscriptions, icon: 'mdi-file-document-outline', type: 'primary' },
+      { label: '活跃订阅数', value: data.activeSubscriptions, icon: 'mdi-lan-connect', type: 'success' },
+      { label: '下载记录总数', value: data.totalDownloadRecords, icon: 'mdi-download', type: 'info' },
+      { label: '成功率', value: data.totalDownloadRecords > 0 ? data.successRate + '%' : '--', icon: 'mdi-check-circle-outline', type: 'success' },
+      { label: '平均下载耗时', value: data.avgDurationMinutes > 0 ? Math.round(data.avgDurationMinutes) + ' 分钟' : '--', icon: 'mdi-clock-outline', type: 'warning' }
     ]
   } catch (e) {
     console.error('[PtStatsDashboard] Failed to load overview:', e)
@@ -393,6 +392,11 @@ onUnmounted(() => {
     font-size: 11px;
     color: var(--osr-text-secondary);
   }
+}
+
+.list-loading {
+  border-radius: 8px;
+  margin-bottom: 8px;
 }
 
 .empty-hint {

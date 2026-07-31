@@ -1,47 +1,57 @@
 <template>
   <div class="page-container">
-    <el-card class="search-card" v-if="showSearch">
-      <el-form :model="queryParams" ref="queryRef" :inline="true" label-width="80px">
-        <el-form-item label="类型" prop="type">
-          <el-select v-model="queryParams.type" placeholder="类型" clearable :style="{ width: '140px' }">
-            <el-option label="种子(GUID)" value="GUID" />
-            <el-option label="发布组" value="RELEASE_GROUP" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="展示内容" prop="displayValue">
-          <el-input v-model="queryParams.displayValue" placeholder="标题或发布组名" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleQuery">
-            <el-icon><Search /></el-icon> 搜索
-          </el-button>
-          <el-button @click="resetQuery">
-            <el-icon><Refresh /></el-icon> 重置
-          </el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
+    <v-card v-if="showSearch" class="search-card">
+      <v-form ref="queryRef" @submit.prevent="handleQuery">
+        <div class="search-fields">
+          <v-select
+            v-model="queryParams.type"
+            label="类型"
+            :items="[{ title: '种子(GUID)', value: 'GUID' }, { title: '发布组', value: 'RELEASE_GROUP' }]"
+            placeholder="全部类型"
+            clearable
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="type-select"
+          />
+          <v-text-field
+            v-model="queryParams.displayValue"
+            label="展示内容"
+            placeholder="标题或发布组名"
+            clearable
+            density="compact"
+            variant="outlined"
+            hide-details
+            @keyup.enter="handleQuery"
+          />
+          <div class="search-actions">
+            <v-btn color="primary" prepend-icon="mdi-magnify" @click="handleQuery">搜索</v-btn>
+            <v-btn variant="outlined" prepend-icon="mdi-refresh" @click="resetQuery">重置</v-btn>
+          </div>
+        </div>
+      </v-form>
+    </v-card>
 
-    <el-card class="table-card">
+    <v-card class="table-card">
       <div class="action-bar">
         <div class="action-left">
-          <el-button type="primary" @click="handleAdd('新增发布组黑名单')">
-            <el-icon><Plus /></el-icon> 新增发布组规则
-          </el-button>
+          <v-btn color="primary" prepend-icon="mdi-plus" @click="handleAdd('新增发布组黑名单')">
+            新增发布组规则
+          </v-btn>
         </div>
-        <el-button text @click="showSearch = !showSearch">
-          <el-icon><Filter /></el-icon>
+        <v-btn variant="text" prepend-icon="mdi-filter-outline" @click="showSearch = !showSearch">
           {{ showSearch ? '隐藏搜索' : '显示搜索' }}
-        </el-button>
+        </v-btn>
       </div>
 
-      <div class="card-grid" v-loading="loading">
+      <div class="card-grid">
+        <v-progress-linear v-if="loading" indeterminate color="primary" />
         <div v-for="item in taskList" :key="item.id" class="item-card">
           <div class="card-header">
             <span class="card-title" :title="item.displayValue">{{ item.displayValue || '(无展示内容)' }}</span>
-            <el-tag :type="item.type === 'GUID' ? 'danger' : 'warning'" size="small">
+            <v-chip :color="item.type === 'GUID' ? 'error' : 'warning'" size="small" variant="tonal">
               {{ item.type === 'GUID' ? '种子' : '发布组' }}
-            </el-tag>
+            </v-chip>
           </div>
           <div class="card-body">
             <div class="card-row">
@@ -58,41 +68,50 @@
             </div>
           </div>
           <div class="card-footer">
-            <el-button link type="danger" @click="handleDelete(item)">
-              <el-icon><Delete /></el-icon> 删除
-            </el-button>
+            <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(item)">
+              删除
+            </v-btn>
           </div>
         </div>
-        <el-empty v-if="!loading && taskList.length === 0" description="暂无黑名单规则" />
+        <v-empty-state v-if="!loading && taskList.length === 0" icon="mdi-inbox-outline" title="暂无黑名单规则" />
       </div>
 
       <div class="pagination-wrapper">
-        <el-pagination
-          v-model:current-page="queryParams.pageNum"
-          v-model:page-size="queryParams.pageSize"
-          :total="total"
-          :page-sizes="[10, 20, 50]"
-          layout="total, sizes, prev, pager, next, jumper"
-          @current-change="getList"
-          @size-change="getList"
+        <v-pagination
+          v-model="queryParams.pageNum"
+          :length="Math.ceil(total / queryParams.pageSize!) || 1"
+          density="comfortable"
+          @update:model-value="getList"
         />
       </div>
-    </el-card>
+    </v-card>
 
-    <el-dialog v-model="open" :title="dialogTitle" width="480px" append-to-body class="modern-dialog">
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
-        <el-form-item label="发布组名" prop="value">
-          <el-input v-model="form.value" placeholder="如 CHDWEB，大小写不敏感" />
-        </el-form-item>
-        <el-form-item label="原因" prop="reason">
-          <el-input v-model="form.reason" type="textarea" :rows="2" placeholder="可选，如“转码质量差”" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="open = false">取消</el-button>
-        <el-button type="primary" :loading="submitLoading" @click="submitForm">确定</el-button>
-      </template>
-    </el-dialog>
+    <v-dialog v-model="open" max-width="480">
+      <v-card :title="dialogTitle">
+        <v-card-text>
+          <v-form ref="formRef">
+            <v-text-field
+              v-model="form.value"
+              label="发布组名"
+              placeholder="如 CHDWEB，大小写不敏感"
+              :rules="valueRules"
+              class="mb-3"
+            />
+            <v-textarea
+              v-model="form.reason"
+              label="原因"
+              rows="2"
+              placeholder="可选，如“转码质量差”"
+            />
+          </v-form>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="outlined" @click="open = false">取消</v-btn>
+          <v-btn color="primary" variant="flat" :loading="submitLoading" @click="handleSubmitClick">确定</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
@@ -108,6 +127,25 @@ const {
   handleAdd, submitForm, handleDelete
 } = usePtTorrentBlacklist()
 
+// Element Plus 表单规则是 { required, message, trigger } 对象格式，
+// Vuetify 的 v-text-field :rules 需要函数格式，这里就地转换，不改动 composable
+const toRuleFns = (ruleList: any[]) =>
+  (ruleList || []).map((rule: any) => (value: any) => {
+    if (rule.required && (value === null || value === undefined || value === '')) {
+      return rule.message || '不能为空'
+    }
+    return true
+  })
+
+const valueRules = toRuleFns(rules.value)
+
+const handleSubmitClick = async () => {
+  if (!formRef.value) return
+  const { valid } = await formRef.value.validate()
+  if (!valid) return
+  submitForm()
+}
+
 const shortHash = (value: string) => {
   if (!value) return '-'
   return value.length > 12 ? `${value.slice(0, 6)}...${value.slice(-4)}` : value
@@ -122,25 +160,36 @@ const shortHash = (value: string) => {
 }
 
 .search-card {
-  border: none;
-  border-radius: var(--osr-radius-lg);
-  box-shadow: var(--osr-shadow-base);
+  padding: 14px 16px;
+}
 
-  :deep(.el-card__body) {
-    padding: 14px 16px;
+.search-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px;
+
+  > .v-text-field {
+    width: 260px;
+    flex: 0 0 auto;
+  }
+
+  .type-select {
+    width: 160px;
+  }
+
+  .search-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 2px;
   }
 }
 
 .table-card {
-  border: none;
-  border-radius: var(--osr-radius-lg);
-  box-shadow: var(--osr-shadow-base);
-
-  :deep(.el-card__body) {
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-  }
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
 }
 
 .action-bar {
@@ -238,18 +287,22 @@ const shortHash = (value: string) => {
     gap: 10px;
   }
 
-  .search-card :deep(.el-form) {
-    .el-form-item {
-      margin-right: 0;
+  .search-fields {
+    > .v-text-field,
+    .type-select {
+      width: 100%;
     }
 
-    .el-input,
-    .el-select {
-      width: 100% !important;
+    .search-actions {
+      width: 100%;
+
+      .v-btn {
+        flex: 1;
+      }
     }
   }
 
-  .table-card :deep(.el-card__body) {
+  .table-card {
     padding: 12px;
   }
 

@@ -1,5 +1,5 @@
 import { ref, reactive, computed } from 'vue'
-import { ElMessage } from 'element-plus'
+import { message } from '@/composables/useMessage'
 import { useTaskList } from './useTaskList'
 import {
   getRenameTaskListApi,
@@ -131,16 +131,16 @@ export function useRenameTask() {
 
   const doTest = async () => {
     if (!testForm.filename.trim()) {
-      ElMessage.warning('请输入文件名')
+      message.warning('请输入文件名')
       return
     }
     testLoading.value = true
     try {
       testResult.value = await testParseRenameApi(testForm.filename, testForm.template || undefined) as any
-      ElMessage.success('分析成功')
+      message.success('分析成功')
     } catch (e) {
       console.error('[重命名任务] 测试解析失败:', e)
-      ElMessage.error('请求失败')
+      message.error('请求失败')
     } finally {
       testLoading.value = false
     }

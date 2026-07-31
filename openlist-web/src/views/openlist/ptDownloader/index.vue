@@ -1,61 +1,72 @@
 <template>
   <div class="page-container">
     <!-- Search Panel -->
-    <el-card class="search-card" v-if="showSearch">
-      <el-form :model="queryParams" ref="queryRef" :inline="true" label-width="80px">
-        <el-form-item label="名称" prop="name">
-          <el-input v-model="queryParams.name" placeholder="请输入名称" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="状态" prop="enabled">
-          <el-select v-model="queryParams.enabled" placeholder="状态" clearable :style="{ width: '120px' }">
-            <el-option label="启用" value="1" />
-            <el-option label="停用" value="0" />
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleQuery">
-            <el-icon><Search /></el-icon> 搜索
-          </el-button>
-          <el-button @click="resetQuery">
-            <el-icon><Refresh /></el-icon> 重置
-          </el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
+    <v-card v-if="showSearch" class="search-card">
+      <v-form ref="queryRef" @submit.prevent="handleQuery">
+        <div class="search-fields">
+          <v-text-field
+            v-model="queryParams.name"
+            label="名称"
+            placeholder="请输入名称"
+            clearable
+            density="compact"
+            variant="outlined"
+            hide-details
+            @keyup.enter="handleQuery"
+          />
+          <v-select
+            v-model="queryParams.enabled"
+            label="状态"
+            :items="[{ title: '启用', value: '1' }, { title: '停用', value: '0' }]"
+            clearable
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="status-select"
+          />
+          <div class="search-actions">
+            <v-btn color="primary" prepend-icon="mdi-magnify" @click="handleQuery">搜索</v-btn>
+            <v-btn variant="outlined" prepend-icon="mdi-refresh" @click="resetQuery">重置</v-btn>
+          </div>
+        </div>
+      </v-form>
+    </v-card>
 
     <!-- Table Card -->
-    <el-card class="table-card">
+    <v-card class="table-card">
       <div class="action-bar">
         <div class="action-left">
-          <el-button type="primary" @click="handleAdd('新增下载器')">
-            <el-icon><Plus /></el-icon> 新增
-          </el-button>
-          <el-button type="success" :disabled="single" @click="handleUpdate(undefined, '修改下载器')">
-            <el-icon><Edit /></el-icon> 修改
-          </el-button>
-          <el-button type="danger" :disabled="multiple" @click="handleDelete(undefined, `是否确认删除编号为“${selectedIds}”的下载器？`)">
-            <el-icon><Delete /></el-icon> 批量删除
-          </el-button>
+          <v-btn color="primary" prepend-icon="mdi-plus" @click="handleAdd('新增下载器')">
+            新增
+          </v-btn>
+          <v-btn color="success" prepend-icon="mdi-pencil-outline" :disabled="single" @click="handleUpdate(undefined, '修改下载器')">
+            修改
+          </v-btn>
+          <v-btn color="error" prepend-icon="mdi-delete-outline" :disabled="multiple" @click="handleDelete(undefined, `是否确认删除编号为“${selectedIds}”的下载器？`)">
+            批量删除
+          </v-btn>
         </div>
-        <el-button text @click="showSearch = !showSearch">
-          <el-icon><Filter /></el-icon>
+        <v-btn variant="text" prepend-icon="mdi-filter-outline" @click="showSearch = !showSearch">
           {{ showSearch ? '隐藏搜索' : '显示搜索' }}
-        </el-button>
+        </v-btn>
       </div>
 
-      <div class="card-grid" v-loading="loading">
+      <div class="card-grid">
+        <v-progress-linear v-if="loading" indeterminate color="primary" />
         <div v-for="item in taskList" :key="item.id" class="item-card">
           <div class="card-header">
             <div class="card-checkbox">
-              <el-checkbox
+              <v-checkbox
                 :model-value="selectedIds.includes(item.id)"
-                @change="toggleSelect(item.id)"
+                density="compact"
+                hide-details
+                @update:model-value="toggleSelect(item.id)"
               />
             </div>
             <span class="card-title" :title="item.name">{{ item.name }}</span>
-            <el-tag :type="item.enabled === '1' ? 'success' : 'danger'" size="small">
+            <v-chip :color="item.enabled === '1' ? 'success' : 'error'" size="small" variant="tonal">
               {{ item.enabled === '1' ? '启用' : '停用' }}
-            </el-tag>
+            </v-chip>
           </div>
           <div class="card-body">
             <div class="card-row">
@@ -80,89 +91,136 @@
             </div>
           </div>
           <div class="card-footer">
-            <el-button link type="primary" @click="handleUpdate(item, '修改下载器')">
-              <el-icon><Edit /></el-icon> 修改
-            </el-button>
-            <el-button link type="danger" @click="handleDelete(item)">
-              <el-icon><Delete /></el-icon> 删除
-            </el-button>
+            <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(item, '修改下载器')">
+              修改
+            </v-btn>
+            <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(item)">
+              删除
+            </v-btn>
           </div>
         </div>
-        <el-empty v-if="!loading && taskList.length === 0" description="暂无下载器" />
+        <v-empty-state v-if="!loading && taskList.length === 0" icon="mdi-inbox-outline" title="暂无下载器" />
       </div>
 
       <div class="pagination-wrapper">
-        <el-pagination
-          v-model:current-page="queryParams.pageNum"
-          v-model:page-size="queryParams.pageSize"
-          :total="total"
-          :page-sizes="[10, 20, 50]"
-          layout="total, sizes, prev, pager, next, jumper"
-          @current-change="getList"
-          @size-change="getList"
+        <v-pagination
+          v-model="queryParams.pageNum"
+          :length="Math.ceil(total / queryParams.pageSize) || 1"
+          density="comfortable"
+          @update:model-value="getList"
         />
       </div>
-    </el-card>
+    </v-card>
 
     <!-- Add/Edit Dialog -->
-    <el-dialog v-model="open" :title="dialogTitle" width="600px" append-to-body class="modern-dialog">
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="110px">
-        <el-form-item label="名称" prop="name">
-          <el-input v-model="form.name" placeholder="请输入名称" />
-        </el-form-item>
-        <el-form-item label="类型" prop="type">
-          <el-select v-model="form.type" :style="{ width: '100%' }">
-            <el-option label="qBittorrent" value="QBITTORRENT" />
-            <el-option label="Transmission" value="TRANSMISSION" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="主机" prop="host">
-          <el-input v-model="form.host" placeholder="主机名或 IP，不含协议与端口" />
-        </el-form-item>
-        <el-form-item label="端口" prop="port">
-          <el-input-number v-model="form.port" :min="1" :max="65535" :style="{ width: '200px' }" />
-        </el-form-item>
-        <el-form-item label="HTTPS" prop="useHttps">
-          <el-radio-group v-model="form.useHttps">
-            <el-radio value="0">关闭</el-radio>
-            <el-radio value="1">开启</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="用户名" prop="username">
-          <el-input v-model="form.username" placeholder="请输入用户名" />
-        </el-form-item>
-        <el-form-item label="密码" prop="password">
-          <el-input
-            v-model="form.password"
-            type="password"
-            show-password
-            :placeholder="form.id ? '留空则不修改密码' : '请输入密码'"
-          />
-        </el-form-item>
-        <el-form-item label="保存路径" prop="savePath">
-          <el-input v-model="form.savePath" placeholder="种子保存路径" @blur="handleSavePathBlur" />
-          <div v-if="savePathWarning" class="save-path-warning">{{ savePathWarning }}</div>
-        </el-form-item>
-        <el-form-item label="标签" prop="tag">
-          <el-input v-model="form.tag" placeholder="推送种子时打的标签" />
-        </el-form-item>
-        <el-form-item label="最大并发数" prop="maxConcurrent">
-          <el-input-number v-model="form.maxConcurrent" :min="0" :style="{ width: '200px' }" />
-          <div class="field-hint">0 表示不限，达到上限时新任务会等到下一轮自动重试</div>
-        </el-form-item>
-        <el-form-item label="状态" prop="enabled">
-          <el-radio-group v-model="form.enabled">
-            <el-radio value="1">启用</el-radio>
-            <el-radio value="0">停用</el-radio>
-          </el-radio-group>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button :loading="testLoading" @click="handleTest">测试连接</el-button>
-        <el-button @click="open = false">取消</el-button>
-        <el-button type="primary" :loading="submitLoading" @click="submitForm">确定</el-button>
-      </template>
-    </el-dialog>
+    <v-dialog v-model="open" max-width="600">
+      <v-card :title="dialogTitle">
+        <v-card-text>
+          <v-form ref="formRef">
+            <v-text-field
+              v-model="form.name"
+              label="名称"
+              placeholder="请输入名称"
+              density="comfortable"
+              variant="outlined"
+              :rules="nameRules"
+            />
+            <v-select
+              v-model="form.type"
+              label="类型"
+              :items="[{ title: 'qBittorrent', value: 'QBITTORRENT' }, { title: 'Transmission', value: 'TRANSMISSION' }]"
+              density="comfortable"
+              variant="outlined"
+            />
+            <v-text-field
+              v-model="form.host"
+              label="主机"
+              placeholder="主机名或 IP，不含协议与端口"
+              density="comfortable"
+              variant="outlined"
+              :rules="hostRules"
+            />
+            <v-text-field
+              v-model.number="form.port"
+              label="端口"
+              type="number"
+              min="1"
+              max="65535"
+              density="comfortable"
+              variant="outlined"
+              :rules="portRules"
+            />
+            <div class="form-item">
+              <label class="form-label">HTTPS</label>
+              <v-radio-group v-model="form.useHttps" inline hide-details>
+                <v-radio label="关闭" value="0" />
+                <v-radio label="开启" value="1" />
+              </v-radio-group>
+            </div>
+            <v-text-field
+              v-model="form.username"
+              label="用户名"
+              placeholder="请输入用户名"
+              density="comfortable"
+              variant="outlined"
+            />
+            <v-text-field
+              v-model="form.password"
+              label="密码"
+              type="password"
+              :placeholder="form.id ? '留空则不修改密码' : '请输入密码'"
+              density="comfortable"
+              variant="outlined"
+            />
+            <div class="form-item">
+              <v-text-field
+                v-model="form.savePath"
+                label="保存路径"
+                placeholder="种子保存路径"
+                density="comfortable"
+                variant="outlined"
+                :rules="savePathRules"
+                @blur="handleSavePathBlur"
+              />
+              <div v-if="savePathWarning" class="save-path-warning">{{ savePathWarning }}</div>
+            </div>
+            <v-text-field
+              v-model="form.tag"
+              label="标签"
+              placeholder="推送种子时打的标签"
+              density="comfortable"
+              variant="outlined"
+              :rules="tagRules"
+            />
+            <div class="form-item">
+              <v-text-field
+                v-model.number="form.maxConcurrent"
+                label="最大并发数"
+                type="number"
+                min="0"
+                density="comfortable"
+                variant="outlined"
+                :rules="maxConcurrentRules"
+              />
+              <div class="field-hint">0 表示不限，达到上限时新任务会等到下一轮自动重试</div>
+            </div>
+            <div class="form-item">
+              <label class="form-label">状态</label>
+              <v-radio-group v-model="form.enabled" inline hide-details>
+                <v-radio label="启用" value="1" />
+                <v-radio label="停用" value="0" />
+              </v-radio-group>
+            </div>
+          </v-form>
+        </v-card-text>
+        <v-card-actions>
+          <v-btn :loading="testLoading" variant="outlined" @click="handleTest">测试连接</v-btn>
+          <v-spacer />
+          <v-btn variant="outlined" @click="open = false">取消</v-btn>
+          <v-btn color="primary" variant="flat" :loading="submitLoading" @click="handleSubmitClick">确定</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
@@ -185,6 +243,34 @@ const {
   handleAdd, handleUpdate, submitForm, handleDelete,
   testLoading, handleTest, savePathWarning, handleSavePathBlur
 } = usePtDownloader()
+
+// Element Plus 表单规则是 { required, message, trigger }/{ type, min, max } 对象格式，
+// Vuetify 的 v-text-field :rules 需要函数格式，这里就地转换，不改动 composable
+const toRuleFns = (ruleList: any[]) =>
+  (ruleList || []).map((rule: any) => (value: any) => {
+    if (rule.required && (value === null || value === undefined || value === '')) {
+      return rule.message || '不能为空'
+    }
+    if (rule.type === 'number' && value !== null && value !== undefined && value !== '') {
+      if (rule.min !== undefined && Number(value) < rule.min) return rule.message || `不得小于 ${rule.min}`
+      if (rule.max !== undefined && Number(value) > rule.max) return rule.message || `不得大于 ${rule.max}`
+    }
+    return true
+  })
+
+const nameRules = toRuleFns(rules.name)
+const hostRules = toRuleFns(rules.host)
+const portRules = toRuleFns(rules.port)
+const savePathRules = toRuleFns(rules.savePath)
+const tagRules = toRuleFns(rules.tag)
+const maxConcurrentRules = toRuleFns(rules.maxConcurrent)
+
+const handleSubmitClick = async () => {
+  if (!formRef.value) return
+  const { valid } = await formRef.value.validate()
+  if (!valid) return
+  submitForm()
+}
 </script>
 
 <style scoped lang="scss">
@@ -192,7 +278,7 @@ const {
   margin-top: 4px;
   font-size: 12px;
   line-height: 1.5;
-  color: var(--el-color-warning);
+  color: rgb(var(--v-theme-warning));
 }
 
 .field-hint {
@@ -209,25 +295,37 @@ const {
 }
 
 .search-card {
-  border: none;
-  border-radius: var(--osr-radius-lg);
-  box-shadow: var(--osr-shadow-base);
+  padding: 14px 16px;
+}
 
-  :deep(.el-card__body) {
-    padding: 14px 16px;
+.search-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px;
+
+  > .v-text-field,
+  > .v-select {
+    width: 220px;
+    flex: 0 0 auto;
+  }
+
+  .status-select {
+    width: 140px;
+  }
+
+  .search-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 2px;
   }
 }
 
 .table-card {
-  border: none;
-  border-radius: var(--osr-radius-lg);
-  box-shadow: var(--osr-shadow-base);
-
-  :deep(.el-card__body) {
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-  }
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
 }
 
 .action-bar {
@@ -280,6 +378,10 @@ const {
   .card-checkbox {
     flex-shrink: 0;
     display: flex;
+
+    :deep(.v-selection-control) {
+      min-height: unset;
+    }
   }
 
   .card-title {
@@ -330,19 +432,35 @@ const {
   border-top: 1px solid var(--osr-border-light);
 }
 
+.form-item {
+  margin-bottom: 16px;
+
+  .form-label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 13px;
+    color: var(--osr-text-secondary);
+  }
+}
+
 @media (max-width: 768px) {
   .page-container {
     gap: 10px;
   }
 
-  .search-card :deep(.el-form) {
-    .el-form-item {
-      margin-right: 0;
+  .search-fields {
+    > .v-text-field,
+    > .v-select,
+    .status-select {
+      width: 100%;
     }
 
-    .el-input,
-    .el-select {
-      width: 100% !important;
+    .search-actions {
+      width: 100%;
+
+      .v-btn {
+        flex: 1;
+      }
     }
   }
 
@@ -356,7 +474,7 @@ const {
     }
   }
 
-  .table-card :deep(.el-card__body) {
+  .table-card {
     padding: 12px;
   }
 

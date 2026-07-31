@@ -32,8 +32,8 @@ test.describe('Login Flow', () => {
     await page.locator('text=登 录').click()
 
     // 提示来自后端 message，且只弹一条
-    await expect(page.locator('.el-message')).toHaveText(/用户名或密码错误/)
-    await expect(page.locator('.el-message')).toHaveCount(1)
+    await expect(page.locator('.v-snackbar')).toContainText(/用户名或密码错误/)
+    await expect(page.locator('.v-snackbar')).toHaveCount(1)
     // 登录失败不是 token 过期，不该被刷新流程带走
     await expect(page).toHaveURL(/\/login/)
   })

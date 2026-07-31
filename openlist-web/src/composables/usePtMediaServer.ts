@@ -1,5 +1,5 @@
 import { ref, computed } from 'vue'
-import { ElMessage } from 'element-plus'
+import { message } from '@/composables/useMessage'
 import { useTaskList } from './useTaskList'
 import {
   getPtMediaServerListApi,
@@ -56,13 +56,13 @@ export function usePtMediaServer() {
 
   const handleTest = async () => {
     if (!base.form.value.url || !base.form.value.apiKey) {
-      ElMessage.warning('请先填写服务器地址与 API Key')
+      message.warning('请先填写服务器地址与 API Key')
       return
     }
     testLoading.value = true
     try {
       await testPtMediaServerApi(base.form.value)
-      ElMessage.success('连接成功')
+      message.success('连接成功')
     } catch (e) {
       // 失败提示已由 axios 拦截器统一弹出，见 usePtIndexer.ts 中的说明，这里不再重复弹窗
       console.error('[PT媒体服务器] 测试连接失败:', e)

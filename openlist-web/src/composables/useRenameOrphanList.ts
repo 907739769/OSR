@@ -1,5 +1,6 @@
 import { ref } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { message } from '@/composables/useMessage'
+import { confirm } from '@/composables/useConfirm'
 import { useRecordList } from './useRecordList'
 import type { SearchParams } from '@/types'
 import {
@@ -42,9 +43,9 @@ export function useRenameOrphanList() {
     scanning.value = true
     try {
       await scanRenameOrphanApi()
-      ElMessage.success('扫描已在后台启动，请稍后刷新查看结果')
+      message.success('扫描已在后台启动，请稍后刷新查看结果')
     } catch (error: any) {
-      ElMessage.error(error.message || '触发扫描失败')
+      message.error(error.message || '触发扫描失败')
     } finally {
       scanning.value = false
     }
@@ -53,18 +54,18 @@ export function useRenameOrphanList() {
   // --- 忽略 ---
   const handleIgnoreOne = async (row: any) => {
     try {
-      await ElMessageBox.confirm(`是否确认忽略"${row.newName}"？忽略后不会自动清理，也不会再次提醒。`, '提示', { type: 'warning' })
+      await confirm({ message: `是否确认忽略"${row.newName}"？忽略后不会自动清理，也不会再次提醒。`, title: '提示', type: 'warning' })
       await batchIgnoreRenameOrphanApi([row.id])
-      ElMessage.success('已忽略')
+      message.success('已忽略')
       getList()
     } catch (e) { if (e !== 'cancel') console.error(e) }
   }
 
   const handleBatchIgnore = async () => {
     try {
-      await ElMessageBox.confirm(`是否确认忽略选中的 ${selectedIds.value.length} 条记录？`, '提示', { type: 'warning' })
+      await confirm({ message: `是否确认忽略选中的 ${selectedIds.value.length} 条记录？`, title: '提示', type: 'warning' })
       await batchIgnoreRenameOrphanApi(selectedIds.value)
-      ElMessage.success('已忽略')
+      message.success('已忽略')
       getList()
     } catch (e) { if (e !== 'cancel') console.error(e) }
   }

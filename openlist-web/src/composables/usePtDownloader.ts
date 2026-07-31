@@ -1,5 +1,5 @@
 import { ref, watch, computed } from 'vue'
-import { ElMessage } from 'element-plus'
+import { message } from '@/composables/useMessage'
 import { useTaskList } from './useTaskList'
 import {
   getPtDownloaderListApi,
@@ -65,13 +65,13 @@ export function usePtDownloader() {
 
   const handleTest = async () => {
     if (!base.form.value.host || !base.form.value.port) {
-      ElMessage.warning('请先填写主机与端口')
+      message.warning('请先填写主机与端口')
       return
     }
     testLoading.value = true
     try {
       await testPtDownloaderApi(base.form.value)
-      ElMessage.success('连接成功')
+      message.success('连接成功')
     } catch (e) {
       // 失败提示已由 axios 拦截器统一弹出，见 usePtIndexer.ts 中的说明，这里不再重复弹窗
       console.error('[PT下载器] 测试连接失败:', e)

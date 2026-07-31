@@ -1,5 +1,5 @@
 import { ref, reactive } from 'vue'
-import { ElMessage } from 'element-plus'
+import { message } from '@/composables/useMessage'
 import {
   getPtFilterConfigApi,
   updatePtFilterConfigApi,
@@ -96,7 +96,8 @@ export function usePtFilterConfig() {
 
   const save = async () => {
     if (formRef.value) {
-      await formRef.value.validate()
+      const result = await formRef.value.validate()
+      if (result && typeof result === 'object' && 'valid' in result && !result.valid) return
     }
     saving.value = true
     try {
@@ -106,7 +107,7 @@ export function usePtFilterConfig() {
         bytesForm[field] = (form[field] || 0) * GB
       }
       await updatePtFilterConfigApi(bytesForm)
-      ElMessage.success('保存成功')
+      message.success('保存成功')
       await load()
     } catch (e) {
       console.error(e)

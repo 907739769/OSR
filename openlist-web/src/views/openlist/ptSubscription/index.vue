@@ -1,99 +1,112 @@
 <template>
   <div class="page-container">
     <!-- 搜索 -->
-    <el-card class="search-card" v-if="showSearch">
-      <el-form :model="queryParams" ref="queryRef" :inline="true" label-width="80px">
-        <el-form-item label="标题" prop="title">
-          <el-input v-model="queryParams.title" placeholder="请输入标题" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="类型" prop="mediaType">
-          <el-select v-model="queryParams.mediaType" placeholder="类型" clearable :style="{ width: '120px' }">
-            <el-option label="剧集" value="TV" />
-            <el-option label="电影" value="MOVIE" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="状态" prop="status">
-          <el-select v-model="queryParams.status" placeholder="状态" clearable :style="{ width: '130px' }">
-            <el-option label="订阅中" value="ACTIVE" />
-            <el-option label="已完成" value="COMPLETED" />
-            <el-option label="已暂停" value="PAUSED" />
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleQuery">
-            <el-icon><Search /></el-icon> 搜索
-          </el-button>
-          <el-button @click="resetQuery">
-            <el-icon><Refresh /></el-icon> 重置
-          </el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
+    <v-card v-if="showSearch" class="search-card">
+      <v-form @submit.prevent="handleQuery">
+        <div class="search-row">
+          <v-text-field
+            v-model="queryParams.title"
+            label="标题"
+            placeholder="请输入标题"
+            clearable
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="search-field"
+            @keyup.enter="handleQuery"
+          />
+          <v-select
+            v-model="queryParams.mediaType"
+            :items="[{ title: '剧集', value: 'TV' }, { title: '电影', value: 'MOVIE' }]"
+            label="类型"
+            placeholder="类型"
+            clearable
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="search-field search-field-sm"
+          />
+          <v-select
+            v-model="queryParams.status"
+            :items="[{ title: '订阅中', value: 'ACTIVE' }, { title: '已完成', value: 'COMPLETED' }, { title: '已暂停', value: 'PAUSED' }]"
+            label="状态"
+            placeholder="状态"
+            clearable
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="search-field search-field-sm"
+          />
+          <div class="search-actions">
+            <v-btn color="primary" prepend-icon="mdi-magnify" @click="handleQuery">搜索</v-btn>
+            <v-btn variant="outlined" prepend-icon="mdi-refresh" @click="resetQuery">重置</v-btn>
+          </div>
+        </div>
+      </v-form>
+    </v-card>
 
     <!-- 列表 -->
-    <el-card class="table-card">
+    <v-card class="table-card">
       <div class="action-bar">
         <div class="action-left">
-          <el-button type="primary" @click="openSubscribeDialog">
-            <el-icon><Plus /></el-icon> 新增订阅
-          </el-button>
-          <el-button text @click="selectionMode = !selectionMode">
+          <v-btn color="primary" prepend-icon="mdi-plus" @click="openSubscribeDialog">
+            新增订阅
+          </v-btn>
+          <v-btn variant="text" @click="selectionMode = !selectionMode">
             {{ selectionMode ? '退出批量操作' : '批量操作' }}
-          </el-button>
+          </v-btn>
         </div>
         <div class="action-right">
           <span class="sort-label">排序：</span>
-          <el-select
+          <v-select
             v-model="queryParams.sortBy"
+            :items="[{ title: '默认（最新创建）', value: '' }, { title: '上次命中时间', value: 'lastMatchTime' }]"
             class="sort-select"
             placeholder="排序"
-            :style="{ width: '150px' }"
-            @change="handleQuery"
-          >
-            <el-option label="默认（最新创建）" value="" />
-            <el-option label="上次命中时间" value="lastMatchTime" />
-          </el-select>
-          <el-button text @click="showSearch = !showSearch">
-            <el-icon><Filter /></el-icon>
+            density="compact"
+            variant="outlined"
+            hide-details
+            style="width: 170px"
+            @update:model-value="handleQuery"
+          />
+          <v-btn variant="text" prepend-icon="mdi-filter-outline" @click="showSearch = !showSearch">
             {{ showSearch ? '隐藏搜索' : '显示搜索' }}
-          </el-button>
+          </v-btn>
         </div>
       </div>
 
-      <div class="batch-toolbar" v-if="selectionMode">
+      <div v-if="selectionMode" class="batch-toolbar">
         已选 {{ selectedIds.length }} 项
-        <el-checkbox
+        <v-checkbox
           :model-value="isAllPageSelected"
           :indeterminate="isIndeterminate"
-          @change="toggleSelectAllPage"
+          density="compact"
+          hide-details
           class="select-all-checkbox"
-        >
-          全选本页
-        </el-checkbox>
-        <el-button link type="warning" class="batch-pause-btn" :disabled="!selectedIds.length" @click="handleBatchPause">批量暂停</el-button>
-        <el-button link type="success" class="batch-resume-btn" :disabled="!selectedIds.length" @click="handleBatchResume">批量恢复</el-button>
-        <el-button link type="danger" class="batch-delete-btn" :disabled="!selectedIds.length" @click="handleDelete()">批量删除</el-button>
-        <el-button link class="batch-cancel-btn" @click="selectionMode = false">取消</el-button>
+          label="全选本页"
+          @update:model-value="(v: boolean | null) => toggleSelectAllPage(!!v)"
+        />
+        <v-btn variant="text" color="warning" size="small" class="batch-pause-btn" :disabled="!selectedIds.length" @click="handleBatchPause">批量暂停</v-btn>
+        <v-btn variant="text" color="success" size="small" class="batch-resume-btn" :disabled="!selectedIds.length" @click="handleBatchResume">批量恢复</v-btn>
+        <v-btn variant="text" color="error" size="small" class="batch-delete-btn" :disabled="!selectedIds.length" @click="handleDelete()">批量删除</v-btn>
+        <v-btn variant="text" size="small" class="batch-cancel-btn" @click="selectionMode = false">取消</v-btn>
       </div>
 
-      <div class="card-grid" v-if="loading && taskList.length === 0">
+      <div v-if="loading && taskList.length === 0" class="card-grid">
         <div v-for="n in skeletonCount" :key="n" class="sub-card-skeleton">
-          <el-skeleton animated class="sub-card-skeleton__body">
-            <template #template>
-              <el-skeleton-item variant="image" class="sub-card-skeleton__poster" />
-              <div class="sub-card-skeleton__info">
-                <el-skeleton-item variant="text" style="width: 70%; height: 16px; margin-bottom: 10px" />
-                <el-skeleton-item variant="text" style="width: 50%; margin-bottom: 10px" />
-                <el-skeleton-item variant="text" style="width: 100%; margin-bottom: 6px" />
-                <el-skeleton-item variant="text" style="width: 100%" />
-              </div>
-            </template>
-          </el-skeleton>
+          <v-skeleton-loader type="image" class="sub-card-skeleton__poster" width="72" height="108" />
+          <div class="sub-card-skeleton__info">
+            <v-skeleton-loader type="text" width="70%" class="mb-2" />
+            <v-skeleton-loader type="text" width="50%" class="mb-2" />
+            <v-skeleton-loader type="text" class="mb-2" />
+            <v-skeleton-loader type="text" />
+          </div>
         </div>
       </div>
-      <div class="card-grid" v-else v-loading="loading">
+      <div v-else class="card-grid">
+        <v-progress-linear v-if="loading" indeterminate color="primary" />
         <div v-for="item in taskList" :key="item.id" class="sub-card" :class="{ selectable: selectionMode }" @click="selectionMode && toggleSubSelect(item)">
-          <el-checkbox
+          <v-checkbox-btn
             v-if="selectionMode"
             class="sub-card-checkbox"
             :model-value="isSubSelected(item.id)"
@@ -108,7 +121,7 @@
               @error="onPosterError(item.id)"
             />
             <div v-else class="sub-poster-placeholder" :class="item.mediaType === 'MOVIE' ? 'placeholder-movie' : 'placeholder-tv'">
-              <el-icon :size="24"><Picture /></el-icon>
+              <v-icon icon="mdi-image-outline" size="24" />
               <span class="placeholder-text">{{ item.mediaType === 'MOVIE' ? '电影' : '剧集' }}</span>
             </div>
           </div>
@@ -118,9 +131,9 @@
                 {{ item.title }}
                 <span v-if="item.year" class="sub-year">({{ item.year }})</span>
               </span>
-              <el-tag v-if="item.status === 'ACTIVE'" type="success" size="small">订阅中</el-tag>
-              <el-tag v-else-if="item.status === 'COMPLETED'" type="info" size="small">已完成</el-tag>
-              <el-tag v-else type="warning" size="small">已暂停</el-tag>
+              <v-chip v-if="item.status === 'ACTIVE'" color="success" size="small" variant="tonal">订阅中</v-chip>
+              <v-chip v-else-if="item.status === 'COMPLETED'" color="info" size="small" variant="tonal">已完成</v-chip>
+              <v-chip v-else color="warning" size="small" variant="tonal">已暂停</v-chip>
             </div>
             <div class="sub-meta">
               <span>{{ item.mediaType === 'MOVIE' ? '电影' : '剧集' }}</span>
@@ -137,396 +150,489 @@
             </div>
             <div class="sub-row">
               <span class="label">自动补搜</span>
-              <el-switch
+              <v-switch
                 v-model="item.autoSearch"
-                active-value="1"
-                inactive-value="0"
-                @change="toggleAutoSearch(item)"
+                true-value="1"
+                false-value="0"
+                color="primary"
+                density="compact"
+                hide-details
+                @update:model-value="() => toggleAutoSearch(item)"
               />
             </div>
             <div class="sub-actions">
-              <el-button link type="primary" @click="showProgress(item)">进度</el-button>
-              <el-button link type="primary" @click="goDownloadRecords(item)">下载记录</el-button>
-              <el-button v-if="item.status !== 'PAUSED'" link type="warning" @click="handlePause(item)">暂停</el-button>
-              <el-button v-else link type="success" @click="handleResume(item)">恢复</el-button>
-              <el-button link type="danger" @click="handleRemove(item)">删除</el-button>
-              <el-dropdown trigger="click" @command="(cmd: string) => handleMoreCommand(cmd, item)">
-                <el-button link type="info">更多<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button>
-                <template #dropdown>
-                  <el-dropdown-menu>
-                    <el-dropdown-item command="refresh">对账</el-dropdown-item>
-                    <el-dropdown-item command="logs">匹配日志</el-dropdown-item>
-                    <el-dropdown-item command="filter">过滤规则</el-dropdown-item>
-                    <el-dropdown-item command="search">搜索补齐</el-dropdown-item>
-                  </el-dropdown-menu>
+              <v-btn variant="text" color="primary" size="small" @click="showProgress(item)">进度</v-btn>
+              <v-btn variant="text" color="primary" size="small" @click="goDownloadRecords(item)">下载记录</v-btn>
+              <v-btn v-if="item.status !== 'PAUSED'" variant="text" color="warning" size="small" @click="handlePause(item)">暂停</v-btn>
+              <v-btn v-else variant="text" color="success" size="small" @click="handleResume(item)">恢复</v-btn>
+              <v-btn variant="text" color="error" size="small" @click="handleRemove(item)">删除</v-btn>
+              <v-menu eager>
+                <template #activator="{ props: menuProps }">
+                  <v-btn v-bind="menuProps" class="more-actions-trigger" variant="text" color="info" size="small" append-icon="mdi-chevron-down">更多</v-btn>
                 </template>
-              </el-dropdown>
+                <v-list density="compact">
+                  <v-list-item @click="handleMoreCommand('refresh', item)">对账</v-list-item>
+                  <v-list-item @click="handleMoreCommand('logs', item)">匹配日志</v-list-item>
+                  <v-list-item @click="handleMoreCommand('filter', item)">过滤规则</v-list-item>
+                  <v-list-item @click="handleMoreCommand('search', item)">搜索补齐</v-list-item>
+                </v-list>
+              </v-menu>
             </div>
           </div>
         </div>
-        <el-empty v-if="!loading && taskList.length === 0" description="暂无订阅" />
+        <v-empty-state v-if="!loading && taskList.length === 0" icon="mdi-inbox-outline" title="暂无订阅" />
       </div>
 
       <div class="pagination-wrapper">
-        <el-pagination
-          v-model:current-page="queryParams.pageNum"
-          v-model:page-size="queryParams.pageSize"
-          :total="total"
-          :page-sizes="[12, 24, 48]"
-          layout="total, sizes, prev, pager, next, jumper"
-          @current-change="getList"
-          @size-change="getList"
+        <span class="total-text">共 {{ total }} 条</span>
+        <v-select
+          :model-value="queryParams.pageSize"
+          :items="[12, 24, 48]"
+          density="compact"
+          variant="outlined"
+          hide-details
+          class="page-size-select"
+          @update:model-value="(v: number) => { queryParams.pageSize = v; getList() }"
+        />
+        <v-pagination
+          v-model="queryParams.pageNum"
+          :length="Math.ceil(total / queryParams.pageSize) || 1"
+          density="comfortable"
+          @update:model-value="getList"
         />
       </div>
-    </el-card>
+    </v-card>
 
     <!-- 新增订阅：TMDb 选片 -->
-    <el-dialog v-model="subscribeOpen" title="新增订阅" width="720px" append-to-body class="modern-dialog">
-      <el-form :inline="true" @submit.prevent>
-        <el-form-item label="类型">
-          <el-select v-model="searchForm.mediaType" :style="{ width: '110px' }">
-            <el-option label="剧集" value="TV" />
-            <el-option label="电影" value="MOVIE" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="片名">
-          <el-input v-model="searchForm.keyword" placeholder="输入片名后回车" :style="{ width: '280px' }" @keyup.enter="doSearch" />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" :loading="searchLoading" @click="doSearch">搜索 TMDb</el-button>
-        </el-form-item>
-      </el-form>
-
-      <el-table
-        v-loading="searchLoading"
-        :data="searchResults"
-        height="300"
-        highlight-current-row
-        @current-change="pick"
-      >
-        <el-table-column label="海报" width="64" align="center">
-          <template #default="scope">
-            <img
-              v-if="scope.row.posterPath"
-              :src="posterUrl(scope.row.posterPath)"
-              class="search-poster"
-              loading="lazy"
-              @error="(e: Event) => ((e.target as HTMLImageElement).style.visibility = 'hidden')"
+    <v-dialog v-model="subscribeOpen" max-width="720" class="modern-dialog">
+      <v-card title="新增订阅">
+        <v-card-text>
+          <div class="search-row">
+            <v-select
+              v-model="searchForm.mediaType"
+              :items="[{ title: '剧集', value: 'TV' }, { title: '电影', value: 'MOVIE' }]"
+              label="类型"
+              density="compact"
+              variant="outlined"
+              hide-details
+              style="width: 120px"
             />
-            <el-icon v-else class="search-poster-placeholder"><Picture /></el-icon>
-          </template>
-        </el-table-column>
-        <el-table-column label="标题" min-width="200" show-overflow-tooltip>
-          <template #default="scope">
-            {{ scope.row.title }}
-            <span v-if="scope.row.originalTitle && scope.row.originalTitle !== scope.row.title" class="sub-year">
-              / {{ scope.row.originalTitle }}
-            </span>
-          </template>
-        </el-table-column>
-        <el-table-column label="年份" prop="year" width="80" align="center">
-          <template #default="scope">{{ scope.row.year || '-' }}</template>
-        </el-table-column>
-        <el-table-column label="TMDb ID" prop="tmdbId" width="100" align="center" />
-      </el-table>
+            <v-text-field
+              v-model="searchForm.keyword"
+              label="片名"
+              placeholder="输入片名后回车"
+              density="compact"
+              variant="outlined"
+              hide-details
+              style="width: 280px"
+              @keyup.enter="doSearch"
+            />
+            <v-btn color="primary" :loading="searchLoading" @click="doSearch">搜索 TMDb</v-btn>
+          </div>
 
-      <div v-if="picked" class="picked-bar">
-        已选：<strong>{{ picked.title }}</strong>
-        <template v-if="searchForm.mediaType !== 'MOVIE'">
-          &nbsp;第
-          <el-input-number v-model="pickedSeason" :min="0" :max="99" size="small" :style="{ width: '110px' }" />
-          季
-          <span class="sub-year">（第 0 季是特别篇）</span>
-        </template>
-      </div>
+          <v-data-table
+            :loading="searchLoading"
+            :items="searchResults"
+            :headers="searchHeaders"
+            height="300"
+            fixed-header
+            items-per-page="-1"
+            hide-default-footer
+            density="compact"
+            class="mt-3 modern-table"
+            :row-props="(row: any) => ({ class: picked && picked.tmdbId === row.item.tmdbId ? 'row-selected' : '', style: 'cursor:pointer', onClick: () => pick(row.item) })"
+          >
+            <template #item.poster="{ item }">
+              <img
+                v-if="item.posterPath"
+                :src="posterUrl(item.posterPath)"
+                class="search-poster"
+                loading="lazy"
+                @error="(e: Event) => ((e.target as HTMLImageElement).style.visibility = 'hidden')"
+              />
+              <v-icon v-else icon="mdi-image-outline" class="search-poster-placeholder" />
+            </template>
+            <template #item.title="{ item }">
+              {{ item.title }}
+              <span v-if="item.originalTitle && item.originalTitle !== item.title" class="sub-year">
+                / {{ item.originalTitle }}
+              </span>
+            </template>
+            <template #item.year="{ item }">{{ item.year || '-' }}</template>
+          </v-data-table>
 
-      <template #footer>
-        <el-button @click="subscribeOpen = false">取消</el-button>
-        <el-button type="primary" :loading="subscribeLoading" :disabled="!picked" @click="confirmSubscribe">
-          订阅
-        </el-button>
-      </template>
-    </el-dialog>
+          <div v-if="picked" class="picked-bar">
+            已选：<strong>{{ picked.title }}</strong>
+            <template v-if="searchForm.mediaType !== 'MOVIE'">
+              &nbsp;第
+              <v-text-field
+                v-model.number="pickedSeason"
+                type="number"
+                min="0"
+                max="99"
+                density="compact"
+                variant="outlined"
+                hide-details
+                style="width: 110px; display: inline-flex"
+              />
+              季
+              <span class="sub-year">（第 0 季是特别篇）</span>
+            </template>
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="subscribeOpen = false">取消</v-btn>
+          <v-btn color="primary" variant="flat" :loading="subscribeLoading" :disabled="!picked" @click="confirmSubscribe">
+            订阅
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- 进度 -->
-    <el-dialog v-model="progressOpen" title="订阅进度" width="520px" append-to-body class="modern-dialog">
-      <div v-loading="progressLoading">
-        <template v-if="progress">
-          <p class="progress-title">{{ progress.title }}</p>
-          <el-progress
-            :percentage="progress.totalEpisodes ? Math.round((progress.inLibraryCount / progress.totalEpisodes) * 100) : 0"
-          />
-          <p>已入库 <strong>{{ progress.inLibraryCount }}</strong> / {{ progress.totalEpisodes }} 集</p>
-          <p v-if="progress.inFlightCount">在途 {{ progress.inFlightCount }} 集（已推送下载器，尚未入库）</p>
-          <div v-if="progress.missingEpisodes && progress.missingEpisodes.length" class="missing-list">
-            仍缺第
-            <span v-for="(ep, idx) in progress.missingEpisodes" :key="ep" class="missing-item">
-              <span v-if="idx > 0">、</span>{{ ep }}
-              <el-button
-                v-if="currentSubscription && currentSubscription.mediaType !== 'MOVIE'"
-                link
-                type="primary"
-                size="small"
-                @click="openEpisodeSearch(currentSubscription, ep)"
-              >搜</el-button>
-            </span>
-            集
-          </div>
-          <p v-else class="all-done">全部集已入库</p>
-
-          <div class="episode-detail-toggle" @click="loadEpisodeDetail">
-            {{ episodeDetailOpen ? '收起全部集' : '查看全部集' }}
-            <el-icon :class="{ 'is-open': episodeDetailOpen }"><ArrowDown /></el-icon>
-          </div>
-          <div v-if="episodeDetailOpen" class="episode-detail-list" v-loading="episodeDetailLoading">
-            <div v-for="ep in episodeDetail" :key="ep.episode" class="episode-detail-row">
-              <span class="ep-num">第{{ ep.episode }}集</span>
-              <el-tag
-                size="small"
-                :type="ep.state === 'IN_LIBRARY' ? 'success' : ep.state === 'IN_FLIGHT' ? 'primary' : ep.state === 'BLOCKED' ? 'danger' : 'info'"
-              >
-                {{ episodeStateLabel(ep.state) }}
-              </el-tag>
-              <el-button
-                v-if="ep.state === 'IN_LIBRARY' || ep.state === 'BLOCKED'"
-                link
-                type="warning"
-                size="small"
-                :loading="resettingEpisode === ep.episode"
-                @click="handleResetEpisode(ep)"
-              >重置</el-button>
+    <v-dialog v-model="progressOpen" max-width="520" class="modern-dialog">
+      <v-card title="订阅进度">
+        <v-card-text>
+          <v-progress-linear v-if="progressLoading" indeterminate color="primary" class="mb-3" />
+          <template v-if="progress">
+            <p class="progress-title">{{ progress.title }}</p>
+            <v-progress-linear
+              :model-value="progress.totalEpisodes ? Math.round((progress.inLibraryCount / progress.totalEpisodes) * 100) : 0"
+              color="primary"
+              height="8"
+              rounded
+              class="mb-2"
+            />
+            <p>已入库 <strong>{{ progress.inLibraryCount }}</strong> / {{ progress.totalEpisodes }} 集</p>
+            <p v-if="progress.inFlightCount">在途 {{ progress.inFlightCount }} 集（已推送下载器，尚未入库）</p>
+            <div v-if="progress.missingEpisodes && progress.missingEpisodes.length" class="missing-list">
+              仍缺第
+              <span v-for="(ep, idx) in progress.missingEpisodes" :key="ep" class="missing-item">
+                <span v-if="idx > 0">、</span>{{ ep }}
+                <v-btn
+                  v-if="currentSubscription && currentSubscription.mediaType !== 'MOVIE'"
+                  variant="text"
+                  color="primary"
+                  size="small"
+                  @click="openEpisodeSearch(currentSubscription, ep)"
+                >搜</v-btn>
+              </span>
+              集
             </div>
-            <el-empty v-if="!episodeDetailLoading && episodeDetail.length === 0" description="暂无数据" :image-size="40" />
-          </div>
-        </template>
-      </div>
-      <template #footer>
-        <el-button v-if="currentSubscription" type="primary" @click="openSeasonSearch(currentSubscription)">
-          搜索补齐
-        </el-button>
-        <el-button
-          v-if="currentSubscription && progress && progress.missingEpisodes && progress.missingEpisodes.length > 1"
-          type="success"
-          :loading="searchAllMissingLoading"
-          @click="handleSearchAllMissing"
-        >
-          一键补齐全部（{{ progress.missingEpisodes.length }}集）
-        </el-button>
-        <el-button @click="progressOpen = false">关闭</el-button>
-      </template>
-    </el-dialog>
+            <p v-else class="all-done">全部集已入库</p>
+
+            <div class="episode-detail-toggle" @click="loadEpisodeDetail">
+              {{ episodeDetailOpen ? '收起全部集' : '查看全部集' }}
+              <v-icon icon="mdi-chevron-down" :class="{ 'is-open': episodeDetailOpen }" size="16" />
+            </div>
+            <div v-if="episodeDetailOpen" class="episode-detail-list">
+              <v-progress-linear v-if="episodeDetailLoading" indeterminate color="primary" />
+              <div v-for="ep in episodeDetail" :key="ep.episode" class="episode-detail-row">
+                <span class="ep-num">第{{ ep.episode }}集</span>
+                <v-chip
+                  size="small"
+                  :color="ep.state === 'IN_LIBRARY' ? 'success' : ep.state === 'IN_FLIGHT' ? 'primary' : ep.state === 'BLOCKED' ? 'error' : 'info'"
+                  variant="tonal"
+                >
+                  {{ episodeStateLabel(ep.state) }}
+                </v-chip>
+                <v-btn
+                  v-if="ep.state === 'IN_LIBRARY' || ep.state === 'BLOCKED'"
+                  variant="text"
+                  color="warning"
+                  size="small"
+                  :loading="resettingEpisode === ep.episode"
+                  @click="handleResetEpisode(ep)"
+                >重置</v-btn>
+              </div>
+              <v-empty-state v-if="!episodeDetailLoading && episodeDetail.length === 0" icon="mdi-inbox-outline" title="暂无数据" />
+            </div>
+          </template>
+        </v-card-text>
+        <v-card-actions>
+          <v-btn v-if="currentSubscription" color="primary" @click="openSeasonSearch(currentSubscription)">
+            搜索补齐
+          </v-btn>
+          <v-btn
+            v-if="currentSubscription && progress && progress.missingEpisodes && progress.missingEpisodes.length > 1"
+            color="success"
+            :loading="searchAllMissingLoading"
+            @click="handleSearchAllMissing"
+          >
+            一键补齐全部（{{ progress.missingEpisodes.length }}集）
+          </v-btn>
+          <v-spacer />
+          <v-btn @click="progressOpen = false">关闭</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- 搜索补集确认 -->
-    <el-dialog v-model="searchDialogOpen" title="搜索补集" width="480px" append-to-body class="modern-dialog">
-      <el-form label-width="80px">
-        <el-form-item label="关键词">
-          <el-input v-model="searchDialogKeyword" placeholder="搜索关键词，可编辑后再搜" />
-        </el-form-item>
-        <el-form-item label=" ">
-          <el-checkbox v-model="searchManualSelect">
-            手动选择结果
-          </el-checkbox>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="searchDialogOpen = false">取消</el-button>
-        <el-button type="primary" :loading="searchDialogLoading" @click="confirmSearch">搜索</el-button>
-      </template>
-    </el-dialog>
+    <v-dialog v-model="searchDialogOpen" max-width="480" class="modern-dialog">
+      <v-card title="搜索补集">
+        <v-card-text>
+          <v-text-field
+            v-model="searchDialogKeyword"
+            label="关键词"
+            placeholder="搜索关键词，可编辑后再搜"
+            class="mb-2"
+          />
+          <v-checkbox v-model="searchManualSelect" label="手动选择结果" hide-details />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="searchDialogOpen = false">取消</v-btn>
+          <v-btn color="primary" variant="flat" :loading="searchDialogLoading" @click="confirmSearch">搜索</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- 候选种子手动选择 -->
-    <el-dialog v-model="candidateDialogOpen" title="选择候选种子" width="800px" append-to-body class="modern-dialog">
-      <div v-if="candidates.length === 0" style="text-align:center;padding:40px;color:var(--osr-text-secondary);">
-        未搜索到匹配资源
-      </div>
-      <el-table v-else :data="candidates" highlight-current-row height="420" size="small" @current-change="(row: any) => selectedCandidate = row">
-        <el-table-column type="index" label="#" width="48" align="center" />
-        <el-table-column label="目标" width="70" align="center">
-          <template #default="scope">
-            <el-tag v-if="scope.row.parsedEpisode && scope.row.parsedEpisodeEnd > scope.row.parsedEpisode" size="small" type="warning">
-              第{{ scope.row.parsedEpisode }}-{{ scope.row.parsedEpisodeEnd }}集
-            </el-tag>
-            <el-tag v-else-if="scope.row.parsedEpisode" size="small" type="warning">第{{ scope.row.parsedEpisode }}集</el-tag>
-            <el-tag v-else size="small" type="success">整季</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="来源" width="100">
-          <template #default="scope">
-            <el-tag size="small" type="info">{{ scope.row.indexerName }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="标题" min-width="280" show-overflow-tooltip>
-          <template #default="scope">{{ scope.row.title }}</template>
-        </el-table-column>
-        <el-table-column label="分辨率" width="80" align="center">
-          <template #default="scope">{{ scope.row.resolution || '-' }}</template>
-        </el-table-column>
-        <el-table-column label="来源" width="80" align="center">
-          <template #default="scope">{{ scope.row.source || '-' }}</template>
-        </el-table-column>
-        <el-table-column label="体积" width="100" align="right">
-          <template #default="scope">{{ formatSize(scope.row.size) }}</template>
-        </el-table-column>
-        <el-table-column label="做种" width="70" align="center">
-          <template #default="scope">
-            <el-tag :type="scope.row.seeders > 0 ? 'success' : 'danger'" size="small">{{ scope.row.seeders }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="免费" width="60" align="center">
-          <template #default="scope">
-            <el-tag v-if="scope.row.free" type="warning" size="small">免费</el-tag>
-            <span v-else>-</span>
-          </template>
-        </el-table-column>
-      </el-table>
-      <template #footer>
-        <el-button @click="candidateDialogOpen = false">取消</el-button>
-        <el-button
-          type="primary"
-          :loading="pushingSelected"
-          :disabled="!selectedCandidate"
-          @click="pushSelectedCandidate(selectedCandidate)"
-        >
-          下载选中版本
-        </el-button>
-      </template>
-    </el-dialog>
+    <v-dialog v-model="candidateDialogOpen" max-width="800" class="modern-dialog">
+      <v-card title="选择候选种子">
+        <v-card-text>
+          <div v-if="candidates.length === 0" class="empty-tip">
+            未搜索到匹配资源
+          </div>
+          <v-data-table
+            v-else
+            :items="candidates"
+            :headers="candidateHeaders"
+            height="420"
+            fixed-header
+            items-per-page="-1"
+            hide-default-footer
+            density="compact"
+            class="modern-table"
+            :row-props="(row: any) => ({ class: selectedCandidate === row.item ? 'row-selected' : '', style: 'cursor:pointer', onClick: () => (selectedCandidate = row.item) })"
+          >
+            <template #item.index="{ index }">{{ index + 1 }}</template>
+            <template #item.target="{ item }">
+              <v-chip v-if="item.parsedEpisode && item.parsedEpisodeEnd > item.parsedEpisode" size="small" color="warning" variant="tonal">
+                第{{ item.parsedEpisode }}-{{ item.parsedEpisodeEnd }}集
+              </v-chip>
+              <v-chip v-else-if="item.parsedEpisode" size="small" color="warning" variant="tonal">第{{ item.parsedEpisode }}集</v-chip>
+              <v-chip v-else size="small" color="success" variant="tonal">整季</v-chip>
+            </template>
+            <template #item.indexerName="{ item }">
+              <v-chip size="small" color="info" variant="tonal">{{ item.indexerName }}</v-chip>
+            </template>
+            <template #item.resolution="{ item }">{{ item.resolution || '-' }}</template>
+            <template #item.source="{ item }">{{ item.source || '-' }}</template>
+            <template #item.size="{ item }">{{ formatSize(item.size) }}</template>
+            <template #item.seeders="{ item }">
+              <v-chip :color="item.seeders > 0 ? 'success' : 'error'" size="small" variant="tonal">{{ item.seeders }}</v-chip>
+            </template>
+            <template #item.free="{ item }">
+              <v-chip v-if="item.free" color="warning" size="small" variant="tonal">免费</v-chip>
+              <span v-else>-</span>
+            </template>
+          </v-data-table>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="candidateDialogOpen = false">取消</v-btn>
+          <v-btn
+            color="primary"
+            variant="flat"
+            :loading="pushingSelected"
+            :disabled="!selectedCandidate"
+            @click="pushSelectedCandidate(selectedCandidate)"
+          >
+            下载选中版本
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- 匹配日志 -->
-    <el-dialog v-model="searchLogOpen" title="匹配日志" width="720px" append-to-body class="modern-dialog">
-      <el-table v-loading="searchLogLoading" :data="searchLogs" height="420" size="small">
-        <el-table-column label="时间" prop="createTime" width="160" />
-        <el-table-column label="来源" width="90">
-          <template #default="scope">
-            <el-tag size="small" :type="scope.row.source === 'RSS' ? 'info' : 'primary'">
-              {{ scope.row.source === 'RSS' ? 'RSS轮询' : '搜索补集' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="种子标题" prop="torrentTitle" min-width="200" show-overflow-tooltip>
-          <template #default="scope">{{ scope.row.torrentTitle || '-' }}</template>
-        </el-table-column>
-        <el-table-column label="结果" width="80">
-          <template #default="scope">
-            <el-tag v-if="scope.row.accepted === '1'" type="success" size="small">通过</el-tag>
-            <el-tag v-else type="danger" size="small">淘汰</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="原因" prop="reason" min-width="180" show-overflow-tooltip>
-          <template #default="scope">{{ scope.row.reason || '-' }}</template>
-        </el-table-column>
-      </el-table>
-      <el-empty v-if="!searchLogLoading && searchLogs.length === 0" description="暂无日志（还没轮询/搜索过，或该订阅日志已被清理）" />
-      <template #footer>
-        <el-button @click="searchLogOpen = false">关闭</el-button>
-      </template>
-    </el-dialog>
+    <v-dialog v-model="searchLogOpen" max-width="720" class="modern-dialog">
+      <v-card title="匹配日志">
+        <v-card-text>
+          <v-data-table
+            :loading="searchLogLoading"
+            :items="searchLogs"
+            :headers="searchLogHeaders"
+            height="420"
+            fixed-header
+            items-per-page="-1"
+            hide-default-footer
+            density="compact"
+            class="modern-table"
+          >
+            <template #item.source="{ item }">
+              <v-chip size="small" :color="item.source === 'RSS' ? 'info' : 'primary'" variant="tonal">
+                {{ item.source === 'RSS' ? 'RSS轮询' : '搜索补集' }}
+              </v-chip>
+            </template>
+            <template #item.torrentTitle="{ item }">{{ item.torrentTitle || '-' }}</template>
+            <template #item.accepted="{ item }">
+              <v-chip v-if="item.accepted === '1'" color="success" size="small" variant="tonal">通过</v-chip>
+              <v-chip v-else color="error" size="small" variant="tonal">淘汰</v-chip>
+            </template>
+            <template #item.reason="{ item }">{{ item.reason || '-' }}</template>
+          </v-data-table>
+          <v-empty-state v-if="!searchLogLoading && searchLogs.length === 0" icon="mdi-inbox-outline" title="暂无日志" text="还没轮询/搜索过，或该订阅日志已被清理" />
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="searchLogOpen = false">关闭</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- 过滤规则覆盖 -->
-    <el-dialog v-model="filterOverrideOpen" title="过滤规则覆盖" width="640px" append-to-body class="modern-dialog">
-      <p class="override-tip">只勾选需要覆盖的项，不勾选的沿用全局过滤规则（PT过滤规则页配置的）。</p>
-      <el-form label-width="120px">
-        <el-form-item label="最低做种数">
-          <el-checkbox v-model="filterOverrideForm.minSeeders.enabled" class="override-checkbox" />
-          <el-input-number
-            v-model="filterOverrideForm.minSeeders.value"
-            :min="0"
-            :disabled="!filterOverrideForm.minSeeders.enabled"
-            :style="{ width: '200px' }"
-          />
-        </el-form-item>
-        <el-form-item label="体积下限">
-          <el-checkbox v-model="filterOverrideForm.minSize.enabled" class="override-checkbox" />
-          <el-input-number
-            v-model="filterOverrideForm.minSize.value"
-            :min="0"
-            :max="999"
-            :disabled="!filterOverrideForm.minSize.enabled"
-            :style="{ width: '160px' }"
-          />
-          <span class="form-tip">GB</span>
-        </el-form-item>
-        <el-form-item label="体积上限">
-          <el-checkbox v-model="filterOverrideForm.maxSize.enabled" class="override-checkbox" />
-          <el-input-number
-            v-model="filterOverrideForm.maxSize.value"
-            :min="0"
-            :max="999"
-            :disabled="!filterOverrideForm.maxSize.enabled"
-            :style="{ width: '160px' }"
-          />
-          <span class="form-tip">GB</span>
-        </el-form-item>
-        <el-form-item label="仅要免费种">
-          <el-checkbox v-model="filterOverrideForm.freeOnly.enabled" class="override-checkbox" />
-          <el-radio-group v-model="filterOverrideForm.freeOnly.value" :disabled="!filterOverrideForm.freeOnly.enabled">
-            <el-radio value="0">否</el-radio>
-            <el-radio value="1">是</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="外语电影需中字">
-          <el-checkbox v-model="filterOverrideForm.requireChineseSubtitle.enabled" class="override-checkbox" />
-          <el-radio-group v-model="filterOverrideForm.requireChineseSubtitle.value" :disabled="!filterOverrideForm.requireChineseSubtitle.enabled">
-            <el-radio value="0">否</el-radio>
-            <el-radio value="1">是</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="分辨率白名单">
-          <el-checkbox v-model="filterOverrideForm.resolutionWhitelist.enabled" class="override-checkbox" />
-          <el-input
-            v-model="filterOverrideForm.resolutionWhitelist.value"
-            placeholder="如 2160p,1080p"
-            :disabled="!filterOverrideForm.resolutionWhitelist.enabled"
-          />
-        </el-form-item>
-        <el-form-item label="标题包含词">
-          <el-checkbox v-model="filterOverrideForm.includeKeywords.enabled" class="override-checkbox" />
-          <el-input
-            v-model="filterOverrideForm.includeKeywords.value"
-            placeholder="逗号分隔，命中其一即可"
-            :disabled="!filterOverrideForm.includeKeywords.enabled"
-          />
-        </el-form-item>
-        <el-form-item label="标题排除词">
-          <el-checkbox v-model="filterOverrideForm.excludeKeywords.enabled" class="override-checkbox" />
-          <el-input
-            v-model="filterOverrideForm.excludeKeywords.value"
-            placeholder="逗号分隔，命中任一即淘汰"
-            :disabled="!filterOverrideForm.excludeKeywords.enabled"
-          />
-        </el-form-item>
-        <el-form-item label="分辨率优先级">
-          <el-checkbox v-model="filterOverrideForm.resolutionPriority.enabled" class="override-checkbox" />
-          <el-input
-            v-model="filterOverrideForm.resolutionPriority.value"
-            placeholder="如 2160p,1080p,720p"
-            :disabled="!filterOverrideForm.resolutionPriority.enabled"
-          />
-        </el-form-item>
-        <el-form-item label="偏好体积">
-          <el-checkbox v-model="filterOverrideForm.preferredSize.enabled" class="override-checkbox" />
-          <el-input-number
-            v-model="filterOverrideForm.preferredSize.value"
-            :min="0"
-            :max="999"
-            :disabled="!filterOverrideForm.preferredSize.enabled"
-            :style="{ width: '160px' }"
-          />
-          <span class="form-tip">GB</span>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="filterOverrideOpen = false">取消</el-button>
-        <el-button type="primary" :loading="filterOverrideSaving" @click="saveFilterOverride">保存</el-button>
-      </template>
-    </el-dialog>
+    <v-dialog v-model="filterOverrideOpen" max-width="640" class="modern-dialog">
+      <v-card title="过滤规则覆盖">
+        <v-card-text>
+          <p class="override-tip">只勾选需要覆盖的项，不勾选的沿用全局过滤规则（PT过滤规则页配置的）。</p>
+          <v-form>
+            <div class="override-row">
+              <span class="override-label">最低做种数</span>
+              <v-checkbox v-model="filterOverrideForm.minSeeders.enabled" hide-details density="compact" class="override-checkbox" />
+              <v-text-field
+                v-model.number="filterOverrideForm.minSeeders.value"
+                type="number"
+                min="0"
+                :disabled="!filterOverrideForm.minSeeders.enabled"
+                density="compact"
+                variant="outlined"
+                hide-details
+                style="width: 200px"
+              />
+            </div>
+            <div class="override-row">
+              <span class="override-label">体积下限</span>
+              <v-checkbox v-model="filterOverrideForm.minSize.enabled" hide-details density="compact" class="override-checkbox" />
+              <v-text-field
+                v-model.number="filterOverrideForm.minSize.value"
+                type="number"
+                min="0"
+                max="999"
+                :disabled="!filterOverrideForm.minSize.enabled"
+                density="compact"
+                variant="outlined"
+                hide-details
+                style="width: 160px"
+              />
+              <span class="form-tip">GB</span>
+            </div>
+            <div class="override-row">
+              <span class="override-label">体积上限</span>
+              <v-checkbox v-model="filterOverrideForm.maxSize.enabled" hide-details density="compact" class="override-checkbox" />
+              <v-text-field
+                v-model.number="filterOverrideForm.maxSize.value"
+                type="number"
+                min="0"
+                max="999"
+                :disabled="!filterOverrideForm.maxSize.enabled"
+                density="compact"
+                variant="outlined"
+                hide-details
+                style="width: 160px"
+              />
+              <span class="form-tip">GB</span>
+            </div>
+            <div class="override-row">
+              <span class="override-label">仅要免费种</span>
+              <v-checkbox v-model="filterOverrideForm.freeOnly.enabled" hide-details density="compact" class="override-checkbox" />
+              <v-radio-group v-model="filterOverrideForm.freeOnly.value" inline hide-details :disabled="!filterOverrideForm.freeOnly.enabled">
+                <v-radio label="否" value="0" />
+                <v-radio label="是" value="1" />
+              </v-radio-group>
+            </div>
+            <div class="override-row">
+              <span class="override-label">外语电影需中字</span>
+              <v-checkbox v-model="filterOverrideForm.requireChineseSubtitle.enabled" hide-details density="compact" class="override-checkbox" />
+              <v-radio-group v-model="filterOverrideForm.requireChineseSubtitle.value" inline hide-details :disabled="!filterOverrideForm.requireChineseSubtitle.enabled">
+                <v-radio label="否" value="0" />
+                <v-radio label="是" value="1" />
+              </v-radio-group>
+            </div>
+            <div class="override-row">
+              <span class="override-label">分辨率白名单</span>
+              <v-checkbox v-model="filterOverrideForm.resolutionWhitelist.enabled" hide-details density="compact" class="override-checkbox" />
+              <v-text-field
+                v-model="filterOverrideForm.resolutionWhitelist.value"
+                placeholder="如 2160p,1080p"
+                :disabled="!filterOverrideForm.resolutionWhitelist.enabled"
+                density="compact"
+                variant="outlined"
+                hide-details
+                class="override-input"
+              />
+            </div>
+            <div class="override-row">
+              <span class="override-label">标题包含词</span>
+              <v-checkbox v-model="filterOverrideForm.includeKeywords.enabled" hide-details density="compact" class="override-checkbox" />
+              <v-text-field
+                v-model="filterOverrideForm.includeKeywords.value"
+                placeholder="逗号分隔，命中其一即可"
+                :disabled="!filterOverrideForm.includeKeywords.enabled"
+                density="compact"
+                variant="outlined"
+                hide-details
+                class="override-input"
+              />
+            </div>
+            <div class="override-row">
+              <span class="override-label">标题排除词</span>
+              <v-checkbox v-model="filterOverrideForm.excludeKeywords.enabled" hide-details density="compact" class="override-checkbox" />
+              <v-text-field
+                v-model="filterOverrideForm.excludeKeywords.value"
+                placeholder="逗号分隔，命中任一即淘汰"
+                :disabled="!filterOverrideForm.excludeKeywords.enabled"
+                density="compact"
+                variant="outlined"
+                hide-details
+                class="override-input"
+              />
+            </div>
+            <div class="override-row">
+              <span class="override-label">分辨率优先级</span>
+              <v-checkbox v-model="filterOverrideForm.resolutionPriority.enabled" hide-details density="compact" class="override-checkbox" />
+              <v-text-field
+                v-model="filterOverrideForm.resolutionPriority.value"
+                placeholder="如 2160p,1080p,720p"
+                :disabled="!filterOverrideForm.resolutionPriority.enabled"
+                density="compact"
+                variant="outlined"
+                hide-details
+                class="override-input"
+              />
+            </div>
+            <div class="override-row">
+              <span class="override-label">偏好体积</span>
+              <v-checkbox v-model="filterOverrideForm.preferredSize.enabled" hide-details density="compact" class="override-checkbox" />
+              <v-text-field
+                v-model.number="filterOverrideForm.preferredSize.value"
+                type="number"
+                min="0"
+                max="999"
+                :disabled="!filterOverrideForm.preferredSize.enabled"
+                density="compact"
+                variant="outlined"
+                hide-details
+                style="width: 160px"
+              />
+              <span class="form-tip">GB</span>
+            </div>
+          </v-form>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="filterOverrideOpen = false">取消</v-btn>
+          <v-btn color="primary" variant="flat" :loading="filterOverrideSaving" @click="saveFilterOverride">保存</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { Picture, ArrowDown } from '@element-plus/icons-vue'
 import { usePtSubscription } from '@/composables/usePtSubscription'
 
 const router = useRouter()
@@ -538,7 +644,7 @@ const posterErrorIds = reactive(new Set<number>())
 const onPosterError = (id: number) => { posterErrorIds.add(id) }
 
 const {
-  taskList, loading, total, queryParams, getList, handleQuery, resetQuery, queryRef,
+  taskList, loading, total, queryParams, getList, handleQuery, resetQuery,
   subscribeOpen, searchLoading, subscribeLoading, searchResults, searchForm,
   picked, pickedSeason, openSubscribeDialog, doSearch, pick, confirmSubscribe,
   progressOpen, progressLoading, progress, currentSubscription, showProgress, showProgressById,
@@ -597,6 +703,33 @@ const handleMoreCommand = (cmd: string, row: any) => {
     case 'search': openSeasonSearch(row); break
   }
 }
+
+const searchHeaders = [
+  { title: '海报', key: 'poster', sortable: false, width: 70, align: 'center' as const },
+  { title: '标题', key: 'title', sortable: false, minWidth: '200' },
+  { title: '年份', key: 'year', sortable: false, width: 80, align: 'center' as const },
+  { title: 'TMDb ID', key: 'tmdbId', sortable: false, width: 100, align: 'center' as const }
+]
+
+const candidateHeaders = [
+  { title: '#', key: 'index', sortable: false, width: 48, align: 'center' as const },
+  { title: '目标', key: 'target', sortable: false, width: 70, align: 'center' as const },
+  { title: '来源', key: 'indexerName', sortable: false, width: 100 },
+  { title: '标题', key: 'title', sortable: false, minWidth: '280' },
+  { title: '分辨率', key: 'resolution', sortable: false, width: 80, align: 'center' as const },
+  { title: '来源', key: 'source', sortable: false, width: 80, align: 'center' as const },
+  { title: '体积', key: 'size', sortable: false, width: 100, align: 'end' as const },
+  { title: '做种', key: 'seeders', sortable: false, width: 70, align: 'center' as const },
+  { title: '免费', key: 'free', sortable: false, width: 60, align: 'center' as const }
+]
+
+const searchLogHeaders = [
+  { title: '时间', key: 'createTime', sortable: false, width: 160 },
+  { title: '来源', key: 'source', sortable: false, width: 90 },
+  { title: '种子标题', key: 'torrentTitle', sortable: false, minWidth: '200' },
+  { title: '结果', key: 'accepted', sortable: false, width: 80 },
+  { title: '原因', key: 'reason', sortable: false, minWidth: '180' }
+]
 </script>
 
 <style scoped lang="scss">
@@ -607,25 +740,35 @@ const handleMoreCommand = (cmd: string, row: any) => {
 }
 
 .search-card {
-  border: none;
-  border-radius: var(--osr-radius-lg);
-  box-shadow: var(--osr-shadow-base);
+  padding: 14px 16px;
+}
 
-  :deep(.el-card__body) {
-    padding: 14px 16px;
-  }
+.search-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.search-field {
+  width: 220px;
+  flex: none;
+}
+
+.search-field-sm {
+  width: 140px;
+}
+
+.search-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
 }
 
 .table-card {
-  border: none;
-  border-radius: var(--osr-radius-lg);
-  box-shadow: var(--osr-shadow-base);
-
-  :deep(.el-card__body) {
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-  }
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
 }
 
 .action-bar {
@@ -668,13 +811,30 @@ const handleMoreCommand = (cmd: string, row: any) => {
 .select-all-checkbox {
   margin-left: 4px;
   font-size: 13px;
+
+  :deep(.v-selection-control) {
+    min-height: auto;
+  }
 }
 
 .pagination-wrapper {
   display: flex;
+  align-items: center;
   justify-content: flex-end;
+  gap: 10px;
   margin-top: auto;
   padding-top: 12px;
+
+  .total-text {
+    font-size: 13px;
+    color: var(--osr-text-secondary);
+    white-space: nowrap;
+  }
+
+  .page-size-select {
+    width: 90px;
+    flex: none;
+  }
 }
 
 /* ============================================
@@ -717,25 +877,19 @@ const handleMoreCommand = (cmd: string, row: any) => {
 }
 
 .sub-card-skeleton {
-  --el-skeleton-color: var(--osr-border-light);
-  --el-skeleton-to-color: var(--osr-bg-page);
+  display: flex;
+  gap: 12px;
   padding: 14px;
   border: 1px solid var(--osr-border-light);
   border-radius: var(--osr-radius-md);
 
-  :deep(.sub-card-skeleton__body) {
-    display: flex;
-    gap: 12px;
-  }
-
-  :deep(.sub-card-skeleton__poster) {
+  &__poster {
     flex-shrink: 0;
-    width: 72px;
-    height: 108px;
     border-radius: var(--osr-radius-sm);
+    overflow: hidden;
   }
 
-  :deep(.sub-card-skeleton__info) {
+  &__info {
     flex: 1;
     min-width: 0;
     padding-top: 2px;
@@ -858,14 +1012,15 @@ const handleMoreCommand = (cmd: string, row: any) => {
     gap: 10px;
   }
 
-  .search-card :deep(.el-form) {
-    .el-form-item {
-      margin-right: 0;
+  .search-row {
+    .search-field,
+    .search-field-sm {
+      width: 100%;
     }
 
-    .el-input,
-    .el-select {
-      width: 100% !important;
+    .search-actions {
+      margin-left: 0;
+      width: 100%;
     }
   }
 
@@ -879,7 +1034,7 @@ const handleMoreCommand = (cmd: string, row: any) => {
     }
   }
 
-  .table-card :deep(.el-card__body) {
+  .table-card {
     padding: 12px;
   }
 
@@ -904,6 +1059,9 @@ const handleMoreCommand = (cmd: string, row: any) => {
   padding: 10px 12px;
   border-radius: 4px;
   background: var(--osr-bg-page);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
 }
 
 .progress-title {
@@ -938,7 +1096,7 @@ const handleMoreCommand = (cmd: string, row: any) => {
   color: var(--osr-primary);
   cursor: pointer;
 
-  .el-icon {
+  .v-icon {
     transition: transform var(--osr-transition-fast);
 
     &.is-open {
@@ -974,8 +1132,43 @@ const handleMoreCommand = (cmd: string, row: any) => {
   color: var(--osr-text-secondary);
 }
 
+.override-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.override-label {
+  width: 120px;
+  flex-shrink: 0;
+  font-size: 13px;
+  color: var(--osr-text-secondary);
+}
+
 .override-checkbox {
-  margin-right: 10px;
+  flex: none;
+
+  :deep(.v-selection-control) {
+    min-height: auto;
+  }
+}
+
+.override-input {
+  flex: 1;
+  min-width: 160px;
+}
+
+.form-tip {
+  font-size: 13px;
+  color: var(--osr-text-secondary);
+}
+
+.empty-tip {
+  text-align: center;
+  padding: 40px;
+  color: var(--osr-text-secondary);
 }
 
 .search-poster {
@@ -996,5 +1189,9 @@ const handleMoreCommand = (cmd: string, row: any) => {
   margin: 0 auto;
   color: var(--osr-text-disabled);
   font-size: 18px;
+}
+
+:deep(.row-selected) {
+  background: var(--osr-primary-light-9);
 }
 </style>

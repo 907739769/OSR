@@ -2,40 +2,59 @@
   <div class="mobile-page">
     <!-- 搜索 -->
     <MobileSearchPanel v-model:collapsed="searchCollapsed" :loading="loading" @search="handleQuery" @reset="resetQuery">
-      <el-form ref="queryRef" :model="queryParams" label-width="72px">
-        <el-form-item label="源目录" prop="sourceFolder">
-          <el-input v-model="queryParams.sourceFolder" placeholder="请输入源目录" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="目标目录" prop="targetRoot">
-          <el-input v-model="queryParams.targetRoot" placeholder="请输入目标目录" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="状态" prop="status">
-          <el-select v-model="queryParams.status" placeholder="全部状态" clearable style="width: 100%">
-            <el-option label="启用" value="1" />
-            <el-option label="停用" value="0" />
-          </el-select>
-        </el-form-item>
-      </el-form>
+      <v-form ref="queryRef">
+        <v-text-field
+          v-model="queryParams.sourceFolder"
+          label="源目录"
+          placeholder="请输入源目录"
+          clearable
+          density="compact"
+          variant="outlined"
+          hide-details
+          @keyup.enter="handleQuery"
+        />
+        <v-text-field
+          v-model="queryParams.targetRoot"
+          label="目标目录"
+          placeholder="请输入目标目录"
+          clearable
+          density="compact"
+          variant="outlined"
+          hide-details
+          @keyup.enter="handleQuery"
+        />
+        <v-select
+          v-model="queryParams.status"
+          label="状态"
+          placeholder="全部状态"
+          :items="[{ title: '启用', value: '1' }, { title: '停用', value: '0' }]"
+          clearable
+          density="compact"
+          variant="outlined"
+          hide-details
+        />
+      </v-form>
     </MobileSearchPanel>
 
     <!-- Batch Actions -->
     <div class="batch-bar" v-if="selectedIds.length > 0">
       <span class="selected-count">已选 {{ selectedIds.length }} 项</span>
-      <el-button link type="primary" size="small" @click="handleBatchExecute">
-        <el-icon><VideoPlay /></el-icon> 批量执行
-      </el-button>
-      <el-button link size="small" @click="clearSelection">
+      <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-play-outline" @click="handleBatchExecute">
+        批量执行
+      </v-btn>
+      <v-btn variant="text" size="small" @click="clearSelection">
         取消
-      </el-button>
+      </v-btn>
     </div>
 
     <!-- Add Button (FAB) -->
-    <el-button class="fab-add" type="primary" size="large" round @click="handleAdd">
-      <el-icon><Plus /></el-icon> 新增
-    </el-button>
+    <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="mdi-plus" @click="handleAdd">
+      新增
+    </v-btn>
 
     <!-- Task List -->
-    <div class="task-list" v-loading="loading">
+    <div class="task-list">
+      <v-progress-linear v-if="loading" indeterminate color="primary" />
       <div
         v-for="task in taskList"
         :key="task.id"
@@ -44,48 +63,49 @@
         @click="handleCardClick($event, task.id)"
       >
         <div class="card-checkbox">
-          <el-checkbox
+          <v-checkbox
             :model-value="selectedIds.includes(task.id)"
-            size="large"
-            @change="toggleSelect(task.id)"
+            density="compact"
+            hide-details
+            @click.stop="toggleSelect(task.id)"
           />
         </div>
         <div class="card-content">
           <div class="card-top">
             <div class="task-name-row">
-              <el-icon class="task-icon" :size="18"><Location /></el-icon>
+              <v-icon class="task-icon" icon="mdi-map-marker-outline" size="18" />
               <span class="task-name" @click.stop="showFullText(task.sourceFolder, '源目录')">{{ task.sourceFolder }}</span>
             </div>
-            <el-tag :type="task.status === '1' ? 'success' : 'danger'" size="small" effect="light">
+            <v-chip :color="task.status === '1' ? 'success' : 'error'" size="small" variant="tonal">
               {{ task.status === '1' ? '启用' : '停用' }}
-            </el-tag>
+            </v-chip>
           </div>
           <div class="task-path" @click.stop="showFullText(task.targetRoot, '目标目录')">
-            <el-icon class="path-icon"><Location /></el-icon>
+            <v-icon class="path-icon" icon="mdi-map-marker-outline" size="14" />
             <span class="path-text">{{ task.targetRoot }}</span>
           </div>
           <div class="card-time">
-            <el-icon><Clock /></el-icon>
+            <v-icon icon="mdi-clock-outline" size="12" />
             {{ task.createTime }}
           </div>
         </div>
         <div class="card-actions" @click.stop>
-          <el-button link type="primary" size="small" :icon="Edit" @click="handleUpdate(task)">
+          <v-btn variant="text" color="primary" size="small" @click="handleUpdate(task)">
             修改
-          </el-button>
-          <el-button link type="danger" size="small" :icon="Delete" @click="handleDelete(task)">
+          </v-btn>
+          <v-btn variant="text" color="error" size="small" @click="handleDelete(task)">
             删除
-          </el-button>
-          <el-button link type="primary" size="small" :icon="VideoPlay" @click="handleExecuteOne(task)">
+          </v-btn>
+          <v-btn variant="text" color="primary" size="small" @click="handleExecuteOne(task)">
             执行
-          </el-button>
-          <el-button link type="primary" size="small" :icon="MagicStick" @click="handleTestOne(task)">
+          </v-btn>
+          <v-btn variant="text" color="primary" size="small" @click="handleTestOne(task)">
             测试
-          </el-button>
+          </v-btn>
         </div>
       </div>
 
-      <el-empty v-if="!loading && taskList.length === 0" description="暂无重命名任务" />
+      <v-empty-state v-if="!loading && taskList.length === 0" icon="mdi-inbox-outline" title="暂无重命名任务" />
     </div>
 
     <!-- 分页 -->
@@ -103,78 +123,98 @@
     <FullTextDialog ref="fullTextRef" />
 
     <!-- Add/Edit Dialog -->
-    <el-dialog v-model="open" :title="dialogTitle" width="90%" append-to-body class="modern-dialog">
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
-        <el-form-item label="源目录" prop="sourceFolder">
-          <DirectoryTreeSelect v-model="form.sourceFolder" type="local" placeholder="请选择源目录" />
-        </el-form-item>
-        <el-form-item label="目标目录" prop="targetRoot">
-          <DirectoryTreeSelect v-model="form.targetRoot" type="local" placeholder="请选择目标目录" />
-        </el-form-item>
-        <el-form-item label="状态" prop="status">
-          <el-radio-group v-model="form.status">
-            <el-radio value="0">停用</el-radio>
-            <el-radio value="1">启用</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-divider content-position="left">刮削配置</el-divider>
-        <el-form-item label="启用刮削" prop="scrapeEnabled">
-          <el-switch v-model="form.scrapeEnabled" active-value="1" inactive-value="0" />
-        </el-form-item>
-        <el-form-item label="生成NFO" prop="scrapeNfo" v-if="form.scrapeEnabled === '1'">
-          <el-switch v-model="form.scrapeNfo" active-value="1" inactive-value="0" />
-        </el-form-item>
-        <el-form-item label="下载图片" prop="scrapeImages" v-if="form.scrapeEnabled === '1'">
-          <el-switch v-model="form.scrapeImages" active-value="1" inactive-value="0" />
-        </el-form-item>
-        <el-form-item
-          label="强制覆盖"
-          prop="scrapeForceOverwrite"
-          v-if="form.scrapeEnabled === '1'"
-        >
-          <el-switch v-model="form.scrapeForceOverwrite" active-value="1" inactive-value="0" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="open = false">取消</el-button>
-        <el-button type="primary" @click="submitForm" :loading="submitLoading">确定</el-button>
-      </template>
-    </el-dialog>
+    <v-dialog v-model="open" max-width="90%">
+      <v-card :title="dialogTitle">
+        <v-card-text>
+          <v-form ref="formRef">
+            <div class="form-item">
+              <label class="form-label">源目录</label>
+              <DirectoryTreeSelect v-model="form.sourceFolder" type="local" placeholder="请选择源目录" />
+            </div>
+            <div class="form-item">
+              <label class="form-label">目标目录</label>
+              <DirectoryTreeSelect v-model="form.targetRoot" type="local" placeholder="请选择目标目录" />
+            </div>
+            <div class="form-item">
+              <label class="form-label">状态</label>
+              <v-radio-group v-model="form.status" inline hide-details>
+                <v-radio label="停用" value="0" />
+                <v-radio label="启用" value="1" />
+              </v-radio-group>
+            </div>
+            <div class="section-label">刮削配置</div>
+            <v-divider class="mb-3" />
+            <div class="form-item form-item-inline">
+              <label class="form-label">启用刮削</label>
+              <v-switch v-model="form.scrapeEnabled" true-value="1" false-value="0" color="primary" hide-details density="compact" />
+            </div>
+            <div class="form-item form-item-inline" v-if="form.scrapeEnabled === '1'">
+              <label class="form-label">生成NFO</label>
+              <v-switch v-model="form.scrapeNfo" true-value="1" false-value="0" color="primary" hide-details density="compact" />
+            </div>
+            <div class="form-item form-item-inline" v-if="form.scrapeEnabled === '1'">
+              <label class="form-label">下载图片</label>
+              <v-switch v-model="form.scrapeImages" true-value="1" false-value="0" color="primary" hide-details density="compact" />
+            </div>
+            <div class="form-item form-item-inline" v-if="form.scrapeEnabled === '1'">
+              <label class="form-label">强制覆盖</label>
+              <v-switch v-model="form.scrapeForceOverwrite" true-value="1" false-value="0" color="primary" hide-details density="compact" />
+            </div>
+          </v-form>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="outlined" @click="open = false">取消</v-btn>
+          <v-btn color="primary" variant="flat" :loading="submitLoading" @click="submitForm">确定</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- Test Dialog -->
-    <el-dialog v-model="testOpen" :title="testTitle" width="90%" append-to-body class="modern-dialog">
-      <el-form label-width="90px">
-        <el-form-item label="原文件名">
-          <el-input v-model="testForm.filename" type="textarea" :rows="3" placeholder="例如: The.Movie.2024.1080p.mkv" />
-        </el-form-item>
-        <el-form-item label="重命名模板">
-          <el-input v-model="testForm.template" type="textarea" :rows="4" placeholder="留空则使用默认配置" />
-          <div style="color:#999;font-size:12px"><el-icon><InfoFilled /></el-icon> 留空则使用默认配置</div>
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" :loading="testLoading" @click="doTest">
-            <el-icon><MagicStick /></el-icon> 开始分析
-          </el-button>
-        </el-form-item>
-      </el-form>
+    <v-dialog v-model="testOpen" max-width="90%">
+      <v-card :title="testTitle">
+        <v-card-text>
+          <v-textarea
+            v-model="testForm.filename"
+            label="原文件名"
+            placeholder="例如: The.Movie.2024.1080p.mkv"
+            rows="3"
+            density="compact"
+            variant="outlined"
+          />
+          <v-textarea
+            v-model="testForm.template"
+            label="重命名模板"
+            placeholder="留空则使用默认配置"
+            rows="4"
+            density="compact"
+            variant="outlined"
+            hint="留空则使用默认配置"
+            persistent-hint
+          />
+          <v-btn color="primary" prepend-icon="mdi-auto-fix" :loading="testLoading" class="mt-3" @click="doTest">
+            开始分析
+          </v-btn>
 
-      <div v-if="testResult" style="margin-top:16px">
-        <el-alert title="重命名结果预览" type="success" :closable="false" style="margin-bottom:12px">
-          <div style="font-family:Consolas,monospace;word-break:break-all;white-space:pre-wrap">{{ testResult.renamed }}</div>
-        </el-alert>
-        <el-alert title="识别参数详情" type="info" :closable="false">
-          <pre style="max-height:300px;overflow:auto;font-size:12px;background:#f5f5f5;padding:10px;border-radius:4px">{{ JSON.stringify(testResult.info, null, 2) }}</pre>
-        </el-alert>
-      </div>
-    </el-dialog>
+          <div v-if="testResult" class="test-result">
+            <v-alert type="success" variant="tonal" density="compact" class="mb-3">
+              <template #title>重命名结果预览</template>
+              <div class="result-text">{{ testResult.renamed }}</div>
+            </v-alert>
+            <v-alert type="info" variant="tonal" density="compact">
+              <template #title>识别参数详情</template>
+              <pre class="result-json">{{ JSON.stringify(testResult.info, null, 2) }}</pre>
+            </v-alert>
+          </div>
+        </v-card-text>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import {
-  Plus, Edit, Delete, VideoPlay, MagicStick, Clock, Location
-} from '@element-plus/icons-vue'
+import DirectoryTreeSelect from '@/components/DirectoryTreeSelect/index.vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import FullTextDialog from '@/components/mobile/FullTextDialog.vue'
@@ -185,7 +225,7 @@ const {
   prevPage, nextPage, handleSizeChange,
   queryRef, handleQuery, resetQuery, searchCollapsed,
   selectedIds, toggleSelect, handleCardClick, clearSelection,
-  open, dialogTitle, submitLoading, formRef, form, rules,
+  open, dialogTitle, submitLoading, formRef, form,
   handleAdd, handleUpdate, submitForm, handleDelete,
   handleExecuteOne, handleBatchExecute,
   testOpen, testTitle, testLoading, testResult, testForm, handleTestOne, doTest
@@ -226,12 +266,6 @@ const showFullText = (content: string, title: string) => fullTextRef.value?.show
     color: var(--osr-primary);
     margin-right: 4px;
     white-space: nowrap;
-  }
-
-  .el-button {
-    font-size: 12px;
-    padding: 0 4px;
-    height: auto;
   }
 }
 
@@ -354,25 +388,21 @@ const showFullText = (content: string, title: string) => fullTextRef.value?.show
     gap: 3px;
     font-size: 11px;
     color: var(--osr-text-disabled);
-
-    .el-icon {
-      flex-shrink: 0;
-    }
   }
 
   .card-actions {
     display: flex;
-    flex-direction: column;
-    gap: 2px;
+    align-items: center;
+    gap: 4px;
     flex-shrink: 0;
     padding-left: 8px;
     border-left: 1px solid var(--osr-border-light);
 
-    .el-button {
+    .v-btn {
       font-size: 11px;
-      padding: 2px 0;
-      height: auto;
       white-space: nowrap;
+      min-width: 0;
+      padding: 0 6px;
     }
   }
 }
@@ -385,9 +415,6 @@ const showFullText = (content: string, title: string) => fullTextRef.value?.show
   right: 20px;
   bottom: calc(56px + 16px + env(safe-area-inset-bottom, 0px));
   z-index: 1000;
-  padding: 12px 20px;
-  font-size: 14px;
-  font-weight: 500;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   transition: all var(--osr-transition-fast);
 
@@ -398,38 +425,59 @@ const showFullText = (content: string, title: string) => fullTextRef.value?.show
   @media (min-width: 768px) {
     right: 40px;
     bottom: calc(56px + 24px);
-    padding: 14px 24px;
-    font-size: 15px;
   }
 }
 
 /* ============================================
-   Card Actions
+   Form
    ============================================ */
-.task-card {
-  .card-actions {
+.form-item {
+  margin-bottom: 16px;
+
+  .form-label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 13px;
+    color: var(--osr-text-secondary);
+  }
+
+  &.form-item-inline {
     display: flex;
     align-items: center;
-    gap: 4px;
-    flex-shrink: 0;
-    padding-left: 8px;
-    border-left: 1px solid var(--osr-border-light);
+    justify-content: space-between;
 
-    .el-button {
-      font-size: 11px;
-      padding: 2px 4px;
-      height: auto;
-      white-space: nowrap;
+    .form-label {
+      margin-bottom: 0;
     }
   }
 }
 
+.section-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--osr-text-primary);
+  margin-bottom: 8px;
+}
+
 /* ============================================
-   Dialog
+   Test Dialog
    ============================================ */
-:deep(.modern-dialog) {
-  .el-dialog__body {
-    padding: 16px;
+.test-result {
+  margin-top: 8px;
+
+  .result-text {
+    font-family: Consolas, monospace;
+    word-break: break-all;
+    white-space: pre-wrap;
+  }
+
+  .result-json {
+    max-height: 300px;
+    overflow: auto;
+    font-size: 12px;
+    background: var(--osr-bg-page);
+    padding: 10px;
+    border-radius: 4px;
   }
 }
 </style>

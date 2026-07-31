@@ -2,60 +2,92 @@
   <div class="mobile-page">
     <!-- 搜索 -->
     <MobileSearchPanel v-model:collapsed="searchCollapsed" :loading="loading" @search="handleQuery" @reset="resetQuery">
-      <el-form ref="queryRef" :model="queryParams" label-width="72px">
-        <el-form-item label="源目录" prop="copySrcPath">
-          <el-input v-model="queryParams.copySrcPath" placeholder="请输入源目录" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="目标目录" prop="copyDstPath">
-          <el-input v-model="queryParams.copyDstPath" placeholder="请输入目标目录" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="源文件名" prop="copySrcFileName">
-          <el-input v-model="queryParams.copySrcFileName" placeholder="请输入源文件名" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="目标名" prop="copyDstFileName">
-          <el-input v-model="queryParams.copyDstFileName" placeholder="请输入目标名" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="状态" prop="copyStatus">
-          <el-select v-model="queryParams.copyStatus" placeholder="全部状态" clearable style="width: 100%">
-            <el-option label="处理中" value="1" />
-            <el-option label="失败" value="2" />
-            <el-option label="成功" value="3" />
-            <el-option label="未知" value="4" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="创建时间">
-          <el-date-picker
-            v-model="dateRange"
-            type="daterange"
-            range-separator="-"
-            start-placeholder="开始日期"
-            end-placeholder="结束日期"
-            value-format="YYYY-MM-DD"
-            style="width: 100%"
-          />
-        </el-form-item>
-      </el-form>
+      <v-text-field
+        v-model="queryParams.copySrcPath"
+        label="源目录"
+        placeholder="请输入源目录"
+        clearable
+        density="compact"
+        variant="outlined"
+        @keyup.enter="handleQuery"
+      />
+      <v-text-field
+        v-model="queryParams.copyDstPath"
+        label="目标目录"
+        placeholder="请输入目标目录"
+        clearable
+        density="compact"
+        variant="outlined"
+        @keyup.enter="handleQuery"
+      />
+      <v-text-field
+        v-model="queryParams.copySrcFileName"
+        label="源文件名"
+        placeholder="请输入源文件名"
+        clearable
+        density="compact"
+        variant="outlined"
+        @keyup.enter="handleQuery"
+      />
+      <v-text-field
+        v-model="queryParams.copyDstFileName"
+        label="目标名"
+        placeholder="请输入目标名"
+        clearable
+        density="compact"
+        variant="outlined"
+        @keyup.enter="handleQuery"
+      />
+      <v-select
+        v-model="queryParams.copyStatus"
+        label="状态"
+        placeholder="全部状态"
+        :items="[{ title: '处理中', value: '1' }, { title: '失败', value: '2' }, { title: '成功', value: '3' }, { title: '未知', value: '4' }]"
+        clearable
+        density="compact"
+        variant="outlined"
+      />
+      <div class="date-range-fields">
+        <v-text-field
+          v-model="dateStart"
+          label="开始日期"
+          type="date"
+          density="compact"
+          variant="outlined"
+          class="date-field"
+        />
+        <span class="date-range-sep">-</span>
+        <v-text-field
+          v-model="dateEnd"
+          label="结束日期"
+          type="date"
+          density="compact"
+          variant="outlined"
+          class="date-field"
+        />
+      </div>
     </MobileSearchPanel>
 
     <!-- Batch Actions -->
     <div class="batch-bar" v-if="selectedIds.length > 0">
       <span class="selected-count">已选 {{ selectedIds.length }} 项</span>
-      <el-button link type="primary" size="small" @click="handleBatchRetry">
-        <el-icon><RefreshLeft /></el-icon> 重试
-      </el-button>
-      <el-button link type="danger" size="small" @click="handleBatchRemoveNetDisk">
-        <el-icon><Download /></el-icon> 删网盘
-      </el-button>
-      <el-button link type="danger" size="small" @click="handleBatchDelete">
-        <el-icon><Delete /></el-icon> 删记录
-      </el-button>
-      <el-button link size="small" @click="clearSelection">
+      <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-refresh" @click="handleBatchRetry">
+        重试
+      </v-btn>
+      <v-btn variant="text" color="error" size="small" prepend-icon="mdi-download-off-outline" @click="handleBatchRemoveNetDisk">
+        删网盘
+      </v-btn>
+      <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleBatchDelete">
+        删记录
+      </v-btn>
+      <v-btn variant="text" size="small" @click="clearSelection">
         取消
-      </el-button>
+      </v-btn>
     </div>
 
     <!-- Record List -->
-    <div class="record-list" v-loading="loading">
+    <div class="record-list">
+      <v-progress-linear v-if="loading" indeterminate color="primary" />
       <div
         v-for="record in recordList"
         :key="record.copyId"
@@ -64,49 +96,50 @@
         @click="handleCardClick($event, record.copyId)"
       >
         <div class="card-checkbox">
-          <el-checkbox
+          <v-checkbox
             :model-value="selectedIds.includes(record.copyId)"
-            size="large"
-            @change="toggleSelect(record.copyId)"
+            density="compact"
+            hide-details
+            @click.stop="toggleSelect(record.copyId)"
           />
         </div>
         <div class="card-content">
           <div class="card-top">
             <div class="file-name-row">
-              <el-icon class="file-icon" :size="18"><Files /></el-icon>
+              <v-icon class="file-icon" icon="mdi-file-multiple-outline" size="18" />
               <span class="file-name" @click.stop="showFullText(record.copySrcFileName, '文件名')">{{ record.copySrcFileName }}</span>
             </div>
-            <el-tag :type="getCopyStatusType(record.copyStatus)" size="small" effect="light">
+            <v-chip :color="getCopyStatusType(record.copyStatus)" size="small" variant="tonal">
               {{ getCopyStatusText(record.copyStatus) }}
-            </el-tag>
+            </v-chip>
           </div>
           <div class="file-path" @click.stop="showFullText(record.copySrcPath, '源路径')">
-            <el-icon class="path-icon"><Location /></el-icon>
+            <v-icon class="path-icon" icon="mdi-map-marker-outline" size="14" />
             <span class="path-text">{{ record.copySrcPath }}</span>
           </div>
           <div class="file-path dst-path" @click.stop="showFullText(record.copyDstPath, '目标路径')">
-            <el-icon class="path-icon"><Location /></el-icon>
+            <v-icon class="path-icon" icon="mdi-map-marker-outline" size="14" />
             <span class="path-text">{{ record.copyDstPath }}</span>
           </div>
           <div class="card-time">
-            <el-icon><Clock /></el-icon>
+            <v-icon icon="mdi-clock-outline" size="12" />
             {{ record.createTime }}
           </div>
         </div>
         <div class="card-actions" @click.stop>
-          <el-button link type="primary" size="small" :icon="Refresh" @click="handleRetryOne(record)">
+          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-refresh" @click="handleRetryOne(record)">
             重试
-          </el-button>
-          <el-button link type="warning" size="small" :icon="Download" @click="handleRemoveNetDiskOne(record)">
+          </v-btn>
+          <v-btn variant="text" color="warning" size="small" prepend-icon="mdi-download-off-outline" @click="handleRemoveNetDiskOne(record)">
             删网盘
-          </el-button>
-          <el-button link type="danger" size="small" :icon="Delete" @click="handleDeleteOne(record)">
+          </v-btn>
+          <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDeleteOne(record)">
             删记录
-          </el-button>
+          </v-btn>
         </div>
       </div>
 
-      <el-empty v-if="!loading && recordList.length === 0" description="暂无同步记录" />
+      <v-empty-state v-if="!loading && recordList.length === 0" icon="mdi-inbox-outline" title="暂无同步记录" />
     </div>
 
     <!-- 分页 -->
@@ -126,11 +159,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import {
-  Files, Location, Clock,
-  RefreshLeft, Refresh, Delete, Download
-} from '@element-plus/icons-vue'
+import { ref, computed } from 'vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import FullTextDialog from '@/components/mobile/FullTextDialog.vue'
@@ -141,12 +170,29 @@ const searchCollapsed = ref(true)
 const {
   recordList, loading, total, queryParams, totalPages,
   getList, prevPage, nextPage, handleSizeChange,
-  queryRef, dateRange, handleQuery, resetQuery,
+  dateRange, handleQuery, resetQuery,
   selectedIds, toggleSelect, handleCardClick, clearSelection,
   handleRetryOne, handleBatchRetry, handleDeleteOne, handleBatchDelete,
   handleRemoveNetDiskOne, handleBatchRemoveNetDisk,
   getCopyStatusText, getCopyStatusType
 } = useCopyRecord()
+
+// dateRange 是 el-date-picker daterange 遗留的 [start, end] 数组结构，
+// 拆成两个独立日期输入框绑定，写回时仍保持数组形状供 handleQuery 组装 params
+const dateStart = computed({
+  get: () => dateRange.value?.[0] ?? '',
+  set: (val: string) => {
+    dateRange.value = [val || '', dateRange.value?.[1] ?? '']
+    if (!dateRange.value[0] && !dateRange.value[1]) dateRange.value = null
+  }
+})
+const dateEnd = computed({
+  get: () => dateRange.value?.[1] ?? '',
+  set: (val: string) => {
+    dateRange.value = [dateRange.value?.[0] ?? '', val || '']
+    if (!dateRange.value[0] && !dateRange.value[1]) dateRange.value = null
+  }
+})
 
 const fullTextRef = ref<InstanceType<typeof FullTextDialog>>()
 const showFullText = (content: string, title: string) => fullTextRef.value?.show(content, title)
@@ -164,6 +210,24 @@ getList()
 
   .record-list {
     flex: 1;
+  }
+}
+
+/* ============================================
+   Date Range Fields
+   ============================================ */
+.date-range-fields {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  .date-field {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .date-range-sep {
+    color: var(--osr-text-secondary);
   }
 }
 
@@ -186,13 +250,6 @@ getList()
     color: var(--osr-primary);
     margin-right: 4px;
     white-space: nowrap;
-  }
-
-  .el-button {
-    font-size: 12px;
-    padding: 0 4px;
-    height: auto;
-    margin-left: 0;
   }
 }
 
@@ -319,10 +376,6 @@ getList()
     gap: 3px;
     font-size: 11px;
     color: var(--osr-text-disabled);
-
-    .el-icon {
-      flex-shrink: 0;
-    }
   }
 
   .card-actions {
@@ -332,14 +385,6 @@ getList()
     flex-shrink: 0;
     padding-left: 8px;
     border-left: 1px solid var(--osr-border-light);
-
-    .el-button {
-      font-size: 11px;
-      padding: 2px 0;
-      height: auto;
-      white-space: nowrap;
-    }
   }
 }
-
 </style>

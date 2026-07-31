@@ -1,38 +1,40 @@
 <template>
   <div class="dashboard">
     <!-- Stat Cards - 3 per row on desktop -->
-    <el-row :gutter="16" class="stat-row">
-      <el-col :md="8" v-for="(stat, index) in statCards" :key="index">
-        <el-card class="stat-card" :class="stat.type">
+    <v-row class="stat-row">
+      <v-col cols="12" md="4" v-for="(stat, index) in statCards" :key="index">
+        <v-card class="stat-card" :class="stat.type">
           <div class="stat-icon">
-            <el-icon :size="28"><component :is="stat.icon" /></el-icon>
+            <v-icon :icon="stat.icon" size="28" />
           </div>
           <div class="stat-info">
             <div class="stat-value">{{ stat.value }}</div>
             <div class="stat-label">{{ stat.label }}</div>
           </div>
-        </el-card>
-      </el-col>
-    </el-row>
+        </v-card>
+      </v-col>
+    </v-row>
 
     <!-- Charts -->
-    <el-row :gutter="16" class="chart-row">
-      <el-col :md="8" v-for="(chart, index) in chartData" :key="index">
-        <el-card class="chart-card">
-          <template #header>
-            <div class="chart-header">
-              <span class="chart-title">{{ chart.title }}</span>
-              <el-select v-model="chart.range" size="small" style="width: 90px" @change="chart.load()">
-                <el-option label="今日" value="today" />
-                <el-option label="昨日" value="yesterday" />
-                <el-option label="全部" value="all" />
-              </el-select>
-            </div>
-          </template>
+    <v-row class="chart-row">
+      <v-col cols="12" md="4" v-for="(chart, index) in chartData" :key="index">
+        <v-card class="chart-card">
+          <div class="chart-header">
+            <span class="chart-title">{{ chart.title }}</span>
+            <v-select
+              v-model="chart.range"
+              :items="[{ title: '今日', value: 'today' }, { title: '昨日', value: 'yesterday' }, { title: '全部', value: 'all' }]"
+              density="compact"
+              variant="outlined"
+              hide-details
+              style="width: 100px"
+              @update:model-value="chart.load()"
+            />
+          </div>
           <div :ref="el => setChartContainer(el, index)" class="echarts-container" />
-        </el-card>
-      </el-col>
-    </el-row>
+        </v-card>
+      </v-col>
+    </v-row>
   </div>
 </template>
 
@@ -46,13 +48,12 @@ import { CanvasRenderer } from 'echarts/renderers'
 import { getDashboardStatsApi, getCopyStatsApi, getStrmStatsApi, getRenameStatsApi } from '@/api/openlist/dashboard'
 
 echarts.use([PieChart, TitleComponent, TooltipComponent, CanvasRenderer])
-import { Files, VideoCamera, EditPen, CircleCheck, CircleClose, Loading } from '@element-plus/icons-vue'
-import type { Component, Ref } from 'vue'
+import type { Ref } from 'vue'
 
 interface StatCard {
   label: string
   value: number | string
-  icon: Component
+  icon: string
   type: 'primary' | 'success' | 'warning' | 'info'
 }
 
@@ -200,22 +201,22 @@ onMounted(async () => {
     const failedCount = statsData?.failedCount ?? 0
     const processingCount = statsData?.processingCount ?? 0
     statCards.value = [
-      { label: 'COPY 任务', value: copyCount, icon: Files, type: 'primary' },
-      { label: 'STRM 任务', value: strmCount, icon: VideoCamera, type: 'success' },
-      { label: 'Rename 任务', value: renameCount, icon: EditPen, type: 'warning' },
-      { label: '成功率', value: successRate > 0 ? successRate + '%' : '--', icon: CircleCheck, type: 'info' },
-      { label: '失败数', value: failedCount, icon: CircleClose, type: 'warning' },
-      { label: '处理中', value: processingCount, icon: Loading, type: 'primary' }
+      { label: 'COPY 任务', value: copyCount, icon: 'mdi-file-multiple-outline', type: 'primary' },
+      { label: 'STRM 任务', value: strmCount, icon: 'mdi-video-outline', type: 'success' },
+      { label: 'Rename 任务', value: renameCount, icon: 'mdi-pencil-outline', type: 'warning' },
+      { label: '成功率', value: successRate > 0 ? successRate + '%' : '--', icon: 'mdi-check-circle-outline', type: 'info' },
+      { label: '失败数', value: failedCount, icon: 'mdi-close-circle-outline', type: 'warning' },
+      { label: '处理中', value: processingCount, icon: 'mdi-loading mdi-spin', type: 'primary' }
     ]
   } catch (e) {
     console.error('[Dashboard] Failed to load stat cards:', e)
     statCards.value = [
-      { label: 'COPY 任务', value: '0', icon: Files, type: 'primary' },
-      { label: 'STRM 任务', value: '0', icon: VideoCamera, type: 'success' },
-      { label: 'Rename 任务', value: '0', icon: EditPen, type: 'warning' },
-      { label: '成功率', value: '--', icon: CircleCheck, type: 'info' },
-      { label: '失败数', value: '0', icon: CircleClose, type: 'warning' },
-      { label: '处理中', value: '0', icon: Loading, type: 'primary' }
+      { label: 'COPY 任务', value: '0', icon: 'mdi-file-multiple-outline', type: 'primary' },
+      { label: 'STRM 任务', value: '0', icon: 'mdi-video-outline', type: 'success' },
+      { label: 'Rename 任务', value: '0', icon: 'mdi-pencil-outline', type: 'warning' },
+      { label: '成功率', value: '--', icon: 'mdi-check-circle-outline', type: 'info' },
+      { label: '失败数', value: '0', icon: 'mdi-close-circle-outline', type: 'warning' },
+      { label: '处理中', value: '0', icon: 'mdi-loading mdi-spin', type: 'primary' }
     ]
   }
 
@@ -273,12 +274,10 @@ onUnmounted(() => {
     box-shadow: var(--osr-shadow-md);
   }
 
-  :deep(.el-card__body) {
-    display: flex;
-    align-items: center;
-    padding: 20px;
-    gap: 16px;
-  }
+  display: flex;
+  align-items: center;
+  padding: 20px;
+  gap: 16px;
 
   .stat-icon {
     width: 52px;
@@ -344,18 +343,15 @@ onUnmounted(() => {
   &:hover {
     box-shadow: var(--osr-shadow-md);
   }
-
-  :deep(.el-card__header) {
-    padding: 16px 20px;
-    border-bottom: 1px solid var(--osr-border-light);
-    background-color: var(--osr-surface);
-  }
 }
 
 .chart-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--osr-border-light);
+  background-color: var(--osr-surface);
 
   .chart-title {
     font-size: 15px;
@@ -377,7 +373,7 @@ onUnmounted(() => {
     padding: 16px;
   }
 
-  .stat-card :deep(.el-card__body) {
+  .stat-card {
     padding: 16px;
   }
 
@@ -386,7 +382,7 @@ onUnmounted(() => {
     height: 44px !important;
   }
 
-  .stat-icon .el-icon {
+  .stat-icon .v-icon {
     font-size: 22px !important;
   }
 

@@ -2,33 +2,44 @@
   <div class="mobile-page">
     <!-- 搜索 -->
     <MobileSearchPanel v-model:collapsed="searchCollapsed" :loading="loading" @search="handleQuery" @reset="resetQuery">
-      <el-form ref="queryRef" :model="queryParams" label-width="72px">
-        <el-form-item label="类型" prop="type">
-          <el-select v-model="queryParams.type" placeholder="全部类型" clearable style="width: 100%">
-            <el-option label="种子(GUID)" value="GUID" />
-            <el-option label="发布组" value="RELEASE_GROUP" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="展示内容" prop="displayValue">
-          <el-input v-model="queryParams.displayValue" placeholder="标题或发布组名" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-      </el-form>
+      <v-form ref="queryRef">
+        <v-select
+          v-model="queryParams.type"
+          label="类型"
+          :items="[{ title: '种子(GUID)', value: 'GUID' }, { title: '发布组', value: 'RELEASE_GROUP' }]"
+          placeholder="全部类型"
+          clearable
+          density="compact"
+          variant="outlined"
+          class="mb-3"
+        />
+        <v-text-field
+          v-model="queryParams.displayValue"
+          label="展示内容"
+          placeholder="标题或发布组名"
+          clearable
+          density="compact"
+          variant="outlined"
+          @keyup.enter="handleQuery"
+        />
+      </v-form>
     </MobileSearchPanel>
 
     <!-- 新增 FAB -->
-    <el-button class="fab-add" type="primary" size="large" round @click="handleAdd('新增发布组黑名单')">
-      <el-icon><Plus /></el-icon> 新增
-    </el-button>
+    <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="mdi-plus" @click="handleAdd('新增发布组黑名单')">
+      新增
+    </v-btn>
 
     <!-- 列表 -->
-    <div class="task-list" v-loading="loading">
+    <div class="task-list">
+      <v-progress-linear v-if="loading" indeterminate color="primary" />
       <div v-for="item in taskList" :key="item.id" class="task-card">
         <div class="card-content">
           <div class="card-top">
             <span class="task-name" :title="item.displayValue">{{ item.displayValue || '(无展示内容)' }}</span>
-            <el-tag :type="item.type === 'GUID' ? 'danger' : 'warning'" size="small" effect="light">
+            <v-chip :color="item.type === 'GUID' ? 'error' : 'warning'" size="small" variant="tonal">
               {{ item.type === 'GUID' ? '种子' : '发布组' }}
-            </el-tag>
+            </v-chip>
           </div>
           <div class="card-detail">
             <div class="detail-row">
@@ -46,13 +57,13 @@
           </div>
         </div>
         <div class="card-actions">
-          <el-button link type="danger" size="small" :icon="Delete" @click="handleDelete(item)">
+          <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(item)">
             删除
-          </el-button>
+          </v-btn>
         </div>
       </div>
 
-      <el-empty v-if="!loading && taskList.length === 0" description="暂无黑名单规则" />
+      <v-empty-state v-if="!loading && taskList.length === 0" icon="mdi-inbox-outline" title="暂无黑名单规则" />
     </div>
 
     <!-- 分页 -->
@@ -67,25 +78,36 @@
     />
 
     <!-- 新增弹窗 -->
-    <el-dialog v-model="open" :title="dialogTitle" width="90%" append-to-body class="modern-dialog">
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
-        <el-form-item label="发布组名" prop="value">
-          <el-input v-model="form.value" placeholder="如 CHDWEB，大小写不敏感" />
-        </el-form-item>
-        <el-form-item label="原因" prop="reason">
-          <el-input v-model="form.reason" type="textarea" :rows="2" placeholder="可选，如“转码质量差”" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="open = false">取消</el-button>
-        <el-button type="primary" :loading="submitLoading" @click="submitForm">确定</el-button>
-      </template>
-    </el-dialog>
+    <v-dialog v-model="open" max-width="90%">
+      <v-card :title="dialogTitle">
+        <v-card-text>
+          <v-form ref="formRef">
+            <v-text-field
+              v-model="form.value"
+              label="发布组名"
+              placeholder="如 CHDWEB，大小写不敏感"
+              :rules="valueRules"
+              class="mb-3"
+            />
+            <v-textarea
+              v-model="form.reason"
+              label="原因"
+              rows="2"
+              placeholder="可选，如“转码质量差”"
+            />
+          </v-form>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="outlined" @click="open = false">取消</v-btn>
+          <v-btn color="primary" variant="flat" :loading="submitLoading" @click="handleSubmitClick">确定</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { Delete, Plus } from '@element-plus/icons-vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import { usePtTorrentBlacklist } from '@/composables/usePtTorrentBlacklist'
@@ -98,6 +120,25 @@ const {
   totalPages, prevPage, nextPage, handleSizeChange,
   searchCollapsed
 } = usePtTorrentBlacklist()
+
+// Element Plus 表单规则是 { required, message, trigger } 对象格式，
+// Vuetify 的 v-text-field :rules 需要函数格式，这里就地转换，不改动 composable
+const toRuleFns = (ruleList: any[]) =>
+  (ruleList || []).map((rule: any) => (value: any) => {
+    if (rule.required && (value === null || value === undefined || value === '')) {
+      return rule.message || '不能为空'
+    }
+    return true
+  })
+
+const valueRules = toRuleFns(rules.value)
+
+const handleSubmitClick = async () => {
+  if (!formRef.value) return
+  const { valid } = await formRef.value.validate()
+  if (!valid) return
+  submitForm()
+}
 
 const shortHash = (value: string) => {
   if (!value) return '-'
@@ -214,12 +255,6 @@ const shortHash = (value: string) => {
     bottom: calc(56px + 24px);
     padding: 14px 24px;
     font-size: 15px;
-  }
-}
-
-:deep(.modern-dialog) {
-  .el-dialog__body {
-    padding: 16px;
   }
 }
 </style>

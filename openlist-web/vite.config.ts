@@ -1,23 +1,25 @@
 import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
+import vuetify from 'vite-plugin-vuetify'
 import AutoImport from 'unplugin-auto-import/vite'
 import Components from 'unplugin-vue-components/vite'
-import { ElementPlusResolver } from 'unplugin-vue-components/resolvers'
 import { fileURLToPath, URL } from 'node:url'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
   plugins: [
     vue(),
+    vuetify({
+      autoImport: true,
+      styles: { configFile: 'src/styles/vuetify-settings.scss' }
+    }),
     AutoImport({
-      resolvers: [ElementPlusResolver()],
       imports: ['vue', 'vue-router', 'pinia'],
       dts: 'src/auto-imports.d.ts',
-      // 生成 ESLint 全局声明，否则自动导入的 ref/computed/ElMessage 会被报未定义
+      // 生成 ESLint 全局声明，否则自动导入的 ref/computed 会被报未定义
       eslintrc: { enabled: true, filepath: './.eslintrc-auto-import.json' }
     }),
     Components({
-      resolvers: [ElementPlusResolver()],
       dts: 'src/components.d.ts'
     }),
     VitePWA({
@@ -28,8 +30,8 @@ export default defineConfig({
         name: 'OpenList-strm-RuoYi',
         short_name: 'OSR',
         description: 'OpenList STRM Management System',
-        theme_color: '#0d9488',
-        background_color: '#ffffff',
+        theme_color: '#B4690E',
+        background_color: '#F7F5F1',
         display: 'standalone',
         icons: [
           {

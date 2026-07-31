@@ -4,7 +4,7 @@
     <div class="page-header">
       <div class="page-header-left">
         <div class="page-header-icon">
-          <el-icon><Collection /></el-icon>
+          <v-icon icon="mdi-book-open-variant" />
         </div>
         <div>
           <h2 class="page-title">字典管理</h2>
@@ -14,37 +14,41 @@
     </div>
 
     <!-- Table Card -->
-    <el-card class="table-card">
-
+    <v-card class="table-card">
       <!-- Desktop Table -->
-      <el-table v-if="appStore.device === 'desktop'" v-loading="loading" :data="typeList" class="modern-table">
-        <el-table-column label="字典名称" prop="dictName" min-width="140" show-overflow-tooltip />
-        <el-table-column label="状态" align="center" width="90">
-          <template #default="scope">
-            <el-tag :type="scope.row.status === '0' ? 'success' : 'danger'" effect="light">
-              {{ scope.row.status === '0' ? '正常' : '停用' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="备注" prop="remark" min-width="140" show-overflow-tooltip />
-        <el-table-column label="创建时间" prop="createTime" width="170" align="center" />
-        <el-table-column label="操作" align="center" width="100" fixed="right">
-          <template #default="scope">
-            <el-button link type="primary" @click="handleData(scope.row)">
-              <el-icon><List /></el-icon> 数据
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+      <v-data-table-server
+        v-if="appStore.device === 'desktop'"
+        :loading="loading"
+        :items="typeList"
+        :items-length="total"
+        :headers="headers"
+        :items-per-page="queryParams.pageSize"
+        :page="queryParams.pageNum"
+        class="modern-table"
+        @update:page="onPageChange"
+        @update:items-per-page="onSizeChange"
+      >
+        <template #item.status="{ item }">
+          <v-chip size="small" :color="item.status === '0' ? 'success' : 'error'" variant="tonal">
+            {{ item.status === '0' ? '正常' : '停用' }}
+          </v-chip>
+        </template>
+        <template #item.actions="{ item }">
+          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-format-list-bulleted" @click="handleData(item)">
+            数据
+          </v-btn>
+        </template>
+      </v-data-table-server>
 
       <!-- Mobile Card List -->
-      <div v-if="appStore.device === 'mobile'" v-loading="loading" class="mobile-card-list">
-        <div v-for="item in typeList" :key="item.dictId" class="mobile-card">
+      <div v-if="appStore.device === 'mobile'" class="mobile-card-list">
+        <v-progress-linear v-if="loading" indeterminate color="primary" />
+        <v-card v-for="item in typeList" :key="item.dictId" variant="outlined" class="mobile-card">
           <div class="mobile-card-header">
             <span class="mobile-card-title">{{ item.dictName }}</span>
-            <el-tag size="small" :type="item.status === '0' ? 'success' : 'danger'">
+            <v-chip size="small" :color="item.status === '0' ? 'success' : 'error'" variant="tonal">
               {{ item.status === '0' ? '正常' : '停用' }}
-            </el-tag>
+            </v-chip>
           </div>
           <div class="mobile-card-body">
             <div v-if="item.remark" class="mobile-card-row">
@@ -57,34 +61,30 @@
             </div>
           </div>
           <div class="mobile-card-actions">
-            <el-button link type="primary" size="small" @click="handleData(item)">
-              <el-icon><List /></el-icon> 数据
-            </el-button>
+            <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-format-list-bulleted" @click="handleData(item)">
+              数据
+            </v-btn>
           </div>
-        </div>
-        <el-empty v-if="!typeList.length" description="暂无数据" />
+        </v-card>
+        <v-empty-state v-if="!loading && !typeList.length" icon="mdi-inbox-outline" title="暂无数据" />
       </div>
 
-      <!-- Pagination -->
-      <div class="pagination-wrapper">
-        <el-pagination
-          v-model:current-page="queryParams.pageNum"
-          v-model:page-size="queryParams.pageSize"
-          :total="total"
-          :page-sizes="[10, 20, 50]"
-          layout="total, sizes, prev, pager, next, jumper"
-          @current-change="getList"
-          @size-change="getList"
+      <!-- Pagination (mobile; desktop paginates via v-data-table-server) -->
+      <div v-if="appStore.device === 'mobile'" class="pagination-wrapper">
+        <v-pagination
+          v-model="queryParams.pageNum"
+          :length="Math.ceil(total / queryParams.pageSize) || 1"
+          density="comfortable"
+          @update:model-value="getList"
         />
       </div>
-    </el-card>
+    </v-card>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
-import { List, Collection } from '@element-plus/icons-vue'
 import { getDictTypeListApi } from '@/api/system/dict'
 import { useAppStore } from '@/stores/app'
 import type { SearchParams, PageResult } from '@/types'
@@ -95,6 +95,14 @@ const router = useRouter()
 const typeList = ref<any[]>([])
 const loading = ref(true)
 const total = ref(0)
+
+const headers = [
+  { title: '字典名称', key: 'dictName', minWidth: '140' },
+  { title: '状态', key: 'status', align: 'center' as const, width: '90' },
+  { title: '备注', key: 'remark', minWidth: '140' },
+  { title: '创建时间', key: 'createTime', width: '170', align: 'center' as const },
+  { title: '操作', key: 'actions', align: 'center' as const, width: '100', sortable: false }
+]
 
 const queryParams = reactive<SearchParams>({
   pageNum: 1,
@@ -114,6 +122,17 @@ const getList = async () => {
   }
 }
 
+const onPageChange = (page: number) => {
+  queryParams.pageNum = page
+  getList()
+}
+
+const onSizeChange = (size: number) => {
+  queryParams.pageSize = size
+  queryParams.pageNum = 1
+  getList()
+}
+
 const handleData = (row: any) => {
   router.push({ path: '/system/dict/data', query: { dictType: row.dictType } })
 }
@@ -128,9 +147,6 @@ getList()
   gap: 16px;
 }
 
-/* ============================================
-   Page Header
-   ============================================ */
 .page-header {
   display: flex;
   align-items: center;
@@ -145,20 +161,18 @@ getList()
       width: 48px;
       height: 48px;
       border-radius: 14px;
-      background: linear-gradient(135deg, #0d9488, #14b8a6);
-      color: white;
+      background: rgb(var(--v-theme-primary));
+      color: rgb(var(--v-theme-on-primary));
       display: flex;
       align-items: center;
       justify-content: center;
       font-size: 24px;
-      box-shadow: 0 4px 14px rgba(13, 148, 136, 0.35);
     }
 
     .page-title {
       margin: 0;
       font-size: 22px;
       font-weight: 700;
-      color: var(--osr-text-primary);
       letter-spacing: 0.3px;
     }
 
@@ -170,24 +184,12 @@ getList()
   }
 }
 
-/* ============================================
-   Table Card
-   ============================================ */
 .table-card {
-  border: none;
-  border-radius: var(--osr-radius-lg);
-  box-shadow: var(--osr-shadow-base);
-
-  :deep(.el-card__body) {
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-  }
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
 }
 
-/* ============================================
-   Pagination
-   ============================================ */
 .pagination-wrapper {
   display: flex;
   justify-content: flex-end;
@@ -195,9 +197,6 @@ getList()
   padding-top: 12px;
 }
 
-/* ============================================
-   Mobile Responsive
-   ============================================ */
 @media (max-width: 768px) {
   .page-container {
     gap: 12px;
@@ -216,21 +215,10 @@ getList()
     .page-desc { display: none; }
   }
 
-  :deep(.el-table) {
-    font-size: 13px;
-
-    .el-table__cell {
-      padding: 8px 0;
-    }
-  }
-
-  .table-card :deep(.el-card__body) {
+  .table-card {
     padding: 12px;
   }
 
-  /* ============================================
-     Mobile Card List
-     ============================================ */
   .mobile-card-list {
     display: flex;
     flex-direction: column;
@@ -238,9 +226,6 @@ getList()
   }
 
   .mobile-card {
-    background: var(--osr-surface);
-    border-radius: 8px;
-    border: 1px solid var(--osr-border-light);
     overflow: hidden;
 
     .mobile-card-header {
@@ -254,19 +239,15 @@ getList()
       .mobile-card-title {
         font-size: 14px;
         font-weight: 600;
-        color: var(--osr-text-primary);
         flex: 1;
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
         margin-right: 8px;
-        i { color: var(--osr-primary); margin-right: 4px; }
       }
     }
 
     .mobile-card-body {
-      padding: 0;
-
       .mobile-card-row {
         display: flex;
         align-items: flex-start;
@@ -290,16 +271,9 @@ getList()
         .mobile-card-value {
           flex: 1;
           min-width: 0;
-          color: var(--osr-text-primary);
           font-size: 13px;
           line-height: 1.5;
           word-break: break-all;
-
-          &.mobile-card-value-clip {
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-          }
 
           &.mobile-card-value-light {
             color: var(--osr-text-secondary);

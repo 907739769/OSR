@@ -1,52 +1,73 @@
 <template>
   <div class="mobile-page">
     <MobileSearchPanel v-model:collapsed="searchCollapsed" :loading="loading" @search="handleQuery" @reset="resetQuery">
-      <el-form ref="queryRef" :model="queryParams" label-width="72px">
-        <el-form-item label="影视名称" prop="title">
-          <el-input v-model="queryParams.title" placeholder="请输入影视名称" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="原因" prop="reason">
-          <el-select v-model="queryParams.reason" placeholder="全部原因" clearable style="width: 100%">
-            <el-option label="本地文件丢失" value="local_missing" />
-            <el-option label="网盘源丢失" value="source_missing" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="状态" prop="status">
-          <el-select v-model="queryParams.status" placeholder="全部状态" clearable style="width: 100%">
-            <el-option label="待处理" value="0" />
-            <el-option label="已清理" value="1" />
-            <el-option label="已忽略" value="2" />
-          </el-select>
-        </el-form-item>
-      </el-form>
+      <v-form ref="queryRef">
+        <v-text-field
+          v-model="queryParams.title"
+          label="影视名称"
+          placeholder="请输入影视名称"
+          clearable
+          density="compact"
+          variant="outlined"
+          class="mb-3"
+          @keyup.enter="handleQuery"
+        />
+        <v-select
+          v-model="queryParams.reason"
+          label="原因"
+          :items="[{ title: '本地文件丢失', value: 'local_missing' }, { title: '网盘源丢失', value: 'source_missing' }]"
+          placeholder="全部原因"
+          clearable
+          density="compact"
+          variant="outlined"
+          class="mb-3"
+        />
+        <v-select
+          v-model="queryParams.status"
+          label="状态"
+          :items="[{ title: '待处理', value: '0' }, { title: '已清理', value: '1' }, { title: '已忽略', value: '2' }]"
+          placeholder="全部状态"
+          clearable
+          density="compact"
+          variant="outlined"
+        />
+      </v-form>
     </MobileSearchPanel>
 
     <div class="scan-bar">
-      <el-button type="primary" size="small" :loading="scanning" @click="handleScanNow">
-        <el-icon><Refresh /></el-icon> 立即扫描
-      </el-button>
+      <v-btn color="primary" size="small" prepend-icon="mdi-refresh" :loading="scanning" @click="handleScanNow">
+        立即扫描
+      </v-btn>
     </div>
 
     <div class="batch-bar" v-if="selectedIds.length > 0">
       <span class="selected-count">已选 {{ selectedIds.length }} 项</span>
-      <el-button link type="danger" size="small" @click="handleBatchClean">
-        <el-icon><Delete /></el-icon> 清理
-      </el-button>
-      <el-button link type="warning" size="small" @click="handleBatchIgnore">
-        <el-icon><Warning /></el-icon> 忽略
-      </el-button>
-      <el-button link size="small" @click="clearSelection">
+      <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleBatchClean()">
+        清理
+      </v-btn>
+      <v-btn variant="text" color="warning" size="small" prepend-icon="mdi-alert-outline" @click="handleBatchIgnore()">
+        忽略
+      </v-btn>
+      <v-btn variant="text" size="small" @click="clearSelection">
         取消
-      </el-button>
+      </v-btn>
     </div>
 
-    <div v-loading="loading" class="mobile-card-list">
+    <div class="mobile-card-list">
+      <v-progress-linear v-if="loading" indeterminate color="primary" />
       <div v-for="item in recordList" :key="item.id" class="mobile-card" @click="handleCardClick($event, item.id)">
         <div class="mobile-card-header">
-          <el-checkbox class="card-checkbox" :model-value="selectedIds.includes(item.id)" @change="toggleSelect(item.id)" @click.stop />
+          <v-checkbox
+            class="card-checkbox"
+            :model-value="selectedIds.includes(item.id)"
+            density="compact"
+            hide-details
+            @click.stop
+            @update:model-value="toggleSelect(item.id)"
+          />
           <span class="mobile-title">{{ item.title || '未知' }}<span v-if="item.year">（{{ item.year }}）</span></span>
-          <el-tag v-if="item.reason === 'local_missing'" type="warning" size="small">本地丢失</el-tag>
-          <el-tag v-else type="danger" size="small">网盘源丢失</el-tag>
+          <v-chip v-if="item.reason === 'local_missing'" size="small" color="warning" variant="tonal">本地丢失</v-chip>
+          <v-chip v-else size="small" color="error" variant="tonal">网盘源丢失</v-chip>
         </div>
         <div class="mobile-card-body">
           <div class="mobile-card-row">
@@ -59,25 +80,23 @@
           </div>
         </div>
         <div class="mobile-card-actions" v-if="item.status === '0'">
-          <el-button link type="danger" size="small" @click.stop="handleCleanOne(item)">
-            <el-icon><Delete /></el-icon> 清理
-          </el-button>
-          <el-button link type="warning" size="small" @click.stop="handleIgnoreOne(item)">
-            <el-icon><Warning /></el-icon> 忽略
-          </el-button>
+          <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click.stop="handleCleanOne(item)">
+            清理
+          </v-btn>
+          <v-btn variant="text" color="warning" size="small" prepend-icon="mdi-alert-outline" @click.stop="handleIgnoreOne(item)">
+            忽略
+          </v-btn>
         </div>
       </div>
-      <el-empty v-if="!recordList.length" description="暂无数据" />
+      <v-empty-state v-if="!loading && !recordList.length" icon="mdi-inbox-outline" title="暂无数据" />
     </div>
 
     <div class="pagination-wrapper">
-      <el-pagination
-        v-model:current-page="queryParams.pageNum"
-        v-model:page-size="queryParams.pageSize"
-        :total="total"
-        layout="prev, pager, next"
-        small
-        @current-change="getList"
+      <v-pagination
+        v-model="queryParams.pageNum"
+        :length="Math.ceil(total / queryParams.pageSize) || 1"
+        density="comfortable"
+        @update:model-value="getList"
       />
     </div>
   </div>
@@ -85,7 +104,6 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
-import { Refresh, Delete, Warning } from '@element-plus/icons-vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import { useRenameOrphanList } from '@/composables/useRenameOrphanList'
 
@@ -138,7 +156,7 @@ getList()
 }
 
 .mobile-card {
-  background: white;
+  background: var(--osr-surface);
   border-radius: 8px;
   border: 1px solid var(--osr-border-light);
   overflow: hidden;
@@ -150,6 +168,14 @@ getList()
     padding: 10px 12px 8px;
     border-bottom: 1px solid var(--osr-border-light);
     background: var(--osr-bg-page);
+
+    .card-checkbox {
+      flex: 0 0 auto;
+
+      :deep(.v-selection-control) {
+        min-height: unset;
+      }
+    }
 
     .mobile-title {
       flex: 1;

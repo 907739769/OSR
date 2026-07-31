@@ -2,64 +2,114 @@
   <div class="mobile-page">
     <!-- 搜索 -->
     <MobileSearchPanel v-model:collapsed="searchCollapsed" :loading="loading" @search="handleQuery" @reset="resetQuery">
-      <el-form ref="queryRef" :model="queryParams" label-width="72px">
-        <el-form-item label="原文件名" prop="originalName">
-          <el-input v-model="queryParams.originalName" placeholder="请输入原文件名" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="新文件名" prop="newName">
-          <el-input v-model="queryParams.newName" placeholder="请输入新文件名" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="原目录" prop="originalPath">
-          <el-input v-model="queryParams.originalPath" placeholder="请输入原目录" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="新目录" prop="newPath">
-          <el-input v-model="queryParams.newPath" placeholder="请输入新目录" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="影视名称" prop="title">
-          <el-input v-model="queryParams.title" placeholder="请输入影视名称" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="状态" prop="status">
-          <el-select v-model="queryParams.status" placeholder="全部状态" clearable style="width: 100%">
-            <el-option label="成功" value="1" />
-            <el-option label="失败" value="0" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="创建时间">
-          <el-date-picker
-            v-model="dateRange"
-            type="daterange"
-            range-separator="-"
-            start-placeholder="开始日期"
-            end-placeholder="结束日期"
-            value-format="YYYY-MM-DD"
-            style="width: 100%"
+      <v-form ref="queryRef">
+        <v-text-field
+          v-model="queryParams.originalName"
+          label="原文件名"
+          placeholder="请输入原文件名"
+          clearable
+          density="compact"
+          variant="outlined"
+          hide-details
+          @keyup.enter="handleQuery"
+        />
+        <v-text-field
+          v-model="queryParams.newName"
+          label="新文件名"
+          placeholder="请输入新文件名"
+          clearable
+          density="compact"
+          variant="outlined"
+          hide-details
+          @keyup.enter="handleQuery"
+        />
+        <v-text-field
+          v-model="queryParams.originalPath"
+          label="原目录"
+          placeholder="请输入原目录"
+          clearable
+          density="compact"
+          variant="outlined"
+          hide-details
+          @keyup.enter="handleQuery"
+        />
+        <v-text-field
+          v-model="queryParams.newPath"
+          label="新目录"
+          placeholder="请输入新目录"
+          clearable
+          density="compact"
+          variant="outlined"
+          hide-details
+          @keyup.enter="handleQuery"
+        />
+        <v-text-field
+          v-model="queryParams.title"
+          label="影视名称"
+          placeholder="请输入影视名称"
+          clearable
+          density="compact"
+          variant="outlined"
+          hide-details
+          @keyup.enter="handleQuery"
+        />
+        <v-select
+          v-model="queryParams.status"
+          label="状态"
+          placeholder="全部状态"
+          :items="[{ title: '成功', value: '1' }, { title: '失败', value: '0' }]"
+          clearable
+          density="compact"
+          variant="outlined"
+          hide-details
+        />
+        <div class="date-range-fields">
+          <v-text-field
+            v-model="dateStart"
+            label="开始日期"
+            type="date"
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="date-field"
           />
-        </el-form-item>
-      </el-form>
+          <span class="date-range-sep">-</span>
+          <v-text-field
+            v-model="dateEnd"
+            label="结束日期"
+            type="date"
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="date-field"
+          />
+        </div>
+      </v-form>
     </MobileSearchPanel>
 
     <!-- Batch Actions -->
     <div class="batch-bar" v-if="selectedIds.length > 0">
       <span class="selected-count">已选 {{ selectedIds.length }} 项</span>
-      <el-button link type="primary" size="small" @click="handleBatchExecute">
-        <el-icon><RefreshLeft /></el-icon> 执行
-      </el-button>
-      <el-button link type="danger" size="small" @click="handleBatchDelete">
-        <el-icon><Delete /></el-icon> 删记录
-      </el-button>
-      <el-button link type="warning" size="small" @click="handleBatchScrape">
-        <el-icon><Refresh /></el-icon> 刮削
-      </el-button>
-      <el-button link type="danger" size="small" @click="handleBatchDeleteScrape">
-        <el-icon><Delete /></el-icon> 删刮削
-      </el-button>
-      <el-button link size="small" @click="clearSelection">
+      <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-refresh" @click="handleBatchExecute">
+        执行
+      </v-btn>
+      <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleBatchDelete">
+        删记录
+      </v-btn>
+      <v-btn variant="text" color="warning" size="small" prepend-icon="mdi-refresh" @click="handleBatchScrape">
+        刮削
+      </v-btn>
+      <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleBatchDeleteScrape">
+        删刮削
+      </v-btn>
+      <v-btn variant="text" size="small" @click="clearSelection">
         取消
-      </el-button>
+      </v-btn>
     </div>
 
     <!-- Record List -->
-    <div class="record-list" v-loading="loading">
+    <div class="record-list">
+      <v-progress-linear v-if="loading" indeterminate color="primary" />
       <div
         v-for="record in recordList"
         :key="record.id"
@@ -68,10 +118,11 @@
         @click="handleCardClick($event, record.id)"
       >
         <div class="card-checkbox">
-          <el-checkbox
+          <v-checkbox
             :model-value="selectedIds.includes(record.id)"
-            size="large"
-            @change="toggleSelect(record.id)"
+            density="compact"
+            hide-details
+            @click.stop="toggleSelect(record.id)"
           />
         </div>
         <div class="card-content">
@@ -83,7 +134,7 @@
                 {{ record.originalName }}
               </span>
             </div>
-            <el-icon class="rename-arrow-icon" :size="16"><ArrowRight /></el-icon>
+            <v-icon class="rename-arrow-icon" icon="mdi-arrow-right" size="16" />
             <div class="rename-side rename-new-side">
               <span class="rename-label rename-label-new">新</span>
               <span class="rename-filename rename-filename-new" @click.stop="showFullText(record.newName, '新文件名')" :title="record.newName">
@@ -92,47 +143,47 @@
             </div>
           </div>
           <div class="mobile-status-row">
-            <el-tag :type="record.status === '1' ? 'success' : 'danger'" size="small" effect="light" class="status-tag">
+            <v-chip :color="record.status === '1' ? 'success' : 'error'" size="small" variant="tonal" class="status-tag">
               {{ record.status === '1' ? '成功' : '失败' }}
-            </el-tag>
-            <el-tag v-if="record.scrapeStatus === '1'" type="success" size="small" class="scrape-tag">NFO</el-tag>
-            <el-tag v-else-if="record.scrapeStatus === '2'" type="danger" size="small" class="scrape-tag">刮削失败</el-tag>
-            <el-tag v-else-if="record.scrapeStatus === '0'" type="info" size="small" class="scrape-tag">未刮削</el-tag>
+            </v-chip>
+            <v-chip v-if="record.scrapeStatus === '1'" color="success" size="small" variant="tonal" class="scrape-tag">NFO</v-chip>
+            <v-chip v-else-if="record.scrapeStatus === '2'" color="error" size="small" variant="tonal" class="scrape-tag">刮削失败</v-chip>
+            <v-chip v-else-if="record.scrapeStatus === '0'" color="info" size="small" variant="tonal" class="scrape-tag">未刮削</v-chip>
           </div>
           <!-- Path comparison -->
           <div class="rename-paths">
             <div class="rename-path-item rename-path-original" @click.stop="showFullText(record.originalPath, '原路径')">
-              <el-icon class="path-icon"><Location /></el-icon>
+              <v-icon class="path-icon" icon="mdi-map-marker-outline" size="12" />
               <span class="path-text">{{ record.originalPath }}</span>
             </div>
-            <el-icon class="rename-path-arrow" :size="12"><ArrowRight /></el-icon>
+            <v-icon class="rename-path-arrow" icon="mdi-arrow-right" size="12" />
             <div class="rename-path-item rename-path-new" @click.stop="showFullText(record.newPath, '新路径')">
-              <el-icon class="path-icon"><Location /></el-icon>
+              <v-icon class="path-icon" icon="mdi-map-marker-outline" size="12" />
               <span class="path-text">{{ record.newPath }}</span>
             </div>
           </div>
           <div class="card-time">
-            <el-icon><Clock /></el-icon>
+            <v-icon icon="mdi-clock-outline" size="12" />
             {{ record.createTime }}
           </div>
         </div>
         <div class="card-actions" @click.stop>
-          <el-button link type="warning" size="small" :icon="Refresh" @click="handleScrapeOne(record)">
+          <v-btn variant="text" color="warning" size="small" @click="handleScrapeOne(record)">
             刮削
-          </el-button>
-          <el-button link type="danger" size="small" :icon="Delete" @click="handleDeleteScrapeOne(record)" v-if="record.scrapeStatus === '1'">
+          </v-btn>
+          <v-btn v-if="record.scrapeStatus === '1'" variant="text" color="error" size="small" @click="handleDeleteScrapeOne(record)">
             删刮削
-          </el-button>
-          <el-button link type="primary" size="small" :icon="RefreshLeft" @click="handleRetryOne(record)">
+          </v-btn>
+          <v-btn variant="text" color="primary" size="small" @click="handleRetryOne(record)">
             重试
-          </el-button>
-          <el-button link type="danger" size="small" :icon="Delete" @click="handleDeleteOne(record)">
+          </v-btn>
+          <v-btn variant="text" color="error" size="small" @click="handleDeleteOne(record)">
             删记录
-          </el-button>
+          </v-btn>
         </div>
       </div>
 
-      <el-empty v-if="!loading && recordList.length === 0" description="暂无重命名记录" />
+      <v-empty-state v-if="!loading && recordList.length === 0" icon="mdi-inbox-outline" title="暂无重命名记录" />
     </div>
 
     <!-- 分页 -->
@@ -149,36 +200,62 @@
     <!-- 全文查看 -->
     <FullTextDialog ref="fullTextRef" />
 
-    <!-- Edit & Rename Dialog -->
-    <el-dialog v-model="retryDialogVisible" title="重试重命名" width="85%" @close="handleRetryClose">
-      <el-form ref="retryFormRef" :model="retryForm" :rules="retryRules" label-width="60px">
-        <el-form-item label="标题" prop="title">
-          <el-input v-model="retryForm.title" placeholder="留空则使用原值" maxlength="100" clearable />
-        </el-form-item>
-        <el-form-item label="年份" prop="year">
-          <el-input v-model="retryForm.year" placeholder="留空则使用原值" maxlength="4" clearable />
-        </el-form-item>
-        <el-form-item label="季" prop="season" v-if="retryForm.mediaType === 'tv'">
-          <el-input v-model="retryForm.season" placeholder="如 01" maxlength="4" clearable />
-        </el-form-item>
-        <el-form-item label="集" prop="episode" v-if="retryForm.mediaType === 'tv'">
-          <el-input v-model="retryForm.episode" placeholder="如 05" maxlength="6" clearable />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="retryDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleRetrySubmit" :loading="retryLoading">确定</el-button>
-      </template>
-    </el-dialog>
+    <!-- Retry Dialog -->
+    <v-dialog v-model="retryDialogVisible" max-width="85%" @update:model-value="onRetryDialogUpdate">
+      <v-card title="重试重命名">
+        <v-card-text>
+          <v-form ref="retryFormRef">
+            <v-text-field
+              v-model="retryForm.title"
+              label="标题"
+              placeholder="留空则使用原值"
+              maxlength="100"
+              clearable
+              :rules="[titleRule]"
+              class="mb-2"
+            />
+            <v-text-field
+              v-model="retryForm.year"
+              label="年份"
+              placeholder="留空则使用原值"
+              maxlength="4"
+              clearable
+              :rules="[yearRule]"
+              class="mb-2"
+            />
+            <v-text-field
+              v-if="retryForm.mediaType === 'tv'"
+              v-model="retryForm.season"
+              label="季"
+              placeholder="如 01"
+              maxlength="4"
+              clearable
+              :rules="[seasonRule]"
+              class="mb-2"
+            />
+            <v-text-field
+              v-if="retryForm.mediaType === 'tv'"
+              v-model="retryForm.episode"
+              label="集"
+              placeholder="如 05"
+              maxlength="6"
+              clearable
+              :rules="[episodeRule]"
+            />
+          </v-form>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="outlined" @click="retryDialogVisible = false">取消</v-btn>
+          <v-btn color="primary" variant="flat" :loading="retryLoading" @click="handleRetrySubmit">确定</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import {
-  ArrowRight, Location, Clock,
-  RefreshLeft, Refresh, Delete
-} from '@element-plus/icons-vue'
+import { ref, computed } from 'vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import FullTextDialog from '@/components/mobile/FullTextDialog.vue'
@@ -195,13 +272,40 @@ const {
   queryRef, dateRange, handleQuery, resetQuery,
   selectedIds, toggleSelect, handleCardClick, clearSelection,
   handleDeleteOne, handleBatchDelete,
-  retryDialogVisible, retryLoading, retryFormRef, retryForm, retryRules,
+  retryDialogVisible, retryLoading, retryFormRef, retryForm,
   handleRetryOne, handleRetryClose, handleRetrySubmit,
   handleBatchExecute, handleScrapeOne, handleBatchScrape,
   handleDeleteScrapeOne, handleBatchDeleteScrape
 } = useRenameDetailList()
 
 getList()
+
+// dateRange 是 el-date-picker daterange 遗留的 [start, end] 数组结构，
+// 拆成两个独立日期输入框绑定，写回时仍保持数组形状供 handleQuery 组装 params
+const dateStart = computed({
+  get: () => dateRange.value?.[0] ?? '',
+  set: (val: string) => {
+    dateRange.value = [val || '', dateRange.value?.[1] ?? '']
+    if (!dateRange.value[0] && !dateRange.value[1]) dateRange.value = null
+  }
+})
+const dateEnd = computed({
+  get: () => dateRange.value?.[1] ?? '',
+  set: (val: string) => {
+    dateRange.value = [dateRange.value?.[0] ?? '', val || '']
+    if (!dateRange.value[0] && !dateRange.value[1]) dateRange.value = null
+  }
+})
+
+const onRetryDialogUpdate = (val: boolean) => {
+  if (!val) handleRetryClose()
+}
+
+// 重试弹窗字段校验，规则与原 retryRules 保持一致
+const titleRule = (v: string) => !v || v.length <= 100 || '最多 100 个字符'
+const yearRule = (v: string) => !v || /^\d{0,4}$/.test(v) || '年份为 4 位数字'
+const seasonRule = (v: string) => !v || /^\d{1,2}$/.test(v) || '季为 1-2 位数字'
+const episodeRule = (v: string) => !v || /^\d{1,4}$/.test(v) || '集为 1-4 位数字'
 </script>
 
 <style scoped lang="scss">
@@ -214,6 +318,22 @@ getList()
 
   .record-list {
     flex: 1;
+  }
+}
+
+.date-range-fields {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+
+  .date-field {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .date-range-sep {
+    color: var(--osr-text-secondary);
   }
 }
 
@@ -236,13 +356,6 @@ getList()
     color: var(--osr-primary);
     margin-right: 4px;
     white-space: nowrap;
-  }
-
-  .el-button {
-    font-size: 12px;
-    padding: 0 4px;
-    height: auto;
-    margin-left: 0;
   }
 }
 
@@ -395,7 +508,6 @@ getList()
         flex-shrink: 0;
         margin-top: 1px;
         color: var(--osr-text-disabled);
-        font-size: 12px;
       }
 
       .path-text {
@@ -435,10 +547,6 @@ getList()
     gap: 3px;
     font-size: 11px;
     color: var(--osr-text-disabled);
-
-    .el-icon {
-      flex-shrink: 0;
-    }
   }
 
   .card-actions {
@@ -449,11 +557,10 @@ getList()
     padding-left: 8px;
     border-left: 1px solid var(--osr-border-light);
 
-    .el-button {
+    .v-btn {
       font-size: 11px;
-      padding: 2px 0;
-      height: auto;
-      white-space: nowrap;
+      min-width: 0;
+      padding: 0 6px;
     }
   }
 }

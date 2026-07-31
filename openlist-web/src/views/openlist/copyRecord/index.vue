@@ -1,177 +1,165 @@
 <template>
   <div class="page-container">
     <!-- Search Panel -->
-    <el-card class="search-card" v-if="showSearch">
-      <el-form :model="queryParams" ref="queryRef" :inline="true" label-width="80px">
-        <el-form-item label="源目录" prop="copySrcPath">
-          <el-input v-model="queryParams.copySrcPath" placeholder="请输入源目录" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="目标目录" prop="copyDstPath">
-          <el-input v-model="queryParams.copyDstPath" placeholder="请输入目标目录" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="源文件名" prop="copySrcFileName">
-          <el-input v-model="queryParams.copySrcFileName" placeholder="请输入源文件名" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="目标名" prop="copyDstFileName">
-          <el-input v-model="queryParams.copyDstFileName" placeholder="请输入目标名" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="状态" prop="copyStatus">
-          <el-select v-model="queryParams.copyStatus" placeholder="状态" clearable>
-            <el-option label="处理中" value="1" />
-            <el-option label="失败" value="2" />
-            <el-option label="成功" value="3" />
-            <el-option label="未知" value="4" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="创建时间">
-          <el-date-picker
-            v-model="dateRange"
-            type="daterange"
-            range-separator="-"
-            start-placeholder="开始时间"
-            end-placeholder="结束时间"
-            value-format="YYYY-MM-DD"
+    <v-card v-if="showSearch" class="search-card">
+      <v-form ref="queryRef" @submit.prevent="handleQuery">
+        <div class="search-fields">
+          <v-text-field
+            v-model="queryParams.copySrcPath"
+            label="源目录"
+            placeholder="请输入源目录"
+            clearable
+            density="compact"
+            variant="outlined"
+            hide-details
+            @keyup.enter="handleQuery"
           />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleQuery">
-            <el-icon><Search /></el-icon> 搜索
-          </el-button>
-          <el-button @click="resetQuery">
-            <el-icon><Refresh /></el-icon> 重置
-          </el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
+          <v-text-field
+            v-model="queryParams.copyDstPath"
+            label="目标目录"
+            placeholder="请输入目标目录"
+            clearable
+            density="compact"
+            variant="outlined"
+            hide-details
+            @keyup.enter="handleQuery"
+          />
+          <v-text-field
+            v-model="queryParams.copySrcFileName"
+            label="源文件名"
+            placeholder="请输入源文件名"
+            clearable
+            density="compact"
+            variant="outlined"
+            hide-details
+            @keyup.enter="handleQuery"
+          />
+          <v-text-field
+            v-model="queryParams.copyDstFileName"
+            label="目标名"
+            placeholder="请输入目标名"
+            clearable
+            density="compact"
+            variant="outlined"
+            hide-details
+            @keyup.enter="handleQuery"
+          />
+          <v-select
+            v-model="queryParams.copyStatus"
+            label="状态"
+            :items="[{ title: '处理中', value: '1' }, { title: '失败', value: '2' }, { title: '成功', value: '3' }, { title: '未知', value: '4' }]"
+            clearable
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="status-select"
+          />
+          <div class="date-range-fields">
+            <v-text-field
+              v-model="dateStart"
+              label="开始日期"
+              type="date"
+              density="compact"
+              variant="outlined"
+              hide-details
+              class="date-field"
+            />
+            <span class="date-range-sep">-</span>
+            <v-text-field
+              v-model="dateEnd"
+              label="结束日期"
+              type="date"
+              density="compact"
+              variant="outlined"
+              hide-details
+              class="date-field"
+            />
+          </div>
+          <div class="search-actions">
+            <v-btn color="primary" prepend-icon="mdi-magnify" @click="handleQuery">搜索</v-btn>
+            <v-btn variant="outlined" prepend-icon="mdi-refresh" @click="resetQuery">重置</v-btn>
+          </div>
+        </div>
+      </v-form>
+    </v-card>
 
     <!-- Table Card -->
-    <el-card class="table-card">
+    <v-card class="table-card">
       <!-- Action Bar -->
       <div class="action-bar">
         <div class="action-left">
-          <el-button type="danger" :disabled="multiple" @click="handleBatchDelete()">
-            <el-icon><Delete /></el-icon> 批量删除记录
-          </el-button>
-          <el-button type="danger" :disabled="multiple" @click="handleBatchRemoveNetDisk()">
-            <el-icon><Download /></el-icon> 批量删除网盘文件
-          </el-button>
-          <el-button type="primary" :disabled="multiple" @click="handleBatchRetry()">
-            <el-icon><Refresh /></el-icon> 批量重试
-          </el-button>
+          <v-btn color="error" prepend-icon="mdi-delete-outline" :disabled="multiple" @click="handleBatchDelete()">
+            批量删除记录
+          </v-btn>
+          <v-btn color="error" prepend-icon="mdi-download-off-outline" :disabled="multiple" @click="handleBatchRemoveNetDisk()">
+            批量删除网盘文件
+          </v-btn>
+          <v-btn color="primary" prepend-icon="mdi-refresh" :disabled="multiple" @click="handleBatchRetry()">
+            批量重试
+          </v-btn>
         </div>
-        <el-button text @click="showSearch = !showSearch">
-          <el-icon><Filter /></el-icon>
+        <v-btn variant="text" prepend-icon="mdi-filter-outline" @click="showSearch = !showSearch">
           {{ showSearch ? '隐藏搜索' : '显示搜索' }}
-        </el-button>
+        </v-btn>
       </div>
 
       <!-- Desktop Table -->
-      <el-table v-if="appStore.device === 'desktop'" v-loading="loading" :data="recordList" @selection-change="handleSelectionChange" class="modern-table">
-        <el-table-column type="selection" width="50" align="center" />
-        <el-table-column label="复制详情" min-width="300">
-          <template #default="scope">
-            <div class="file-change-box">
-              <div class="file-row">
-                <span class="file-label label-src">源</span>
-                <span class="file-name" :title="scope.row.copySrcFileName">{{ scope.row.copySrcFileName }}</span>
-                <span class="file-path" :title="scope.row.copySrcPath">{{ scope.row.copySrcPath }}</span>
-              </div>
-              <div class="file-row">
-                <span class="file-label label-dst">目</span>
-                <span class="file-name" :title="scope.row.copyDstFileName">{{ scope.row.copyDstFileName }}</span>
-                <span class="file-path" :title="scope.row.copyDstPath">{{ scope.row.copyDstPath }}</span>
-              </div>
+      <v-data-table-server
+        :loading="loading"
+        :items="recordList"
+        :items-length="total"
+        :headers="headers"
+        :items-per-page="queryParams.pageSize"
+        :page="queryParams.pageNum"
+        show-select
+        item-value="copyId"
+        return-object
+        :model-value="selectedRows"
+        class="modern-table"
+        @update:model-value="onSelectionChange"
+        @update:page="onPageChange"
+        @update:items-per-page="onSizeChange"
+      >
+        <template #item.detail="{ item }">
+          <div class="file-change-box">
+            <div class="file-row">
+              <span class="file-label label-src">源</span>
+              <span class="file-name" :title="item.copySrcFileName">{{ item.copySrcFileName }}</span>
+              <span class="file-path" :title="item.copySrcPath">{{ item.copySrcPath }}</span>
             </div>
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" prop="copyStatus" width="80" align="center">
-          <template #default="scope">
-            <el-tag :type="getCopyStatusType(scope.row.copyStatus)">
-              {{ getCopyStatusText(scope.row.copyStatus) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="创建时间" prop="createTime" width="170" align="center" />
-        <el-table-column label="操作" align="center" width="260" fixed="right">
-          <template #default="scope">
-            <el-button link type="primary" @click="handleRetryOne(scope.row)">
-              <el-icon><Refresh /></el-icon> 重试
-            </el-button>
-            <el-button link type="warning" @click="handleRemoveNetDiskOne(scope.row)">
-              <el-icon><Download /></el-icon> 删除网盘文件
-            </el-button>
-            <el-button link type="danger" @click="handleDeleteOne(scope.row)">
-              <el-icon><Delete /></el-icon> 删除记录
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <!-- Mobile Card List -->
-      <div v-if="appStore.device === 'mobile'" v-loading="loading" class="mobile-card-list">
-        <div v-for="item in recordList" :key="item.copyId" class="mobile-card">
-          <div class="mobile-card-header">
-            <span class="mobile-card-title">{{ item.copySrcFileName }}</span>
-            <el-tag size="small" :type="getCopyStatusType(item.copyStatus)">
-              {{ getCopyStatusText(item.copyStatus) }}
-            </el-tag>
-          </div>
-          <div class="mobile-card-body">
-            <div class="mobile-card-row">
-              <span class="mobile-card-label">源路径</span>
-              <span class="mobile-card-value mobile-card-value-path" :title="item.copySrcPath">{{ item.copySrcPath }}</span>
-            </div>
-            <div class="mobile-card-row">
-              <span class="mobile-card-label">目标名</span>
-              <span class="mobile-card-value mobile-card-value-clip">{{ item.copyDstFileName }}</span>
-            </div>
-            <div class="mobile-card-row">
-              <span class="mobile-card-label">目标路径</span>
-              <span class="mobile-card-value mobile-card-value-path" :title="item.copyDstPath">{{ item.copyDstPath }}</span>
-            </div>
-            <div class="mobile-card-row">
-              <span class="mobile-card-label">创建时间</span>
-              <span class="mobile-card-value mobile-card-value-light">{{ item.createTime }}</span>
+            <div class="file-row">
+              <span class="file-label label-dst">目</span>
+              <span class="file-name" :title="item.copyDstFileName">{{ item.copyDstFileName }}</span>
+              <span class="file-path" :title="item.copyDstPath">{{ item.copyDstPath }}</span>
             </div>
           </div>
-          <div class="mobile-card-actions">
-            <el-button link type="primary" size="small" @click="handleRetryOne(item)">
-              <el-icon><Refresh /></el-icon> 重试
-            </el-button>
-            <el-button link type="warning" size="small" @click="handleRemoveNetDiskOne(item)">
-              <el-icon><Download /></el-icon> 删网盘
-            </el-button>
-            <el-button link type="danger" size="small" @click="handleDeleteOne(item)">
-              <el-icon><Delete /></el-icon> 删记录
-            </el-button>
-          </div>
-        </div>
-        <el-empty v-if="!recordList.length" description="暂无数据" />
-      </div>
-
-      <!-- Pagination -->
-      <div class="pagination-wrapper">
-        <el-pagination
-          v-model:current-page="queryParams.pageNum"
-          v-model:page-size="queryParams.pageSize"
-          :total="total"
-          :page-sizes="[10, 20, 50]"
-          layout="total, sizes, prev, pager, next, jumper"
-          @current-change="getList"
-          @size-change="getList"
-        />
-      </div>
-    </el-card>
+        </template>
+        <template #item.copyStatus="{ item }">
+          <v-chip size="small" :color="getCopyStatusType(item.copyStatus)" variant="tonal">
+            {{ getCopyStatusText(item.copyStatus) }}
+          </v-chip>
+        </template>
+        <template #item.actions="{ item }">
+          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-refresh" @click="handleRetryOne(item)">
+            重试
+          </v-btn>
+          <v-btn variant="text" color="warning" size="small" prepend-icon="mdi-download-off-outline" @click="handleRemoveNetDiskOne(item)">
+            删除网盘文件
+          </v-btn>
+          <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDeleteOne(item)">
+            删除记录
+          </v-btn>
+        </template>
+      </v-data-table-server>
+    </v-card>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { Search, Refresh, Delete, Download, Filter } from '@element-plus/icons-vue'
-import { useAppStore } from '@/stores/app'
+import { ref, computed, watch } from 'vue'
 import { useCopyRecord } from '@/composables/useCopyRecord'
+import { useDebounce } from '@/composables/useDebounce'
 
-const appStore = useAppStore()
 const showSearch = ref(window.innerWidth >= 768)
 
 const {
@@ -182,6 +170,59 @@ const {
   handleRemoveNetDiskOne, handleBatchRemoveNetDisk,
   getCopyStatusText, getCopyStatusType
 } = useCopyRecord()
+
+// dateRange 是 el-date-picker daterange 遗留的 [start, end] 数组结构，
+// 拆成两个独立日期输入框绑定，写回时仍保持数组形状供 handleQuery 组装 params
+const dateStart = computed({
+  get: () => dateRange.value?.[0] ?? '',
+  set: (val: string) => {
+    dateRange.value = [val || '', dateRange.value?.[1] ?? '']
+    if (!dateRange.value[0] && !dateRange.value[1]) dateRange.value = null
+  }
+})
+const dateEnd = computed({
+  get: () => dateRange.value?.[1] ?? '',
+  set: (val: string) => {
+    dateRange.value = [dateRange.value?.[0] ?? '', val || '']
+    if (!dateRange.value[0] && !dateRange.value[1]) dateRange.value = null
+  }
+})
+
+const headers = [
+  { title: '复制详情', key: 'detail', minWidth: '300' },
+  { title: '状态', key: 'copyStatus', align: 'center' as const, width: '80' },
+  { title: '创建时间', key: 'createTime', width: '170', align: 'center' as const },
+  { title: '操作', key: 'actions', align: 'center' as const, width: '260', sortable: false }
+]
+
+// v-data-table-server 的多选需要一个本地 ref 承接当前选中的行对象，
+// 再转给 useRecordList 的 handleSelectionChange 去派生 selectedIds/multiple
+const selectedRows = ref<any[]>([])
+const onSelectionChange = (rows: any[]) => {
+  selectedRows.value = rows
+  handleSelectionChange(rows)
+}
+
+const onPageChange = (page: number) => {
+  queryParams.pageNum = page
+  getList()
+}
+
+const onSizeChange = (size: number) => {
+  queryParams.pageSize = size
+  queryParams.pageNum = 1
+  getList()
+}
+
+// 搜索输入防抖：输入停止 300ms 后自动触发搜索
+const debouncedSearch = useDebounce(() => {
+  handleQuery()
+}, 300)
+
+watch(
+  () => [queryParams.copySrcPath, queryParams.copyDstPath, queryParams.copySrcFileName, queryParams.copyDstFileName, queryParams.copyStatus, dateRange.value],
+  () => debouncedSearch()
+)
 
 getList()
 </script>
@@ -197,12 +238,45 @@ getList()
    Search Card
    ============================================ */
 .search-card {
-  border: none;
-  border-radius: var(--osr-radius-lg);
-  box-shadow: var(--osr-shadow-base);
+  padding: 14px 16px;
+}
 
-  :deep(.el-card__body) {
-    padding: 14px 16px;
+.search-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px;
+
+  > .v-text-field,
+  > .v-select {
+    width: 200px;
+    flex: 0 0 auto;
+  }
+
+  .status-select {
+    width: 140px;
+  }
+
+  .date-range-fields {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+
+    .date-field {
+      width: 150px;
+    }
+
+    .date-range-sep {
+      color: var(--osr-text-secondary);
+    }
+  }
+
+  .search-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 2px;
   }
 }
 
@@ -210,15 +284,9 @@ getList()
    Table Card
    ============================================ */
 .table-card {
-  border: none;
-  border-radius: var(--osr-radius-lg);
-  box-shadow: var(--osr-shadow-base);
-
-  :deep(.el-card__body) {
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-  }
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
 }
 
 .action-bar {
@@ -235,22 +303,13 @@ getList()
 }
 
 /* ============================================
-   Pagination
-   ============================================ */
-.pagination-wrapper {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: auto;
-  padding-top: 12px;
-}
-
-/* ============================================
    Copy Detail Column (Desktop Table)
    ============================================ */
 .file-change-box {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  padding: 8px 0;
 }
 
 .file-row {
@@ -308,22 +367,27 @@ getList()
     gap: 10px;
   }
 
-  .search-card :deep(.el-form) {
-    .el-form-item {
-      margin-right: 0;
+  .search-fields {
+    > .v-text-field,
+    > .v-select,
+    .status-select {
+      width: 100%;
     }
 
-    .el-input,
-    .el-select {
-      width: 100% !important;
+    .date-range-fields {
+      width: 100%;
+
+      .date-field {
+        width: 100%;
+      }
     }
-  }
 
-  :deep(.el-table) {
-    font-size: 13px;
+    .search-actions {
+      width: 100%;
 
-    .el-table__cell {
-      padding: 8px 0;
+      .v-btn {
+        flex: 1;
+      }
     }
   }
 
@@ -337,103 +401,8 @@ getList()
     }
   }
 
-  .table-card :deep(.el-card__body) {
+  .table-card {
     padding: 12px;
-  }
-
-  /* ============================================
-     Mobile Card List
-     ============================================ */
-  .mobile-card-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .mobile-card {
-    background: white;
-    border-radius: 8px;
-    border: 1px solid var(--osr-border-light);
-    overflow: hidden;
-
-    .mobile-card-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 10px 12px 8px;
-      border-bottom: 1px solid var(--osr-border-light);
-      background: var(--osr-bg-page);
-
-      .mobile-card-title {
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--osr-text-primary);
-        flex: 1;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        margin-right: 8px;
-      }
-    }
-
-    .mobile-card-body {
-      padding: 0;
-
-      .mobile-card-row {
-        display: flex;
-        align-items: flex-start;
-        padding: 8px 12px;
-        font-size: 13px;
-        border-bottom: 1px solid var(--osr-border-light);
-
-        &:last-child {
-          border-bottom: none;
-        }
-
-        .mobile-card-label {
-          width: 64px;
-          color: var(--osr-text-secondary);
-          flex-shrink: 0;
-          font-size: 12px;
-          line-height: 1.5;
-          padding-top: 1px;
-        }
-
-        .mobile-card-value {
-          flex: 1;
-          min-width: 0;
-          color: var(--osr-text-primary);
-          font-size: 13px;
-          line-height: 1.5;
-          word-break: break-all;
-
-          &.mobile-card-value-clip {
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-          }
-
-          &.mobile-card-value-path {
-            color: var(--osr-text-placeholder);
-            font-size: 12px;
-            line-height: 1.6;
-          }
-
-          &.mobile-card-value-light {
-            color: var(--osr-text-secondary);
-            font-size: 12px;
-          }
-        }
-      }
-    }
-
-    .mobile-card-actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 2px;
-      padding: 8px 12px 10px;
-      border-top: 1px solid var(--osr-border-light);
-    }
   }
 }
 </style>

@@ -1,26 +1,31 @@
 <template>
   <div class="realtime-log-container">
-    <el-card shadow="never" class="log-card">
+    <v-card variant="flat" class="log-card">
       <!-- Header toolbar -->
       <div class="log-header">
         <div class="header-left">
-          <el-select v-model="logType" placeholder="日志类型" style="width: 120px" @change="handleLogTypeChange">
-            <el-option label="Info" value="info" />
-            <el-option label="Debug" value="debug" />
-            <el-option label="Error" value="error" />
-          </el-select>
-          <el-tag :type="(connectionStatus.tagType as any)" size="small" style="margin-left: 12px">
-            <i :class="connectionStatus.icon" /> {{ connectionStatus.text }}
-          </el-tag>
+          <v-select
+            v-model="logType"
+            :items="[{ title: 'Info', value: 'info' }, { title: 'Debug', value: 'debug' }, { title: 'Error', value: 'error' }]"
+            label="日志类型"
+            density="compact"
+            variant="outlined"
+            hide-details
+            style="width: 140px"
+            @update:model-value="handleLogTypeChange"
+          />
+          <v-chip :color="connectionStatus.tagType" size="small" variant="tonal" style="margin-left: 12px">
+            <v-icon :icon="connectionStatus.icon" start size="14" /> {{ connectionStatus.text }}
+          </v-chip>
         </div>
         <div class="header-right">
-          <el-checkbox v-model="autoScroll" border size="small">自动滚动</el-checkbox>
-          <el-checkbox v-model="filterDebug" border size="small">Debug</el-checkbox>
-          <el-checkbox v-model="filterInfo" border size="small">Info</el-checkbox>
-          <el-checkbox v-model="filterWarn" border size="small">Warn</el-checkbox>
-          <el-checkbox v-model="filterError" border size="small">Error</el-checkbox>
-          <el-button size="small" icon="Delete" @click="clearLog">清屏</el-button>
-          <el-button size="small" icon="Refresh" @click="reconnect">重连</el-button>
+          <v-checkbox v-model="autoScroll" density="compact" hide-details label="自动滚动" />
+          <v-checkbox v-model="filterDebug" density="compact" hide-details label="Debug" />
+          <v-checkbox v-model="filterInfo" density="compact" hide-details label="Info" />
+          <v-checkbox v-model="filterWarn" density="compact" hide-details label="Warn" />
+          <v-checkbox v-model="filterError" density="compact" hide-details label="Error" />
+          <v-btn size="small" variant="outlined" prepend-icon="mdi-delete-outline" @click="clearLog">清屏</v-btn>
+          <v-btn size="small" variant="outlined" prepend-icon="mdi-refresh" @click="reconnect">重连</v-btn>
         </div>
       </div>
 
@@ -33,13 +38,13 @@
           :class="getLineClass(line)"
         >{{ line.raw }}</div>
       </div>
-    </el-card>
+    </v-card>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { ElMessage } from 'element-plus'
+import { message } from '@/composables/useMessage'
 import { useUserStore } from '@/stores/user'
 
 const logType = ref('info')
@@ -59,10 +64,10 @@ let unauthorized = false
 
 const connectionStatus = computed(() => {
   switch (connectionState.value) {
-    case 'connected': return { text: '已连接', icon: 'el-icon-success', tagType: 'success' }
-    case 'connecting': return { text: '连接中', icon: 'el-icon-loading', tagType: 'warning' }
-    case 'closed': return { text: '已断开', icon: 'el-icon-warning', tagType: 'danger' }
-    default: return { text: '未连接', icon: 'el-icon-warning', tagType: 'danger' }
+    case 'connected': return { text: '已连接', icon: 'mdi-check-circle-outline', tagType: 'success' }
+    case 'connecting': return { text: '连接中', icon: 'mdi-loading mdi-spin', tagType: 'warning' }
+    case 'closed': return { text: '已断开', icon: 'mdi-alert-outline', tagType: 'error' }
+    default: return { text: '未连接', icon: 'mdi-alert-outline', tagType: 'error' }
   }
 })
 
@@ -135,7 +140,7 @@ function connectWebSocket() {
   const url = `${protocol}${host}/websocket/log/${logType.value}${token ? `?token=${token}` : ''}`
 
   if (typeof WebSocket === 'undefined') {
-    ElMessage.error('浏览器不支持 WebSocket')
+    message.error('浏览器不支持 WebSocket')
     return
   }
 
@@ -157,7 +162,7 @@ function connectWebSocket() {
       unauthorized = true
       const userStore = useUserStore()
       userStore.clearToken()
-      ElMessage.error('登录已过期或无权限查看日志，请重新登录')
+      message.error('登录已过期或无权限查看日志，请重新登录')
       window.location.href = '/login'
       return
     }
@@ -183,7 +188,7 @@ function connectWebSocket() {
   }
 
   ws.onerror = () => {
-    ElMessage.error('WebSocket 连接错误')
+    message.error('WebSocket 连接错误')
     connectionState.value = 'closed'
   }
 
@@ -220,14 +225,6 @@ onUnmounted(() => {
   flex-direction: column;
   overflow: hidden;
   border-radius: 4px;
-
-  :deep(.el-card__body) {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    padding: 0;
-    overflow: hidden;
-  }
 }
 
 .log-header {

@@ -2,52 +2,81 @@
   <div class="mobile-page">
     <!-- 搜索 -->
     <MobileSearchPanel v-model:collapsed="searchCollapsed" :loading="loading" @search="handleQuery" @reset="resetQuery">
-      <el-form ref="queryRef" :model="queryParams" label-width="72px">
-        <el-form-item label="文件名称" prop="strmFileName">
-          <el-input v-model="queryParams.strmFileName" placeholder="请输入文件名称" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="目录路径" prop="strmPath">
-          <el-input v-model="queryParams.strmPath" placeholder="请输入目录路径" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="状态" prop="strmStatus">
-          <el-select v-model="queryParams.strmStatus" placeholder="全部状态" clearable style="width: 100%">
-            <el-option label="成功" value="1" />
-            <el-option label="失败" value="0" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="创建时间">
-          <el-date-picker
-            v-model="dateRange"
-            type="daterange"
-            range-separator="-"
-            start-placeholder="开始日期"
-            end-placeholder="结束日期"
-            value-format="YYYY-MM-DD"
-            style="width: 100%"
+      <v-form ref="queryRef">
+        <v-text-field
+          v-model="queryParams.strmFileName"
+          label="文件名称"
+          placeholder="请输入文件名称"
+          clearable
+          density="compact"
+          variant="outlined"
+          hide-details
+          class="mb-3"
+          @keyup.enter="handleQuery"
+        />
+        <v-text-field
+          v-model="queryParams.strmPath"
+          label="目录路径"
+          placeholder="请输入目录路径"
+          clearable
+          density="compact"
+          variant="outlined"
+          hide-details
+          class="mb-3"
+          @keyup.enter="handleQuery"
+        />
+        <v-select
+          v-model="queryParams.strmStatus"
+          label="状态"
+          placeholder="全部状态"
+          :items="[{ title: '成功', value: '1' }, { title: '失败', value: '0' }]"
+          clearable
+          density="compact"
+          variant="outlined"
+          hide-details
+          class="mb-3"
+        />
+        <div class="date-row">
+          <v-text-field
+            v-model="rangeStart"
+            label="开始日期"
+            type="date"
+            density="compact"
+            variant="outlined"
+            hide-details
           />
-        </el-form-item>
-      </el-form>
+          <v-text-field
+            v-model="rangeEnd"
+            label="结束日期"
+            type="date"
+            density="compact"
+            variant="outlined"
+            hide-details
+          />
+        </div>
+      </v-form>
     </MobileSearchPanel>
 
     <!-- Batch Actions -->
     <div class="batch-bar" v-if="selectedIds.length > 0">
       <span class="selected-count">已选 {{ selectedIds.length }} 项</span>
-      <el-button link type="primary" size="small" @click="handleBatchRetry">
-        <el-icon><RefreshLeft /></el-icon> 重试
-      </el-button>
-      <el-button link type="danger" size="small" @click="handleBatchRemoveNetDisk">
-        <el-icon><Download /></el-icon> 删网盘
-      </el-button>
-      <el-button link type="danger" size="small" @click="handleBatchDelete">
-        <el-icon><Delete /></el-icon> 删记录
-      </el-button>
-      <el-button link size="small" @click="clearSelection">
+      <v-btn variant="text" color="primary" size="small" @click="handleBatchRetry">
+        <v-icon icon="mdi-refresh" start />重试
+      </v-btn>
+      <v-btn variant="text" color="error" size="small" @click="handleBatchRemoveNetDisk">
+        <v-icon icon="mdi-download-outline" start />删网盘
+      </v-btn>
+      <v-btn variant="text" color="error" size="small" @click="handleBatchDelete">
+        <v-icon icon="mdi-delete-outline" start />删记录
+      </v-btn>
+      <v-btn variant="text" size="small" @click="clearSelection">
         取消
-      </el-button>
+      </v-btn>
     </div>
 
     <!-- Record List -->
-    <div class="record-list" v-loading="loading">
+    <div class="record-list">
+      <v-progress-linear v-if="loading" indeterminate color="primary" />
       <div
         v-for="record in recordList"
         :key="record.strmId"
@@ -56,45 +85,46 @@
         @click="handleCardClick($event, record.strmId)"
       >
         <div class="card-checkbox">
-          <el-checkbox
+          <v-checkbox
             :model-value="selectedIds.includes(record.strmId)"
-            size="large"
-            @change="toggleSelect(record.strmId)"
+            density="compact"
+            hide-details
+            @click.stop="toggleSelect(record.strmId)"
           />
         </div>
         <div class="card-content">
           <div class="card-top">
             <div class="file-name-row">
-              <el-icon class="file-icon" :size="18"><VideoCamera /></el-icon>
+              <v-icon class="file-icon" icon="mdi-file-video-outline" size="18" />
               <span class="file-name" @click.stop="showFullText(record.strmFileName, '文件名')">{{ record.strmFileName }}</span>
             </div>
-            <el-tag :type="record.strmStatus === '1' ? 'success' : 'danger'" size="small" effect="light">
+            <v-chip :color="record.strmStatus === '1' ? 'success' : 'error'" size="small" variant="tonal">
               {{ record.strmStatus === '1' ? '成功' : '失败' }}
-            </el-tag>
+            </v-chip>
           </div>
           <div class="file-path" @click.stop="showFullText(record.strmPath, '路径')">
-            <el-icon class="path-icon"><Location /></el-icon>
+            <v-icon class="path-icon" icon="mdi-map-marker-outline" size="14" />
             <span class="path-text">{{ record.strmPath }}</span>
           </div>
           <div class="card-time">
-            <el-icon><Clock /></el-icon>
+            <v-icon icon="mdi-clock-outline" size="14" />
             {{ record.createTime }}
           </div>
         </div>
         <div class="card-actions" @click.stop>
-          <el-button link type="primary" size="small" :icon="Refresh" @click="handleRetryOne(record)">
+          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-refresh" @click="handleRetryOne(record)">
             重试
-          </el-button>
-          <el-button link type="warning" size="small" :icon="Download" @click="handleRemoveNetDiskOne(record)">
+          </v-btn>
+          <v-btn variant="text" color="warning" size="small" prepend-icon="mdi-download-outline" @click="handleRemoveNetDiskOne(record)">
             删网盘
-          </el-button>
-          <el-button link type="danger" size="small" :icon="Delete" @click="handleDeleteOne(record)">
+          </v-btn>
+          <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDeleteOne(record)">
             删记录
-          </el-button>
+          </v-btn>
         </div>
       </div>
 
-      <el-empty v-if="!loading && recordList.length === 0" description="暂无STRM记录" />
+      <v-empty-state v-if="!loading && recordList.length === 0" icon="mdi-inbox-outline" title="暂无STRM记录" />
     </div>
 
     <!-- 分页 -->
@@ -114,11 +144,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import {
-  VideoCamera, Location, Clock,
-  RefreshLeft, Refresh, Delete, Download
-} from '@element-plus/icons-vue'
+import { ref, computed } from 'vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import FullTextDialog from '@/components/mobile/FullTextDialog.vue'
@@ -134,6 +160,22 @@ const {
   handleRetryOne, handleBatchRetry, handleDeleteOne, handleBatchDelete,
   handleRemoveNetDiskOne, handleBatchRemoveNetDisk
 } = useStrmRecord()
+
+// dateRange 是 [开始, 结束] 的字符串数组，这里拆成两个日期输入框分别读写
+const rangeStart = computed({
+  get: () => dateRange.value?.[0] ?? '',
+  set: (val: string) => {
+    const end = dateRange.value?.[1] ?? ''
+    dateRange.value = (val || end) ? [val, end] : null
+  }
+})
+const rangeEnd = computed({
+  get: () => dateRange.value?.[1] ?? '',
+  set: (val: string) => {
+    const start = dateRange.value?.[0] ?? ''
+    dateRange.value = (start || val) ? [start, val] : null
+  }
+})
 
 const fullTextRef = ref<InstanceType<typeof FullTextDialog>>()
 const showFullText = (content: string, title: string) => fullTextRef.value?.show(content, title)
@@ -151,6 +193,16 @@ getList()
 
   .record-list {
     flex: 1;
+  }
+}
+
+.date-row {
+  display: flex;
+  gap: 8px;
+
+  .v-text-field {
+    flex: 1;
+    min-width: 0;
   }
 }
 
@@ -173,13 +225,6 @@ getList()
     color: var(--osr-primary);
     margin-right: 4px;
     white-space: nowrap;
-  }
-
-  .el-button {
-    font-size: 12px;
-    padding: 0 4px;
-    height: auto;
-    margin-left: 0;
   }
 }
 
@@ -302,10 +347,6 @@ getList()
     gap: 3px;
     font-size: 11px;
     color: var(--osr-text-disabled);
-
-    .el-icon {
-      flex-shrink: 0;
-    }
   }
 
   .card-actions {
@@ -316,13 +357,9 @@ getList()
     padding-left: 8px;
     border-left: 1px solid var(--osr-border-light);
 
-    .el-button {
-      font-size: 11px;
-      padding: 2px 0;
-      height: auto;
-      white-space: nowrap;
+    .v-btn {
+      min-width: 0;
     }
   }
 }
-
 </style>

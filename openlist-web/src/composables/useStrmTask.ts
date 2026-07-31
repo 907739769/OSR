@@ -1,5 +1,6 @@
 import { ref, computed } from 'vue'
-import { ElMessage } from 'element-plus'
+import { message } from '@/composables/useMessage'
+import { confirm } from '@/composables/useConfirm'
 import { useTaskList } from './useTaskList'
 import {
   getStrmTaskListApi,
@@ -89,14 +90,13 @@ export function useStrmTask() {
 
   // 批量执行
   const handleBatchExecute = async () => {
-    const { ElMessageBox } = await import('element-plus')
     try {
-      await ElMessageBox.confirm(
-        `是否确认批量执行选中的 ${base.selectedIds.value.length} 个STRM任务？`,
-        '提示', { type: 'warning' }
-      )
+      await confirm({
+        message: `是否确认批量执行选中的 ${base.selectedIds.value.length} 个STRM任务？`,
+        title: '提示', type: 'warning'
+      })
       await executeStrmTaskApi(base.selectedIds.value)
-      ElMessage.success('批量执行成功')
+      message.success('批量执行成功')
       base.getList()
     } catch (e) { if (e !== 'cancel') console.error(e) }
   }

@@ -1,45 +1,41 @@
 <template>
-  <div class="directory-tree-select" ref="containerRef">
-    <el-input
-      :model-value="modelValue"
-      :placeholder="placeholder"
-      readonly
-      @click="handleClick"
-      :class="{ 'is-active': dropdownVisible }"
-    >
-      <template #append>
-        <el-button icon="FolderOpened" @click="handleClick" />
-      </template>
-    </el-input>
-
-    <!-- Dropdown tree -->
-    <div v-show="dropdownVisible" class="tree-dropdown" :style="dropdownStyle">
-      <el-tree
-        ref="treeRef"
-        :props="treeProps"
-        :expand-on-click-node="false"
-        :expand-on-dbl-click-node="false"
-        :load="loadNode"
-        lazy
-        node-key="id"
-        highlight-current
-        @node-click="handleNodeClick"
-      >
-        <template #default="{ node }">
-          <span class="custom-tree-node">
-            <el-icon><Folder /></el-icon>
-            <span>{{ node.label }}</span>
-          </span>
-        </template>
-      </el-tree>
-    </div>
-  </div>
+  <v-menu v-model="dropdownVisible" :close-on-content-click="false" max-height="400">
+    <template #activator="{ props: menuProps }">
+      <v-text-field
+        v-bind="menuProps"
+        :model-value="modelValue"
+        :placeholder="placeholder"
+        readonly
+        density="comfortable"
+        append-inner-icon="mdi-folder-open-outline"
+      />
+    </template>
+    <v-card min-width="300">
+      <v-list density="compact">
+        <div v-if="loadingRoot" class="pa-4 text-caption text-medium-emphasis">加载中...</div>
+        <TreeNodeItem
+          v-for="node in rootNodes"
+          :key="node.id"
+          :node="node"
+          :load-children="loadChildren"
+          :active-id="modelValue"
+          @select="handleNodeSelect"
+        />
+      </v-list>
+    </v-card>
+  </v-menu>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { Folder } from '@element-plus/icons-vue'
+import { ref, watch } from 'vue'
 import request from '@/api/request'
+import TreeNodeItem from '@/components/TreeNodeItem.vue'
+
+interface DirNode {
+  id: string | number
+  name: string
+  isParent?: boolean
+}
 
 const props = withDefaults(defineProps<{
   modelValue?: string
@@ -55,144 +51,42 @@ const emit = defineEmits<{
   'update:modelValue': [value: string]
 }>()
 
-const containerRef = ref<HTMLElement | null>(null)
-const treeRef = ref<any>()
 const dropdownVisible = ref(false)
-let bodyClickListener: ((e: MouseEvent) => void) | null = null
+const rootNodes = ref<DirNode[]>([])
+const loadingRoot = ref(false)
 
-const treeProps = {
-  label: 'name',
-  children: 'children',
-  isLeaf: (data: any) => !data.isParent
-}
-
-const dropdownStyle = computed(() => {
-  if (!containerRef.value) return {}
-  const rect = containerRef.value.getBoundingClientRect()
-  return {
-    position: 'fixed' as const,
-    left: rect.left + 'px',
-    top: (rect.bottom + 4) + 'px',
-    width: Math.max(rect.width, 300) + 'px',
-    zIndex: 99999
-  }
-})
-
-async function loadNode(node: any, resolve: any) {
-  // Root level (level 0 = the tree itself)
-  if (node.level === 0) {
-    try {
-      const url = props.type === 'openlist'
-        ? `/openliststrm/path/openlist`
-        : `/openliststrm/path/local`
-      const res: any[] = await request.get(url)
-      resolve(res)
-    } catch (e) {
-      console.error('Failed to load root directory:', e)
-      resolve([])
-    }
-    return
-  }
-
-  // All nodes from backend are directories (isParent=true), so they can be expanded
+async function fetchDir(id?: string | number): Promise<DirNode[]> {
+  const url = props.type === 'openlist' ? '/openliststrm/path/openlist' : '/openliststrm/path/local'
   try {
-      const url = props.type === 'openlist'
-        ? `/openliststrm/path/openlist?id=${encodeURIComponent(node.data.id)}`
-        : `/openliststrm/path/local?id=${encodeURIComponent(node.data.id)}`
-    const res: any[] = await request.get(url)
-    resolve(res)
+    const res: any[] = await request.get(id !== undefined ? `${url}?id=${encodeURIComponent(String(id))}` : url)
+    return res as DirNode[]
   } catch (e) {
-    console.error('Failed to load children:', e)
-    resolve([])
+    console.error('Failed to load directory:', e)
+    return []
   }
 }
 
-function handleClick() {
-  dropdownVisible.value = !dropdownVisible.value
-  if (!dropdownVisible.value) {
-    removeBodyClickListener()
+async function loadChildren(node: DirNode): Promise<DirNode[]> {
+  return fetchDir(node.id)
+}
+
+async function loadRoot() {
+  loadingRoot.value = true
+  try {
+    rootNodes.value = await fetchDir()
+  } finally {
+    loadingRoot.value = false
   }
 }
 
-function handleNodeClick(data: any) {
-  emit('update:modelValue', data.id)
+function handleNodeSelect(node: DirNode) {
+  emit('update:modelValue', String(node.id))
   dropdownVisible.value = false
-  removeBodyClickListener()
 }
 
-function onBodyClick(e: MouseEvent) {
-  if (containerRef.value && !containerRef.value.contains(e.target as Node)) {
-    dropdownVisible.value = false
-    removeBodyClickListener()
+watch(dropdownVisible, (visible) => {
+  if (visible && rootNodes.value.length === 0) {
+    loadRoot()
   }
-}
-
-function removeBodyClickListener() {
-  if (bodyClickListener) {
-    document.removeEventListener('mousedown', bodyClickListener)
-    bodyClickListener = null
-  }
-}
-
-onMounted(() => {
-  bodyClickListener = onBodyClick
-  document.addEventListener('mousedown', bodyClickListener)
-})
-
-onUnmounted(() => {
-  removeBodyClickListener()
 })
 </script>
-
-<style scoped lang="scss">
-.directory-tree-select {
-  position: relative;
-  width: 100%;
-}
-
-.tree-dropdown {
-  background: #fff;
-  border: 1px solid #dcdfe6;
-  border-radius: 4px;
-  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.15);
-  max-height: 400px;
-  overflow: auto;
-  padding: 8px 0;
-
-  :deep(.el-tree) {
-    background: transparent;
-    width: 100%;
-
-    .el-tree-node__content {
-      height: 32px;
-      padding: 0 8px;
-
-      &:hover {
-        background-color: #f5f7fa;
-      }
-    }
-
-    .el-tree-node__expand-icon {
-      // Replace default expand icon with folder icon for directories
-      &.is-leaf {
-        color: transparent;
-      }
-    }
-  }
-}
-
-.custom-tree-node {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 14px;
-
-  .el-icon {
-    color: #E6A23C;
-  }
-}
-
-:deep(.el-input.is-active .el-input__wrapper) {
-  box-shadow: 0 0 0 1px var(--el-color-primary) inset;
-}
-</style>

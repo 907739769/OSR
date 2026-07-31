@@ -1,155 +1,209 @@
 <template>
   <div class="page-container">
     <!-- Search Panel -->
-    <el-card class="search-card" v-if="showSearch">
-      <el-form :model="queryParams" ref="queryRef" :inline="true" label-width="80px">
-        <el-form-item label="原文件名" prop="originalName">
-          <el-input v-model="queryParams.originalName" placeholder="请输入原文件名" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="新文件名" prop="newName">
-          <el-input v-model="queryParams.newName" placeholder="请输入新文件名" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="原目录" prop="originalPath">
-          <el-input v-model="queryParams.originalPath" placeholder="请输入原目录" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="新目录" prop="newPath">
-          <el-input v-model="queryParams.newPath" placeholder="请输入新目录" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="影视名称" prop="title">
-          <el-input v-model="queryParams.title" placeholder="请输入影视名称" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="状态" prop="status">
-          <el-select v-model="queryParams.status" placeholder="状态" clearable :style="{ width: '120px' }">
-            <el-option label="成功" value="1" />
-            <el-option label="失败" value="0" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="创建时间">
-          <el-date-picker
-            v-model="dateRange"
-            type="daterange"
-            range-separator="-"
-            start-placeholder="开始时间"
-            end-placeholder="结束时间"
-            value-format="YYYY-MM-DD"
+    <v-card v-if="showSearch" class="search-card">
+      <v-form ref="queryRef" @submit.prevent="handleQuery">
+        <div class="search-fields">
+          <v-text-field
+            v-model="queryParams.originalName"
+            label="原文件名"
+            placeholder="请输入原文件名"
+            clearable
+            density="compact"
+            variant="outlined"
+            hide-details
+            @keyup.enter="handleQuery"
           />
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleQuery">
-            <el-icon><Search /></el-icon> 搜索
-          </el-button>
-          <el-button @click="resetQuery">
-            <el-icon><Refresh /></el-icon> 重置
-          </el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
+          <v-text-field
+            v-model="queryParams.newName"
+            label="新文件名"
+            placeholder="请输入新文件名"
+            clearable
+            density="compact"
+            variant="outlined"
+            hide-details
+            @keyup.enter="handleQuery"
+          />
+          <v-text-field
+            v-model="queryParams.originalPath"
+            label="原目录"
+            placeholder="请输入原目录"
+            clearable
+            density="compact"
+            variant="outlined"
+            hide-details
+            @keyup.enter="handleQuery"
+          />
+          <v-text-field
+            v-model="queryParams.newPath"
+            label="新目录"
+            placeholder="请输入新目录"
+            clearable
+            density="compact"
+            variant="outlined"
+            hide-details
+            @keyup.enter="handleQuery"
+          />
+          <v-text-field
+            v-model="queryParams.title"
+            label="影视名称"
+            placeholder="请输入影视名称"
+            clearable
+            density="compact"
+            variant="outlined"
+            hide-details
+            @keyup.enter="handleQuery"
+          />
+          <v-select
+            v-model="queryParams.status"
+            label="状态"
+            :items="[{ title: '成功', value: '1' }, { title: '失败', value: '0' }]"
+            clearable
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="status-select"
+          />
+          <div class="date-range-fields">
+            <v-text-field
+              v-model="dateStart"
+              label="开始日期"
+              type="date"
+              density="compact"
+              variant="outlined"
+              hide-details
+              class="date-field"
+            />
+            <span class="date-range-sep">-</span>
+            <v-text-field
+              v-model="dateEnd"
+              label="结束日期"
+              type="date"
+              density="compact"
+              variant="outlined"
+              hide-details
+              class="date-field"
+            />
+          </div>
+          <div class="search-actions">
+            <v-btn color="primary" prepend-icon="mdi-magnify" @click="handleQuery">搜索</v-btn>
+            <v-btn variant="outlined" prepend-icon="mdi-refresh" @click="resetQuery">重置</v-btn>
+          </div>
+        </div>
+      </v-form>
+    </v-card>
 
     <!-- Table Card -->
-    <el-card class="table-card">
+    <v-card class="table-card">
       <!-- Action Bar -->
       <div class="action-bar">
         <div class="action-left">
-          <el-button type="danger" :disabled="multiple" @click="handleBatchDelete()">
-            <el-icon><Delete /></el-icon> 批量删除记录
-          </el-button>
-          <el-button type="info" :disabled="multiple" @click="handleBatchExecute()">
-            <el-icon><Refresh /></el-icon> 批量执行
-          </el-button>
-          <el-button type="warning" :disabled="multiple" @click="handleBatchScrape()">
-            <el-icon><Refresh /></el-icon> 批量刮削
-          </el-button>
-          <el-button type="danger" :disabled="multiple" plain @click="handleBatchDeleteScrape()">
-            <el-icon><Delete /></el-icon> 批量删除刮削
-          </el-button>
+          <v-btn color="error" prepend-icon="mdi-delete-outline" :disabled="multiple" @click="handleBatchDelete()">
+            批量删除记录
+          </v-btn>
+          <v-btn color="info" prepend-icon="mdi-refresh" :disabled="multiple" @click="handleBatchExecute()">
+            批量执行
+          </v-btn>
+          <v-btn color="warning" prepend-icon="mdi-refresh" :disabled="multiple" @click="handleBatchScrape()">
+            批量刮削
+          </v-btn>
+          <v-btn color="error" variant="outlined" prepend-icon="mdi-delete-outline" :disabled="multiple" @click="handleBatchDeleteScrape()">
+            批量删除刮削
+          </v-btn>
         </div>
-        <el-button text @click="showSearch = !showSearch">
-          <el-icon><Filter /></el-icon>
+        <v-btn variant="text" prepend-icon="mdi-filter-outline" @click="showSearch = !showSearch">
           {{ showSearch ? '隐藏搜索' : '显示搜索' }}
-        </el-button>
+        </v-btn>
       </div>
 
       <!-- Desktop Table -->
-      <el-table v-if="appStore.device === 'desktop'" v-loading="loading" :data="recordList" @selection-change="handleSelectionChange" class="modern-table">
-        <el-table-column type="selection" width="50" align="center" />
-        <el-table-column label="重命名详情" min-width="400">
-          <template #default="scope">
-            <div class="rename-compare">
-              <!-- Name comparison -->
-              <div class="rename-name-row">
-                <div class="rename-side rename-original">
-                  <span class="rename-badge rename-badge-original">原</span>
-                  <span class="rename-filename" :title="scope.row.originalName">{{ scope.row.originalName }}</span>
-                </div>
-                <el-icon class="rename-arrow" :size="16"><ArrowRight /></el-icon>
-                <div class="rename-side rename-new">
-                  <span class="rename-badge rename-badge-new">新</span>
-                  <span class="rename-filename" :title="scope.row.newName">{{ scope.row.newName }}</span>
-                </div>
+      <v-data-table-server
+        v-if="appStore.device === 'desktop'"
+        :loading="loading"
+        :items="recordList"
+        :items-length="total"
+        :headers="headers"
+        :items-per-page="queryParams.pageSize"
+        :page="queryParams.pageNum"
+        show-select
+        item-value="id"
+        return-object
+        :model-value="selectedRows"
+        class="modern-table"
+        @update:model-value="onSelectionChange"
+        @update:page="onPageChange"
+        @update:items-per-page="onSizeChange"
+      >
+        <template #item.detail="{ item }">
+          <div class="rename-compare">
+            <!-- Name comparison -->
+            <div class="rename-name-row">
+              <div class="rename-side rename-original">
+                <span class="rename-badge rename-badge-original">原</span>
+                <span class="rename-filename" :title="item.originalName">{{ item.originalName }}</span>
               </div>
-              <!-- Path comparison -->
-              <div class="rename-path-row">
-                <div class="rename-side rename-original">
-                  <span class="rename-path-text" :title="scope.row.originalPath">{{ scope.row.originalPath }}</span>
-                </div>
-                <el-icon class="rename-arrow" :size="12"><ArrowRight /></el-icon>
-                <div class="rename-side rename-new">
-                  <span class="rename-path-text" :title="scope.row.newPath">{{ scope.row.newPath }}</span>
-                </div>
+              <v-icon class="rename-arrow" icon="mdi-arrow-right" size="16" />
+              <div class="rename-side rename-new">
+                <span class="rename-badge rename-badge-new">新</span>
+                <span class="rename-filename" :title="item.newName">{{ item.newName }}</span>
               </div>
             </div>
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" prop="status" width="80" align="center">
-          <template #default="scope">
-            <el-tag :type="scope.row.status === '0' ? 'danger' : 'success'">
-              {{ scope.row.status === '0' ? '失败' : '成功' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="刮削" prop="scrapeStatus" width="90" align="center">
-          <template #default="scope">
-            <el-tag v-if="scope.row.scrapeStatus === '1'" type="success" size="small">成功</el-tag>
-            <el-tag v-else-if="scope.row.scrapeStatus === '2'" type="danger" size="small">失败</el-tag>
-            <el-tag v-else-if="scope.row.scrapeStatus === '0'" type="info" size="small">未执行</el-tag>
-            <span v-else class="scrape-none">-</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="创建时间" prop="createTime" width="170" align="center" />
-        <el-table-column label="操作" align="center" width="320" fixed="right">
-          <template #default="scope">
-            <el-button link type="primary" @click="handleScrapeOne(scope.row)">
-              <el-icon><Refresh /></el-icon> 刮削
-            </el-button>
-            <el-button link type="danger" @click="handleDeleteScrapeOne(scope.row)" v-if="scope.row.scrapeStatus === '1'">
-              <el-icon><Delete /></el-icon> 删除刮削
-            </el-button>
-            <el-button link type="primary" @click="handleRetryOne(scope.row)">
-              <el-icon><Refresh /></el-icon> 重试
-            </el-button>
-            <el-button link type="danger" @click="handleDeleteOne(scope.row)">
-              <el-icon><Delete /></el-icon> 删除记录
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+            <!-- Path comparison -->
+            <div class="rename-path-row">
+              <div class="rename-side rename-original">
+                <span class="rename-path-text" :title="item.originalPath">{{ item.originalPath }}</span>
+              </div>
+              <v-icon class="rename-arrow" icon="mdi-arrow-right" size="12" />
+              <div class="rename-side rename-new">
+                <span class="rename-path-text" :title="item.newPath">{{ item.newPath }}</span>
+              </div>
+            </div>
+          </div>
+        </template>
+        <template #item.status="{ item }">
+          <v-chip size="small" :color="item.status === '0' ? 'error' : 'success'" variant="tonal">
+            {{ item.status === '0' ? '失败' : '成功' }}
+          </v-chip>
+        </template>
+        <template #item.scrapeStatus="{ item }">
+          <v-chip v-if="item.scrapeStatus === '1'" color="success" size="small" variant="tonal">成功</v-chip>
+          <v-chip v-else-if="item.scrapeStatus === '2'" color="error" size="small" variant="tonal">失败</v-chip>
+          <v-chip v-else-if="item.scrapeStatus === '0'" color="info" size="small" variant="tonal">未执行</v-chip>
+          <span v-else class="scrape-none">-</span>
+        </template>
+        <template #item.actions="{ item }">
+          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-refresh" @click="handleScrapeOne(item)">
+            刮削
+          </v-btn>
+          <v-btn v-if="item.scrapeStatus === '1'" variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDeleteScrapeOne(item)">
+            删除刮削
+          </v-btn>
+          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-refresh" @click="handleRetryOne(item)">
+            重试
+          </v-btn>
+          <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDeleteOne(item)">
+            删除记录
+          </v-btn>
+        </template>
+      </v-data-table-server>
 
       <!-- Mobile Card List -->
-      <div v-if="appStore.device === 'mobile'" v-loading="loading" class="mobile-card-list">
-        <div v-for="item in recordList" :key="item.id" class="mobile-card">
+      <div v-if="appStore.device === 'mobile'" class="mobile-card-list">
+        <v-progress-linear v-if="loading" indeterminate color="primary" />
+        <v-card v-for="item in recordList" :key="item.id" variant="outlined" class="mobile-card">
           <div class="mobile-card-header">
             <div class="mobile-rename-header">
               <span class="mobile-rename-original" :title="item.originalName">{{ item.originalName }}</span>
-              <el-icon class="mobile-rename-arrow" :size="14"><ArrowRight /></el-icon>
+              <v-icon class="mobile-rename-arrow" icon="mdi-arrow-right" size="14" />
               <span class="mobile-rename-new" :title="item.newName">{{ item.newName }}</span>
             </div>
             <div class="mobile-status-row">
-              <el-tag size="small" :type="item.status === '0' ? 'danger' : 'success'">
+              <v-chip size="small" :color="item.status === '0' ? 'error' : 'success'" variant="tonal">
                 {{ item.status === '0' ? '失败' : '成功' }}
-              </el-tag>
-              <el-tag v-if="item.scrapeStatus === '1'" type="success" size="small" class="scrape-tag">NFO</el-tag>
-              <el-tag v-else-if="item.scrapeStatus === '2'" type="danger" size="small" class="scrape-tag">刮削失败</el-tag>
-              <el-tag v-else-if="item.scrapeStatus === '0'" type="info" size="small" class="scrape-tag">未刮削</el-tag>
+              </v-chip>
+              <v-chip v-if="item.scrapeStatus === '1'" color="success" size="small" variant="tonal" class="scrape-tag">NFO</v-chip>
+              <v-chip v-else-if="item.scrapeStatus === '2'" color="error" size="small" variant="tonal" class="scrape-tag">刮削失败</v-chip>
+              <v-chip v-else-if="item.scrapeStatus === '0'" color="info" size="small" variant="tonal" class="scrape-tag">未刮削</v-chip>
             </div>
           </div>
           <div class="mobile-card-body">
@@ -167,58 +221,84 @@
             </div>
           </div>
           <div class="mobile-card-actions">
-            <el-button link type="primary" size="small" @click="handleRetryOne(item)">
-              <el-icon><Refresh /></el-icon> 重试
-            </el-button>
-            <el-button link type="danger" size="small" @click="handleDeleteOne(item)">
-              <el-icon><Delete /></el-icon> 删记录
-            </el-button>
+            <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-refresh" @click="handleRetryOne(item)">
+              重试
+            </v-btn>
+            <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDeleteOne(item)">
+              删记录
+            </v-btn>
           </div>
+        </v-card>
+        <v-empty-state v-if="!loading && !recordList.length" icon="mdi-inbox-outline" title="暂无数据" />
+
+        <!-- Pagination (mobile; desktop paginates via v-data-table-server) -->
+        <div class="pagination-wrapper">
+          <v-pagination
+            v-model="queryParams.pageNum"
+            :length="Math.ceil(total / queryParams.pageSize) || 1"
+            density="comfortable"
+            @update:model-value="getList"
+          />
         </div>
-        <el-empty v-if="!recordList.length" description="暂无数据" />
       </div>
+    </v-card>
 
-      <!-- Pagination -->
-      <div class="pagination-wrapper">
-        <el-pagination
-          v-model:current-page="queryParams.pageNum"
-          v-model:page-size="queryParams.pageSize"
-          :total="total"
-          :page-sizes="[10, 20, 50]"
-          layout="total, sizes, prev, pager, next, jumper"
-          @current-change="getList"
-          @size-change="getList"
-        />
-      </div>
-    </el-card>
-
-    <!-- Edit & Rename Dialog -->
-    <el-dialog v-model="retryDialogVisible" title="重试重命名" width="420px" @close="handleRetryClose">
-      <el-form ref="retryFormRef" :model="retryForm" :rules="retryRules" label-width="60px">
-        <el-form-item label="标题" prop="title">
-          <el-input v-model="retryForm.title" placeholder="留空则使用原值" maxlength="100" clearable />
-        </el-form-item>
-        <el-form-item label="年份" prop="year">
-          <el-input v-model="retryForm.year" placeholder="留空则使用原值" maxlength="4" clearable />
-        </el-form-item>
-        <el-form-item label="季" prop="season" v-if="retryForm.mediaType === 'tv'">
-          <el-input v-model="retryForm.season" placeholder="如 01" maxlength="4" clearable />
-        </el-form-item>
-        <el-form-item label="集" prop="episode" v-if="retryForm.mediaType === 'tv'">
-          <el-input v-model="retryForm.episode" placeholder="如 05" maxlength="6" clearable />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="retryDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="handleRetrySubmit" :loading="retryLoading">确定</el-button>
-      </template>
-    </el-dialog>
+    <!-- Retry Dialog -->
+    <v-dialog v-model="retryDialogVisible" max-width="420" @update:model-value="onRetryDialogUpdate">
+      <v-card title="重试重命名">
+        <v-card-text>
+          <v-form ref="retryFormRef">
+            <v-text-field
+              v-model="retryForm.title"
+              label="标题"
+              placeholder="留空则使用原值"
+              maxlength="100"
+              clearable
+              :rules="[titleRule]"
+              class="mb-2"
+            />
+            <v-text-field
+              v-model="retryForm.year"
+              label="年份"
+              placeholder="留空则使用原值"
+              maxlength="4"
+              clearable
+              :rules="[yearRule]"
+              class="mb-2"
+            />
+            <v-text-field
+              v-if="retryForm.mediaType === 'tv'"
+              v-model="retryForm.season"
+              label="季"
+              placeholder="如 01"
+              maxlength="4"
+              clearable
+              :rules="[seasonRule]"
+              class="mb-2"
+            />
+            <v-text-field
+              v-if="retryForm.mediaType === 'tv'"
+              v-model="retryForm.episode"
+              label="集"
+              placeholder="如 05"
+              maxlength="6"
+              clearable
+              :rules="[episodeRule]"
+            />
+          </v-form>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="outlined" @click="retryDialogVisible = false">取消</v-btn>
+          <v-btn color="primary" variant="flat" :loading="retryLoading" @click="handleRetrySubmit">确定</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
-import { Search, Refresh, Delete, Filter, ArrowRight } from '@element-plus/icons-vue'
+import { ref, computed } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { useRenameDetailList } from '@/composables/useRenameDetailList'
 
@@ -230,13 +310,67 @@ const {
   getList, queryRef, dateRange, handleQuery, resetQuery,
   multiple, handleSelectionChange,
   handleDeleteOne, handleBatchDelete,
-  retryDialogVisible, retryLoading, retryFormRef, retryForm, retryRules,
+  retryDialogVisible, retryLoading, retryFormRef, retryForm,
   handleRetryOne, handleRetryClose, handleRetrySubmit,
   handleBatchExecute, handleScrapeOne, handleBatchScrape,
   handleDeleteScrapeOne, handleBatchDeleteScrape
 } = useRenameDetailList()
 
 getList()
+
+// dateRange 是 el-date-picker daterange 遗留的 [start, end] 数组结构，
+// 拆成两个独立日期输入框绑定，写回时仍保持数组形状供 handleQuery 组装 params
+const dateStart = computed({
+  get: () => dateRange.value?.[0] ?? '',
+  set: (val: string) => {
+    dateRange.value = [val || '', dateRange.value?.[1] ?? '']
+    if (!dateRange.value[0] && !dateRange.value[1]) dateRange.value = null
+  }
+})
+const dateEnd = computed({
+  get: () => dateRange.value?.[1] ?? '',
+  set: (val: string) => {
+    dateRange.value = [dateRange.value?.[0] ?? '', val || '']
+    if (!dateRange.value[0] && !dateRange.value[1]) dateRange.value = null
+  }
+})
+
+const headers = [
+  { title: '重命名详情', key: 'detail', minWidth: '400' },
+  { title: '状态', key: 'status', align: 'center' as const, width: '80' },
+  { title: '刮削', key: 'scrapeStatus', align: 'center' as const, width: '90' },
+  { title: '创建时间', key: 'createTime', width: '170', align: 'center' as const },
+  { title: '操作', key: 'actions', align: 'center' as const, width: '320', sortable: false }
+]
+
+// v-data-table-server 的多选需要一个本地 ref 承接当前选中的行对象，
+// 再转给 useRenameDetailList 的 handleSelectionChange 去派生 selectedIds/multiple
+const selectedRows = ref<any[]>([])
+const onSelectionChange = (rows: any[]) => {
+  selectedRows.value = rows
+  handleSelectionChange(rows)
+}
+
+const onPageChange = (page: number) => {
+  queryParams.pageNum = page
+  getList()
+}
+
+const onSizeChange = (size: number) => {
+  queryParams.pageSize = size
+  queryParams.pageNum = 1
+  getList()
+}
+
+const onRetryDialogUpdate = (val: boolean) => {
+  if (!val) handleRetryClose()
+}
+
+// 重试弹窗字段校验，规则与原 retryRules 保持一致
+const titleRule = (v: string) => !v || v.length <= 100 || '最多 100 个字符'
+const yearRule = (v: string) => !v || /^\d{0,4}$/.test(v) || '年份为 4 位数字'
+const seasonRule = (v: string) => !v || /^\d{1,2}$/.test(v) || '季为 1-2 位数字'
+const episodeRule = (v: string) => !v || /^\d{1,4}$/.test(v) || '集为 1-4 位数字'
 </script>
 
 <style scoped lang="scss">
@@ -250,12 +384,45 @@ getList()
    Search Card
    ============================================ */
 .search-card {
-  border: none;
-  border-radius: var(--osr-radius-lg);
-  box-shadow: var(--osr-shadow-base);
+  padding: 14px 16px;
+}
 
-  :deep(.el-card__body) {
-    padding: 14px 16px;
+.search-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px;
+
+  > .v-text-field,
+  > .v-select {
+    width: 200px;
+    flex: 0 0 auto;
+  }
+
+  .status-select {
+    width: 140px;
+  }
+
+  .date-range-fields {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+
+    .date-field {
+      width: 150px;
+    }
+
+    .date-range-sep {
+      color: var(--osr-text-secondary);
+    }
+  }
+
+  .search-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 2px;
   }
 }
 
@@ -263,15 +430,9 @@ getList()
    Table Card
    ============================================ */
 .table-card {
-  border: none;
-  border-radius: var(--osr-radius-lg);
-  box-shadow: var(--osr-shadow-base);
-
-  :deep(.el-card__body) {
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-  }
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
 }
 
 .action-bar {
@@ -294,6 +455,7 @@ getList()
   display: flex;
   flex-direction: column;
   gap: 6px;
+  padding: 8px 0;
 
   .rename-name-row {
     display: flex;
@@ -340,17 +502,6 @@ getList()
         text-overflow: ellipsis;
         white-space: nowrap;
         line-height: 1.4;
-
-        &.rename-original .rename-filename {
-          color: #dc2626;
-          text-decoration: line-through;
-          text-decoration-color: #dc2626;
-        }
-
-        &.rename-new .rename-filename {
-          color: #16a34a;
-          font-weight: 600;
-        }
       }
     }
 
@@ -424,22 +575,27 @@ getList()
     gap: 10px;
   }
 
-  .search-card :deep(.el-form) {
-    .el-form-item {
-      margin-right: 0;
+  .search-fields {
+    > .v-text-field,
+    > .v-select,
+    .status-select {
+      width: 100%;
     }
 
-    .el-input,
-    .el-select {
-      width: 100% !important;
+    .date-range-fields {
+      width: 100%;
+
+      .date-field {
+        width: 100%;
+      }
     }
-  }
 
-  :deep(.el-table) {
-    font-size: 13px;
+    .search-actions {
+      width: 100%;
 
-    .el-table__cell {
-      padding: 8px 0;
+      .v-btn {
+        flex: 1;
+      }
     }
   }
 
@@ -453,7 +609,7 @@ getList()
     }
   }
 
-  .table-card :deep(.el-card__body) {
+  .table-card {
     padding: 12px;
   }
 
@@ -467,9 +623,6 @@ getList()
   }
 
   .mobile-card {
-    background: white;
-    border-radius: 8px;
-    border: 1px solid var(--osr-border-light);
     overflow: hidden;
 
     .mobile-card-header {

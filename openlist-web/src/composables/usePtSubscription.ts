@@ -1,5 +1,6 @@
 import { ref, reactive, computed } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { message } from '@/composables/useMessage'
+import { confirm } from '@/composables/useConfirm'
 import { useTaskList } from './useTaskList'
 import { usePtStatusSocket } from './usePtStatusSocket'
 import {
@@ -86,7 +87,7 @@ export function usePtSubscription() {
 
   const doSearch = async () => {
     if (!searchForm.keyword?.trim()) {
-      ElMessage.warning('请输入片名')
+      message.warning('请输入片名')
       return
     }
     // 换关键词重搜时必须清掉上一次的选择，否则用户没重新点选就点「订阅」会提交旧作品
@@ -95,7 +96,7 @@ export function usePtSubscription() {
     try {
       searchResults.value = (await tmdbSearchApi(searchForm.mediaType, searchForm.keyword)) || []
       if (!searchResults.value.length) {
-        ElMessage.info('没有搜到结果，换个关键词试试')
+        message.info('没有搜到结果，换个关键词试试')
       }
     } catch (e) {
       // 拦截器已弹过错误提示，这里只记录
@@ -112,7 +113,7 @@ export function usePtSubscription() {
 
   const confirmSubscribe = async () => {
     if (!picked.value) {
-      ElMessage.warning('请先选择一部作品')
+      message.warning('请先选择一部作品')
       return
     }
     subscribeLoading.value = true
@@ -122,7 +123,7 @@ export function usePtSubscription() {
         mediaType: searchForm.mediaType,
         season: searchForm.mediaType === 'MOVIE' ? undefined : pickedSeason.value
       })
-      ElMessage.success('订阅成功')
+      message.success('订阅成功')
       subscribeOpen.value = false
       base.getList()
     } catch (e) {
@@ -191,14 +192,14 @@ export function usePtSubscription() {
   const handleResetEpisode = async (ep: any) => {
     if (!currentSubscription.value) return
     try {
-      await ElMessageBox.confirm(
-        `确认将第 ${ep.episode} 集重置为缺失？重置后需要重新匹配/下载。`,
-        '提示',
-        { type: 'warning' }
-      )
+      await confirm({
+        message: `确认将第 ${ep.episode} 集重置为缺失？重置后需要重新匹配/下载。`,
+        title: '提示',
+        type: 'warning'
+      })
       resettingEpisode.value = ep.episode
       await resetEpisodeApi(currentSubscription.value.id, ep.episode)
-      ElMessage.success('已重置')
+      message.success('已重置')
       // 重置成功后重新拉一次明细与进度汇总，两处都要保持一致
       episodeDetail.value = (await getSubscriptionEpisodesApi(currentSubscription.value.id)) || []
       progress.value = await getSubscriptionProgressApi(currentSubscription.value.id)
@@ -299,7 +300,7 @@ export function usePtSubscription() {
         id: filterOverrideSubId.value,
         filterOverride: Object.keys(override).length ? JSON.stringify(override) : ''
       })
-      ElMessage.success('已保存过滤规则覆盖')
+      message.success('已保存过滤规则覆盖')
       filterOverrideOpen.value = false
       base.getList()
     } catch (e) {
@@ -344,7 +345,7 @@ export function usePtSubscription() {
   const confirmSearch = async () => {
     if (!searchDialogTarget.value) return
     if (!searchDialogKeyword.value?.trim()) {
-      ElMessage.warning('请输入搜索关键词')
+      message.warning('请输入搜索关键词')
       return
     }
     const target = searchDialogTarget.value
@@ -364,11 +365,11 @@ export function usePtSubscription() {
         candidateDialogOpen.value = true
       } else if (manualSelect && (!result.candidates || result.candidates.length === 0)) {
         // 手动模式但无结果
-        ElMessage.info('未搜索到匹配资源')
+        message.info('未搜索到匹配资源')
         searchDialogOpen.value = false
       } else {
         // 自动推送模式
-        ElMessage[result.pushed ? 'success' : 'info'](result.pushed ? '已找到并推送下载' : '未搜索到匹配资源')
+        message[result.pushed ? 'success' : 'info'](result.pushed ? '已找到并推送下载' : '未搜索到匹配资源')
         searchDialogOpen.value = false
         base.getList()
         if (currentSubscription.value && currentSubscription.value.id === target.subId) {
@@ -404,7 +405,7 @@ export function usePtSubscription() {
         infoHash: candidate.infoHash,
         pubDate: candidate.pubDate
       })
-      ElMessage.success('已推送下载')
+      message.success('已推送下载')
       candidateDialogOpen.value = false
       base.getList()
       if (currentSubscription.value && currentSubscription.value.id === searchDialogTarget.value.subId) {
@@ -412,7 +413,7 @@ export function usePtSubscription() {
       }
     } catch (e) {
       console.error(e)
-      ElMessage.error('推送失败')
+      message.error('推送失败')
     } finally {
       pushingSelected.value = false
     }
@@ -448,7 +449,7 @@ export function usePtSubscription() {
         console.error(`第${ep}集补搜失败：`, e)
       }
     }
-    ElMessage.success(`已完成搜索：${pushedCount}/${missing.length} 集已推送下载`)
+    message.success(`已完成搜索：${pushedCount}/${missing.length} 集已推送下载`)
     // 刷新进度
     if (currentSubscription.value) {
       progress.value = await getSubscriptionProgressApi(currentSubscription.value.id)
@@ -460,7 +461,7 @@ export function usePtSubscription() {
   const toggleAutoSearch = async (row: any) => {
     try {
       await updatePtSubscriptionApi({ id: row.id, autoSearch: row.autoSearch })
-      ElMessage.success(row.autoSearch === '1' ? '已开启自动补搜' : '已关闭自动补搜')
+      message.success(row.autoSearch === '1' ? '已开启自动补搜' : '已关闭自动补搜')
     } catch (e) {
       // 请求失败时把开关状态还原（v-model 已经乐观更新过了）
       row.autoSearch = row.autoSearch === '1' ? '0' : '1'
@@ -473,7 +474,7 @@ export function usePtSubscription() {
   const handleRefresh = async (row: any) => {
     try {
       await refreshSubscriptionApi(row.id)
-      ElMessage.success('已与媒体库对账')
+      message.success('已与媒体库对账')
       base.getList()
     } catch (e) {
       console.error(e)
@@ -483,7 +484,7 @@ export function usePtSubscription() {
   const handlePause = async (row: any) => {
     try {
       await pauseSubscriptionApi(row.id)
-      ElMessage.success('已暂停')
+      message.success('已暂停')
       base.getList()
     } catch (e) {
       console.error(e)
@@ -493,7 +494,7 @@ export function usePtSubscription() {
   const handleResume = async (row: any) => {
     try {
       await resumeSubscriptionApi(row.id)
-      ElMessage.success('已恢复')
+      message.success('已恢复')
       base.getList()
     } catch (e) {
       console.error(e)
@@ -502,13 +503,13 @@ export function usePtSubscription() {
 
   const handleRemove = async (row: any) => {
     try {
-      await ElMessageBox.confirm(
-        `确认删除订阅「${row.title}」？其集数追踪记录会一并删除。`,
-        '警告',
-        { type: 'warning' }
-      )
+      await confirm({
+        message: `确认删除订阅「${row.title}」？其集数追踪记录会一并删除。`,
+        title: '警告',
+        type: 'warning'
+      })
       await deletePtSubscriptionApi(row.id)
-      ElMessage.success('删除成功')
+      message.success('删除成功')
       base.getList()
     } catch (e) {
       if (e !== 'cancel') console.error(e)
@@ -561,9 +562,9 @@ export function usePtSubscription() {
   const handleBatchPause = async () => {
     if (!base.selectedIds.value.length) return
     try {
-      await ElMessageBox.confirm(`确认批量暂停选中的 ${base.selectedIds.value.length} 个订阅？`, '提示', { type: 'warning' })
+      await confirm({ message: `确认批量暂停选中的 ${base.selectedIds.value.length} 个订阅？`, title: '提示', type: 'warning' })
       const result = await batchPauseSubscriptionApi(base.selectedIds.value)
-      ElMessage.success(formatBatchResultMessage(result))
+      message.success(formatBatchResultMessage(result))
       base.selectedIds.value = []
       base.getList()
     } catch (e) {
@@ -574,9 +575,9 @@ export function usePtSubscription() {
   const handleBatchResume = async () => {
     if (!base.selectedIds.value.length) return
     try {
-      await ElMessageBox.confirm(`确认批量恢复选中的 ${base.selectedIds.value.length} 个订阅？`, '提示', { type: 'warning' })
+      await confirm({ message: `确认批量恢复选中的 ${base.selectedIds.value.length} 个订阅？`, title: '提示', type: 'warning' })
       const result = await batchResumeSubscriptionApi(base.selectedIds.value)
-      ElMessage.success(formatBatchResultMessage(result))
+      message.success(formatBatchResultMessage(result))
       base.selectedIds.value = []
       base.getList()
     } catch (e) {

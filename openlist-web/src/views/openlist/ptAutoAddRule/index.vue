@@ -1,177 +1,227 @@
 <template>
   <div class="page-container">
-    <el-card class="search-card" v-if="showSearch">
-      <el-form :model="queryParams" ref="queryRef" :inline="true" label-width="80px">
-        <el-form-item label="规则名称" prop="name">
-          <el-input v-model="queryParams.name" placeholder="规则名称" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="媒体类型" prop="mediaType">
-          <el-select v-model="queryParams.mediaType" placeholder="全部类型" clearable :style="{ width: '140px' }">
-            <el-option label="电影" value="MOVIE" />
-            <el-option label="剧集" value="TV" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="启用状态" prop="enabled">
-          <el-select v-model="queryParams.enabled" placeholder="全部" clearable :style="{ width: '120px' }">
-            <el-option label="启用" value="1" />
-            <el-option label="停用" value="0" />
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleQuery">
-            <el-icon><Search /></el-icon> 搜索
-          </el-button>
-          <el-button @click="resetQuery">
-            <el-icon><Refresh /></el-icon> 重置
-          </el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
+    <v-card v-if="showSearch" class="search-card">
+      <v-form ref="queryRef" @submit.prevent="handleQuery">
+        <div class="search-fields">
+          <v-text-field
+            v-model="queryParams.name"
+            label="规则名称"
+            placeholder="规则名称"
+            clearable
+            density="compact"
+            variant="outlined"
+            hide-details
+            @keyup.enter="handleQuery"
+          />
+          <v-select
+            v-model="queryParams.mediaType"
+            label="媒体类型"
+            :items="[{ title: '电影', value: 'MOVIE' }, { title: '剧集', value: 'TV' }]"
+            placeholder="全部类型"
+            clearable
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="type-select"
+          />
+          <v-select
+            v-model="queryParams.enabled"
+            label="启用状态"
+            :items="[{ title: '启用', value: '1' }, { title: '停用', value: '0' }]"
+            placeholder="全部"
+            clearable
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="status-select"
+          />
+          <div class="search-actions">
+            <v-btn color="primary" prepend-icon="mdi-magnify" @click="handleQuery">搜索</v-btn>
+            <v-btn variant="outlined" prepend-icon="mdi-refresh" @click="resetQuery">重置</v-btn>
+          </div>
+        </div>
+      </v-form>
+    </v-card>
 
-    <el-card class="table-card">
+    <v-card class="table-card">
       <div class="action-bar">
         <div class="action-left">
-          <el-button type="primary" @click="handleAdd('新增热门自动订阅规则')">
-            <el-icon><Plus /></el-icon> 新增规则
-          </el-button>
+          <v-btn color="primary" prepend-icon="mdi-plus" @click="handleAdd('新增热门自动订阅规则')">
+            新增规则
+          </v-btn>
         </div>
-        <el-button text @click="showSearch = !showSearch">
-          <el-icon><Filter /></el-icon>
+        <v-btn variant="text" prepend-icon="mdi-filter-outline" @click="showSearch = !showSearch">
           {{ showSearch ? '隐藏搜索' : '显示搜索' }}
-        </el-button>
+        </v-btn>
       </div>
 
-      <el-table v-loading="loading" :data="taskList" style="width: 100%">
-        <el-table-column prop="name" label="规则名称" min-width="140" show-overflow-tooltip />
-        <el-table-column label="媒体类型" width="90">
-          <template #default="{ row }">{{ row.mediaType === 'MOVIE' ? '电影' : '剧集' }}</template>
-        </el-table-column>
-        <el-table-column label="数据源" width="150">
-          <template #default="{ row }">{{ sourceLabel(row.source) }}</template>
-        </el-table-column>
-        <el-table-column label="过滤条件" min-width="180">
-          <template #default="{ row }">
-            <span v-if="row.minVoteAverage || row.minVoteCount || row.genreExclude">
-              {{ row.minVoteAverage ? `评分≥${row.minVoteAverage} ` : '' }}
-              {{ row.minVoteCount ? `评分人数≥${row.minVoteCount} ` : '' }}
-              {{ row.genreExclude ? `排除类型:${row.genreExclude}` : '' }}
-            </span>
-            <span v-else class="text-muted">无</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="单轮上限" prop="maxAddPerRun" width="90" />
-        <el-table-column label="执行间隔" width="100">
-          <template #default="{ row }">{{ row.intervalHours }}h</template>
-        </el-table-column>
-        <el-table-column label="上次执行" prop="lastRunTime" width="160">
-          <template #default="{ row }">{{ row.lastRunTime || '未执行' }}</template>
-        </el-table-column>
-        <el-table-column label="状态" width="80">
-          <template #default="{ row }">
-            <el-tag :type="row.enabled === '1' ? 'success' : 'info'" size="small">
-              {{ row.enabled === '1' ? '启用' : '停用' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="220" fixed="right">
-          <template #default="{ row }">
-            <el-button link type="primary" :loading="runningIds.has(row.id)" @click="handleRun(row)">立即执行</el-button>
-            <el-button link type="primary" @click="handleShowLogs(row)">日志</el-button>
-            <el-button link type="primary" @click="handleUpdate(row, '编辑规则')">编辑</el-button>
-            <el-button link type="danger" @click="handleDelete(row)">删除</el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-      <el-empty v-if="!loading && taskList.length === 0" description="暂无规则" />
+      <v-data-table-server
+        :loading="loading"
+        :items="taskList"
+        :items-length="total"
+        :headers="headers"
+        :items-per-page="queryParams.pageSize"
+        :page="queryParams.pageNum"
+        class="modern-table"
+        @update:page="onPageChange"
+        @update:items-per-page="onSizeChange"
+      >
+        <template #item.mediaType="{ item }">{{ item.mediaType === 'MOVIE' ? '电影' : '剧集' }}</template>
+        <template #item.source="{ item }">{{ sourceLabel(item.source) }}</template>
+        <template #item.filter="{ item }">
+          <span v-if="item.minVoteAverage || item.minVoteCount || item.genreExclude">
+            {{ item.minVoteAverage ? `评分≥${item.minVoteAverage} ` : '' }}
+            {{ item.minVoteCount ? `评分人数≥${item.minVoteCount} ` : '' }}
+            {{ item.genreExclude ? `排除类型:${item.genreExclude}` : '' }}
+          </span>
+          <span v-else class="text-muted">无</span>
+        </template>
+        <template #item.intervalHours="{ item }">{{ item.intervalHours }}h</template>
+        <template #item.lastRunTime="{ item }">{{ item.lastRunTime || '未执行' }}</template>
+        <template #item.enabled="{ item }">
+          <v-chip :color="item.enabled === '1' ? 'success' : 'info'" size="small" variant="tonal">
+            {{ item.enabled === '1' ? '启用' : '停用' }}
+          </v-chip>
+        </template>
+        <template #item.actions="{ item }">
+          <v-btn variant="text" color="primary" size="small" :loading="runningIds.has(item.id)" @click="handleRun(item)">立即执行</v-btn>
+          <v-btn variant="text" color="primary" size="small" @click="handleShowLogs(item)">日志</v-btn>
+          <v-btn variant="text" color="primary" size="small" @click="handleUpdate(item, '编辑规则')">编辑</v-btn>
+          <v-btn variant="text" color="error" size="small" @click="handleDelete(item)">删除</v-btn>
+        </template>
+      </v-data-table-server>
+    </v-card>
 
-      <div class="pagination-wrapper">
-        <el-pagination
-          v-model:current-page="queryParams.pageNum"
-          v-model:page-size="queryParams.pageSize"
-          :total="total"
-          :page-sizes="[10, 20, 50]"
-          layout="total, sizes, prev, pager, next, jumper"
-          @current-change="getList"
-          @size-change="getList"
-        />
-      </div>
-    </el-card>
+    <v-dialog v-model="open" max-width="560">
+      <v-card :title="dialogTitle">
+        <v-card-text>
+          <v-form ref="formRef">
+            <v-text-field
+              v-model="form.name"
+              label="规则名称"
+              placeholder="如：每周热门电影"
+              :rules="nameRules"
+              class="mb-3"
+            />
+            <div class="form-item">
+              <label class="form-label">是否启用</label>
+              <v-switch v-model="form.enabled" true-value="1" false-value="0" color="primary" hide-details />
+            </div>
+            <div class="form-item">
+              <label class="form-label">媒体类型</label>
+              <v-radio-group v-model="form.mediaType" inline hide-details>
+                <v-radio label="电影" value="MOVIE" />
+                <v-radio label="剧集" value="TV" />
+              </v-radio-group>
+            </div>
+            <v-select
+              v-model="form.source"
+              label="数据源"
+              :items="[
+                { title: 'TMDb 每日热门', value: 'TMDB_TRENDING_DAY' },
+                { title: 'TMDb 每周热门', value: 'TMDB_TRENDING_WEEK' },
+                { title: 'TMDb 条件发现（按评分/地区）', value: 'TMDB_DISCOVER' }
+              ]"
+              class="mb-3"
+            />
+            <v-select
+              v-model="genreExcludeArr"
+              label="排除类型"
+              :items="genreOptions"
+              item-title="label"
+              item-value="id"
+              multiple
+              chips
+              closable-chips
+              clearable
+              placeholder="不排除任何类型"
+              class="mb-3"
+            />
+            <v-text-field
+              v-model.number="form.minVoteAverage"
+              type="number"
+              label="最低评分"
+              :min="0"
+              :max="10"
+              step="0.5"
+              placeholder="不限"
+              class="mb-3"
+            />
+            <v-text-field
+              v-model.number="form.minVoteCount"
+              type="number"
+              label="最低评分人数"
+              :min="0"
+              placeholder="不限"
+              class="mb-3"
+            />
+            <v-select
+              v-if="form.source === 'TMDB_DISCOVER'"
+              v-model="form.region"
+              label="地区"
+              :items="REGION_OPTIONS"
+              item-title="label"
+              item-value="code"
+              clearable
+              placeholder="不限地区"
+              class="mb-3"
+            />
+            <v-text-field
+              v-model.number="form.maxAddPerRun"
+              type="number"
+              label="单轮上限"
+              :min="1"
+              :max="50"
+              class="mb-3"
+            />
+            <v-text-field
+              v-model.number="form.intervalHours"
+              type="number"
+              label="执行间隔"
+              :min="1"
+              :max="720"
+              suffix="小时"
+              class="mb-3"
+            />
+            <v-select
+              v-model="form.downloaderId"
+              label="指定下载器"
+              :items="downloaderOptions"
+              item-title="name"
+              item-value="id"
+              clearable
+              placeholder="空则用唯一启用的下载器"
+            />
+          </v-form>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="outlined" @click="open = false">取消</v-btn>
+          <v-btn color="primary" variant="flat" :loading="submitLoading" @click="handleSubmitClick">确定</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
-    <el-dialog v-model="open" :title="dialogTitle" width="560px" append-to-body class="modern-dialog">
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
-        <el-form-item label="规则名称" prop="name">
-          <el-input v-model="form.name" placeholder="如：每周热门电影" />
-        </el-form-item>
-        <el-form-item label="是否启用" prop="enabled">
-          <el-switch v-model="form.enabled" active-value="1" inactive-value="0" />
-        </el-form-item>
-        <el-form-item label="媒体类型" prop="mediaType">
-          <el-radio-group v-model="form.mediaType">
-            <el-radio value="MOVIE">电影</el-radio>
-            <el-radio value="TV">剧集</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="数据源" prop="source">
-          <el-select v-model="form.source" style="width: 100%">
-            <el-option label="TMDb 每日热门" value="TMDB_TRENDING_DAY" />
-            <el-option label="TMDb 每周热门" value="TMDB_TRENDING_WEEK" />
-            <el-option label="TMDb 条件发现（按评分/地区）" value="TMDB_DISCOVER" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="排除类型" prop="genreExclude">
-          <el-select
-            v-model="genreExcludeArr" multiple collapse-tags collapse-tags-tooltip clearable
-            placeholder="不排除任何类型" style="width: 100%"
+    <v-dialog v-model="logDialogVisible" max-width="720">
+      <v-card title="执行日志">
+        <v-card-text>
+          <v-data-table
+            :loading="logLoading"
+            :items="logList"
+            :headers="logHeaders"
+            :items-per-page="-1"
+            hide-default-footer
+            height="480"
           >
-            <el-option v-for="g in genreOptions" :key="g.id" :label="g.label" :value="g.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="最低评分" prop="minVoteAverage">
-          <el-input-number v-model="form.minVoteAverage" :min="0" :max="10" :step="0.5" placeholder="不限" />
-        </el-form-item>
-        <el-form-item label="最低评分人数" prop="minVoteCount">
-          <el-input-number v-model="form.minVoteCount" :min="0" placeholder="不限" />
-        </el-form-item>
-        <el-form-item label="地区" prop="region" v-if="form.source === 'TMDB_DISCOVER'">
-          <el-select v-model="form.region" clearable placeholder="不限地区" style="width: 100%">
-            <el-option v-for="r in REGION_OPTIONS" :key="r.code" :label="r.label" :value="r.code" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="单轮上限" prop="maxAddPerRun">
-          <el-input-number v-model="form.maxAddPerRun" :min="1" :max="50" />
-        </el-form-item>
-        <el-form-item label="执行间隔" prop="intervalHours">
-          <el-input-number v-model="form.intervalHours" :min="1" :max="720" />
-          <span class="unit-hint">小时</span>
-        </el-form-item>
-        <el-form-item label="指定下载器" prop="downloaderId">
-          <el-select v-model="form.downloaderId" clearable placeholder="空则用唯一启用的下载器" style="width: 100%">
-            <el-option v-for="d in downloaderOptions" :key="d.id" :label="d.name" :value="d.id" />
-          </el-select>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="open = false">取消</el-button>
-        <el-button type="primary" :loading="submitLoading" @click="submitForm">确定</el-button>
-      </template>
-    </el-dialog>
-
-    <el-dialog v-model="logDialogVisible" title="执行日志" width="720px" append-to-body class="modern-dialog">
-      <el-table v-loading="logLoading" :data="logList" max-height="480">
-        <el-table-column prop="createTime" label="时间" width="160" />
-        <el-table-column prop="title" label="标题" min-width="160" show-overflow-tooltip />
-        <el-table-column label="季" width="60">
-          <template #default="{ row }">{{ row.season ?? '-' }}</template>
-        </el-table-column>
-        <el-table-column label="结果" width="120">
-          <template #default="{ row }">
-            <el-tag :type="resultTagType(row.result)" size="small">{{ resultLabel(row.result) }}</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="message" label="说明" min-width="160" show-overflow-tooltip />
-      </el-table>
-      <el-empty v-if="!logLoading && logList.length === 0" description="暂无日志" />
-    </el-dialog>
+            <template #item.season="{ item }">{{ item.season ?? '-' }}</template>
+            <template #item.result="{ item }">
+              <v-chip :color="resultTagType(item.result)" size="small" variant="tonal">{{ resultLabel(item.result) }}</v-chip>
+            </template>
+          </v-data-table>
+          <v-empty-state v-if="!logLoading && logList.length === 0" icon="mdi-inbox-outline" title="暂无日志" />
+        </v-card-text>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
@@ -189,6 +239,56 @@ const {
   logDialogVisible, logLoading, logList, handleShowLogs,
   genreOptions, genreExcludeArr, downloaderOptions
 } = usePtAutoAddRule()
+
+// Element Plus 表单规则是 { required, message, trigger } 对象格式，
+// Vuetify 的 v-text-field :rules 需要函数格式，这里就地转换，不改动 composable
+const toRuleFns = (ruleList: any[]) =>
+  (ruleList || []).map((rule: any) => (value: any) => {
+    if (rule.required && (value === null || value === undefined || value === '')) {
+      return rule.message || '不能为空'
+    }
+    return true
+  })
+
+const nameRules = toRuleFns(rules.name)
+
+const handleSubmitClick = async () => {
+  if (!formRef.value) return
+  const { valid } = await formRef.value.validate()
+  if (!valid) return
+  submitForm()
+}
+
+const onPageChange = (page: number) => {
+  queryParams.pageNum = page
+  getList()
+}
+
+const onSizeChange = (size: number) => {
+  queryParams.pageSize = size
+  queryParams.pageNum = 1
+  getList()
+}
+
+const headers = [
+  { title: '规则名称', key: 'name', minWidth: '140' },
+  { title: '媒体类型', key: 'mediaType', width: '90' },
+  { title: '数据源', key: 'source', width: '150' },
+  { title: '过滤条件', key: 'filter', minWidth: '180', sortable: false },
+  { title: '单轮上限', key: 'maxAddPerRun', width: '90' },
+  { title: '执行间隔', key: 'intervalHours', width: '100' },
+  { title: '上次执行', key: 'lastRunTime', width: '160' },
+  { title: '状态', key: 'enabled', width: '80' },
+  { title: '操作', key: 'actions', width: '260', sortable: false }
+]
+
+const logHeaders = [
+  { title: '时间', key: 'createTime', width: '160' },
+  { title: '标题', key: 'title', minWidth: '160' },
+  { title: '季', key: 'season', width: '60' },
+  { title: '结果', key: 'result', width: '120' },
+  { title: '说明', key: 'message', minWidth: '160' }
+]
 
 const sourceLabel = (source: string) => {
   const map: Record<string, string> = {
@@ -209,12 +309,12 @@ const resultLabel = (result: string) => {
   return map[result] || result
 }
 
-const resultTagType = (result: string): 'success' | 'info' | 'warning' | 'danger' => {
-  const map: Record<string, 'success' | 'info' | 'warning' | 'danger'> = {
+const resultTagType = (result: string): 'success' | 'info' | 'warning' | 'error' => {
+  const map: Record<string, 'success' | 'info' | 'warning' | 'error'> = {
     ADDED: 'success',
     SKIPPED_EXISTS: 'info',
     SKIPPED_FILTER: 'warning',
-    FAILED: 'danger'
+    FAILED: 'error'
   }
   return map[result] || 'info'
 }
@@ -228,25 +328,37 @@ const resultTagType = (result: string): 'success' | 'info' | 'warning' | 'danger
 }
 
 .search-card {
-  border: none;
-  border-radius: var(--osr-radius-lg);
-  box-shadow: var(--osr-shadow-base);
+  padding: 14px 16px;
+}
 
-  :deep(.el-card__body) {
-    padding: 14px 16px;
+.search-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px;
+
+  > .v-text-field {
+    width: 220px;
+    flex: 0 0 auto;
+  }
+
+  .type-select,
+  .status-select {
+    width: 140px;
+  }
+
+  .search-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 2px;
   }
 }
 
 .table-card {
-  border: none;
-  border-radius: var(--osr-radius-lg);
-  box-shadow: var(--osr-shadow-base);
-
-  :deep(.el-card__body) {
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-  }
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
 }
 
 .action-bar {
@@ -256,35 +368,39 @@ const resultTagType = (result: string): 'success' | 'info' | 'warning' | 'danger
   margin-bottom: 12px;
 }
 
-.pagination-wrapper {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 12px;
-}
-
 .text-muted {
   color: var(--osr-text-secondary);
 }
 
-.unit-hint {
-  margin-left: 8px;
-  color: var(--osr-text-secondary);
-  font-size: 13px;
+.form-item {
+  margin-bottom: 16px;
+
+  .form-label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 13px;
+    color: var(--osr-text-secondary);
+  }
 }
 
 @media (max-width: 768px) {
-  .search-card :deep(.el-form) {
-    .el-form-item {
-      margin-right: 0;
+  .search-fields {
+    > .v-text-field,
+    .type-select,
+    .status-select {
+      width: 100%;
     }
 
-    .el-input,
-    .el-select {
-      width: 100% !important;
+    .search-actions {
+      width: 100%;
+
+      .v-btn {
+        flex: 1;
+      }
     }
   }
 
-  .table-card :deep(.el-card__body) {
+  .table-card {
     padding: 12px;
   }
 }

@@ -1,15 +1,19 @@
 <template>
-  <el-sub-menu v-if="menu.children?.length" :index="menu.name || menu.path">
-    <template #title>
-      <el-icon v-if="getIconComponent(menu.meta?.icon)"><component :is="getIconComponent(menu.meta?.icon)" /></el-icon>
-      <span>{{ menu.meta?.title }}</span>
+  <v-list-group v-if="menu.children?.length" :value="menu.name || menu.path" :data-testid="`menu-group-${menu.name || menu.path}`">
+    <template #activator="{ props: activatorProps }">
+      <v-list-item v-bind="activatorProps" :title="menu.meta?.title">
+        <template v-if="getIconComponent(menu.meta?.icon)" #prepend>
+          <v-icon :icon="getIconComponent(menu.meta?.icon)" />
+        </template>
+      </v-list-item>
     </template>
     <SidebarMenuItem v-for="child in menu.children" :key="child.name || child.path" :menu="child" />
-  </el-sub-menu>
-  <el-menu-item v-else :index="menu.path">
-    <el-icon v-if="getIconComponent(menu.meta?.icon)"><component :is="getIconComponent(menu.meta?.icon)" /></el-icon>
-    <template #title>{{ menu.meta?.title }}</template>
-  </el-menu-item>
+  </v-list-group>
+  <v-list-item v-else :to="menu.path" :title="menu.meta?.title" :data-testid="`menu-item-${menu.path}`">
+    <template v-if="getIconComponent(menu.meta?.icon)" #prepend>
+      <v-icon :icon="getIconComponent(menu.meta?.icon)" />
+    </template>
+  </v-list-item>
 </template>
 
 <script setup lang="ts">

@@ -1,6 +1,17 @@
-import { describe, it, expect, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { mount, DOMWrapper } from '@vue/test-utils'
 import { ref, reactive } from 'vue'
+
+// v-menu/v-select 的下拉内容默认 teleport 到 document.body，不在 wrapper 的挂载子树内，
+// wrapper.find/findAll 搜不到——用这个包一层 document.body 去找。
+const body = () => new DOMWrapper(document.body)
+
+// 每个 mount() 出的组件如果打开过 v-menu/v-select（eager 或点击展开），其内容会 teleport 到
+// body 下的 .v-overlay-container，且不随组件卸载自动清理；不清理会导致下一个用例在 body 里
+// 搜到上一个用例遗留的重复节点。这里统一在每个用例结束后清掉，隔离测试之间的状态。
+afterEach(() => {
+  document.querySelectorAll('.v-overlay-container').forEach((el) => el.remove())
+})
 
 // 页面 <script setup> 里直接调用 useRouter()，测试环境没有安装 vue-router 插件，
 // mock 掉整个模块避免路由相关报错。
@@ -91,23 +102,29 @@ function baseComposable(overrides: Record<string, any> = {}) {
     isSubSelected: vi.fn(() => false),
     handleBatchPause: vi.fn(),
     handleBatchResume: vi.fn(),
+    episodeDetailOpen: ref(false),
+    episodeDetailLoading: ref(false),
+    episodeDetail: ref(null),
+    resettingEpisode: ref(false),
+    loadEpisodeDetail: vi.fn(),
+    handleResetEpisode: vi.fn(),
+    searchManualSelect: ref(false),
+    isAllPageSelected: ref(false),
+    isIndeterminate: ref(false),
+    toggleSelectAllPage: vi.fn(),
+    searchAllMissingLoading: ref(false),
+    handleSearchAllMissing: vi.fn(),
+    candidateDialogOpen: ref(false),
+    candidates: ref([]),
+    pushingSelected: ref(false),
+    pushSelectedCandidate: vi.fn(),
+    formatSize: vi.fn(() => ''),
     ...overrides
   }
 }
 
-const mountOptions = {
-  global: {
-    stubs: {
-      'el-dialog': true,
-      'el-table': true,
-      'el-table-column': true,
-      // el-dropdown 未注册为真实组件时会退化成普通自定义元素渲染，
-      // Vue 对普通元素的具名插槽（本文件模板里的 #dropdown）会被直接丢弃、只保留默认插槽，
-      // 因此这里显式桩一个透传所有插槽的组件，让"更多"下拉菜单里的内容能在测试环境渲染出来。
-      'el-dropdown': { template: '<div><slot /><slot name="dropdown" /></div>' }
-    }
-  }
-}
+// vitest.setup.ts 已全局安装真实 Vuetify 插件，v-dialog/v-data-table 等组件按真实实现渲染，
+// 不再需要像 Element Plus 时代那样手动 stub。
 
 describe('PtSubscription 骨架屏', () => {
   it('首次加载（loading 且列表为空）渲染 6 张骨架卡片，不渲染真实卡片', () => {
@@ -115,7 +132,7 @@ describe('PtSubscription 骨架屏', () => {
       taskList: ref([]),
       loading: ref(true)
     }))
-    const wrapper = mount(PtSubscriptionPage, mountOptions)
+    const wrapper = mount(PtSubscriptionPage)
     expect(wrapper.findAll('.sub-card-skeleton').length).toBe(6)
     expect(wrapper.find('.sub-card').exists()).toBe(false)
   })
@@ -125,17 +142,17 @@ describe('PtSubscription 骨架屏', () => {
       taskList: ref([{ id: 1, title: 'A', status: 'ACTIVE', mediaType: 'TV', season: 1, totalEpisodes: 12 }]),
       loading: ref(true)
     }))
-    const wrapper = mount(PtSubscriptionPage, mountOptions)
+    const wrapper = mount(PtSubscriptionPage)
     expect(wrapper.find('.sub-card-skeleton').exists()).toBe(false)
     expect(wrapper.find('.sub-card').exists()).toBe(true)
   })
 
   it('骨架屏数量根据页面宽度动态变化（至少 3 张）', () => {
-    ;(usePtSubscription as any).mockReturnValue(baseComposable({
+    (usePtSubscription as any).mockReturnValue(baseComposable({
       taskList: ref([]),
       loading: ref(true)
     }))
-    const wrapper = mount(PtSubscriptionPage, mountOptions)
+    const wrapper = mount(PtSubscriptionPage)
     const count = wrapper.findAll('.sub-card-skeleton').length
     expect(count).toBeGreaterThanOrEqual(3)
     expect(count).toBeLessThanOrEqual(12)
@@ -147,7 +164,7 @@ describe('PtSubscription 批量操作', () => {
     (usePtSubscription as any).mockReturnValue(baseComposable({
       taskList: ref([{ id: 1, title: 'A', status: 'ACTIVE', mediaType: 'TV', season: 1, totalEpisodes: 12 }])
     }))
-    const wrapper = mount(PtSubscriptionPage, mountOptions)
+    const wrapper = mount(PtSubscriptionPage)
     expect(wrapper.find('.batch-toolbar').exists()).toBe(false)
     expect(wrapper.find('.sub-card-checkbox').exists()).toBe(false)
   })
@@ -157,7 +174,7 @@ describe('PtSubscription 批量操作', () => {
       selectionMode: ref(true),
       taskList: ref([{ id: 1, title: 'A', status: 'ACTIVE', mediaType: 'TV', season: 1, totalEpisodes: 12 }])
     }))
-    const wrapper = mount(PtSubscriptionPage, mountOptions)
+    const wrapper = mount(PtSubscriptionPage)
     expect(wrapper.find('.sub-card-checkbox').exists()).toBe(true)
   })
 
@@ -166,7 +183,7 @@ describe('PtSubscription 批量操作', () => {
       selectionMode: ref(true),
       selectedIds: ref([1, 2, 3])
     }))
-    const wrapper = mount(PtSubscriptionPage, mountOptions)
+    const wrapper = mount(PtSubscriptionPage)
     expect(wrapper.find('.batch-toolbar').text()).toContain('已选 3 项')
   })
 
@@ -177,7 +194,7 @@ describe('PtSubscription 批量操作', () => {
       selectedIds: ref([1]),
       handleBatchPause
     }))
-    const wrapper = mount(PtSubscriptionPage, mountOptions)
+    const wrapper = mount(PtSubscriptionPage)
     await wrapper.find('.batch-pause-btn').trigger('click')
     expect(handleBatchPause).toHaveBeenCalled()
   })
@@ -189,7 +206,7 @@ describe('PtSubscription 批量操作', () => {
       selectedIds: ref([1]),
       handleBatchResume
     }))
-    const wrapper = mount(PtSubscriptionPage, mountOptions)
+    const wrapper = mount(PtSubscriptionPage)
     await wrapper.find('.batch-resume-btn').trigger('click')
     expect(handleBatchResume).toHaveBeenCalled()
   })
@@ -201,7 +218,7 @@ describe('PtSubscription 批量操作', () => {
       selectedIds: ref([1]),
       handleDelete
     }))
-    const wrapper = mount(PtSubscriptionPage, mountOptions)
+    const wrapper = mount(PtSubscriptionPage)
     await wrapper.find('.batch-delete-btn').trigger('click')
     expect(handleDelete).toHaveBeenCalled()
   })
@@ -211,7 +228,7 @@ describe('PtSubscription 批量操作', () => {
       selectionMode: ref(true),
       selectedIds: ref([1])
     }))
-    const wrapper = mount(PtSubscriptionPage, mountOptions)
+    const wrapper = mount(PtSubscriptionPage)
     expect(wrapper.find('.batch-toolbar').exists()).toBe(true)
     await wrapper.find('.batch-cancel-btn').trigger('click')
     expect(wrapper.find('.batch-toolbar').exists()).toBe(false)
@@ -224,8 +241,8 @@ describe('PtSubscription 批量操作', () => {
       taskList: ref([{ id: 1, title: 'A', status: 'ACTIVE', mediaType: 'TV', season: 1, totalEpisodes: 12 }]),
       toggleSubSelect
     }))
-    const wrapper = mount(PtSubscriptionPage, mountOptions)
-    await wrapper.find('.sub-card-checkbox').trigger('change')
+    const wrapper = mount(PtSubscriptionPage)
+    await wrapper.find('.sub-card-checkbox').trigger('click')
     expect(toggleSubSelect).toHaveBeenCalled()
   })
 
@@ -236,26 +253,26 @@ describe('PtSubscription 批量操作', () => {
       taskList: ref([{ id: 1, title: 'A', status: 'ACTIVE', mediaType: 'TV', season: 1, totalEpisodes: 12 }]),
       toggleSubSelect
     }))
-    const wrapper = mount(PtSubscriptionPage, mountOptions)
+    const wrapper = mount(PtSubscriptionPage)
     await wrapper.find('.sub-card').trigger('click')
     expect(toggleSubSelect).toHaveBeenCalled()
   })
 
   it('批量模式下卡片带有 selectable class', () => {
-    ;(usePtSubscription as any).mockReturnValue(baseComposable({
+    (usePtSubscription as any).mockReturnValue(baseComposable({
       selectionMode: ref(true),
       taskList: ref([{ id: 1, title: 'A', status: 'ACTIVE', mediaType: 'TV', season: 1, totalEpisodes: 12 }])
     }))
-    const wrapper = mount(PtSubscriptionPage, mountOptions)
+    const wrapper = mount(PtSubscriptionPage)
     expect(wrapper.find('.sub-card').classes()).toContain('selectable')
   })
 
   it('非批量模式下卡片不带 selectable class', () => {
-    ;(usePtSubscription as any).mockReturnValue(baseComposable({
+    (usePtSubscription as any).mockReturnValue(baseComposable({
       selectionMode: ref(false),
       taskList: ref([{ id: 1, title: 'A', status: 'ACTIVE', mediaType: 'TV', season: 1, totalEpisodes: 12 }])
     }))
-    const wrapper = mount(PtSubscriptionPage, mountOptions)
+    const wrapper = mount(PtSubscriptionPage)
     expect(wrapper.find('.sub-card').classes()).not.toContain('selectable')
   })
 })
@@ -265,8 +282,8 @@ describe('PtSubscription 按钮收纳', () => {
     (usePtSubscription as any).mockReturnValue(baseComposable({
       taskList: ref([{ id: 1, title: 'A', status: 'ACTIVE', mediaType: 'TV', season: 1, totalEpisodes: 12 }])
     }))
-    const wrapper = mount(PtSubscriptionPage, mountOptions)
-    const directButtons = wrapper.findAll('.sub-actions > el-button')
+    const wrapper = mount(PtSubscriptionPage)
+    const directButtons = wrapper.findAll('.sub-actions > .v-btn:not(.more-actions-trigger)')
     const texts = directButtons.map(b => b.text())
     expect(texts).toEqual(['进度', '下载记录', '暂停', '删除'])
   })
@@ -275,13 +292,13 @@ describe('PtSubscription 按钮收纳', () => {
     (usePtSubscription as any).mockReturnValue(baseComposable({
       taskList: ref([{ id: 1, title: 'A', status: 'ACTIVE', mediaType: 'TV', season: 1, totalEpisodes: 12 }])
     }))
-    const wrapper = mount(PtSubscriptionPage, mountOptions)
-    const directButtonTexts = wrapper.findAll('.sub-actions > el-button').map(b => b.text())
+    const wrapper = mount(PtSubscriptionPage)
+    const directButtonTexts = wrapper.findAll('.sub-actions > .v-btn:not(.more-actions-trigger)').map(b => b.text())
     expect(directButtonTexts).not.toContain('对账')
     expect(directButtonTexts).not.toContain('匹配日志')
     expect(directButtonTexts).not.toContain('过滤规则')
     expect(directButtonTexts).not.toContain('搜索补齐')
-    const dropdownItemTexts = wrapper.findAll('el-dropdown-item').map(i => i.text())
+    const dropdownItemTexts = body().findAll('.v-list-item').map(i => i.text()).filter(Boolean)
     expect(dropdownItemTexts).toEqual(['对账', '匹配日志', '过滤规则', '搜索补齐'])
   })
 
@@ -289,8 +306,8 @@ describe('PtSubscription 按钮收纳', () => {
     (usePtSubscription as any).mockReturnValue(baseComposable({
       taskList: ref([{ id: 1, title: 'A', status: 'PAUSED', mediaType: 'TV', season: 1, totalEpisodes: 12 }])
     }))
-    const wrapper = mount(PtSubscriptionPage, mountOptions)
-    const texts = wrapper.findAll('.sub-actions > el-button').map(b => b.text())
+    const wrapper = mount(PtSubscriptionPage)
+    const texts = wrapper.findAll('.sub-actions > .v-btn:not(.more-actions-trigger)').map(b => b.text())
     expect(texts).toContain('恢复')
     expect(texts).not.toContain('暂停')
   })
@@ -300,8 +317,15 @@ describe('PtSubscription 排序下拉', () => {
   it('切换排序下拉触发 handleQuery', async () => {
     const handleQuery = vi.fn()
     ;(usePtSubscription as any).mockReturnValue(baseComposable({ handleQuery }))
-    const wrapper = mount(PtSubscriptionPage, mountOptions)
-    await wrapper.find('.sort-select').trigger('change')
+    const wrapper = mount(PtSubscriptionPage)
+    // jsdom 下 VSelect 的浮层定位依赖真实布局几何信息，点击展开菜单在无头环境不可靠；
+    // 直接对准 VSelect 组件实例派发 update:model-value，验证的是"排序变了就触发
+    // handleQuery"这条业务逻辑本身，不依赖 Vuetify 浮层能否在 jsdom 下正确弹出。
+    // 页面里不止一个 v-select（搜索面板里也有），必须按 .sort-select 类名精确定位，
+    // 不能用 findComponent(VSelect) 直接拿第一个（会拿到搜索面板的 select）
+    const select = wrapper.findComponent('.sort-select') as any
+    expect(select.exists()).toBe(true)
+    await select.vm.$emit('update:modelValue', 'lastMatchTime')
     expect(handleQuery).toHaveBeenCalled()
   })
 })

@@ -1,33 +1,49 @@
 <template>
-  <el-dialog v-model="visible" title="修改密码" width="420px" @close="handleClose">
-    <el-form ref="formRef" :model="form" :rules="rules" label-width="80px">
-      <el-form-item label="旧密码" prop="oldPassword">
-        <el-input v-model="form.oldPassword" type="password" placeholder="请输入旧密码" show-password />
-      </el-form-item>
-      <el-form-item label="新密码" prop="newPassword">
-        <el-input v-model="form.newPassword" type="password" placeholder="请输入新密码" show-password />
-      </el-form-item>
-      <el-form-item label="确认密码" prop="confirmPassword">
-        <el-input v-model="form.confirmPassword" type="password" placeholder="请确认新密码" show-password />
-      </el-form-item>
-    </el-form>
-    <template #footer>
-      <el-button @click="visible = false">取消</el-button>
-      <el-button type="primary" @click="handleSubmit" :loading="loading">确定</el-button>
-    </template>
-  </el-dialog>
+  <v-dialog v-model="visible" max-width="420" @update:model-value="onDialogUpdate">
+    <v-card title="修改密码">
+      <v-card-text>
+        <v-form ref="formRef" @submit.prevent="handleSubmit">
+          <v-text-field
+            v-model="form.oldPassword"
+            label="旧密码"
+            type="password"
+            :rules="[requiredRule('请输入旧密码')]"
+            class="mb-2"
+          />
+          <v-text-field
+            v-model="form.newPassword"
+            label="新密码"
+            type="password"
+            :rules="[requiredRule('请输入新密码'), lengthRule]"
+            class="mb-2"
+          />
+          <v-text-field
+            v-model="form.confirmPassword"
+            label="确认密码"
+            type="password"
+            :rules="[requiredRule('请确认新密码'), confirmPasswordRule]"
+          />
+        </v-form>
+      </v-card-text>
+      <v-card-actions>
+        <v-spacer />
+        <v-btn variant="text" @click="visible = false">取消</v-btn>
+        <v-btn color="primary" variant="flat" :loading="loading" @click="handleSubmit">确定</v-btn>
+      </v-card-actions>
+    </v-card>
+  </v-dialog>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
-import { ElMessage } from 'element-plus'
-import type { FormInstance, FormRules } from 'element-plus'
+import { ref, reactive, watch } from 'vue'
+import type { VForm } from 'vuetify/components'
+import { message } from '@/composables/useMessage'
 import { changePasswordApi } from '@/api/auth'
 
 const emit = defineEmits(['update:visible'])
 const props = defineProps<{ visible: boolean }>()
 
-const formRef = ref<FormInstance>()
+const formRef = ref<InstanceType<typeof VForm>>()
 const loading = ref(false)
 
 const form = reactive({
@@ -36,25 +52,9 @@ const form = reactive({
   confirmPassword: ''
 })
 
-const validateConfirmPassword = (_rule: unknown, value: string, callback: (error?: Error) => void) => {
-  if (value !== form.newPassword) {
-    callback(new Error('两次输入的密码不一致'))
-  } else {
-    callback()
-  }
-}
-
-const rules = reactive<FormRules>({
-  oldPassword: [{ required: true, message: '请输入旧密码', trigger: 'blur' }],
-  newPassword: [
-    { required: true, message: '请输入新密码', trigger: 'blur' },
-    { min: 6, max: 20, message: '长度在 6 到 20 个字符', trigger: 'blur' }
-  ],
-  confirmPassword: [
-    { required: true, message: '请确认新密码', trigger: 'blur' },
-    { validator: validateConfirmPassword, trigger: 'blur' }
-  ]
-})
+const requiredRule = (msg: string) => (value: string) => !!value || msg
+const lengthRule = (value: string) => (value.length >= 6 && value.length <= 20) || '长度在 6 到 20 个字符'
+const confirmPasswordRule = (value: string) => value === form.newPassword || '两次输入的密码不一致'
 
 const visible = ref(props.visible)
 
@@ -64,22 +64,27 @@ watch(() => props.visible, (val) => {
   visible.value = val
 })
 
+function onDialogUpdate(val: boolean) {
+  if (!val) handleClose()
+}
+
 const handleSubmit = async () => {
-  await formRef.value?.validate()
+  const { valid } = await formRef.value!.validate()
+  if (!valid) return
   loading.value = true
   try {
     await changePasswordApi({ oldPassword: form.oldPassword, newPassword: form.newPassword })
-    ElMessage.success('密码修改成功')
+    message.success('密码修改成功')
     handleClose()
   } catch (error: any) {
-    ElMessage.error(error.message || '修改密码失败')
+    message.error(error.message || '修改密码失败')
   } finally {
     loading.value = false
   }
 }
 
 const handleClose = () => {
-  formRef.value?.resetFields()
+  formRef.value?.reset()
   visible.value = false
   emit('update:visible', false)
 }

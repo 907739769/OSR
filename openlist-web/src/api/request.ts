@@ -1,6 +1,6 @@
 import axios from 'axios'
 import type { AxiosInstance, InternalAxiosRequestConfig, AxiosResponse } from 'axios'
-import { ElMessage } from 'element-plus'
+import { message } from '@/composables/useMessage'
 import type { Result, LoginResponse } from '@/types'
 import Cookies from 'js-cookie'
 import { useUserStore } from '@/stores/user'
@@ -83,7 +83,7 @@ async function handleTokenRefresh(originalRequest: InternalAxiosRequestConfig & 
 
     const userStore = useUserStore()
     userStore.clearToken()
-    ElMessage.error('登录已过期，请重新登录')
+    message.error('登录已过期，请重新登录')
     window.location.href = '/login'
     return Promise.reject(refreshError)
   } finally {
@@ -106,7 +106,7 @@ service.interceptors.request.use(
 
 service.interceptors.response.use(
   async (response: AxiosResponse<Result>) => {
-    const { code, message, data } = response.data
+    const { code, message: msg, data } = response.data
 
     if (code === 200) {
       return data as any
@@ -115,8 +115,8 @@ service.interceptors.response.use(
       // trigger the same refresh flow as HTTP 401
       return handleTokenRefresh(response.config as InternalAxiosRequestConfig & { _retry?: boolean })
     } else {
-      ElMessage.error(message || '请求失败')
-      return Promise.reject(new Error(message || '请求失败'))
+      message.error(msg || '请求失败')
+      return Promise.reject(new Error(msg || '请求失败'))
     }
   },
   async (error) => {
@@ -128,7 +128,7 @@ service.interceptors.response.use(
       const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean }
       return handleTokenRefresh(originalRequest)
     } else {
-      ElMessage.error(error.message || '网络错误')
+      message.error(error.message || '网络错误')
       return Promise.reject(error)
     }
   }

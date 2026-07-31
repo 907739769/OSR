@@ -1,145 +1,127 @@
 <template>
   <div class="page-container">
     <!-- Search Panel -->
-    <el-card class="search-card" v-if="showSearch">
-      <el-form :model="queryParams" ref="queryRef" :inline="true" label-width="80px">
-        <el-form-item label="STRM目录" prop="strmTaskPath">
-          <el-input v-model="queryParams.strmTaskPath" placeholder="请输入strm目录" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="状态" prop="strmTaskStatus">
-          <el-select v-model="queryParams.strmTaskStatus" placeholder="状态" clearable>
-            <el-option label="启用" value="1" />
-            <el-option label="停用" value="0" />
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleQuery">
-            <el-icon><Search /></el-icon> 搜索
-          </el-button>
-          <el-button @click="resetQuery">
-            <el-icon><Refresh /></el-icon> 重置
-          </el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
+    <v-card v-if="showSearch" class="search-card">
+      <v-form ref="queryRef" @submit.prevent="handleQuery">
+        <div class="search-fields">
+          <v-text-field
+            v-model="queryParams.strmTaskPath"
+            label="STRM目录"
+            placeholder="请输入strm目录"
+            clearable
+            density="compact"
+            variant="outlined"
+            hide-details
+            @keyup.enter="handleQuery"
+          />
+          <v-select
+            v-model="queryParams.strmTaskStatus"
+            label="状态"
+            :items="[{ title: '启用', value: '1' }, { title: '停用', value: '0' }]"
+            clearable
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="status-select"
+          />
+          <div class="search-actions">
+            <v-btn color="primary" prepend-icon="mdi-magnify" @click="handleQuery">搜索</v-btn>
+            <v-btn variant="outlined" prepend-icon="mdi-refresh" @click="resetQuery">重置</v-btn>
+          </div>
+        </div>
+      </v-form>
+    </v-card>
 
     <!-- Table Card -->
-    <el-card class="table-card">
+    <v-card class="table-card">
       <!-- Action Bar -->
       <div class="action-bar">
         <div class="action-left">
-          <el-button type="primary" @click="handleAdd('新增STRM任务')">
-            <el-icon><Plus /></el-icon> 新增
-          </el-button>
-          <el-button type="success" :disabled="single" @click="handleUpdate(undefined, '修改STRM任务')">
-            <el-icon><Edit /></el-icon> 修改
-          </el-button>
-          <el-button type="danger" :disabled="multiple" @click="handleDelete(undefined, `是否确认删除STRM任务编号为“${selectedIds}”的数据项？`)">
-            <el-icon><Delete /></el-icon> 批量删除
-          </el-button>
-          <el-button type="warning" :disabled="multiple" @click="handleExecute('是否确认执行选中的STRM任务？')">
-            <el-icon><VideoPlay /></el-icon> 批量执行
-          </el-button>
+          <v-btn color="primary" prepend-icon="mdi-plus" @click="handleAdd('新增STRM任务')">
+            新增
+          </v-btn>
+          <v-btn color="success" prepend-icon="mdi-pencil-outline" :disabled="single" @click="handleUpdate(undefined, '修改STRM任务')">
+            修改
+          </v-btn>
+          <v-btn color="error" prepend-icon="mdi-delete-outline" :disabled="multiple" @click="handleDelete(undefined, `是否确认删除STRM任务编号为“${selectedIds}”的数据项？`)">
+            批量删除
+          </v-btn>
+          <v-btn color="warning" prepend-icon="mdi-play-circle-outline" :disabled="multiple" @click="handleExecute('是否确认执行选中的STRM任务？')">
+            批量执行
+          </v-btn>
         </div>
-        <el-button text @click="showSearch = !showSearch">
-          <el-icon><Filter /></el-icon>
+        <v-btn variant="text" prepend-icon="mdi-filter-outline" @click="showSearch = !showSearch">
           {{ showSearch ? '隐藏搜索' : '显示搜索' }}
-        </el-button>
+        </v-btn>
       </div>
 
       <!-- Desktop Table -->
-      <el-table v-if="appStore.device === 'desktop'" v-loading="loading" :data="taskList" @selection-change="handleSelectionChange" class="modern-table">
-        <el-table-column type="selection" width="50" align="center" />
-        <el-table-column label="STRM 目录路径" min-width="300">
-          <template #default="scope">
-            <div class="path-text" :title="scope.row.strmTaskPath"><i class="fa fa-folder-open-o"></i> {{ scope.row.strmTaskPath }}</div>
-          </template>
-        </el-table-column>
-        <el-table-column label="状态" prop="strmTaskStatus" width="80" align="center">
-          <template #default="scope">
-            <el-tag :type="scope.row.strmTaskStatus === '0' ? 'danger' : 'success'">
-              {{ scope.row.strmTaskStatus === '0' ? '停用' : '启用' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="创建时间" prop="createTime" width="170" align="center" />
-        <el-table-column label="操作" align="center" width="220" fixed="right">
-          <template #default="scope">
-            <el-button link type="primary" @click="handleUpdate(scope.row, '修改STRM任务')">
-              <el-icon><Edit /></el-icon> 修改
-            </el-button>
-            <el-button link type="danger" @click="handleDelete(scope.row)">
-              <el-icon><Delete /></el-icon> 删除
-            </el-button>
-            <el-button link type="primary" @click="handleExecuteOne(scope.row, `是否确认执行STRM任务“${scope.row.strmTaskPath}”？`)">
-              <el-icon><VideoPlay /></el-icon> 执行
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <!-- Mobile Card List -->
-      <div v-if="appStore.device === 'mobile'" v-loading="loading" class="mobile-card-list">
-        <div v-for="item in taskList" :key="item.strmTaskId" class="mobile-card">
-          <div class="mobile-card-header">
-            <span class="mobile-card-title"><i class="fa fa-folder-open-o"></i> {{ item.strmTaskPath }}</span>
-            <el-tag size="small" :type="item.strmTaskStatus === '0' ? 'danger' : 'success'">
-              {{ item.strmTaskStatus === '0' ? '停用' : '启用' }}
-            </el-tag>
+      <v-data-table-server
+        :loading="loading"
+        :items="taskList"
+        :items-length="total"
+        :headers="headers"
+        :items-per-page="queryParams.pageSize"
+        :page="queryParams.pageNum"
+        show-select
+        item-value="strmTaskId"
+        return-object
+        :model-value="selectedRows"
+        class="modern-table"
+        @update:model-value="onSelectionChange"
+        @update:page="onPageChange"
+        @update:items-per-page="onSizeChange"
+      >
+        <template #item.strmTaskPath="{ item }">
+          <div class="path-text" :title="item.strmTaskPath">
+            <v-icon icon="mdi-folder-open-outline" size="16" />
+            {{ item.strmTaskPath }}
           </div>
-          <div class="mobile-card-body">
-            <div class="mobile-card-row">
-              <span class="mobile-card-label">创建时间</span>
-              <span class="mobile-card-value mobile-card-value-light">{{ item.createTime }}</span>
-            </div>
-          </div>
-          <div class="mobile-card-actions">
-            <el-button link type="primary" size="small" @click="handleUpdate(item, '修改STRM任务')">
-              <el-icon><Edit /></el-icon> 修改
-            </el-button>
-            <el-button link type="danger" size="small" @click="handleDelete(item)">
-              <el-icon><Delete /></el-icon> 删除
-            </el-button>
-            <el-button link type="primary" size="small" @click="handleExecuteOne(item, `是否确认执行STRM任务“${item.strmTaskPath}”？`)">
-              <el-icon><VideoPlay /></el-icon> 执行
-            </el-button>
-          </div>
-        </div>
-        <el-empty v-if="!taskList.length" description="暂无数据" />
-      </div>
-
-      <!-- Pagination -->
-      <div class="pagination-wrapper">
-        <el-pagination
-          v-model:current-page="queryParams.pageNum"
-          v-model:page-size="queryParams.pageSize"
-          :total="total"
-          :page-sizes="[10, 20, 50]"
-          layout="total, sizes, prev, pager, next, jumper"
-          @current-change="getList"
-          @size-change="getList"
-        />
-      </div>
-    </el-card>
+        </template>
+        <template #item.strmTaskStatus="{ item }">
+          <v-chip size="small" :color="item.strmTaskStatus === '0' ? 'error' : 'success'" variant="tonal">
+            {{ item.strmTaskStatus === '0' ? '停用' : '启用' }}
+          </v-chip>
+        </template>
+        <template #item.actions="{ item }">
+          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(item, '修改STRM任务')">
+            修改
+          </v-btn>
+          <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(item)">
+            删除
+          </v-btn>
+          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-play-circle-outline" @click="handleExecuteOne(item, `是否确认执行STRM任务“${item.strmTaskPath}”？`)">
+            执行
+          </v-btn>
+        </template>
+      </v-data-table-server>
+    </v-card>
 
     <!-- Add/Edit Dialog -->
-    <el-dialog v-model="open" :title="dialogTitle" width="600px" append-to-body class="modern-dialog">
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="100px">
-        <el-form-item label="STRM目录" prop="strmTaskPath">
-          <DirectoryTreeSelect v-model="form.strmTaskPath" type="openlist" placeholder="请选择STRM目录" />
-        </el-form-item>
-        <el-form-item label="状态" prop="strmTaskStatus">
-          <el-radio-group v-model="form.strmTaskStatus">
-            <el-radio value="0">停用</el-radio>
-            <el-radio value="1">启用</el-radio>
-          </el-radio-group>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="open = false">取消</el-button>
-        <el-button type="primary" @click="submitForm" :loading="submitLoading">确定</el-button>
-      </template>
-    </el-dialog>
+    <v-dialog v-model="open" max-width="600">
+      <v-card :title="dialogTitle">
+        <v-card-text>
+          <v-form ref="formRef">
+            <div class="form-item">
+              <label class="form-label">STRM目录</label>
+              <DirectoryTreeSelect v-model="form.strmTaskPath" type="openlist" placeholder="请选择STRM目录" />
+            </div>
+            <div class="form-item">
+              <label class="form-label">状态</label>
+              <v-radio-group v-model="form.strmTaskStatus" inline hide-details>
+                <v-radio label="停用" value="0" />
+                <v-radio label="启用" value="1" />
+              </v-radio-group>
+            </div>
+          </v-form>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="outlined" @click="open = false">取消</v-btn>
+          <v-btn color="primary" variant="flat" :loading="submitLoading" @click="handleSubmitClick">确定</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
@@ -147,20 +129,54 @@
 import { ref, watch } from 'vue'
 import { useStrmTask } from '@/composables/useStrmTask'
 import { useDebounce } from '@/composables/useDebounce'
+import { message } from '@/composables/useMessage'
 import DirectoryTreeSelect from '@/components/DirectoryTreeSelect/index.vue'
-import { useAppStore } from '@/stores/app'
 
-const appStore = useAppStore()
 const showSearch = ref(window.innerWidth >= 768)
 
 const {
   taskList, loading, total, queryParams, queryRef,
   getList, handleQuery, resetQuery,
   selectedIds, single, multiple, handleSelectionChange,
-  open, dialogTitle, submitLoading, formRef, form, rules,
+  open, dialogTitle, submitLoading, formRef, form,
   handleAdd, handleUpdate, submitForm,
   handleDelete, handleExecuteOne, handleExecute
 } = useStrmTask()
+
+// DirectoryTreeSelect 不支持 v-form 的 :rules 校验，改为提交前手动校验必填项
+const handleSubmitClick = () => {
+  if (!form.value.strmTaskPath) {
+    message.warning('STRM目录不能为空')
+    return
+  }
+  submitForm()
+}
+
+const headers = [
+  { title: 'STRM 目录路径', key: 'strmTaskPath', minWidth: '300' },
+  { title: '状态', key: 'strmTaskStatus', align: 'center' as const, width: '80' },
+  { title: '创建时间', key: 'createTime', width: '170', align: 'center' as const },
+  { title: '操作', key: 'actions', align: 'center' as const, width: '220', sortable: false }
+]
+
+// v-data-table-server 的多选需要一个本地 ref 承接当前选中的行对象，
+// 再转给 useTaskList 的 handleSelectionChange 去派生 selectedIds/single/multiple
+const selectedRows = ref<any[]>([])
+const onSelectionChange = (rows: any[]) => {
+  selectedRows.value = rows
+  handleSelectionChange(rows)
+}
+
+const onPageChange = (page: number) => {
+  queryParams.pageNum = page
+  getList()
+}
+
+const onSizeChange = (size: number) => {
+  queryParams.pageSize = size
+  queryParams.pageNum = 1
+  getList()
+}
 
 // 搜索输入防抖：输入停止 300ms 后自动触发搜索
 const debouncedSearch = useDebounce(() => {
@@ -185,12 +201,30 @@ watch(
    Search Card
    ============================================ */
 .search-card {
-  border: none;
-  border-radius: var(--osr-radius-lg);
-  box-shadow: var(--osr-shadow-base);
+  padding: 14px 16px;
+}
 
-  :deep(.el-card__body) {
-    padding: 14px 16px;
+.search-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px;
+
+  > .v-text-field,
+  > .v-select {
+    width: 220px;
+    flex: 0 0 auto;
+  }
+
+  .status-select {
+    width: 140px;
+  }
+
+  .search-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 2px;
   }
 }
 
@@ -198,15 +232,9 @@ watch(
    Table Card
    ============================================ */
 .table-card {
-  border: none;
-  border-radius: var(--osr-radius-lg);
-  box-shadow: var(--osr-shadow-base);
-
-  :deep(.el-card__body) {
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-  }
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
 }
 
 .action-bar {
@@ -223,16 +251,6 @@ watch(
 }
 
 /* ============================================
-    Pagination
-    ============================================ */
-.pagination-wrapper {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: auto;
-  padding-top: 12px;
-}
-
-/* ============================================
     Desktop Table Text Overflow
     ============================================ */
 .path-text {
@@ -246,9 +264,23 @@ watch(
   text-overflow: ellipsis;
   white-space: nowrap;
 
-  i {
+  .v-icon {
     color: var(--osr-primary);
     flex-shrink: 0;
+  }
+}
+
+/* ============================================
+   Form
+   ============================================ */
+.form-item {
+  margin-bottom: 16px;
+
+  .form-label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 13px;
+    color: var(--osr-text-secondary);
   }
 }
 
@@ -260,22 +292,19 @@ watch(
     gap: 10px;
   }
 
-  .search-card :deep(.el-form) {
-    .el-form-item {
-      margin-right: 0;
+  .search-fields {
+    > .v-text-field,
+    > .v-select,
+    .status-select {
+      width: 100%;
     }
 
-    .el-input,
-    .el-select {
-      width: 100% !important;
-    }
-  }
+    .search-actions {
+      width: 100%;
 
-  :deep(.el-table) {
-    font-size: 13px;
-
-    .el-table__cell {
-      padding: 8px 0;
+      .v-btn {
+        flex: 1;
+      }
     }
   }
 
@@ -289,98 +318,8 @@ watch(
     }
   }
 
-  .table-card :deep(.el-card__body) {
+  .table-card {
     padding: 12px;
-  }
-
-  /* ============================================
-     Mobile Card List
-     ============================================ */
-  .mobile-card-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .mobile-card {
-    background: white;
-    border-radius: 8px;
-    border: 1px solid var(--osr-border-light);
-    overflow: hidden;
-
-    .mobile-card-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 10px 12px 8px;
-      border-bottom: 1px solid var(--osr-border-light);
-      background: var(--osr-bg-page);
-
-      .mobile-card-title {
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--osr-text-primary);
-        flex: 1;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        margin-right: 8px;
-        i { color: var(--osr-primary); margin-right: 4px; }
-      }
-    }
-
-    .mobile-card-body {
-      padding: 0;
-
-      .mobile-card-row {
-        display: flex;
-        align-items: flex-start;
-        padding: 8px 12px;
-        font-size: 13px;
-        border-bottom: 1px solid var(--osr-border-light);
-
-        &:last-child {
-          border-bottom: none;
-        }
-
-        .mobile-card-label {
-          width: 64px;
-          color: var(--osr-text-secondary);
-          flex-shrink: 0;
-          font-size: 12px;
-          line-height: 1.5;
-          padding-top: 1px;
-        }
-
-        .mobile-card-value {
-          flex: 1;
-          min-width: 0;
-          color: var(--osr-text-primary);
-          font-size: 13px;
-          line-height: 1.5;
-          word-break: break-all;
-
-          &.mobile-card-value-path {
-            color: var(--osr-text-placeholder);
-            font-size: 12px;
-            line-height: 1.6;
-          }
-
-          &.mobile-card-value-light {
-            color: var(--osr-text-secondary);
-            font-size: 12px;
-          }
-        }
-      }
-    }
-
-    .mobile-card-actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 2px;
-      padding: 8px 12px 10px;
-      border-top: 1px solid var(--osr-border-light);
-    }
   }
 }
 </style>

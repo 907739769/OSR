@@ -1,5 +1,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { message } from '@/composables/useMessage'
+import { confirm } from '@/composables/useConfirm'
+
+vi.mock('@/composables/useMessage', () => ({
+  message: {
+    success: vi.fn(),
+    error: vi.fn(),
+    warning: vi.fn(),
+    info: vi.fn()
+  }
+}))
+
+vi.mock('@/composables/useConfirm', () => ({
+  confirm: vi.fn()
+}))
 
 // usePtDownloadRecord 内部调用 useRoute()（读 subId query 参数），
 // 测试环境没有安装 vue-router 插件，mock 掉整个模块。
@@ -29,8 +43,9 @@ describe('usePtDownloadRecord 的批量重试', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     ;(getPtDownloadRecordListApi as any).mockResolvedValue({ records: [], total: 0 })
-    confirmSpy = vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm' as any)
-    successSpy = vi.spyOn(ElMessage, 'success').mockImplementation(() => ({}) as any)
+    confirmSpy = confirm as any
+    confirmSpy.mockResolvedValue(undefined)
+    successSpy = message.success as any
   })
 
   afterEach(() => {

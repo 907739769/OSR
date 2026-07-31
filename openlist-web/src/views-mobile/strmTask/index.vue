@@ -2,37 +2,50 @@
   <div class="mobile-page">
     <!-- 搜索 -->
     <MobileSearchPanel v-model:collapsed="searchCollapsed" :loading="loading" @search="handleQuery" @reset="resetQuery">
-      <el-form ref="queryRef" :model="queryParams" label-width="72px">
-        <el-form-item label="STRM目录" prop="strmTaskPath">
-          <el-input v-model="queryParams.strmTaskPath" placeholder="请输入STRM目录" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="状态" prop="strmTaskStatus">
-          <el-select v-model="queryParams.strmTaskStatus" placeholder="全部状态" clearable style="width: 100%">
-            <el-option label="启用" value="1" />
-            <el-option label="停用" value="0" />
-          </el-select>
-        </el-form-item>
-      </el-form>
+      <v-form ref="queryRef">
+        <v-text-field
+          v-model="queryParams.strmTaskPath"
+          label="STRM目录"
+          placeholder="请输入STRM目录"
+          clearable
+          density="compact"
+          variant="outlined"
+          hide-details
+          class="mb-3"
+          @keyup.enter="handleQuery"
+        />
+        <v-select
+          v-model="queryParams.strmTaskStatus"
+          label="状态"
+          placeholder="全部状态"
+          :items="[{ title: '启用', value: '1' }, { title: '停用', value: '0' }]"
+          clearable
+          density="compact"
+          variant="outlined"
+          hide-details
+        />
+      </v-form>
     </MobileSearchPanel>
 
     <!-- Batch Actions -->
     <div class="batch-bar" v-if="selectedIds.length > 0">
       <span class="selected-count">已选 {{ selectedIds.length }} 项</span>
-      <el-button link type="primary" size="small" @click="handleBatchExecute">
-        <el-icon><VideoPlay /></el-icon> 批量执行
-      </el-button>
-      <el-button link size="small" @click="clearSelection">
+      <v-btn variant="text" color="primary" size="small" @click="handleBatchExecute">
+        <v-icon icon="mdi-play-circle-outline" start />批量执行
+      </v-btn>
+      <v-btn variant="text" size="small" @click="clearSelection">
         取消
-      </el-button>
+      </v-btn>
     </div>
 
     <!-- Add Button (FAB) -->
-    <el-button class="fab-add" type="primary" size="large" round @click="handleAdd('新增STRM任务')">
-      <el-icon><Plus /></el-icon> 新增
-    </el-button>
+    <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="mdi-plus" @click="handleAdd('新增STRM任务')">
+      新增
+    </v-btn>
 
     <!-- Task List -->
-    <div class="task-list" v-loading="loading">
+    <div class="task-list">
+      <v-progress-linear v-if="loading" indeterminate color="primary" />
       <div
         v-for="task in taskList"
         :key="task.strmTaskId"
@@ -41,41 +54,42 @@
         @click="handleCardClick($event, task.strmTaskId)"
       >
         <div class="card-checkbox">
-          <el-checkbox
+          <v-checkbox
             :model-value="selectedIds.includes(task.strmTaskId)"
-            size="large"
-            @change="toggleSelect(task.strmTaskId)"
+            density="compact"
+            hide-details
+            @click.stop="toggleSelect(task.strmTaskId)"
           />
         </div>
         <div class="card-content">
           <div class="card-top">
             <div class="task-name-row">
-              <el-icon class="task-icon" :size="18"><VideoCamera /></el-icon>
+              <v-icon class="task-icon" icon="mdi-file-video-outline" size="18" />
               <span class="task-name" @click.stop="showFullText(task.strmTaskPath, 'STRM目录')">{{ task.strmTaskPath }}</span>
             </div>
-            <el-tag :type="task.strmTaskStatus === '1' ? 'success' : 'danger'" size="small" effect="light">
+            <v-chip :color="task.strmTaskStatus === '1' ? 'success' : 'error'" size="small" variant="tonal">
               {{ task.strmTaskStatus === '1' ? '启用' : '停用' }}
-            </el-tag>
+            </v-chip>
           </div>
           <div class="card-time">
-            <el-icon><Clock /></el-icon>
+            <v-icon icon="mdi-clock-outline" size="14" />
             {{ task.createTime }}
           </div>
         </div>
         <div class="card-actions" @click.stop>
-          <el-button link type="primary" size="small" :icon="Edit" @click="handleUpdate(task, '修改STRM任务')">
+          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(task, '修改STRM任务')">
             修改
-          </el-button>
-          <el-button link type="danger" size="small" :icon="Delete" @click="handleDelete(task)">
+          </v-btn>
+          <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(task)">
             删除
-          </el-button>
-          <el-button link type="primary" size="small" :icon="VideoPlay" @click="handleExecuteOne(task, `是否确认执行STRM任务“${task.strmTaskPath}”？`)">
+          </v-btn>
+          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-play-circle-outline" @click="handleExecuteOne(task, `是否确认执行STRM任务“${task.strmTaskPath}”？`)">
             执行
-          </el-button>
+          </v-btn>
         </div>
       </div>
 
-      <el-empty v-if="!loading && taskList.length === 0" description="暂无STRM任务" />
+      <v-empty-state v-if="!loading && taskList.length === 0" icon="mdi-inbox-outline" title="暂无STRM任务" />
     </div>
 
     <!-- 分页 -->
@@ -93,43 +107,48 @@
     <FullTextDialog ref="fullTextRef" />
 
     <!-- Add/Edit Dialog -->
-    <el-dialog v-model="open" :title="dialogTitle" width="90%" append-to-body class="modern-dialog">
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
-        <el-form-item label="STRM目录" prop="strmTaskPath">
-          <DirectoryTreeSelect v-model="form.strmTaskPath" type="openlist" placeholder="请选择STRM目录" />
-        </el-form-item>
-        <el-form-item label="状态" prop="strmTaskStatus">
-          <el-radio-group v-model="form.strmTaskStatus">
-            <el-radio value="0">停用</el-radio>
-            <el-radio value="1">启用</el-radio>
-          </el-radio-group>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="open = false">取消</el-button>
-        <el-button type="primary" @click="submitForm" :loading="submitLoading">确定</el-button>
-      </template>
-    </el-dialog>
+    <v-dialog v-model="open" width="90%" class="modern-dialog">
+      <v-card :title="dialogTitle">
+        <v-card-text>
+          <v-form ref="formRef">
+            <div class="form-item">
+              <label class="form-label">STRM目录</label>
+              <DirectoryTreeSelect v-model="form.strmTaskPath" type="openlist" placeholder="请选择STRM目录" />
+            </div>
+            <div class="form-item">
+              <label class="form-label">状态</label>
+              <v-radio-group v-model="form.strmTaskStatus" inline hide-details>
+                <v-radio label="停用" value="0" />
+                <v-radio label="启用" value="1" />
+              </v-radio-group>
+            </div>
+          </v-form>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="outlined" @click="open = false">取消</v-btn>
+          <v-btn color="primary" variant="flat" :loading="submitLoading" @click="handleSubmitClick">确定</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import {
-  VideoCamera, Clock, VideoPlay, Plus, Edit, Delete
-} from '@element-plus/icons-vue'
 import DirectoryTreeSelect from '@/components/DirectoryTreeSelect/index.vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import FullTextDialog from '@/components/mobile/FullTextDialog.vue'
 import { useStrmTask } from '@/composables/useStrmTask'
 import { useDebounce } from '@/composables/useDebounce'
+import { message } from '@/composables/useMessage'
 
 const {
   taskList, loading, total, queryParams, queryRef,
   getList, handleQuery, resetQuery,
   selectedIds,
-  open, dialogTitle, submitLoading, formRef, form, rules,
+  open, dialogTitle, submitLoading, formRef, form,
   handleAdd, handleUpdate, submitForm,
   handleDelete, handleExecuteOne,
   toggleSelect, handleCardClick, clearSelection,
@@ -139,6 +158,15 @@ const {
 
 const fullTextRef = ref<InstanceType<typeof FullTextDialog>>()
 const showFullText = (content: string, title: string) => fullTextRef.value?.show(content, title)
+
+// DirectoryTreeSelect 不支持 v-form 的 :rules 校验，改为提交前手动校验必填项
+const handleSubmitClick = () => {
+  if (!form.value.strmTaskPath) {
+    message.warning('STRM目录不能为空')
+    return
+  }
+  submitForm()
+}
 
 // 搜索输入防抖：输入停止 300ms 后自动触发搜索
 const debouncedSearch = useDebounce(() => {
@@ -183,12 +211,6 @@ watch(
     color: var(--osr-primary);
     margin-right: 4px;
     white-space: nowrap;
-  }
-
-  .el-button {
-    font-size: 12px;
-    padding: 0 4px;
-    height: auto;
   }
 }
 
@@ -280,25 +302,18 @@ watch(
     gap: 3px;
     font-size: 11px;
     color: var(--osr-text-disabled);
-
-    .el-icon {
-      flex-shrink: 0;
-    }
   }
 
   .card-actions {
     display: flex;
-    flex-direction: column;
-    gap: 2px;
+    align-items: center;
+    gap: 4px;
     flex-shrink: 0;
     padding-left: 8px;
     border-left: 1px solid var(--osr-border-light);
 
-    .el-button {
-      font-size: 11px;
-      padding: 2px 0;
-      height: auto;
-      white-space: nowrap;
+    .v-btn {
+      min-width: 0;
     }
   }
 }
@@ -330,32 +345,22 @@ watch(
 }
 
 /* ============================================
-   Card Actions
-   ============================================ */
-.task-card {
-  .card-actions {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    flex-shrink: 0;
-    padding-left: 8px;
-    border-left: 1px solid var(--osr-border-light);
-
-    .el-button {
-      font-size: 11px;
-      padding: 2px 4px;
-      height: auto;
-      white-space: nowrap;
-    }
-  }
-}
-
-/* ============================================
    Dialog
    ============================================ */
 :deep(.modern-dialog) {
-  .el-dialog__body {
+  .v-card-text {
     padding: 16px;
+  }
+}
+
+.form-item {
+  margin-bottom: 16px;
+
+  .form-label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 13px;
+    color: var(--osr-text-secondary);
   }
 }
 </style>

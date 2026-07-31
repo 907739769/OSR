@@ -1,5 +1,19 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { message } from '@/composables/useMessage'
+import { confirm } from '@/composables/useConfirm'
+
+vi.mock('@/composables/useMessage', () => ({
+  message: {
+    success: vi.fn(),
+    error: vi.fn(),
+    warning: vi.fn(),
+    info: vi.fn()
+  }
+}))
+
+vi.mock('@/composables/useConfirm', () => ({
+  confirm: vi.fn()
+}))
 
 // base.getList() 在 setup 阶段同步调用，mock 掉整个 API 模块避免真实网络请求。
 vi.mock('@/api/openlist/ptSubscription', () => ({
@@ -39,8 +53,9 @@ describe('usePtSubscription 的批量暂停/恢复', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     ;(getPtSubscriptionListApi as any).mockResolvedValue({ records: [], total: 0 })
-    confirmSpy = vi.spyOn(ElMessageBox, 'confirm').mockResolvedValue('confirm' as any)
-    successSpy = vi.spyOn(ElMessage, 'success').mockImplementation(() => ({}) as any)
+    confirmSpy = confirm as any
+    confirmSpy.mockResolvedValue(undefined)
+    successSpy = message.success as any
   })
 
   afterEach(() => {

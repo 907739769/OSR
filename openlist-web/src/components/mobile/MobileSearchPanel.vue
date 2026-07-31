@@ -2,31 +2,27 @@
   <div class="search-panel" :class="{ collapsed }">
     <div class="search-panel-header" @click="collapsed = !collapsed">
       <span class="search-panel-title">
-        <el-icon><Search /></el-icon>
+        <v-icon icon="mdi-magnify" size="16" />
         筛选查询
       </span>
-      <el-icon class="collapse-icon" :class="{ expanded: !collapsed }">
-        <ArrowDown />
-      </el-icon>
+      <v-icon icon="mdi-chevron-down" class="collapse-icon" :class="{ expanded: !collapsed }" size="16" />
     </div>
     <div class="search-panel-body">
-      <!-- 各页放自己的 el-form 表单字段 -->
+      <!-- 各页放自己的 v-form 表单字段 -->
       <slot />
       <div class="search-actions">
-        <el-button type="primary" icon="Search" :loading="loading" @click="$emit('search')">
+        <v-btn color="primary" prepend-icon="mdi-magnify" :loading="loading" @click="$emit('search')">
           搜索
-        </el-button>
-        <el-button icon="Refresh" @click="$emit('reset')">
+        </v-btn>
+        <v-btn prepend-icon="mdi-refresh" variant="outlined" @click="$emit('reset')">
           重置
-        </el-button>
+        </v-btn>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { Search, ArrowDown } from '@element-plus/icons-vue'
-
 defineProps<{
   loading?: boolean
 }>()
@@ -73,9 +69,8 @@ const collapsed = defineModel<boolean>('collapsed', { default: true })
       font-weight: 600;
       color: var(--osr-text-primary);
 
-      .el-icon {
+      .v-icon {
         color: var(--osr-primary);
-        font-size: 16px;
       }
     }
 
@@ -93,23 +88,8 @@ const collapsed = defineModel<boolean>('collapsed', { default: true })
   .search-panel-body {
     padding: 0 14px 14px;
 
-    :deep(.el-form) {
-      .el-form-item {
-        margin-bottom: 12px;
-        margin-right: 0;
-
-        .el-form-item__label {
-          font-size: 13px;
-          color: var(--osr-text-secondary);
-          padding-bottom: 4px;
-        }
-      }
-
-      .el-input__wrapper,
-      .el-select__wrapper {
-        border-radius: var(--osr-radius-sm);
-        box-shadow: 0 0 0 1px var(--osr-border-base) inset;
-      }
+    :deep(.v-input) {
+      margin-bottom: 12px;
     }
 
     .search-actions {
@@ -117,9 +97,8 @@ const collapsed = defineModel<boolean>('collapsed', { default: true })
       gap: 8px;
       margin-top: 4px;
 
-      .el-button {
+      .v-btn {
         flex: 1;
-        border-radius: var(--osr-radius-sm);
       }
     }
   }

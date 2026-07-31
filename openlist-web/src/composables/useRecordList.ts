@@ -1,5 +1,6 @@
 import { ref, reactive, computed, onActivated } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { message } from '@/composables/useMessage'
+import { confirm } from '@/composables/useConfirm'
 import type { SearchParams, PageResult } from '@/types'
 
 export interface RecordListConfig<TQuery extends SearchParams = SearchParams> {
@@ -134,7 +135,7 @@ export function useRecordList<TQuery extends SearchParams = SearchParams>(config
 
   const resetQuery = () => {
     dateRange.value = null
-    if (queryRef.value) (queryRef.value as any).resetFields()
+    queryRef.value?.reset?.()
     handleQuery()
   }
 
@@ -173,15 +174,15 @@ export function useRecordList<TQuery extends SearchParams = SearchParams>(config
   }
 
   /** 统一的「确认 -> 调接口 -> 提示 -> 刷新」流程；用户取消时静默返回 */
-  async function confirmThen(message: string, title: string, type: 'warning' | 'error', action: () => Promise<any>, successMsg: string) {
+  async function confirmThen(msg: string, title: string, type: 'warning' | 'error', action: () => Promise<any>, successMsg: string) {
     try {
-      await ElMessageBox.confirm(message, title, { type })
+      await confirm({ message: msg, title, type })
     } catch {
       return
     }
     try {
       await action()
-      ElMessage.success(successMsg)
+      message.success(successMsg)
       getList()
     } catch (e) {
       console.error(`[${recordLabel}] ${successMsg}失败:`, e)

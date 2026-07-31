@@ -1,5 +1,5 @@
 import { ref, computed } from 'vue'
-import { ElMessage } from 'element-plus'
+import { message } from '@/composables/useMessage'
 import { useTaskList } from './useTaskList'
 import {
   getPtAutoAddRuleListApi,
@@ -140,7 +140,7 @@ export function usePtAutoAddRule() {
     runningIds.value.add(row.id)
     try {
       const result = await runPtAutoAddRuleApi(row.id)
-      ElMessage.success(`执行完成：新增${result.addedCount} 跳过${result.skippedCount} 失败${result.failedCount}`)
+      message.success(`执行完成：新增${result.addedCount} 跳过${result.skippedCount} 失败${result.failedCount}`)
       base.getList()
     } catch (e) {
       console.error(e)

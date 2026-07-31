@@ -4,45 +4,28 @@
       <span class="total-text">共 {{ total }} 条</span>
     </div>
     <div class="pagination-controls">
-      <el-button
-        :icon="ArrowLeft"
-        text
-        size="small"
-        :disabled="pageNum <= 1"
-        class="page-btn"
-        @click="$emit('prev')"
-      />
+      <v-btn icon="mdi-chevron-left" variant="text" size="small" :disabled="pageNum <= 1" class="page-btn" @click="$emit('prev')" />
       <div class="page-num-box">
         <span class="current-page">{{ pageNum }}</span>
         <span class="page-divider">/</span>
         <span class="total-pages">{{ totalPages }}</span>
       </div>
-      <el-button
-        :icon="ArrowRight"
-        text
-        size="small"
-        :disabled="pageNum >= totalPages"
-        class="page-btn"
-        @click="$emit('next')"
-      />
-      <el-select
+      <v-btn icon="mdi-chevron-right" variant="text" size="small" :disabled="pageNum >= totalPages" class="page-btn" @click="$emit('next')" />
+      <v-select
         :model-value="pageSize"
-        size="small"
+        :items="[10, 20, 50]"
+        density="compact"
+        variant="outlined"
+        hide-details
         class="page-size-select"
         @update:model-value="onSizeChange"
-      >
-        <el-option :label="10" :value="10" />
-        <el-option :label="20" :value="20" />
-        <el-option :label="50" :value="50" />
-      </el-select>
+      />
       <span class="page-size-label">条/页</span>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ArrowLeft, ArrowRight } from '@element-plus/icons-vue'
-
 defineProps<{
   pageNum: number
   pageSize: number
@@ -93,17 +76,6 @@ function onSizeChange(value: number) {
 
     .page-btn {
       padding: 4px;
-      min-width: unset;
-      height: unset;
-
-      :deep(.el-icon) {
-        font-size: 18px;
-        color: var(--osr-text-primary);
-      }
-
-      &:disabled :deep(.el-icon) {
-        color: var(--osr-text-disabled);
-      }
     }
 
     .page-num-box {
@@ -136,20 +108,7 @@ function onSizeChange(value: number) {
     }
 
     .page-size-select {
-      width: 64px;
-
-      :deep(.el-input__wrapper) {
-        padding: 0 8px;
-        height: 28px;
-        border-radius: var(--osr-radius-sm);
-        box-shadow: 0 0 0 1px var(--osr-border-light) inset;
-      }
-
-      :deep(.el-input__inner) {
-        font-size: 13px;
-        text-align: center;
-        color: var(--osr-text-primary);
-      }
+      width: 76px;
     }
 
     .page-size-label {

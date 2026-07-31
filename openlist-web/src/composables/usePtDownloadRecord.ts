@@ -1,6 +1,7 @@
 import { ref, reactive, computed } from 'vue'
 import { useRoute } from 'vue-router'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { message } from '@/composables/useMessage'
+import { confirm } from '@/composables/useConfirm'
 import {
   getPtDownloadRecordListApi, retryPtDownloadRecordApi, batchRetryPtDownloadRecordApi,
   blacklistGuidApi, blacklistReleaseGroupApi
@@ -49,7 +50,7 @@ export function usePtDownloadRecord() {
   }
 
   const resetQuery = () => {
-    if (queryRef.value) (queryRef.value as any).resetFields()
+    queryRef.value?.reset?.()
     handleQuery()
   }
 
@@ -70,7 +71,7 @@ export function usePtDownloadRecord() {
     retryingIds.add(row.id)
     try {
       const result = await retryPtDownloadRecordApi(row.id)
-      ElMessage[result.pushed ? 'success' : 'info'](
+      message[result.pushed ? 'success' : 'info'](
         result.pushed ? '已重新找到并推送下载' : '重试未搜索到匹配资源'
       )
       getList()
@@ -97,9 +98,9 @@ export function usePtDownloadRecord() {
   const handleBatchRetry = async () => {
     if (!selectedIds.value.length) return
     try {
-      await ElMessageBox.confirm(`确认批量重试选中的 ${selectedIds.value.length} 条失败记录？`, '提示', { type: 'warning' })
+      await confirm({ message: `确认批量重试选中的 ${selectedIds.value.length} 条失败记录？`, title: '提示', type: 'warning' })
       const result = await batchRetryPtDownloadRecordApi(selectedIds.value)
-      ElMessage.success(`已重新推送 ${result.pushedCount} 条，${result.skippedCount} 条未搜到或已跳过`)
+      message.success(`已重新推送 ${result.pushedCount} 条，${result.skippedCount} 条未搜到或已跳过`)
       selectedIds.value = []
       getList()
     } catch (e) {
@@ -114,7 +115,7 @@ export function usePtDownloadRecord() {
     blacklistingIds.add(row.id)
     try {
       const created = await blacklistGuidApi(row.id)
-      ElMessage.success(created ? '已拉黑该种子' : '该种子已在黑名单中')
+      message.success(created ? '已拉黑该种子' : '该种子已在黑名单中')
     } catch (e) {
       console.error(e)
     } finally {
@@ -126,7 +127,7 @@ export function usePtDownloadRecord() {
     blacklistingIds.add(row.id)
     try {
       const created = await blacklistReleaseGroupApi(row.id)
-      ElMessage.success(created ? '已拉黑该发布组' : '该发布组已在黑名单中')
+      message.success(created ? '已拉黑该发布组' : '该发布组已在黑名单中')
     } catch (e) {
       console.error(e)
     } finally {

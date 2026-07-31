@@ -1,5 +1,6 @@
 import { ref, reactive } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { message } from '@/composables/useMessage'
+import { confirm } from '@/composables/useConfirm'
 import type { SearchParams, PageResult } from '@/types'
 
 export interface TaskListApiConfig<TQuery extends SearchParams = SearchParams> {
@@ -74,7 +75,7 @@ export function useTaskList<TQuery extends SearchParams = SearchParams>(config: 
   }
 
   const resetQuery = () => {
-    if (queryRef.value) (queryRef.value as any).resetFields()
+    queryRef.value?.reset?.()
     handleQuery()
   }
 
@@ -94,7 +95,7 @@ export function useTaskList<TQuery extends SearchParams = SearchParams>(config: 
   const handleUpdate = (row?: any, title?: string) => {
     const id = row?.[idField] || selectedIds.value[0]
     if (!id) {
-      ElMessage.warning('请选择数据项')
+      message.warning('请选择数据项')
       return
     }
     if (title) dialogTitle.value = title
@@ -104,22 +105,23 @@ export function useTaskList<TQuery extends SearchParams = SearchParams>(config: 
         form.value = { ...task }
         open.value = true
       } else {
-        ElMessage.error('任务不存在')
+        message.error('任务不存在')
       }
     })
   }
 
   const submitForm = async () => {
     if (!formRef.value) return
-    await formRef.value.validate()
+    const result = await formRef.value.validate()
+    if (result && typeof result === 'object' && 'valid' in result && !result.valid) return
     submitLoading.value = true
     try {
       if (form.value[idField]) {
         await updateApi(form.value)
-        ElMessage.success('修改成功')
+        message.success('修改成功')
       } else {
         await addApi(form.value)
-        ElMessage.success('新增成功')
+        message.success('新增成功')
       }
       open.value = false
       getList()
@@ -136,22 +138,22 @@ export function useTaskList<TQuery extends SearchParams = SearchParams>(config: 
       const ids = selectedIds.value
       if (!ids.length) return
       try {
-        await ElMessageBox.confirm(confirmMsg || `是否确认删除编号为"${ids}"的数据项？`, '警告', { type: 'warning' })
+        await confirm({ message: confirmMsg || `是否确认删除编号为"${ids}"的数据项？`, title: '警告', type: 'warning' })
         // 曾经这里是 deleteApi(ids[0])：选中多条时只会删掉第一条，却照样提示删除成功
         if (batchDeleteApi) {
           await batchDeleteApi(ids)
         } else {
           await Promise.all(ids.map(id => deleteApi(id)))
         }
-        ElMessage.success('删除成功')
+        message.success('删除成功')
         getList()
       } catch (e) { if (e !== 'cancel') console.error(e) }
       return
     }
     try {
-      await ElMessageBox.confirm(confirmMsg || `是否确认删除该数据项？`, '警告', { type: 'warning' })
+      await confirm({ message: confirmMsg || `是否确认删除该数据项？`, title: '警告', type: 'warning' })
       await deleteApi(id)
-      ElMessage.success('删除成功')
+      message.success('删除成功')
       getList()
     } catch (e) { if (e !== 'cancel') console.error(e) }
   }
@@ -159,26 +161,26 @@ export function useTaskList<TQuery extends SearchParams = SearchParams>(config: 
   // --- 执行 ---
   const handleExecuteOne = async (row: any, confirmMsg: string) => {
     if (!executeApi) {
-      ElMessage.warning('该列表不支持执行操作')
+      message.warning('该列表不支持执行操作')
       return
     }
     try {
-      await ElMessageBox.confirm(confirmMsg, '提示', { type: 'warning' })
+      await confirm({ message: confirmMsg, title: '提示', type: 'warning' })
       await executeApi([row[idField]])
-      ElMessage.success('执行成功')
+      message.success('执行成功')
       getList()
     } catch (e) { if (e !== 'cancel') console.error(e) }
   }
 
   const handleExecute = async (confirmMsg: string) => {
     if (!executeApi) {
-      ElMessage.warning('该列表不支持执行操作')
+      message.warning('该列表不支持执行操作')
       return
     }
     try {
-      await ElMessageBox.confirm(confirmMsg, '警告', { type: 'warning' })
+      await confirm({ message: confirmMsg, title: '警告', type: 'warning' })
       await executeApi(selectedIds.value)
-      ElMessage.success('执行成功')
+      message.success('执行成功')
       getList()
     } catch (e) { if (e !== 'cancel') console.error(e) }
   }

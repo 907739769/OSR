@@ -3,7 +3,7 @@ import type { Component } from 'vue'
 import NProgress from 'nprogress'
 import 'nprogress/nprogress.css'
 import Cookies from 'js-cookie'
-import { ElMessage } from 'element-plus'
+import { message } from '@/composables/useMessage'
 import type { MenuRoute } from '@/stores/user'
 import { useUserStore } from '@/stores/user'
 import { useAppStore } from '@/stores/app'
@@ -354,7 +354,7 @@ router.onError((error, to) => {
   if (mark && mark.path === to.fullPath && Date.now() - mark.at < CHUNK_RELOAD_WINDOW) {
     sessionStorage.removeItem(CHUNK_RELOAD_KEY)
     console.error('[router] 刷新后仍无法加载页面资源，停止自动刷新', error)
-    ElMessage.error('页面资源加载失败，请检查网络后重试')
+    message.error('页面资源加载失败，请检查网络后重试')
     return
   }
 

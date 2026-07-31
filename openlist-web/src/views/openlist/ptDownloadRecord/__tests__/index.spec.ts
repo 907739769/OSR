@@ -49,7 +49,7 @@ describe('failReasonCode 标签', () => {
       taskList: ref([{ id: 1, title: 'A', state: 'FAILED', failReason: 'boom', failReasonCode: 'ZOMBIE_TIMEOUT' }])
     }))
     const wrapper = mount(PtDownloadRecordPage)
-    expect(wrapper.find('.record-fail el-tag').exists()).toBe(true)
+    expect(wrapper.find('.record-fail .v-chip').exists()).toBe(true)
     expect(wrapper.text()).toContain('下载超时')
   })
 
@@ -58,7 +58,7 @@ describe('failReasonCode 标签', () => {
       taskList: ref([{ id: 1, title: 'A', state: 'FAILED', failReason: 'boom' }])
     }))
     const wrapper = mount(PtDownloadRecordPage)
-    expect(wrapper.find('.record-fail el-tag').exists()).toBe(false)
+    expect(wrapper.find('.record-fail .v-chip').exists()).toBe(false)
   })
 })
 
@@ -104,7 +104,7 @@ describe('PtDownloadRecord 骨架屏', () => {
   })
 
   it('骨架屏数量根据页面宽度动态变化（至少 3 张）', () => {
-    ;(usePtDownloadRecord as any).mockReturnValue(baseComposable({
+    (usePtDownloadRecord as any).mockReturnValue(baseComposable({
       taskList: ref([]),
       loading: ref(true)
     }))
@@ -177,7 +177,7 @@ describe('PtDownloadRecord 批量重试', () => {
       toggleRecordSelect
     }))
     const wrapper = mount(PtDownloadRecordPage)
-    await wrapper.find('.record-card-checkbox').trigger('change')
+    await wrapper.find('.record-card-checkbox').trigger('click')
     expect(toggleRecordSelect).toHaveBeenCalled()
   })
 
@@ -194,7 +194,7 @@ describe('PtDownloadRecord 批量重试', () => {
   })
 
   it('批量模式下 FAILED 卡片带有 selectable class', () => {
-    ;(usePtDownloadRecord as any).mockReturnValue(baseComposable({
+    (usePtDownloadRecord as any).mockReturnValue(baseComposable({
       selectionMode: ref(true),
       taskList: ref([{ id: 1, title: 'A', state: 'FAILED', failReason: 'boom' }])
     }))
@@ -203,7 +203,7 @@ describe('PtDownloadRecord 批量重试', () => {
   })
 
   it('批量模式下非 FAILED 卡片不带 selectable class', () => {
-    ;(usePtDownloadRecord as any).mockReturnValue(baseComposable({
+    (usePtDownloadRecord as any).mockReturnValue(baseComposable({
       selectionMode: ref(true),
       taskList: ref([{ id: 1, title: 'A', state: 'COMPLETED' }])
     }))

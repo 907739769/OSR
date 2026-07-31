@@ -1,5 +1,5 @@
 import { ref, computed } from 'vue'
-import { ElMessage } from 'element-plus'
+import { message } from '@/composables/useMessage'
 import { useTaskList } from './useTaskList'
 import {
   getPtIndexerListApi,
@@ -67,13 +67,13 @@ export function usePtIndexer() {
 
   const handleTest = async () => {
     if (!base.form.value.url || !base.form.value.apiKey) {
-      ElMessage.warning('请先填写接口地址与 apikey')
+      message.warning('请先填写接口地址与 apikey')
       return
     }
     testLoading.value = true
     try {
       await testPtIndexerApi(base.form.value)
-      ElMessage.success('连接成功')
+      message.success('连接成功')
     } catch (e) {
       // 失败提示已由 axios 拦截器统一弹出（request.ts 的响应拦截器无论业务错误
       // 还是网络错误都会 ElMessage.error 具体原因后再 reject），这里不再重复弹窗，
@@ -90,13 +90,13 @@ export function usePtIndexer() {
 
   const fetchCategories = async () => {
     if (!base.form.value.url || !base.form.value.apiKey) {
-      ElMessage.warning('请先填写接口地址与 apikey')
+      message.warning('请先填写接口地址与 apikey')
       return
     }
     categoriesLoading.value = true
     try {
       categoryOptions.value = await getPtIndexerCategoriesApi(base.form.value) as unknown as CategoryOption[]
-      ElMessage.success('分类获取成功')
+      message.success('分类获取成功')
     } catch (e) {
       // 失败提示已由 axios 拦截器统一弹出，见 handleTest 同类注释
       console.error('[PT索引器] 获取分类失败:', e)

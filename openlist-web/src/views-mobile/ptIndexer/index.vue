@@ -2,35 +2,43 @@
   <div class="mobile-page">
     <!-- 搜索 -->
     <MobileSearchPanel v-model:collapsed="searchCollapsed" :loading="loading" @search="handleQuery" @reset="resetQuery">
-      <el-form ref="queryRef" :model="queryParams" label-width="72px">
-        <el-form-item label="名称" prop="name">
-          <el-input v-model="queryParams.name" placeholder="请输入名称" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="状态" prop="enabled">
-          <el-select v-model="queryParams.enabled" placeholder="全部状态" clearable style="width: 100%">
-            <el-option label="启用" value="1" />
-            <el-option label="停用" value="0" />
-          </el-select>
-        </el-form-item>
-      </el-form>
+      <v-text-field
+        v-model="queryParams.name"
+        label="名称"
+        placeholder="请输入名称"
+        clearable
+        density="compact"
+        variant="outlined"
+        @keyup.enter="handleQuery"
+      />
+      <v-select
+        v-model="queryParams.enabled"
+        :items="[{ title: '启用', value: '1' }, { title: '停用', value: '0' }]"
+        label="状态"
+        placeholder="全部状态"
+        clearable
+        density="compact"
+        variant="outlined"
+      />
     </MobileSearchPanel>
 
     <!-- 批量操作 -->
     <div class="batch-bar" v-if="selectedIds.length > 0">
       <span class="selected-count">已选 {{ selectedIds.length }} 项</span>
-      <el-button link type="danger" size="small" @click="handleDelete(undefined, `是否确认删除编号为“${selectedIds}”的索引器？`)">
-        <el-icon><Delete /></el-icon> 批量删除
-      </el-button>
-      <el-button link size="small" @click="clearSelection">取消</el-button>
+      <v-btn variant="text" color="error" size="small" @click="handleDelete(undefined, `是否确认删除编号为“${selectedIds}”的索引器？`)">
+        批量删除
+      </v-btn>
+      <v-btn variant="text" size="small" @click="clearSelection">取消</v-btn>
     </div>
 
     <!-- 新增 FAB -->
-    <el-button class="fab-add" type="primary" size="large" round @click="handleAdd('新增索引器')">
-      <el-icon><Plus /></el-icon> 新增
-    </el-button>
+    <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="mdi-plus" @click="handleAdd('新增索引器')">
+      新增
+    </v-btn>
 
     <!-- 列表 -->
-    <div class="task-list" v-loading="loading">
+    <div class="task-list">
+      <v-progress-linear v-if="loading" indeterminate color="primary" />
       <div
         v-for="item in taskList"
         :key="item.id"
@@ -39,18 +47,17 @@
         @click="handleCardClick($event, item.id)"
       >
         <div class="card-checkbox">
-          <el-checkbox
+          <v-checkbox-btn
             :model-value="selectedIds.includes(item.id)"
-            size="large"
-            @change="toggleSelect(item.id)"
+            @update:model-value="toggleSelect(item.id)"
           />
         </div>
         <div class="card-content">
           <div class="card-top">
             <span class="task-name">{{ item.name }}</span>
-            <el-tag :type="item.enabled === '1' ? 'success' : 'danger'" size="small" effect="light">
+            <v-chip :color="item.enabled === '1' ? 'success' : 'error'" size="small" variant="tonal">
               {{ item.enabled === '1' ? '启用' : '停用' }}
-            </el-tag>
+            </v-chip>
           </div>
           <div class="card-detail">
             <div class="detail-row">
@@ -73,31 +80,27 @@
               <span class="label">上次结果</span>
               <span class="value">
                 <span v-if="!item.lastStatus">-</span>
-                <el-tag v-else-if="item.lastStatus === 'OK'" type="success" size="small">正常</el-tag>
-                <el-tag v-else type="danger" size="small">{{ item.lastStatus }}</el-tag>
+                <v-chip v-else-if="item.lastStatus === 'OK'" color="success" size="small" variant="tonal">正常</v-chip>
+                <v-chip v-else color="error" size="small" variant="tonal">{{ item.lastStatus }}</v-chip>
               </span>
             </div>
             <div class="detail-row" v-if="item.failCount > 0">
               <span class="label">连续失败</span>
               <span class="value">
-                <el-tag :type="item.failCount >= 10 ? 'danger' : 'warning'" size="small">
+                <v-chip :color="item.failCount >= 10 ? 'error' : 'warning'" size="small" variant="tonal">
                   {{ item.failCount }} 次
-                </el-tag>
+                </v-chip>
               </span>
             </div>
           </div>
         </div>
         <div class="card-actions" @click.stop>
-          <el-button link type="primary" size="small" :icon="Edit" @click="handleUpdate(item, '修改索引器')">
-            修改
-          </el-button>
-          <el-button link type="danger" size="small" :icon="Delete" @click="handleDelete(item)">
-            删除
-          </el-button>
+          <v-btn variant="text" color="primary" size="small" icon="mdi-pencil-outline" @click="handleUpdate(item, '修改索引器')" />
+          <v-btn variant="text" color="error" size="small" icon="mdi-delete-outline" @click="handleDelete(item)" />
         </div>
       </div>
 
-      <el-empty v-if="!loading && taskList.length === 0" description="暂无索引器" />
+      <v-empty-state v-if="!loading && taskList.length === 0" icon="mdi-inbox-outline" title="暂无索引器" />
     </div>
 
     <!-- 分页 -->
@@ -112,78 +115,82 @@
     />
 
     <!-- 新增/编辑弹窗 -->
-    <el-dialog v-model="open" :title="dialogTitle" width="90%" append-to-body class="modern-dialog">
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
-        <el-form-item label="名称" prop="name">
-          <el-input v-model="form.name" placeholder="请输入名称" />
-        </el-form-item>
-        <el-form-item label="接口地址" prop="url">
-          <el-input v-model="form.url" placeholder="如 http://jackett:9117/api/v2.0/indexers/xxx/results/torznab/api" />
-        </el-form-item>
-        <el-form-item label="apikey" prop="apiKey">
-          <el-input
-            v-model="form.apiKey"
-            type="password"
-            show-password
-            :placeholder="form.id ? '留空则不修改 apikey' : '请输入 Torznab apikey'"
-          />
-        </el-form-item>
-        <el-form-item label="分类" prop="categories">
-          <div class="category-field">
-            <el-select
-              v-model="categoriesSelected"
-              multiple
-              filterable
-              allow-create
-              default-first-option
-              collapse-tags
-              collapse-tags-tooltip
-              placeholder="点击右侧「获取分类」后选择，或直接输入分类 ID"
-            >
-              <el-option-group
-                v-for="parent in categoryOptions"
-                :key="parent.id"
-                :label="`${parent.name} (${parent.id})`"
-              >
-                <el-option :label="`${parent.name} (${parent.id})`" :value="String(parent.id)" />
-                <el-option
-                  v-for="child in parent.children"
-                  :key="child.id"
-                  :label="`\u3000${child.name} (${child.id})`"
-                  :value="String(child.id)"
-                />
-              </el-option-group>
-            </el-select>
-            <el-button :loading="categoriesLoading" @click="fetchCategories">获取分类</el-button>
-          </div>
-        </el-form-item>
-        <el-form-item label="轮询周期" prop="pollInterval">
-          <el-input-number v-model="form.pollInterval" :min="60" :step="60" style="width: 100%" />
-        </el-form-item>
-        <el-form-item label="状态" prop="enabled">
-          <el-radio-group v-model="form.enabled">
-            <el-radio value="1">启用</el-radio>
-            <el-radio value="0">停用</el-radio>
-          </el-radio-group>
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button :loading="testLoading" @click="handleTest">测试连接</el-button>
-        <el-button @click="open = false">取消</el-button>
-        <el-button type="primary" :loading="submitLoading" @click="submitForm">确定</el-button>
-      </template>
-    </el-dialog>
+    <v-dialog v-model="open" width="90%" class="modern-dialog">
+      <v-card :title="dialogTitle">
+        <v-card-text>
+          <v-form ref="formRef">
+            <v-text-field
+              v-model="form.name"
+              label="名称"
+              placeholder="请输入名称"
+              :rules="toRules(rules.name)"
+              class="mb-2"
+            />
+            <v-text-field
+              v-model="form.url"
+              label="接口地址"
+              placeholder="如 http://jackett:9117/api/v2.0/indexers/xxx/results/torznab/api"
+              :rules="toRules(rules.url)"
+              class="mb-2"
+            />
+            <v-text-field
+              v-model="form.apiKey"
+              label="apikey"
+              type="password"
+              :placeholder="form.id ? '留空则不修改 apikey' : '请输入 Torznab apikey'"
+              :rules="toRules(rules.apiKey)"
+              class="mb-2"
+            />
+            <div class="category-field mb-2">
+              <v-select
+                v-model="categoriesSelected"
+                :items="categoryFlatOptions"
+                multiple
+                chips
+                closable-chips
+                label="分类"
+                placeholder="点击右侧「获取分类」后选择，或直接输入分类 ID"
+                density="comfortable"
+                variant="outlined"
+                hide-details
+              />
+              <v-btn :loading="categoriesLoading" variant="outlined" @click="fetchCategories">获取分类</v-btn>
+            </div>
+            <v-text-field
+              v-model.number="form.pollInterval"
+              label="轮询周期"
+              type="number"
+              min="60"
+              step="60"
+              suffix="秒"
+              :rules="toRules(rules.pollInterval)"
+              class="mb-2"
+            />
+            <v-radio-group v-model="form.enabled" inline label="状态" hide-details>
+              <v-radio label="启用" value="1" />
+              <v-radio label="停用" value="0" />
+            </v-radio-group>
+          </v-form>
+        </v-card-text>
+        <v-card-actions>
+          <v-btn :loading="testLoading" @click="handleTest">测试连接</v-btn>
+          <v-spacer />
+          <v-btn @click="open = false">取消</v-btn>
+          <v-btn color="primary" variant="flat" :loading="submitLoading" @click="submitForm">确定</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { Edit, Delete, Plus } from '@element-plus/icons-vue'
+import { computed } from 'vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import { usePtIndexer } from '@/composables/usePtIndexer'
 
 const {
-  taskList, loading, total, queryParams, queryRef,
+  taskList, loading, total, queryParams,
   handleQuery, resetQuery,
   selectedIds, toggleSelect, handleCardClick, clearSelection,
   open, dialogTitle, submitLoading, formRef, form, rules,
@@ -193,6 +200,29 @@ const {
   totalPages, prevPage, nextPage, handleSizeChange,
   searchCollapsed
 } = usePtIndexer()
+
+// 将 Element Plus 风格的校验规则对象转换为 Vuetify 的规则函数数组
+const toRules = (fieldRules?: any[]) => {
+  return (fieldRules || []).map((r: any) => (value: any) => {
+    if (r.required && (value === undefined || value === null || value === '')) return r.message
+    if (r.pattern && value && !r.pattern.test(value)) return r.message
+    if (r.type === 'number' && r.min !== undefined && value !== null && value !== undefined && Number(value) < r.min) return r.message
+    return true
+  })
+}
+
+// el-option-group 的父子分类结构在 Vuetify v-select 中拍平为一层，父分类照常可选，
+// 子分类前缀全角空格保留原有的缩进视觉效果
+const categoryFlatOptions = computed(() => {
+  const list: { title: string; value: string }[] = []
+  categoryOptions.value.forEach(parent => {
+    list.push({ title: `${parent.name} (${parent.id})`, value: String(parent.id) })
+    parent.children.forEach(child => {
+      list.push({ title: `\u3000${child.name} (${child.id})`, value: String(child.id) })
+    })
+  })
+  return list
+})
 </script>
 
 <style scoped lang="scss">
@@ -219,12 +249,6 @@ const {
     color: var(--osr-primary);
     margin-right: 4px;
     white-space: nowrap;
-  }
-
-  .el-button {
-    font-size: 12px;
-    padding: 0 4px;
-    height: auto;
   }
 }
 
@@ -316,17 +340,10 @@ const {
   .card-actions {
     display: flex;
     align-items: center;
-    gap: 4px;
+    gap: 2px;
     flex-shrink: 0;
-    padding-left: 8px;
+    padding-left: 4px;
     border-left: 1px solid var(--osr-border-light);
-
-    .el-button {
-      font-size: 11px;
-      padding: 2px 4px;
-      height: auto;
-      white-space: nowrap;
-    }
   }
 }
 
@@ -335,9 +352,6 @@ const {
   right: 20px;
   bottom: calc(56px + 16px + env(safe-area-inset-bottom, 0px));
   z-index: 1000;
-  padding: 12px 20px;
-  font-size: 14px;
-  font-weight: 500;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   transition: all var(--osr-transition-fast);
 
@@ -348,8 +362,6 @@ const {
   @media (min-width: 768px) {
     right: 40px;
     bottom: calc(56px + 24px);
-    padding: 14px 24px;
-    font-size: 15px;
   }
 }
 
@@ -358,15 +370,9 @@ const {
   gap: 8px;
   align-items: flex-start;
 
-  .el-select {
+  .v-select {
     flex: 1;
     min-width: 0;
-  }
-}
-
-:deep(.modern-dialog) {
-  .el-dialog__body {
-    padding: 16px;
   }
 }
 </style>

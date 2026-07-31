@@ -1,6 +1,6 @@
 import { onMounted, onUnmounted } from 'vue'
 import Cookies from 'js-cookie'
-import { ElMessage } from 'element-plus'
+import { message } from '@/composables/useMessage'
 import { useUserStore } from '@/stores/user'
 
 /** 下载记录状态推送事件：DownloadTrackService 的 markDownloading/complete/fail 三个状态推进点各推一条 */
@@ -54,7 +54,7 @@ export function usePtStatusSocket(handlers: PtStatusSocketHandlers) {
         unauthorized = true
         const userStore = useUserStore()
         userStore.clearToken()
-        ElMessage.error('登录已过期，请重新登录')
+        message.error('登录已过期，请重新登录')
         window.location.href = '/login'
         return
       }

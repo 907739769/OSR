@@ -1,61 +1,77 @@
 <template>
   <div class="page-container">
-    <el-card class="table-card">
-      <el-tabs v-model="activeTab">
-        <el-tab-pane label="文件名模板" name="template">
-          <div v-loading="templateLoading" class="template-tab">
-            <div class="template-editor">
-              <el-input
-                ref="templateInputRef"
-                v-model="template"
-                type="textarea"
-                :rows="6"
-                placeholder="Pebble 语法，例如 {{ title }} ({{ year }}).{{ extension }}"
-                @input="doPreview"
-              />
-              <div class="template-actions">
-                <el-button type="primary" :loading="templateSaving" @click="saveTemplate">保存模板</el-button>
+    <v-card class="table-card">
+      <v-tabs v-model="activeTab" color="primary">
+        <v-tab value="template">文件名模板</v-tab>
+        <v-tab value="rules">分类规则</v-tab>
+      </v-tabs>
+
+      <v-window v-model="activeTab">
+        <v-window-item value="template">
+          <div class="tab-body">
+            <div v-if="templateLoading" class="tab-loading">
+              <v-progress-circular indeterminate color="primary" size="32" />
+            </div>
+            <div v-else class="template-tab">
+              <div class="template-editor">
+                <v-textarea
+                  ref="templateInputRef"
+                  v-model="template"
+                  rows="6"
+                  variant="outlined"
+                  placeholder="Pebble 语法，例如 {{ title }} ({{ year }}).{{ extension }}"
+                  @update:model-value="doPreview"
+                />
+                <div class="template-actions">
+                  <v-btn color="primary" :loading="templateSaving" @click="saveTemplate">保存模板</v-btn>
+                </div>
+                <v-alert v-if="previewError" :text="previewError" type="error" variant="tonal" class="preview-alert" />
+                <v-alert v-else type="success" variant="tonal" class="preview-alert">
+                  <div class="preview-text">{{ previewResult || '（预览为空）' }}</div>
+                </v-alert>
               </div>
-              <el-alert v-if="previewError" :title="previewError" type="error" :closable="false" style="margin-top:12px" />
-              <el-alert v-else :title="previewResult || '（预览为空）'" type="success" :closable="false" style="margin-top:12px">
-                <div style="font-family:Consolas,monospace;word-break:break-all;white-space:pre-wrap">{{ previewResult }}</div>
-              </el-alert>
-            </div>
-            <div class="template-variables">
-              <div class="variables-title">可用变量（点击插入）</div>
-              <el-tag
-                v-for="v in TEMPLATE_VARIABLES"
-                :key="v"
-                class="variable-tag"
-                @click="insertVariable(v)"
-              >{{ v }}</el-tag>
+              <div class="template-variables">
+                <div class="variables-title">可用变量（点击插入）</div>
+                <v-chip
+                  v-for="v in TEMPLATE_VARIABLES"
+                  :key="v"
+                  class="variable-tag"
+                  size="small"
+                  @click="insertVariable(v)"
+                >{{ v }}</v-chip>
+              </div>
             </div>
           </div>
-        </el-tab-pane>
+        </v-window-item>
 
-        <el-tab-pane label="分类规则" name="rules">
-          <div v-loading="rulesLoading">
-            <el-divider content-position="left">电影</el-divider>
-            <RuleTable
-              :rules="movieRules" media-type="movie"
-              @add="addRule" @remove="removeRule" @move="moveRule"
-            />
-            <div class="rules-actions">
-              <el-button type="primary" :loading="rulesSaving" @click="saveRules('movie')">保存电影分类规则</el-button>
+        <v-window-item value="rules">
+          <div class="tab-body">
+            <div v-if="rulesLoading" class="tab-loading">
+              <v-progress-circular indeterminate color="primary" size="32" />
             </div>
+            <div v-else>
+              <div class="section-divider">电影</div>
+              <RuleTable
+                :rules="movieRules" media-type="movie"
+                @add="addRule" @remove="removeRule" @move="moveRule"
+              />
+              <div class="rules-actions">
+                <v-btn color="primary" :loading="rulesSaving" @click="saveRules('movie')">保存电影分类规则</v-btn>
+              </div>
 
-            <el-divider content-position="left">剧集</el-divider>
-            <RuleTable
-              :rules="tvRules" media-type="tv"
-              @add="addRule" @remove="removeRule" @move="moveRule"
-            />
-            <div class="rules-actions">
-              <el-button type="primary" :loading="rulesSaving" @click="saveRules('tv')">保存剧集分类规则</el-button>
+              <div class="section-divider">剧集</div>
+              <RuleTable
+                :rules="tvRules" media-type="tv"
+                @add="addRule" @remove="removeRule" @move="moveRule"
+              />
+              <div class="rules-actions">
+                <v-btn color="primary" :loading="rulesSaving" @click="saveRules('tv')">保存剧集分类规则</v-btn>
+              </div>
             </div>
           </div>
-        </el-tab-pane>
-      </el-tabs>
-    </el-card>
+        </v-window-item>
+      </v-window>
+    </v-card>
   </div>
 </template>
 
@@ -75,12 +91,12 @@ const {
 } = useRenameConfig()
 
 /**
- * 插入到光标位置而不是简单追加到末尾：ElInput(textarea) 把底层 <textarea> DOM
- * 暴露在组件实例的 .textarea 上，取不到时（理论上不会发生）退化为追加到末尾。
+ * 插入到光标位置而不是简单追加到末尾：VTextarea 把底层 <textarea> DOM
+ * 挂在组件根元素内，通过 $el 查询获取，取不到时（理论上不会发生）退化为追加到末尾。
  */
 const insertVariable = (varName: string) => {
   const snippet = `{{ ${varName} }}`
-  const textarea: HTMLTextAreaElement | undefined = templateInputRef.value?.textarea
+  const textarea: HTMLTextAreaElement | undefined = templateInputRef.value?.$el?.querySelector('textarea')
   if (!textarea) {
     template.value += snippet
     doPreview()
@@ -111,6 +127,16 @@ const insertVariable = (varName: string) => {
   box-shadow: var(--osr-shadow-base);
 }
 
+.tab-body {
+  padding: 16px;
+}
+
+.tab-loading {
+  display: flex;
+  justify-content: center;
+  padding: 60px 0;
+}
+
 .template-tab {
   display: flex;
   gap: 20px;
@@ -137,8 +163,42 @@ const insertVariable = (varName: string) => {
   }
 }
 
+.preview-alert {
+  margin-top: 12px;
+
+  .preview-text {
+    font-family: Consolas, monospace;
+    word-break: break-all;
+    white-space: pre-wrap;
+  }
+}
+
+.section-divider {
+  position: relative;
+  margin: 20px 0 12px;
+  padding-left: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--osr-text-primary);
+  border-left: 3px solid var(--osr-primary);
+}
+
 .template-actions,
 .rules-actions {
   margin-top: 12px;
+}
+
+@media (max-width: 768px) {
+  .tab-body {
+    padding: 12px;
+  }
+
+  .template-tab {
+    flex-direction: column;
+  }
+
+  .template-variables {
+    width: 100% !important;
+  }
 }
 </style>

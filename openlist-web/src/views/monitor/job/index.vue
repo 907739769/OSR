@@ -1,78 +1,96 @@
 <template>
   <div class="page-container">
     <!-- Search Panel -->
-    <el-card class="search-card" v-if="showSearch">
-      <el-form :model="queryParams" ref="queryRef" :inline="true" label-width="80px">
-        <el-form-item label="任务名称" prop="jobName">
-          <el-input v-model="queryParams.jobName" placeholder="请输入任务名称" clearable @keyup.enter="handleQuery" />
-        </el-form-item>
-        <el-form-item label="任务状态" prop="status">
-          <el-select v-model="queryParams.status" placeholder="任务状态" clearable>
-            <el-option label="正常" value="0" />
-            <el-option label="暂停" value="1" />
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="handleQuery">
-            <el-icon><Search /></el-icon> 搜索
-          </el-button>
-          <el-button @click="resetQuery">
-            <el-icon><Refresh /></el-icon> 重置
-          </el-button>
-        </el-form-item>
-      </el-form>
-    </el-card>
+    <v-card class="search-card" v-if="showSearch">
+      <v-card-text>
+        <v-form ref="queryRef" @submit.prevent="handleQuery">
+          <div class="search-form-row">
+            <v-text-field
+              v-model="queryParams.jobName"
+              label="任务名称"
+              placeholder="请输入任务名称"
+              clearable
+              density="compact"
+              variant="outlined"
+              hide-details
+              style="max-width: 220px"
+              @keyup.enter="handleQuery"
+            />
+            <v-select
+              v-model="queryParams.status"
+              :items="[{ title: '正常', value: '0' }, { title: '暂停', value: '1' }]"
+              label="任务状态"
+              placeholder="任务状态"
+              clearable
+              density="compact"
+              variant="outlined"
+              hide-details
+              style="max-width: 160px"
+            />
+            <v-btn color="primary" prepend-icon="mdi-magnify" @click="handleQuery">搜索</v-btn>
+            <v-btn variant="outlined" prepend-icon="mdi-refresh" @click="resetQuery">重置</v-btn>
+          </div>
+        </v-form>
+      </v-card-text>
+    </v-card>
 
     <!-- Table Card -->
-    <el-card class="table-card">
+    <v-card class="table-card">
       <!-- Action Bar -->
       <div class="action-bar">
-        <el-button text @click="showSearch = !showSearch">
-          <el-icon><Filter /></el-icon>
+        <v-btn variant="text" prepend-icon="mdi-filter-outline" @click="showSearch = !showSearch">
           {{ showSearch ? '隐藏搜索' : '显示搜索' }}
-        </el-button>
+        </v-btn>
       </div>
 
       <!-- Desktop Table -->
-      <el-table v-if="appStore.device === 'desktop'" v-loading="loading" :data="jobList" class="modern-table">
-        <el-table-column label="任务名称" prop="jobName" min-width="140" show-overflow-tooltip />
-        <el-table-column label="cron执行表达式" prop="cronExpression" width="140" align="center" show-overflow-tooltip />
-        <el-table-column label="状态" align="center" width="90">
-          <template #default="scope">
-            <el-switch
-              v-model="scope.row.status"
-              :active-value="'0'"
-              :inactive-value="'1'"
-              @change="handleSwitchChange(scope.row)"
-            />
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" align="center" width="240" fixed="right">
-          <template #default="scope">
-            <el-button link type="primary" @click="handleUpdate(scope.row, '修改定时任务')">
-              <el-icon><Edit /></el-icon> 修改
-            </el-button>
-            <el-button link type="primary" @click="handleRun(scope.row)">
-              <el-icon><VideoPlay /></el-icon> 执行
-            </el-button>
-            <el-button link type="info" @click="handleViewLogs(scope.row)">
-              <el-icon><List /></el-icon> 记录
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
+      <v-data-table
+        v-if="appStore.device === 'desktop'"
+        :loading="loading"
+        :items="jobList"
+        :headers="jobHeaders"
+        :items-per-page="-1"
+        hide-default-footer
+        class="modern-table"
+      >
+        <template #item.status="{ item }">
+          <v-switch
+            v-model="item.status"
+            true-value="0"
+            false-value="1"
+            color="primary"
+            density="compact"
+            hide-details
+            @update:model-value="() => handleSwitchChange(item)"
+          />
+        </template>
+        <template #item.actions="{ item }">
+          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(item, '修改定时任务')">
+            修改
+          </v-btn>
+          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-play-outline" @click="handleRun(item)">
+            执行
+          </v-btn>
+          <v-btn variant="text" color="secondary" size="small" prepend-icon="mdi-format-list-bulleted" @click="handleViewLogs(item)">
+            记录
+          </v-btn>
+        </template>
+      </v-data-table>
 
       <!-- Mobile Card List -->
-      <div v-if="appStore.device === 'mobile'" v-loading="loading" class="mobile-card-list">
-        <div v-for="item in jobList" :key="item.jobId" class="mobile-card">
+      <div v-if="appStore.device === 'mobile'" class="mobile-card-list">
+        <v-progress-linear v-if="loading" indeterminate color="primary" />
+        <v-card v-for="item in jobList" :key="item.jobId" variant="outlined" class="mobile-card">
           <div class="mobile-card-header">
-            <span class="mobile-card-title"><i class="fa fa-cog"></i> {{ item.jobName }}</span>
-            <el-switch
-              size="small"
+            <span class="mobile-card-title"><v-icon icon="mdi-cog-outline" size="14" /> {{ item.jobName }}</span>
+            <v-switch
               v-model="item.status"
-              :active-value="'0'"
-              :inactive-value="'1'"
-              @change="handleSwitchChange(item)"
+              true-value="0"
+              false-value="1"
+              color="primary"
+              density="compact"
+              hide-details
+              @update:model-value="() => handleSwitchChange(item)"
             />
           </div>
           <div class="mobile-card-body">
@@ -82,278 +100,316 @@
             </div>
           </div>
           <div class="mobile-card-actions">
-            <el-button link type="primary" size="small" @click="handleUpdate(item, '修改定时任务')">
-              <el-icon><Edit /></el-icon> 修改
-            </el-button>
-            <el-button link type="primary" size="small" @click="handleRun(item)">
-              <el-icon><VideoPlay /></el-icon> 执行
-            </el-button>
-            <el-button link type="info" size="small" @click="handleViewLogs(item)">
-              <el-icon><List /></el-icon> 记录
-            </el-button>
+            <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(item, '修改定时任务')">
+              修改
+            </v-btn>
+            <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-play-outline" @click="handleRun(item)">
+              执行
+            </v-btn>
+            <v-btn variant="text" color="secondary" size="small" prepend-icon="mdi-format-list-bulleted" @click="handleViewLogs(item)">
+              记录
+            </v-btn>
           </div>
-        </div>
-        <el-empty v-if="!jobList.length" description="暂无数据" />
+        </v-card>
+        <v-empty-state v-if="!loading && !jobList.length" icon="mdi-inbox-outline" title="暂无数据" />
       </div>
 
       <!-- Pagination -->
       <div class="pagination-wrapper">
-        <el-pagination
-          v-model:current-page="queryParams.pageNum"
-          v-model:page-size="queryParams.pageSize"
-          :total="total"
-          :page-sizes="[10, 20, 50]"
-          layout="total, sizes, prev, pager, next, jumper"
-          @current-change="getList"
-          @size-change="getList"
+        <v-pagination
+          v-model="queryParams.pageNum"
+          :length="Math.ceil(total / queryParams.pageSize) || 1"
+          density="comfortable"
+          @update:model-value="getList"
         />
       </div>
-    </el-card>
+    </v-card>
 
     <!-- Add/Edit Dialog -->
-    <el-dialog v-model="open" :title="dialogTitle" width="650px" append-to-body class="modern-dialog">
-      <el-form ref="formRef" :model="form" :rules="rules" label-width="120px">
-        <el-form-item label="任务名称" prop="jobName">
-          <el-input v-model="form.jobName" placeholder="请输入任务名称" />
-        </el-form-item>
-        <el-form-item label="cron执行表达式" prop="cronExpression">
-          <el-input v-model="form.cronExpression" placeholder="请输入cron表达式">
-            <template #append>
-              <el-button @click="showCronDialog = true">表达式说明</el-button>
-            </template>
-          </el-input>
-        </el-form-item>
-        <el-form-item label="状态">
-          <el-radio-group v-model="form.status">
-            <el-radio value="0">正常</el-radio>
-            <el-radio value="1">暂停</el-radio>
-          </el-radio-group>
-        </el-form-item>
-        <el-form-item label="备注" prop="remark">
-          <el-input v-model="form.remark" type="textarea" :rows="3" placeholder="请输入内容" />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <el-button @click="open = false">取消</el-button>
-        <el-button type="primary" @click="submitForm" :loading="submitLoading">确定</el-button>
-      </template>
-    </el-dialog>
+    <v-dialog v-model="open" width="650px" class="modern-dialog">
+      <v-card :title="dialogTitle">
+        <v-card-text>
+          <v-form ref="formRef">
+            <v-text-field
+              v-model="form.jobName"
+              label="任务名称"
+              placeholder="请输入任务名称"
+              variant="outlined"
+              density="comfortable"
+              class="mb-2"
+              :rules="[(v: any) => !!v || '任务名称不能为空']"
+            />
+            <div class="cron-field">
+              <v-text-field
+                v-model="form.cronExpression"
+                label="cron执行表达式"
+                placeholder="请输入cron表达式"
+                variant="outlined"
+                density="comfortable"
+                class="mb-2 cron-input"
+                :rules="[(v: any) => !!v || 'Cron表达式不能为空']"
+              />
+              <v-btn variant="outlined" @click="showCronDialog = true">表达式说明</v-btn>
+            </div>
+            <v-radio-group v-model="form.status" label="状态" inline hide-details class="mb-2">
+              <v-radio label="正常" value="0" />
+              <v-radio label="暂停" value="1" />
+            </v-radio-group>
+            <v-textarea
+              v-model="form.remark"
+              label="备注"
+              rows="3"
+              placeholder="请输入内容"
+              variant="outlined"
+              density="comfortable"
+            />
+          </v-form>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="outlined" @click="open = false">取消</v-btn>
+          <v-btn color="primary" variant="flat" :loading="submitLoading" @click="submitForm">确定</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- Cron Expression Dialog -->
-    <el-dialog title="Cron表达式说明" v-model="showCronDialog" width="500px" append-to-body class="modern-dialog">
-      <div class="cron-desc">
-        <p><strong>秒 分 时 日 月 周 年(可选)</strong></p>
-        <p>例：0 0 12 * * ? 每天12点运行</p>
-        <p>例：0 15 10 ? * * 每天10:15运行</p>
-        <p>例：0 0/5 * * * ? 每5分钟运行</p>
-        <p>例：0 15 10 ? * MON-FRI 周一到周五10:15运行</p>
-      </div>
-      <template #footer>
-        <el-button @click="showCronDialog = false">关 闭</el-button>
-      </template>
-    </el-dialog>
+    <v-dialog v-model="showCronDialog" width="500px" class="modern-dialog">
+      <v-card title="Cron表达式说明">
+        <v-card-text>
+          <div class="cron-desc">
+            <p><strong>秒 分 时 日 月 周 年(可选)</strong></p>
+            <p>例：0 0 12 * * ? 每天12点运行</p>
+            <p>例：0 15 10 ? * * 每天10:15运行</p>
+            <p>例：0 0/5 * * * ? 每5分钟运行</p>
+            <p>例：0 15 10 ? * MON-FRI 周一到周五10:15运行</p>
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="outlined" @click="showCronDialog = false">关 闭</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- Job Log Dialog -->
-    <el-dialog
+    <v-dialog
       v-model="logOpen"
-      :title="`${logTitle} - 执行记录`"
       :width="appStore.device === 'mobile' ? '100%' : '900px'"
-      :top="appStore.device === 'mobile' ? '0' : '5vh'"
       :fullscreen="appStore.device === 'mobile'"
-      append-to-body
       class="modern-dialog log-dialog"
     >
-      <!-- Mobile: Collapsible Search Panel -->
-      <div v-if="appStore.device === 'mobile'" class="mobile-search-panel" :class="{ collapsed: logSearchCollapsed }">
-        <div class="mobile-search-panel-header" @click="logSearchCollapsed = !logSearchCollapsed">
-          <span class="mobile-search-panel-title">
-            <el-icon><Search /></el-icon>
-            筛选查询
-          </span>
-          <el-icon class="collapse-icon" :class="{ expanded: !logSearchCollapsed }">
-            <ArrowDown />
-          </el-icon>
-        </div>
-        <div class="mobile-search-panel-body">
-          <el-form :model="logQueryParams" label-width="72px">
-            <el-form-item label="执行状态">
-              <el-select v-model="logQueryParams.status" placeholder="全部状态" clearable style="width: 100%">
-                <el-option label="成功" value="0" />
-                <el-option label="失败" value="1" />
-              </el-select>
-            </el-form-item>
-          </el-form>
-          <div class="search-actions">
-            <el-button type="primary" @click="logQueryParams.pageNum = 1; getJobLogList()">
-              <el-icon><Search /></el-icon> 搜索
-            </el-button>
-            <el-button @click="resetLogQuery">
-              <el-icon><Refresh /></el-icon> 重置
-            </el-button>
-          </div>
-        </div>
-      </div>
-
-      <!-- Desktop: Inline Search -->
-      <el-form v-else :model="logQueryParams" :inline="true" label-width="70px" class="log-search-form">
-        <el-form-item label="执行状态" prop="status">
-          <el-select v-model="logQueryParams.status" placeholder="全部状态" clearable>
-            <el-option label="成功" value="0" />
-            <el-option label="失败" value="1" />
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="logQueryParams.pageNum = 1; getJobLogList()">
-            <el-icon><Search /></el-icon> 搜索
-          </el-button>
-          <el-button @click="resetLogQuery">
-            <el-icon><Refresh /></el-icon> 重置
-          </el-button>
-        </el-form-item>
-      </el-form>
-
-      <!-- Desktop Table -->
-      <el-table v-if="appStore.device === 'desktop'" v-loading="logLoading" :data="logList" class="modern-table log-table">
-        <el-table-column label="ID" prop="jobLogId" width="70" align="center" />
-        <el-table-column label="任务名称" prop="jobName" width="140" show-overflow-tooltip />
-        <el-table-column label="调用目标" prop="invokeTarget" min-width="180" show-overflow-tooltip />
-        <el-table-column label="状态" align="center" width="80">
-          <template #default="scope">
-            <el-tag :type="scope.row.status === '0' ? 'success' : 'danger'" size="small">
-              {{ scope.row.status === '0' ? '成功' : '失败' }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="日志信息" prop="jobMessage" min-width="200" show-overflow-tooltip />
-        <el-table-column label="耗时" align="center" width="100">
-          <template #default="scope">
-            <span v-if="scope.row.startTime && scope.row.endTime">
-              {{ formatDuration(scope.row.startTime, scope.row.endTime) }}
-            </span>
-            <span v-else>-</span>
-          </template>
-        </el-table-column>
-        <el-table-column label="开始时间" prop="startTime" width="160" align="center">
-          <template #default="scope">
-            {{ formatTime(scope.row.startTime) }}
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" align="center" width="90" fixed="right">
-          <template #default="scope">
-            <el-button link type="primary" @click="handleViewLogDetail(scope.row)">
-              <el-icon><View /></el-icon> 详情
-            </el-button>
-          </template>
-        </el-table-column>
-      </el-table>
-
-      <!-- Mobile Card List -->
-      <div v-if="appStore.device === 'mobile'" v-loading="logLoading" class="log-card-list">
-        <div
-          v-for="item in logList"
-          :key="item.jobLogId"
-          class="log-card"
-        >
-          <div class="log-card-header">
-            <div class="log-card-title-row">
-              <span class="log-card-title">
-                <el-icon><Clock /></el-icon>
-                {{ item.jobName }}
+      <v-card :title="`${logTitle} - 执行记录`">
+        <v-card-text>
+          <!-- Mobile: Collapsible Search Panel -->
+          <div v-if="appStore.device === 'mobile'" class="mobile-search-panel" :class="{ collapsed: logSearchCollapsed }">
+            <div class="mobile-search-panel-header" @click="logSearchCollapsed = !logSearchCollapsed">
+              <span class="mobile-search-panel-title">
+                <v-icon icon="mdi-magnify" size="16" />
+                筛选查询
               </span>
-              <el-tag :type="item.status === '0' ? 'success' : 'danger'" size="small" effect="light">
+              <v-icon icon="mdi-chevron-down" class="collapse-icon" :class="{ expanded: !logSearchCollapsed }" />
+            </div>
+            <div class="mobile-search-panel-body">
+              <v-select
+                v-model="logQueryParams.status"
+                :items="[{ title: '成功', value: '0' }, { title: '失败', value: '1' }]"
+                label="执行状态"
+                placeholder="全部状态"
+                clearable
+                density="compact"
+                variant="outlined"
+                hide-details
+              />
+              <div class="search-actions">
+                <v-btn color="primary" prepend-icon="mdi-magnify" @click="logQueryParams.pageNum = 1; getJobLogList()">
+                  搜索
+                </v-btn>
+                <v-btn variant="outlined" prepend-icon="mdi-refresh" @click="resetLogQuery">重置</v-btn>
+              </div>
+            </div>
+          </div>
+
+          <!-- Desktop: Inline Search -->
+          <div v-else class="log-search-form">
+            <v-select
+              v-model="logQueryParams.status"
+              :items="[{ title: '成功', value: '0' }, { title: '失败', value: '1' }]"
+              label="执行状态"
+              placeholder="全部状态"
+              clearable
+              density="compact"
+              variant="outlined"
+              hide-details
+              style="max-width: 160px"
+            />
+            <v-btn color="primary" prepend-icon="mdi-magnify" @click="logQueryParams.pageNum = 1; getJobLogList()">搜索</v-btn>
+            <v-btn variant="outlined" prepend-icon="mdi-refresh" @click="resetLogQuery">重置</v-btn>
+          </div>
+
+          <!-- Desktop Table -->
+          <v-data-table
+            v-if="appStore.device === 'desktop'"
+            :loading="logLoading"
+            :items="logList"
+            :headers="logHeaders"
+            :items-per-page="-1"
+            hide-default-footer
+            class="modern-table log-table"
+          >
+            <template #item.status="{ item }">
+              <v-chip :color="item.status === '0' ? 'success' : 'error'" size="small" variant="tonal">
                 {{ item.status === '0' ? '成功' : '失败' }}
-              </el-tag>
-            </div>
-          </div>
-          <div class="log-card-body">
-            <div class="log-card-row">
-              <span class="log-card-label">调用目标</span>
-              <span class="log-card-value log-card-value-clip">{{ item.invokeTarget }}</span>
-            </div>
-            <div class="log-card-row">
-              <span class="log-card-label">日志信息</span>
-              <span class="log-card-value log-card-value-clip" @click.stop="handleViewLogDetail(item)">{{ item.jobMessage || '-' }}</span>
-            </div>
-            <div class="log-card-row">
-              <span class="log-card-label">开始时间</span>
-              <span class="log-card-value log-card-value-light">{{ formatTime(item.startTime) }}</span>
-            </div>
-            <div class="log-card-row" v-if="item.startTime && item.endTime">
-              <span class="log-card-label">耗时</span>
-              <span class="log-card-value log-card-value-light">{{ formatDuration(item.startTime, item.endTime) }}</span>
-            </div>
-          </div>
-          <div class="log-card-footer">
-            <el-button link type="primary" size="small" @click="handleViewLogDetail(item)">
-              <el-icon><View /></el-icon> 查看详情
-            </el-button>
-          </div>
-        </div>
-        <el-empty v-if="!logList.length" description="暂无执行记录" />
-      </div>
+              </v-chip>
+            </template>
+            <template #item.duration="{ item }">
+              <span v-if="item.startTime && item.endTime">
+                {{ formatDuration(item.startTime, item.endTime) }}
+              </span>
+              <span v-else>-</span>
+            </template>
+            <template #item.startTime="{ item }">
+              {{ formatTime(item.startTime) }}
+            </template>
+            <template #item.actions="{ item }">
+              <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-eye-outline" @click="handleViewLogDetail(item)">
+                详情
+              </v-btn>
+            </template>
+          </v-data-table>
 
-      <!-- Pagination -->
-      <div class="pagination-wrapper">
-        <el-pagination
-          v-model:current-page="logQueryParams.pageNum"
-          v-model:page-size="logQueryParams.pageSize"
-          :total="logTotal"
-          :page-sizes="[10, 20, 50]"
-          layout="total, sizes, prev, pager, next, jumper"
-          @current-change="getJobLogList"
-          @size-change="getJobLogList"
-        />
-      </div>
+          <!-- Mobile Card List -->
+          <div v-if="appStore.device === 'mobile'" class="log-card-list">
+            <v-progress-linear v-if="logLoading" indeterminate color="primary" />
+            <v-card
+              v-for="item in logList"
+              :key="item.jobLogId"
+              variant="outlined"
+              class="log-card"
+            >
+              <div class="log-card-header">
+                <div class="log-card-title-row">
+                  <span class="log-card-title">
+                    <v-icon icon="mdi-clock-outline" size="14" />
+                    {{ item.jobName }}
+                  </span>
+                  <v-chip :color="item.status === '0' ? 'success' : 'error'" size="small" variant="tonal">
+                    {{ item.status === '0' ? '成功' : '失败' }}
+                  </v-chip>
+                </div>
+              </div>
+              <div class="log-card-body">
+                <div class="log-card-row">
+                  <span class="log-card-label">调用目标</span>
+                  <span class="log-card-value log-card-value-clip">{{ item.invokeTarget }}</span>
+                </div>
+                <div class="log-card-row">
+                  <span class="log-card-label">日志信息</span>
+                  <span class="log-card-value log-card-value-clip" @click.stop="handleViewLogDetail(item)">{{ item.jobMessage || '-' }}</span>
+                </div>
+                <div class="log-card-row">
+                  <span class="log-card-label">开始时间</span>
+                  <span class="log-card-value log-card-value-light">{{ formatTime(item.startTime) }}</span>
+                </div>
+                <div class="log-card-row" v-if="item.startTime && item.endTime">
+                  <span class="log-card-label">耗时</span>
+                  <span class="log-card-value log-card-value-light">{{ formatDuration(item.startTime, item.endTime) }}</span>
+                </div>
+              </div>
+              <div class="log-card-footer">
+                <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-eye-outline" @click="handleViewLogDetail(item)">
+                  查看详情
+                </v-btn>
+              </div>
+            </v-card>
+            <v-empty-state v-if="!logLoading && !logList.length" icon="mdi-inbox-outline" title="暂无执行记录" />
+          </div>
 
-      <template #footer>
-        <el-button @click="logOpen = false">关 闭</el-button>
-      </template>
-    </el-dialog>
+          <!-- Pagination -->
+          <div class="pagination-wrapper">
+            <v-pagination
+              v-model="logQueryParams.pageNum"
+              :length="Math.ceil(logTotal / logQueryParams.pageSize) || 1"
+              density="comfortable"
+              @update:model-value="getJobLogList"
+            />
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="outlined" @click="logOpen = false">关 闭</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- Log Detail Dialog -->
-    <el-dialog
+    <v-dialog
       v-model="detailOpen"
-      title="执行记录详情"
       :width="appStore.device === 'mobile' ? '100%' : '700px'"
-      :top="appStore.device === 'mobile' ? '5vh' : '5vh'"
-      append-to-body
       class="modern-dialog log-detail-dialog"
     >
-      <el-descriptions
-        :column="appStore.device === 'mobile' ? 1 : 2"
-        border
-        v-if="logDetail"
-      >
-        <el-descriptions-item label="日志ID">{{ logDetail.jobLogId }}</el-descriptions-item>
-        <el-descriptions-item label="执行状态">
-          <el-tag :type="logDetail.status === '0' ? 'success' : 'danger'">
-            {{ logDetail.status === '0' ? '成功' : '失败' }}
-          </el-tag>
-        </el-descriptions-item>
-        <el-descriptions-item label="任务名称" :span="appStore.device === 'mobile' ? 1 : 2">{{ logDetail.jobName }}</el-descriptions-item>
-        <el-descriptions-item label="任务组名" :span="appStore.device === 'mobile' ? 1 : 2">{{ logDetail.jobGroup }}</el-descriptions-item>
-        <el-descriptions-item label="调用目标" :span="2">{{ logDetail.invokeTarget }}</el-descriptions-item>
-        <el-descriptions-item label="日志信息" :span="2">{{ logDetail.jobMessage || '-' }}</el-descriptions-item>
-        <el-descriptions-item label="异常信息" :span="2" v-if="logDetail.exceptionInfo">
-          <pre class="exception-text">{{ logDetail.exceptionInfo }}</pre>
-        </el-descriptions-item>
-        <el-descriptions-item label="开始时间" :span="2">{{ formatTime(logDetail.startTime) }}</el-descriptions-item>
-        <el-descriptions-item label="结束时间" :span="2">{{ formatTime(logDetail.endTime) }}</el-descriptions-item>
-        <el-descriptions-item label="耗时" :span="2" v-if="logDetail.startTime && logDetail.endTime">
-          {{ formatDuration(logDetail.startTime, logDetail.endTime) }}
-        </el-descriptions-item>
-      </el-descriptions>
-      <template #footer>
-        <el-button @click="detailOpen = false">关 闭</el-button>
-      </template>
-    </el-dialog>
+      <v-card title="执行记录详情">
+        <v-card-text v-if="logDetail">
+          <table class="detail-table" :class="{ 'detail-table--mobile': appStore.device === 'mobile' }">
+            <tbody>
+              <tr>
+                <td class="detail-label">日志ID</td>
+                <td class="detail-value">{{ logDetail.jobLogId }}</td>
+                <td class="detail-label">执行状态</td>
+                <td class="detail-value">
+                  <v-chip :color="logDetail.status === '0' ? 'success' : 'error'" size="small" variant="tonal">
+                    {{ logDetail.status === '0' ? '成功' : '失败' }}
+                  </v-chip>
+                </td>
+              </tr>
+              <tr>
+                <td class="detail-label">任务名称</td>
+                <td class="detail-value" colspan="3">{{ logDetail.jobName }}</td>
+              </tr>
+              <tr>
+                <td class="detail-label">任务组名</td>
+                <td class="detail-value" colspan="3">{{ logDetail.jobGroup }}</td>
+              </tr>
+              <tr>
+                <td class="detail-label">调用目标</td>
+                <td class="detail-value" colspan="3">{{ logDetail.invokeTarget }}</td>
+              </tr>
+              <tr>
+                <td class="detail-label">日志信息</td>
+                <td class="detail-value" colspan="3">{{ logDetail.jobMessage || '-' }}</td>
+              </tr>
+              <tr v-if="logDetail.exceptionInfo">
+                <td class="detail-label">异常信息</td>
+                <td class="detail-value" colspan="3"><pre class="exception-text">{{ logDetail.exceptionInfo }}</pre></td>
+              </tr>
+              <tr>
+                <td class="detail-label">开始时间</td>
+                <td class="detail-value" colspan="3">{{ formatTime(logDetail.startTime) }}</td>
+              </tr>
+              <tr>
+                <td class="detail-label">结束时间</td>
+                <td class="detail-value" colspan="3">{{ formatTime(logDetail.endTime) }}</td>
+              </tr>
+              <tr v-if="logDetail.startTime && logDetail.endTime">
+                <td class="detail-label">耗时</td>
+                <td class="detail-value" colspan="3">{{ formatDuration(logDetail.startTime, logDetail.endTime) }}</td>
+              </tr>
+            </tbody>
+          </table>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="outlined" @click="detailOpen = false">关 闭</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { Search, Refresh, Edit, VideoPlay, Filter, List, View, ArrowDown, Clock } from '@element-plus/icons-vue'
+import { message } from '@/composables/useMessage'
+import { confirm } from '@/composables/useConfirm'
 import { getJobListApi, addJobApi, updateJobApi, deleteJobApi, changeJobStatusApi, runJobApi } from '@/api/monitor/job'
 import { getJobLogListApi, getJobLogDetailApi } from '@/api/monitor/jobLog'
 import { useAppStore } from '@/stores/app'
@@ -363,10 +419,28 @@ import type { SearchParams, PageResult } from '@/types'
 const appStore = useAppStore()
 const showSearch = ref(window.innerWidth >= 768)
 
+const jobHeaders = [
+  { title: '任务名称', key: 'jobName', minWidth: '140' },
+  { title: 'cron执行表达式', key: 'cronExpression', width: '140', align: 'center' as const },
+  { title: '状态', key: 'status', align: 'center' as const, width: '90' },
+  { title: '操作', key: 'actions', align: 'center' as const, width: '240', sortable: false }
+]
+
+const logHeaders = [
+  { title: 'ID', key: 'jobLogId', width: '70', align: 'center' as const },
+  { title: '任务名称', key: 'jobName', width: '140' },
+  { title: '调用目标', key: 'invokeTarget', minWidth: '180' },
+  { title: '状态', key: 'status', align: 'center' as const, width: '80' },
+  { title: '日志信息', key: 'jobMessage', minWidth: '200' },
+  { title: '耗时', key: 'duration', align: 'center' as const, width: '100', sortable: false },
+  { title: '开始时间', key: 'startTime', width: '160', align: 'center' as const },
+  { title: '操作', key: 'actions', align: 'center' as const, width: '90', sortable: false }
+]
+
 const {
   taskList: jobList, loading, total, queryParams,
   getList, handleQuery, resetQuery, queryRef,
-  open, dialogTitle, submitLoading, formRef, form, rules,
+  open, dialogTitle, submitLoading, formRef, form,
   handleUpdate, submitForm
 } = useTaskList<SearchParams & { jobName?: string; jobGroup?: string; status?: string }>({
   listApi: getJobListApi,
@@ -402,9 +476,9 @@ const handleSwitchChange = async (row: any) => {
   const newStatus = row.status
   const text = newStatus === '0' ? '启用' : '停用'
   try {
-    await ElMessageBox.confirm(`是否确认${text}任务"${row.jobName}"？`, '警告', { type: 'info' })
+    await confirm({ message: `是否确认${text}任务"${row.jobName}"？`, title: '警告', type: 'info' })
     await changeJobStatusApi(row.jobId, newStatus)
-    ElMessage.success(`${text}成功`)
+    message.success(`${text}成功`)
   } catch (e) {
     if (e !== 'cancel') {
       // Revert status on API failure
@@ -419,9 +493,9 @@ const handleSwitchChange = async (row: any) => {
 
 const handleRun = async (row: any) => {
   try {
-    await ElMessageBox.confirm(`是否确认执行任务"${row.jobName}"？`, '警告', { type: 'warning' })
+    await confirm({ message: `是否确认执行任务"${row.jobName}"？`, title: '警告', type: 'warning' })
     await runJobApi(row.jobId)
-    ElMessage.success('执行成功')
+    message.success('执行成功')
   } catch (e) { if (e !== 'cancel') console.error(e) }
 }
 
@@ -444,7 +518,7 @@ const logDetail = ref<any>(null)
 
 const handleViewLogs = (row: any) => {
   if (!row?.jobId) {
-    ElMessage.warning('请选择数据项')
+    message.warning('请选择数据项')
     return
   }
   logTitle.value = row.jobName
@@ -517,28 +591,23 @@ getList()
    Search Card
    ============================================ */
 .search-card {
-  border: none;
-  border-radius: var(--osr-radius-lg);
-  box-shadow: var(--osr-shadow-base);
+  padding: 4px 8px;
+}
 
-  :deep(.el-card__body) {
-    padding: 14px 16px;
-  }
+.search-form-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 /* ============================================
    Table Card
    ============================================ */
 .table-card {
-  border: none;
-  border-radius: var(--osr-radius-lg);
-  box-shadow: var(--osr-shadow-base);
-
-  :deep(.el-card__body) {
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-  }
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
 }
 
 .action-bar {
@@ -564,6 +633,52 @@ getList()
   padding-top: 12px;
 }
 
+.cron-field {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+
+  .cron-input {
+    flex: 1;
+  }
+}
+
+.detail-table {
+  width: 100%;
+  border-collapse: collapse;
+
+  td {
+    border: 1px solid var(--osr-border-light);
+    padding: 8px 12px;
+    font-size: 13px;
+    vertical-align: top;
+  }
+
+  .detail-label {
+    width: 110px;
+    background: var(--osr-bg-page);
+    color: var(--osr-text-secondary);
+    font-weight: 600;
+  }
+
+  .detail-value {
+    color: var(--osr-text-primary);
+  }
+
+  &--mobile {
+    tr {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .detail-label,
+    .detail-value {
+      width: 100%;
+      display: block;
+    }
+  }
+}
+
 /* ============================================
    Mobile Responsive
    ============================================ */
@@ -572,22 +687,13 @@ getList()
     gap: 10px;
   }
 
-  .search-card :deep(.el-form) {
-    .el-form-item {
-      margin-right: 0;
-    }
+  .search-form-row {
+    flex-direction: column;
+    align-items: stretch;
 
-    .el-input,
-    .el-select {
-      width: 100% !important;
-    }
-  }
-
-  :deep(.el-table) {
-    font-size: 13px;
-
-    .el-table__cell {
-      padding: 8px 0;
+    .v-text-field,
+    .v-select {
+      max-width: 100% !important;
     }
   }
 
@@ -601,7 +707,7 @@ getList()
     }
   }
 
-  .table-card :deep(.el-card__body) {
+  .table-card {
     padding: 12px;
   }
 
@@ -615,9 +721,6 @@ getList()
   }
 
   .mobile-card {
-    background: white;
-    border-radius: 8px;
-    border: 1px solid var(--osr-border-light);
     overflow: hidden;
 
     .mobile-card-header {
@@ -637,7 +740,6 @@ getList()
         text-overflow: ellipsis;
         white-space: nowrap;
         margin-right: 8px;
-        i { color: var(--osr-primary); margin-right: 4px; }
       }
     }
 
@@ -703,11 +805,9 @@ getList()
   margin-bottom: 12px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--osr-border-light);
-
-  :deep(.el-form-item) {
-    margin-bottom: 0;
-    margin-right: 12px;
-  }
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 /* ============================================
@@ -718,7 +818,6 @@ getList()
   border-radius: 8px;
   margin-bottom: 12px;
   overflow: hidden;
-  background: white;
 
   &.collapsed {
     .mobile-search-panel-body {
@@ -775,11 +874,7 @@ getList()
 }
 
 .log-card {
-  background: white;
-  border-radius: 10px;
-  border: 1px solid var(--osr-border-light);
   overflow: hidden;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
 
   .log-card-header {
     padding: 12px 14px 10px;
@@ -806,7 +901,7 @@ getList()
     text-overflow: ellipsis;
     white-space: nowrap;
 
-    .el-icon {
+    .v-icon {
       color: var(--osr-primary);
       flex-shrink: 0;
     }
@@ -870,19 +965,9 @@ getList()
    Log Dialog (mobile fullscreen)
    ============================================ */
 .log-dialog {
-  :deep(.el-dialog__body) {
-    padding: 14px;
+  :deep(.v-card-text) {
     max-height: calc(100vh - 120px);
     overflow-y: auto;
-  }
-}
-
-/* ============================================
-   Log Table
-   ============================================ */
-.log-table {
-  :deep(.el-table__cell) {
-    font-size: 13px;
   }
 }
 
@@ -894,13 +979,13 @@ getList()
   overflow-y: auto;
   margin: 0;
   padding: 12px;
-  background: var(--osr-bg-content);
+  background: var(--osr-bg-content, #1e1e1e);
   border-radius: 4px;
   font-family: 'Courier New', monospace;
   font-size: 12px;
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-all;
-  color: var(--osr-text-danger);
+  color: var(--osr-text-danger, #f56c6c);
 }
 </style>

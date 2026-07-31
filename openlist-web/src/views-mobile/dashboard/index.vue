@@ -6,7 +6,8 @@
     </div>
 
     <!-- 统计概览 -->
-    <div class="stats-grid" v-loading="loading">
+    <v-progress-linear v-if="loading" indeterminate color="primary" />
+    <div class="stats-grid">
       <div
         v-for="stat in statCards"
         :key="stat.label"
@@ -15,7 +16,7 @@
         @click="stat.path && router.push(stat.path)"
       >
         <div class="stat-icon">
-          <el-icon><component :is="stat.icon" /></el-icon>
+          <v-icon :icon="stat.icon" />
         </div>
         <div class="stat-value">{{ stat.value }}</div>
         <div class="stat-label">{{ stat.label }}</div>
@@ -25,7 +26,8 @@
     <!-- 今日处理数量：按 COPY/STRM/Rename 分类展示，对应 PC 端饼图的统计口径 -->
     <div class="today-section">
       <h3>今日处理</h3>
-      <div class="stats-grid" v-loading="todayLoading">
+      <v-progress-linear v-if="todayLoading" indeterminate color="primary" />
+      <div class="stats-grid">
         <div
           v-for="stat in todayStatCards"
           :key="stat.label"
@@ -34,7 +36,7 @@
           @click="stat.path && router.push(stat.path)"
         >
           <div class="stat-icon">
-            <el-icon><component :is="stat.icon" /></el-icon>
+            <v-icon :icon="stat.icon" />
           </div>
           <div class="stat-value">{{ stat.value }}</div>
           <div class="stat-label">{{ stat.label }}</div>
@@ -52,7 +54,7 @@
           class="action-item"
           @click="router.push(link.path)"
         >
-          <el-icon><component :is="link.icon" /></el-icon>
+          <v-icon :icon="link.icon" />
           <span>{{ link.title }}</span>
         </div>
       </div>
@@ -67,15 +69,11 @@ import { useUserStore, type MenuRoute } from '@/stores/user'
 import { getDashboardStatsApi, getCopyStatsApi, getStrmStatsApi, getRenameStatsApi } from '@/api/openlist/dashboard'
 import { getHitokotoApi } from '@/api/openlist/hitokoto'
 import { getIconComponent } from '@/composables/useMenuIcon'
-import {
-  Files, VideoCamera, EditPen, CircleCheck, CircleClose, Loading, Menu
-} from '@element-plus/icons-vue'
-import type { Component } from 'vue'
 
 interface StatCard {
   label: string
   value: number | string
-  icon: Component
+  icon: string
   type: 'primary' | 'success' | 'warning' | 'info'
   /** 有值时卡片可点击跳转 */
   path?: string
@@ -105,12 +103,12 @@ const todayStatCards = ref<StatCard[]>([])
 
 function buildStatCards(data: any): StatCard[] {
   return [
-    { label: '同步记录', value: data?.copyRecordCount ?? 0, icon: Files, type: 'primary', path: '/openliststrm/copy' },
-    { label: 'STRM 记录', value: data?.strmRecordCount ?? 0, icon: VideoCamera, type: 'success', path: '/openliststrm/strm' },
-    { label: '重命名明细', value: data?.renameDetailCount ?? 0, icon: EditPen, type: 'warning', path: '/openliststrm/renameDetail' },
-    { label: '成功率', value: data?.successRate > 0 ? data.successRate + '%' : '--', icon: CircleCheck, type: 'info' },
-    { label: '失败数', value: data?.failedCount ?? 0, icon: CircleClose, type: 'warning' },
-    { label: '处理中', value: data?.processingCount ?? 0, icon: Loading, type: 'primary' }
+    { label: '同步记录', value: data?.copyRecordCount ?? 0, icon: 'mdi-file-multiple-outline', type: 'primary', path: '/openliststrm/copy' },
+    { label: 'STRM 记录', value: data?.strmRecordCount ?? 0, icon: 'mdi-video-outline', type: 'success', path: '/openliststrm/strm' },
+    { label: '重命名明细', value: data?.renameDetailCount ?? 0, icon: 'mdi-pencil-outline', type: 'warning', path: '/openliststrm/renameDetail' },
+    { label: '成功率', value: data?.successRate > 0 ? data.successRate + '%' : '--', icon: 'mdi-check-circle-outline', type: 'info' },
+    { label: '失败数', value: data?.failedCount ?? 0, icon: 'mdi-close-circle-outline', type: 'warning' },
+    { label: '处理中', value: data?.processingCount ?? 0, icon: 'mdi-loading mdi-spin', type: 'primary' }
   ]
 }
 
@@ -122,9 +120,9 @@ function sumStatusCounts(data: Record<string, number> | null | undefined): numbe
 
 function buildTodayStatCards(copy: number, strm: number, rename: number): StatCard[] {
   return [
-    { label: '今日同步', value: copy, icon: Files, type: 'primary', path: '/openliststrm/copy' },
-    { label: '今日STRM', value: strm, icon: VideoCamera, type: 'success', path: '/openliststrm/strm' },
-    { label: '今日重命名', value: rename, icon: EditPen, type: 'warning', path: '/openliststrm/renameDetail' }
+    { label: '今日同步', value: copy, icon: 'mdi-file-multiple-outline', type: 'primary', path: '/openliststrm/copy' },
+    { label: '今日STRM', value: strm, icon: 'mdi-video-outline', type: 'success', path: '/openliststrm/strm' },
+    { label: '今日重命名', value: rename, icon: 'mdi-pencil-outline', type: 'warning', path: '/openliststrm/renameDetail' }
   ]
 }
 
@@ -132,8 +130,8 @@ function buildTodayStatCards(copy: number, strm: number, rename: number): StatCa
  * 拍平菜单树取叶子节点。后端顶层是 Layout 容器，真正能跳的是它的 children，
  * 子菜单 path 可能是相对的，需要拼上父级前缀（与 MobileLayout 的取值口径保持一致）。
  */
-function flattenMenus(menus: MenuRoute[], parentPath = ''): { path: string; title: string; icon: Component }[] {
-  const result: { path: string; title: string; icon: Component }[] = []
+function flattenMenus(menus: MenuRoute[], parentPath = ''): { path: string; title: string; icon: string }[] {
+  const result: { path: string; title: string; icon: string }[] = []
   for (const menu of menus) {
     const path = menu.path?.startsWith('/')
       ? menu.path
@@ -145,7 +143,7 @@ function flattenMenus(menus: MenuRoute[], parentPath = ''): { path: string; titl
       result.push({
         path,
         title: menu.meta?.title || '',
-        icon: getIconComponent(menu.meta?.icon) || Menu
+        icon: getIconComponent(menu.meta?.icon) || 'mdi-menu'
       })
     }
   }
@@ -254,7 +252,7 @@ onMounted(async () => {
       justify-content: center;
       margin-bottom: 8px;
 
-      .el-icon {
+      .v-icon {
         font-size: 18px;
       }
     }
@@ -339,7 +337,7 @@ onMounted(async () => {
         background: var(--osr-bg-page);
       }
 
-      .el-icon {
+      .v-icon {
         font-size: 22px;
         color: var(--osr-primary);
       }

@@ -34,6 +34,9 @@ module.exports = {
     'vue/max-attributes-per-line': 'off',
     'vue/singleline-html-element-content-newline': 'off',
     'vue/multiline-html-element-content-newline': 'off',
-    'vue/html-self-closing': 'off'
+    'vue/html-self-closing': 'off',
+    // Vuetify 的 v-data-table 用带点号的具名 slot（如 #item.status）区分列，
+    // 这套 eslint-plugin-vue 版本不认识这种写法会误报，是已知限制不是真的语法错误
+    'vue/valid-v-slot': 'off'
   }
 }

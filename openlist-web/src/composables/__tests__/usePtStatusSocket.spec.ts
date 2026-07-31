@@ -1,7 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { defineComponent, h } from 'vue'
 import { mount } from '@vue/test-utils'
-import { ElMessage } from 'element-plus'
+import { message } from '@/composables/useMessage'
+
+vi.mock('@/composables/useMessage', () => ({
+  message: {
+    success: vi.fn(),
+    error: vi.fn(),
+    warning: vi.fn(),
+    info: vi.fn()
+  }
+}))
 
 vi.mock('js-cookie', () => ({
   default: { get: vi.fn() }
@@ -44,7 +53,7 @@ describe('usePtStatusSocket', () => {
     ;(Cookies.get as any).mockReturnValue('test-token')
     clearToken = vi.fn()
     ;(useUserStore as any).mockReturnValue({ clearToken })
-    errorSpy = vi.spyOn(ElMessage, 'error').mockImplementation(() => ({}) as any)
+    errorSpy = message.error as any
     delete (window as any).location
     ;(window as any).location = { protocol: 'http:', host: 'localhost', href: '' }
   })

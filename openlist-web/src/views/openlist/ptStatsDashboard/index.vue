@@ -2,104 +2,103 @@
   <div class="pt-stats-dashboard">
     <div class="toolbar">
       <span class="toolbar-label">统计范围</span>
-      <el-radio-group v-model="rangeDays" size="default" @change="onRangeChange">
-        <el-radio-button :label="7">近7天</el-radio-button>
-        <el-radio-button :label="30">近30天</el-radio-button>
-        <el-radio-button :label="90">近90天</el-radio-button>
-      </el-radio-group>
-      <el-button :icon="Refresh" class="refresh-btn" @click="loadAll">刷新</el-button>
+      <v-btn-toggle v-model="rangeDays" color="primary" density="comfortable" variant="outlined" mandatory @update:model-value="onRangeChange">
+        <v-btn :value="7">近7天</v-btn>
+        <v-btn :value="30">近30天</v-btn>
+        <v-btn :value="90">近90天</v-btn>
+      </v-btn-toggle>
+      <v-btn prepend-icon="mdi-refresh" variant="outlined" class="refresh-btn" @click="loadAll">刷新</v-btn>
     </div>
 
-    <el-row :gutter="16" class="stat-row">
-      <el-col :md="8" v-for="(stat, index) in statCards" :key="index">
-        <el-card class="stat-card" :class="stat.type">
+    <v-row class="stat-row">
+      <v-col cols="12" md="4" v-for="(stat, index) in statCards" :key="index">
+        <v-card class="stat-card" :class="stat.type">
           <div class="stat-icon">
-            <el-icon :size="28"><component :is="stat.icon" /></el-icon>
+            <v-icon :icon="stat.icon" size="28" />
           </div>
           <div class="stat-info">
             <div class="stat-value">{{ stat.value }}</div>
             <div class="stat-label">{{ stat.label }}</div>
           </div>
-        </el-card>
-      </el-col>
-    </el-row>
+        </v-card>
+      </v-col>
+    </v-row>
 
-    <el-row :gutter="16" class="chart-row">
-      <el-col :md="24">
-        <el-card class="chart-card">
-          <template #header>
-            <div class="chart-header">
-              <span class="chart-title">下载量趋势</span>
-            </div>
-          </template>
-          <div ref="trendContainer" class="echarts-container trend-container" />
-        </el-card>
-      </el-col>
-    </el-row>
+    <v-row class="chart-row">
+      <v-col cols="12">
+        <v-card class="chart-card">
+          <v-card-title class="chart-header">
+            <span class="chart-title">下载量趋势</span>
+          </v-card-title>
+          <v-card-text>
+            <div ref="trendContainer" class="echarts-container trend-container" />
+          </v-card-text>
+        </v-card>
+      </v-col>
+    </v-row>
 
-    <el-row :gutter="16" class="chart-row">
-      <el-col :md="12">
-        <el-card class="chart-card">
-          <template #header>
-            <div class="chart-header">
-              <span class="chart-title">索引器命中率</span>
-              <span class="chart-subtitle">基于每订阅最近 200 条匹配记录</span>
+    <v-row class="chart-row">
+      <v-col cols="12" md="6">
+        <v-card class="chart-card">
+          <v-card-title class="chart-header">
+            <span class="chart-title">索引器命中率</span>
+            <span class="chart-subtitle">基于每订阅最近 200 条匹配记录</span>
+          </v-card-title>
+          <v-card-text>
+            <div ref="indexerContainer" class="echarts-container" />
+            <div v-if="noDataIndexerNames.length" class="no-data-indexers">
+              暂无数据：{{ noDataIndexerNames.join('、') }}
             </div>
-          </template>
-          <div ref="indexerContainer" class="echarts-container" />
-          <div v-if="noDataIndexerNames.length" class="no-data-indexers">
-            暂无数据：{{ noDataIndexerNames.join('、') }}
-          </div>
-        </el-card>
-      </el-col>
-      <el-col :md="12">
-        <el-card class="chart-card">
-          <template #header>
-            <div class="chart-header">
-              <span class="chart-title">失败原因分布</span>
-            </div>
-          </template>
-          <div ref="failReasonContainer" class="echarts-container" />
-        </el-card>
-      </el-col>
-    </el-row>
+          </v-card-text>
+        </v-card>
+      </v-col>
+      <v-col cols="12" md="6">
+        <v-card class="chart-card">
+          <v-card-title class="chart-header">
+            <span class="chart-title">失败原因分布</span>
+          </v-card-title>
+          <v-card-text>
+            <div ref="failReasonContainer" class="echarts-container" />
+          </v-card-text>
+        </v-card>
+      </v-col>
+    </v-row>
 
-    <el-row :gutter="16" class="chart-row">
-      <el-col :md="24">
-        <el-card class="chart-card">
-          <template #header>
-            <div class="chart-header">
-              <span class="chart-title">Top 活跃订阅</span>
-            </div>
-          </template>
-          <el-table :data="topSubscriptions" v-loading="topSubscriptionsLoading" style="width: 100%">
-            <el-table-column prop="title" label="订阅标题" min-width="180">
-              <template #default="{ row }">
-                <router-link
-                  :to="{ path: '/openlist/ptSubscription', query: { id: row.subId } }"
-                  class="stats-sub-link"
-                >
-                  {{ row.title }}
-                </router-link>
-              </template>
-            </el-table-column>
-            <el-table-column label="季/类型" width="100">
-              <template #default="{ row }">
-                <span v-if="row.mediaType === 'MOVIE'">电影</span>
-                <span v-else-if="row.season != null">S{{ row.season }}</span>
-                <span v-else>-</span>
-              </template>
-            </el-table-column>
-            <el-table-column prop="downloadCount" label="下载次数" width="100" />
-            <el-table-column prop="completedCount" label="完成数" width="100" />
-            <el-table-column prop="failedCount" label="失败数" width="100" />
-            <el-table-column label="上次命中时间" width="180">
-              <template #default="{ row }">{{ row.lastMatchTime || '-' }}</template>
-            </el-table-column>
-          </el-table>
-        </el-card>
-      </el-col>
-    </el-row>
+    <v-row class="chart-row">
+      <v-col cols="12">
+        <v-card class="chart-card">
+          <v-card-title class="chart-header">
+            <span class="chart-title">Top 活跃订阅</span>
+          </v-card-title>
+          <v-data-table
+            :headers="topSubHeaders"
+            :items="topSubscriptions"
+            :loading="topSubscriptionsLoading"
+            items-per-page="-1"
+            hide-default-footer
+            class="modern-table"
+          >
+            <template #item.title="{ item }">
+              <router-link
+                :to="{ path: '/openlist/ptSubscription', query: { id: item.subId } }"
+                class="stats-sub-link"
+              >
+                {{ item.title }}
+              </router-link>
+            </template>
+            <template #item.seasonType="{ item }">
+              <span v-if="item.mediaType === 'MOVIE'">电影</span>
+              <span v-else-if="item.season != null">S{{ item.season }}</span>
+              <span v-else>-</span>
+            </template>
+            <template #item.lastMatchTime="{ item }">{{ item.lastMatchTime || '-' }}</template>
+            <template #no-data>
+              <v-empty-state icon="mdi-inbox-outline" title="暂无数据" />
+            </template>
+          </v-data-table>
+        </v-card>
+      </v-col>
+    </v-row>
   </div>
 </template>
 
@@ -110,7 +109,6 @@ import * as echarts from 'echarts/core'
 import { LineChart, BarChart, PieChart } from 'echarts/charts'
 import { TitleComponent, TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { Document, Connection, Download, CircleCheck, Clock, Refresh } from '@element-plus/icons-vue'
 import {
   getPtStatsOverviewApi,
   getPtStatsTrendApi,
@@ -119,14 +117,13 @@ import {
   getPtStatsTopSubscriptionsApi,
   type PtStatsActiveSubscription
 } from '@/api/openlist/ptStats'
-import type { Component } from 'vue'
 
 echarts.use([LineChart, BarChart, PieChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent, CanvasRenderer])
 
 interface StatCard {
   label: string
   value: number | string
-  icon: Component
+  icon: string
   type: 'primary' | 'success' | 'warning' | 'info'
 }
 
@@ -135,6 +132,15 @@ const statCards = ref<StatCard[]>([])
 const topSubscriptions = ref<PtStatsActiveSubscription[]>([])
 const topSubscriptionsLoading = ref(false)
 const noDataIndexerNames = ref<string[]>([])
+
+const topSubHeaders = [
+  { title: '订阅标题', key: 'title', minWidth: '180' },
+  { title: '季/类型', key: 'seasonType', width: '100' },
+  { title: '下载次数', key: 'downloadCount', width: '100' },
+  { title: '完成数', key: 'completedCount', width: '100' },
+  { title: '失败数', key: 'failedCount', width: '100' },
+  { title: '上次命中时间', key: 'lastMatchTime', width: '180' }
+]
 
 const trendContainer = ref<HTMLElement | null>(null)
 const indexerContainer = ref<HTMLElement | null>(null)
@@ -173,20 +179,20 @@ async function loadOverview() {
   try {
     const data = await getPtStatsOverviewApi()
     statCards.value = [
-      { label: '总订阅数', value: data.totalSubscriptions, icon: Document, type: 'primary' },
-      { label: '活跃订阅数', value: data.activeSubscriptions, icon: Connection, type: 'success' },
-      { label: '下载记录总数', value: data.totalDownloadRecords, icon: Download, type: 'info' },
-      { label: '成功率', value: data.totalDownloadRecords > 0 ? data.successRate + '%' : '--', icon: CircleCheck, type: 'success' },
-      { label: '平均下载耗时', value: data.avgDurationMinutes > 0 ? Math.round(data.avgDurationMinutes) + ' 分钟' : '--', icon: Clock, type: 'warning' }
+      { label: '总订阅数', value: data.totalSubscriptions, icon: 'mdi-file-document-outline', type: 'primary' },
+      { label: '活跃订阅数', value: data.activeSubscriptions, icon: 'mdi-lan-connect', type: 'success' },
+      { label: '下载记录总数', value: data.totalDownloadRecords, icon: 'mdi-download', type: 'info' },
+      { label: '成功率', value: data.totalDownloadRecords > 0 ? data.successRate + '%' : '--', icon: 'mdi-check-circle-outline', type: 'success' },
+      { label: '平均下载耗时', value: data.avgDurationMinutes > 0 ? Math.round(data.avgDurationMinutes) + ' 分钟' : '--', icon: 'mdi-clock-outline', type: 'warning' }
     ]
   } catch (e) {
     console.error('[PtStatsDashboard] Failed to load overview:', e)
     statCards.value = [
-      { label: '总订阅数', value: '0', icon: Document, type: 'primary' },
-      { label: '活跃订阅数', value: '0', icon: Connection, type: 'success' },
-      { label: '下载记录总数', value: '0', icon: Download, type: 'info' },
-      { label: '成功率', value: '--', icon: CircleCheck, type: 'success' },
-      { label: '平均下载耗时', value: '--', icon: Clock, type: 'warning' }
+      { label: '总订阅数', value: '0', icon: 'mdi-file-document-outline', type: 'primary' },
+      { label: '活跃订阅数', value: '0', icon: 'mdi-lan-connect', type: 'success' },
+      { label: '下载记录总数', value: '0', icon: 'mdi-download', type: 'info' },
+      { label: '成功率', value: '--', icon: 'mdi-check-circle-outline', type: 'success' },
+      { label: '平均下载耗时', value: '--', icon: 'mdi-clock-outline', type: 'warning' }
     ]
   }
 }
@@ -368,16 +374,14 @@ onUnmounted(() => {
   cursor: default;
   transition: all var(--osr-transition-base);
 
+  display: flex;
+  align-items: center;
+  padding: 20px;
+  gap: 16px;
+
   &:hover {
     transform: translateY(-2px);
     box-shadow: var(--osr-shadow-md);
-  }
-
-  :deep(.el-card__body) {
-    display: flex;
-    align-items: center;
-    padding: 20px;
-    gap: 16px;
   }
 
   .stat-icon {
@@ -441,7 +445,7 @@ onUnmounted(() => {
     box-shadow: var(--osr-shadow-md);
   }
 
-  :deep(.el-card__header) {
+  :deep(.v-card-title) {
     padding: 16px 20px;
     border-bottom: 1px solid var(--osr-border-light);
     background-color: var(--osr-surface);
@@ -495,7 +499,7 @@ onUnmounted(() => {
     padding: 16px;
   }
 
-  .stat-card :deep(.el-card__body) {
+  .stat-card {
     padding: 16px;
   }
 
