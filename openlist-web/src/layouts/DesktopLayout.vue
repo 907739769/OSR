@@ -4,7 +4,7 @@
       <img src="/icons/android-chrome-192x192.png" alt="Logo" class="logo-img" />
       <span v-show="appStore.sidebarOpened" class="logo-title">OSR</span>
     </div>
-    <v-list nav density="compact" :opened="[]">
+    <v-list nav density="compact" :opened="[]" style="--v-list-prepend-gap: 12px">
       <v-list-item to="/dashboard" prepend-icon="mdi-view-dashboard-outline" title="首页" rounded="lg" class="menu-item" />
       <SidebarMenuItem v-for="menu in sidebarMenus" :key="menu.path" :menu="menu" />
     </v-list>

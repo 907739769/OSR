@@ -4,7 +4,7 @@
       <img src="/icons/android-chrome-192x192.png" alt="Logo" class="drawer-logo" />
       <span class="drawer-title">OSR</span>
     </div>
-    <v-list nav density="compact" :opened="openedGroups" @click:select="menuOpen = false">
+    <v-list nav density="compact" :opened="openedGroups" style="--v-list-prepend-gap: 12px" @click:select="menuOpen = false">
       <v-list-item to="/dashboard" prepend-icon="mdi-view-dashboard-outline" title="首页" rounded="lg" class="menu-item" @click="menuOpen = false" />
       <MobileSidebarMenuItem v-for="menu in sidebarMenus" :key="menu.path" :menu="menu" />
     </v-list>
