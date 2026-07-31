@@ -10,5 +10,5 @@ dist
 docker-compose*.yml
 config
 sql
-openlist-web/node_modules
-openlist-web/dist
+osr-web/node_modules
+osr-web/dist

@@ -13,7 +13,7 @@
 ├── osr-system/         # 标准系统管理模块 (user/role/menu/dict domain)
 ├── osr-quartz/         # 定时任务 (job scheduler)
 ├── osr-openliststrm/   # ★ 核心业务，新功能几乎都写在这里 (17个子包，见下)
-├── openlist-web/         # Vue 3 前端 (Vite + Pinia + Vuetify 3 + PWA)
+├── osr-web/         # Vue 3 前端 (Vite + Pinia + Vuetify 3 + PWA)
 ├── Dockerfile.backend    # Java 25 JRE + --enable-preview
 ├── Dockerfile.frontend   # Node 20 build → Nginx Alpine
 ├── docker-compose.yml    # MySQL 8.0 + backend + frontend
@@ -35,14 +35,14 @@
 | PT 订阅管理 | `osr-openliststrm/src/main/java/com/osr/openliststrm/pt/` | downloader/indexer/subscription/media server |
 | 安全/认证 | `osr-framework/src/main/java/com/osr/framework/security/` + `shiro/` | Shiro + JWT |
 | 第三方回调 | `osr-openliststrm/src/main/java/com/osr/openliststrm/controller/` | 开放 API 端点 |
-| 前端页面 | `openlist-web/src/views/` + `views-mobile/` | PC + 移动端 |
-| 前端 API 层 | `openlist-web/src/api/` | axios 封装 + 模块 API |
-| 前端路由 | `openlist-web/src/router/index.ts` | 动态路由 |
-| 前端状态 | `openlist-web/src/stores/` | Pinia (app, user, permission) |
+| 前端页面 | `osr-web/src/views/` + `views-mobile/` | PC + 移动端 |
+| 前端 API 层 | `osr-web/src/api/` | axios 封装 + 模块 API |
+| 前端路由 | `osr-web/src/router/index.ts` | 动态路由 |
+| 前端状态 | `osr-web/src/stores/` | Pinia (app, user, permission) |
 | DB 脚本 | `osr-common/src/main/resources/sql/` | 初始化 + 升级脚本 |
 | MyBatis Mapper | `osr-system/src/main/resources/mapper/system/` + `osr-openliststrm/src/main/resources/mapper/mybatisplus/` | XML 映射 |
 
-前端另有独立知识库 `openlist-web/src/AGENTS.md`，改前端前先读。
+前端另有独立知识库 `osr-web/src/AGENTS.md`，改前端前先读。
 
 ## CONVENTIONS
 - **包命名**: `com.osr.{module}.{layer}` — controller/service/mapper/domain 分层
@@ -74,21 +74,21 @@
 mvn clean package -DskipTests
 
 # 前端开发 (端口 3000，/api 已代理到 localhost:6895)
-cd openlist-web && npm run dev
+cd osr-web && npm run dev
 
 # 前端构建 (含 vue-tsc 类型检查)
-cd openlist-web && npm run build
+cd osr-web && npm run build
 
 # 前端 lint (自动修复)
-cd openlist-web && npm run lint
+cd osr-web && npm run lint
 
 # 前端 E2E 测试 (Playwright)
-cd openlist-web && npm run test:e2e
+cd osr-web && npm run test:e2e
 
 # Docker 部署（全部：前端+后端+DB）
 docker compose up -d --build
 
-# 只部署前端（改了 openlist-web/ 时用）：--no-deps 跳过依赖服务，避免连带重启后端
+# 只部署前端（改了 osr-web/ 时用）：--no-deps 跳过依赖服务，避免连带重启后端
 docker compose up -d --build --no-deps frontend
 
 # 只部署后端（改了 Java 代码时用）

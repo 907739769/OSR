@@ -3,11 +3,11 @@ FROM node:20-alpine AS build
 
 WORKDIR /app
 
-# Copy from openlist-web directory
-COPY openlist-web/package*.json ./
+# Copy from osr-web directory
+COPY osr-web/package*.json ./
 RUN npm install --production=false
 
-COPY openlist-web/ .
+COPY osr-web/ .
 RUN npm run build
 
 # Production stage

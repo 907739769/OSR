@@ -41,7 +41,7 @@ jobs:
               - 'Dockerfile.backend'
               - '.github/workflows/docker-publish.yml'
             frontend:
-              - 'openlist-web/**'
+              - 'osr-web/**'
               - 'Dockerfile.frontend'
               - '.github/workflows/docker-publish.yml'
 
@@ -101,15 +101,15 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: openlist-web/package-lock.json
+          cache-dependency-path: osr-web/package-lock.json
 
       - name: Install frontend dependencies
         run: npm install
-        working-directory: openlist-web
+        working-directory: osr-web
 
       - name: Build frontend
         run: npm run build
-        working-directory: openlist-web
+        working-directory: osr-web
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3

@@ -2,10 +2,10 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "openlist-web",
+      "name": "osr-web",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
-      "cwd": "openlist-web",
+      "cwd": "osr-web",
       "port": 3000
     }
   ]

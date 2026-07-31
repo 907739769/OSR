@@ -54,7 +54,7 @@ jobs:
           
           # 检测前端变更
           FRONTEND_FILES=$(git diff --name-only "$PREV_TAG" "$CURRENT_TAG" -- \
-            "openlist-web/**" "Dockerfile.frontend" \
+            "osr-web/**" "Dockerfile.frontend" \
             ".github/workflows/docker-publish-tag.yml" 2>/dev/null || true)
           
           if [ -n "$FRONTEND_FILES" ]; then
@@ -130,15 +130,15 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: openlist-web/package-lock.json
+          cache-dependency-path: osr-web/package-lock.json
 
       - name: Install frontend dependencies
         run: npm install
-        working-directory: openlist-web
+        working-directory: osr-web
 
       - name: Build frontend
         run: npm run build
-        working-directory: openlist-web
+        working-directory: osr-web
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3

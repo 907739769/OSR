@@ -81,7 +81,7 @@ public class SecurityConfig {
         if (origins != null && !origins.isBlank()) {
             configuration.setAllowedOriginPatterns(Arrays.asList(origins.split(",")));
         } else {
-            // 默认值只服务于本地开发：前端 dev server 端口见 openlist-web/vite.config.ts。
+            // 默认值只服务于本地开发：前端 dev server 端口见 osr-web/vite.config.ts。
             // 生产由 Nginx 同源代理 /api，不构成跨域请求，走不到这里；若前后端分域部署，
             // 用 CORS_ALLOWED_ORIGINS 显式覆盖。
             // 注意 origin 里的默认端口会被浏览器省略，localhost:80 要写成 http://localhost。

@@ -8,7 +8,7 @@
 -- 幂等性：新增用 INSERT IGNORE + 显式主键；UPDATE 语句本身天然幂等（重复执行
 -- 结果不变），配合 SimpleDdl「整文件成功才记入 ddl_history」的机制不会有部分
 -- 执行风险。
--- 图标类名均已在 openlist-web/src/composables/useMenuIcon.ts 的 iconMap 中，
+-- 图标类名均已在 osr-web/src/composables/useMenuIcon.ts 的 iconMap 中，
 -- 避免重蹈历史上"图标不显示"的坑（见 commit 0248e124）。
 -- ----------------------------
 
