@@ -90,15 +90,9 @@
           </div>
         </div>
         <div class="card-actions" @click.stop>
-          <v-btn variant="text" color="primary" size="small" @click="handleUpdate(task)">
-            修改
-          </v-btn>
-          <v-btn variant="text" color="error" size="small" @click="handleDelete(task)">
-            删除
-          </v-btn>
-          <v-btn variant="text" color="primary" size="small" @click="handleExecuteOne(task)">
-            执行
-          </v-btn>
+          <v-btn variant="text" color="primary" size="small" icon="mdi-play-circle-outline" @click="handleExecuteOne(task)" />
+          <v-btn variant="text" color="primary" size="small" icon="mdi-pencil-outline" @click="handleUpdate(task)" />
+          <v-btn variant="text" color="error" size="small" icon="mdi-delete-outline" @click="handleDelete(task)" />
         </div>
       </div>
 
@@ -349,17 +343,16 @@ const showFullText = (content: string, title: string) => fullTextRef.value?.show
 
   .card-actions {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 4px;
+    justify-content: center;
+    gap: 2px;
     flex-shrink: 0;
     padding-left: 8px;
     border-left: 1px solid var(--osr-border-light);
 
     .v-btn {
-      font-size: 11px;
-      white-space: nowrap;
       min-width: 0;
-      padding: 0 6px;
     }
   }
 }

@@ -77,15 +77,9 @@
           </div>
         </div>
         <div class="card-actions" @click.stop>
-          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(task, '修改STRM任务')">
-            修改
-          </v-btn>
-          <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(task)">
-            删除
-          </v-btn>
-          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-play-circle-outline" @click="handleExecuteOne(task, `是否确认执行STRM任务“${task.strmTaskPath}”？`)">
-            执行
-          </v-btn>
+          <v-btn variant="text" color="primary" size="small" icon="mdi-play-circle-outline" @click="handleExecuteOne(task, `是否确认执行STRM任务“${task.strmTaskPath}”？`)" />
+          <v-btn variant="text" color="primary" size="small" icon="mdi-pencil-outline" @click="handleUpdate(task, '修改STRM任务')" />
+          <v-btn variant="text" color="error" size="small" icon="mdi-delete-outline" @click="handleDelete(task)" />
         </div>
       </div>
 
@@ -306,8 +300,10 @@ watch(
 
   .card-actions {
     display: flex;
+    flex-direction: column;
     align-items: center;
-    gap: 4px;
+    justify-content: center;
+    gap: 2px;
     flex-shrink: 0;
     padding-left: 8px;
     border-left: 1px solid var(--osr-border-light);
