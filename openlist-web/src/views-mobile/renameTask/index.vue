@@ -99,9 +99,6 @@
           <v-btn variant="text" color="primary" size="small" @click="handleExecuteOne(task)">
             执行
           </v-btn>
-          <v-btn variant="text" color="primary" size="small" @click="handleTestOne(task)">
-            测试
-          </v-btn>
         </div>
       </div>
 
@@ -170,45 +167,6 @@
       </v-card>
     </v-dialog>
 
-    <!-- Test Dialog -->
-    <v-dialog v-model="testOpen" max-width="90%">
-      <v-card :title="testTitle">
-        <v-card-text>
-          <v-textarea
-            v-model="testForm.filename"
-            label="原文件名"
-            placeholder="例如: The.Movie.2024.1080p.mkv"
-            rows="3"
-            density="compact"
-            variant="outlined"
-          />
-          <v-textarea
-            v-model="testForm.template"
-            label="重命名模板"
-            placeholder="留空则使用默认配置"
-            rows="4"
-            density="compact"
-            variant="outlined"
-            hint="留空则使用默认配置"
-            persistent-hint
-          />
-          <v-btn color="primary" prepend-icon="mdi-auto-fix" :loading="testLoading" class="mt-3" @click="doTest">
-            开始分析
-          </v-btn>
-
-          <div v-if="testResult" class="test-result">
-            <v-alert type="success" variant="tonal" density="compact" class="mb-3">
-              <template #title>重命名结果预览</template>
-              <div class="result-text">{{ testResult.renamed }}</div>
-            </v-alert>
-            <v-alert type="info" variant="tonal" density="compact">
-              <template #title>识别参数详情</template>
-              <pre class="result-json">{{ JSON.stringify(testResult.info, null, 2) }}</pre>
-            </v-alert>
-          </div>
-        </v-card-text>
-      </v-card>
-    </v-dialog>
   </div>
 </template>
 
@@ -227,8 +185,7 @@ const {
   selectedIds, toggleSelect, handleCardClick, clearSelection,
   open, dialogTitle, submitLoading, formRef, form,
   handleAdd, handleUpdate, submitForm, handleDelete,
-  handleExecuteOne, handleBatchExecute,
-  testOpen, testTitle, testLoading, testResult, testForm, handleTestOne, doTest
+  handleExecuteOne, handleBatchExecute
 } = useRenameTask()
 
 const fullTextRef = ref<InstanceType<typeof FullTextDialog>>()
@@ -459,25 +416,4 @@ const showFullText = (content: string, title: string) => fullTextRef.value?.show
   margin-bottom: 8px;
 }
 
-/* ============================================
-   Test Dialog
-   ============================================ */
-.test-result {
-  margin-top: 8px;
-
-  .result-text {
-    font-family: Consolas, monospace;
-    word-break: break-all;
-    white-space: pre-wrap;
-  }
-
-  .result-json {
-    max-height: 300px;
-    overflow: auto;
-    font-size: 12px;
-    background: var(--osr-bg-page);
-    padding: 10px;
-    border-radius: 4px;
-  }
-}
 </style>

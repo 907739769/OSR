@@ -4,6 +4,7 @@
       <v-tabs v-model="activeTab" color="primary">
         <v-tab value="template">文件名模板</v-tab>
         <v-tab value="rules">分类规则</v-tab>
+        <v-tab value="test">重命名测试</v-tab>
       </v-tabs>
 
       <v-window v-model="activeTab">
@@ -70,6 +71,45 @@
             </div>
           </div>
         </v-window-item>
+
+        <v-window-item value="test">
+          <div class="tab-body">
+            <div class="test-tab">
+              <v-textarea
+                v-model="testForm.filename"
+                label="原文件名"
+                placeholder="例如: The.Movie.2024.1080p.mkv"
+                rows="3"
+                density="compact"
+                variant="outlined"
+              />
+              <v-textarea
+                v-model="testForm.template"
+                label="重命名模板"
+                placeholder="留空则使用默认配置"
+                rows="4"
+                density="compact"
+                variant="outlined"
+                hint="留空则使用默认配置"
+                persistent-hint
+              />
+              <v-btn color="primary" prepend-icon="mdi-auto-fix" :loading="testLoading" class="mt-3" @click="doTest">
+                开始分析
+              </v-btn>
+
+              <div v-if="testResult" class="test-result">
+                <v-alert type="success" variant="tonal" density="compact" class="mb-3">
+                  <template #title>重命名结果预览</template>
+                  <div class="result-text">{{ testResult.renamed }}</div>
+                </v-alert>
+                <v-alert type="info" variant="tonal" density="compact">
+                  <template #title>识别参数详情</template>
+                  <pre class="result-json">{{ JSON.stringify(testResult.info, null, 2) }}</pre>
+                </v-alert>
+              </div>
+            </div>
+          </div>
+        </v-window-item>
       </v-window>
     </v-card>
   </div>
@@ -87,7 +127,8 @@ const {
   template, templateLoading, templateSaving, previewResult, previewError,
   doPreview, saveTemplate,
   movieRules, tvRules, rulesLoading, rulesSaving,
-  addRule, removeRule, moveRule, saveRules
+  addRule, removeRule, moveRule, saveRules,
+  testLoading, testResult, testForm, doTest
 } = useRenameConfig()
 
 /**
@@ -170,6 +211,29 @@ const insertVariable = (varName: string) => {
     font-family: Consolas, monospace;
     word-break: break-all;
     white-space: pre-wrap;
+  }
+}
+
+.test-tab {
+  max-width: 640px;
+}
+
+.test-result {
+  margin-top: 12px;
+
+  .result-text {
+    font-family: Consolas, monospace;
+    word-break: break-all;
+    white-space: pre-wrap;
+  }
+
+  .result-json {
+    max-height: 300px;
+    overflow: auto;
+    font-size: 12px;
+    background: var(--osr-bg-page);
+    padding: 10px;
+    border-radius: 4px;
   }
 }
 

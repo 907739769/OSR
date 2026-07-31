@@ -1,5 +1,4 @@
-import { ref, reactive, computed } from 'vue'
-import { message } from '@/composables/useMessage'
+import { ref, computed } from 'vue'
 import { useTaskList } from './useTaskList'
 import {
   getRenameTaskListApi,
@@ -7,8 +6,7 @@ import {
   updateRenameTaskApi,
   deleteRenameTaskApi,
   batchDeleteRenameTaskApi,
-  executeRenameTaskApi,
-  testParseRenameApi
+  executeRenameTaskApi
 } from '@/api/openlist/renameTask'
 import type { SearchParams } from '@/types'
 
@@ -107,45 +105,6 @@ export function useRenameTask() {
   // 移动端 - 搜索面板折叠
   const searchCollapsed = ref(true)
 
-  // 重命名测试：拿一个文件名试跑模板，看解析结果
-  const testOpen = ref(false)
-  const testTitle = ref('文件名重命名测试')
-  const testLoading = ref(false)
-  const testResult = ref<any>(null)
-  const testForm = reactive({ filename: '', template: '' })
-
-  /** 不针对具体任务的通用测试入口（PC 端工具栏） */
-  const handleTest = () => {
-    testTitle.value = '文件名重命名测试'
-    testForm.filename = ''
-    testForm.template = ''
-    testResult.value = null
-    testOpen.value = true
-  }
-
-  /** 针对某个任务的测试，带上它的源目录以示区分 */
-  const handleTestOne = (row: any) => {
-    handleTest()
-    testTitle.value = `文件名重命名测试 - ${row.sourceFolder}`
-  }
-
-  const doTest = async () => {
-    if (!testForm.filename.trim()) {
-      message.warning('请输入文件名')
-      return
-    }
-    testLoading.value = true
-    try {
-      testResult.value = await testParseRenameApi(testForm.filename, testForm.template || undefined) as any
-      message.success('分析成功')
-    } catch (e) {
-      console.error('[重命名任务] 测试解析失败:', e)
-      message.error('请求失败')
-    } finally {
-      testLoading.value = false
-    }
-  }
-
   base.getList()
 
   return {
@@ -156,8 +115,6 @@ export function useRenameTask() {
     // 移动端分页
     totalPages, prevPage, nextPage, handleSizeChange,
     // 搜索面板
-    searchCollapsed,
-    // 重命名测试
-    testOpen, testTitle, testLoading, testResult, testForm, handleTest, handleTestOne, doTest
+    searchCollapsed
   }
 }

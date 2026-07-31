@@ -59,9 +59,6 @@
           <v-btn color="warning" prepend-icon="mdi-play-outline" :disabled="multiple" @click="handleExecute()">
             批量执行
           </v-btn>
-          <v-btn color="info" prepend-icon="mdi-auto-fix" @click="handleTest()">
-            测试
-          </v-btn>
         </div>
         <v-btn variant="text" prepend-icon="mdi-filter-outline" @click="showSearch = !showSearch">
           {{ showSearch ? '隐藏搜索' : '显示搜索' }}
@@ -107,9 +104,6 @@
           <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-play-outline" @click="handleExecuteOne(item)">
             执行
           </v-btn>
-          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-auto-fix" @click="handleTestOne(item)">
-            测试
-          </v-btn>
         </template>
       </v-data-table-server>
 
@@ -142,9 +136,6 @@
             </v-btn>
             <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-play-outline" @click="handleExecuteOne(item)">
               执行
-            </v-btn>
-            <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-auto-fix" @click="handleTestOne(item)">
-              测试
             </v-btn>
           </div>
         </v-card>
@@ -210,45 +201,6 @@
       </v-card>
     </v-dialog>
 
-    <!-- Test Dialog -->
-    <v-dialog v-model="testOpen" max-width="700">
-      <v-card :title="testTitle">
-        <v-card-text>
-          <v-textarea
-            v-model="testForm.filename"
-            label="原文件名"
-            placeholder="例如: The.Movie.2024.1080p.mkv"
-            rows="3"
-            density="compact"
-            variant="outlined"
-          />
-          <v-textarea
-            v-model="testForm.template"
-            label="重命名模板"
-            placeholder="留空则使用默认配置"
-            rows="4"
-            density="compact"
-            variant="outlined"
-            hint="留空则使用默认配置"
-            persistent-hint
-          />
-          <v-btn color="primary" prepend-icon="mdi-auto-fix" :loading="testLoading" class="mt-3" @click="doTest">
-            开始分析
-          </v-btn>
-
-          <div v-if="testResult" class="test-result">
-            <v-alert type="success" variant="tonal" density="compact" class="mb-3">
-              <template #title>重命名结果预览</template>
-              <div class="result-text">{{ testResult.renamed }}</div>
-            </v-alert>
-            <v-alert type="info" variant="tonal" density="compact">
-              <template #title>识别参数详情</template>
-              <pre class="result-json">{{ JSON.stringify(testResult.info, null, 2) }}</pre>
-            </v-alert>
-          </div>
-        </v-card-text>
-      </v-card>
-    </v-dialog>
   </div>
 </template>
 
@@ -267,8 +219,7 @@ const {
   single, multiple, handleSelectionChange,
   open, dialogTitle, submitLoading, formRef, form,
   handleAdd, handleUpdate, submitForm, handleDelete,
-  handleExecuteOne, handleBatchExecute: handleExecute,
-  testOpen, testTitle, testLoading, testResult, testForm, handleTest, handleTestOne, doTest
+  handleExecuteOne, handleBatchExecute: handleExecute
 } = useRenameTask()
 
 const headers = [
@@ -442,28 +393,6 @@ const onSizeChange = (size: number) => {
   font-weight: 600;
   color: var(--osr-text-primary);
   margin-bottom: 8px;
-}
-
-/* ============================================
-   Test Dialog
-   ============================================ */
-.test-result {
-  margin-top: 8px;
-
-  .result-text {
-    font-family: Consolas, monospace;
-    word-break: break-all;
-    white-space: pre-wrap;
-  }
-
-  .result-json {
-    max-height: 300px;
-    overflow: auto;
-    font-size: 12px;
-    background: var(--osr-bg-page);
-    padding: 10px;
-    border-radius: 4px;
-  }
 }
 
 /* ============================================

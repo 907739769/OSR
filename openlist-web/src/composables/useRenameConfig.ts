@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { ref, reactive } from 'vue'
 import { message } from '@/composables/useMessage'
 import {
   getRenameTemplateApi,
@@ -8,6 +8,7 @@ import {
   saveCategoryRulesApi,
   type CategoryRule
 } from '@/api/openlist/renameConfig'
+import { testParseRenameApi } from '@/api/openlist/renameTask'
 
 /** 模板里可用的变量参考，点击插入到文本框光标处 */
 export const TEMPLATE_VARIABLES = [
@@ -131,6 +132,28 @@ export function useRenameConfig() {
     }
   }
 
+  // ---- 重命名测试：拿一个文件名试跑模板，看解析结果 ----
+  const testLoading = ref(false)
+  const testResult = ref<any>(null)
+  const testForm = reactive({ filename: '', template: '' })
+
+  const doTest = async () => {
+    if (!testForm.filename.trim()) {
+      message.warning('请输入文件名')
+      return
+    }
+    testLoading.value = true
+    try {
+      testResult.value = await testParseRenameApi(testForm.filename, testForm.template || undefined) as any
+      message.success('分析成功')
+    } catch (e) {
+      console.error('[重命名规则设置] 测试解析失败:', e)
+      message.error('请求失败')
+    } finally {
+      testLoading.value = false
+    }
+  }
+
   loadTemplate()
   loadRules()
 
@@ -138,6 +161,7 @@ export function useRenameConfig() {
     template, templateLoading, templateSaving, previewResult, previewError,
     doPreview, saveTemplate,
     movieRules, tvRules, rulesLoading, rulesSaving,
-    addRule, removeRule, moveRule, saveRules
+    addRule, removeRule, moveRule, saveRules,
+    testLoading, testResult, testForm, doTest
   }
 }
