@@ -1,0 +1,153 @@
+/* ============================================
+   List page common layout（PC + 响应式）
+   搜索卡片 + 表格卡片 + 操作栏 的统一结构样式，
+   由各列表页共享 —— 改这一份即全站生效，禁止在各页面再复制
+   ============================================ */
+
+.page-container {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.search-card {
+  padding: 14px 16px;
+}
+
+.search-fields {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 12px;
+
+  > .v-text-field,
+  > .v-select {
+    width: 220px;
+    flex: 0 0 auto;
+  }
+
+  .status-select {
+    width: 140px;
+  }
+
+  .date-range-fields {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex: 0 0 auto;
+
+    .date-field {
+      width: 150px;
+    }
+
+    .date-range-sep {
+      color: var(--osr-text-secondary);
+    }
+  }
+
+  .search-actions {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    margin-top: 2px;
+  }
+}
+
+.table-card {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+}
+
+.action-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+
+  .action-left {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+  }
+}
+
+.pagination-wrapper {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 16px;
+}
+
+/* ============================================
+   Data table（v-data-table）统一样式
+   各列表页表格统一挂 class="modern-table"
+   ============================================ */
+.modern-table {
+  --v-table-header-height: 44px;
+
+  .v-data-table__thead {
+    th {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--osr-text-secondary);
+      background: var(--osr-bg-page);
+      white-space: nowrap;
+    }
+  }
+
+  .v-data-table__tr {
+    td {
+      font-size: 13px;
+    }
+
+    &:hover {
+      background: var(--osr-surface-hover);
+    }
+  }
+
+  /* 行内文字按钮（修改/删除/执行等）间距统一 */
+  td .v-btn {
+    letter-spacing: 0;
+  }
+}
+
+/* 窄屏：搜索字段与按钮占满整行 */
+@media (max-width: 768px) {
+  .page-container {
+    gap: 10px;
+  }
+
+  .search-fields {
+    > .v-text-field,
+    > .v-select,
+    .status-select {
+      width: 100%;
+    }
+
+    .date-range-fields {
+      width: 100%;
+
+      .date-field {
+        width: 100%;
+      }
+    }
+
+    .search-actions {
+      width: 100%;
+
+      .v-btn {
+        flex: 1;
+      }
+    }
+  }
+
+  .action-bar {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .table-card {
+    padding: 12px;
+  }
+}

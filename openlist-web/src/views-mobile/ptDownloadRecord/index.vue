@@ -233,28 +233,6 @@ const formatSize = (bytes: number): string => {
 }
 
 .task-card {
-  display: flex;
-  gap: 10px;
-  background: var(--osr-surface);
-  border-radius: var(--osr-radius-lg);
-  padding: 12px;
-  box-shadow: var(--osr-shadow-base);
-  border: 2px solid transparent;
-  transition: all var(--osr-transition-fast);
-
-  &.selected {
-    border-color: var(--osr-primary-light-5);
-    background: var(--osr-primary-light-9);
-  }
-
-  .card-checkbox {
-    flex-shrink: 0;
-    display: flex;
-    align-items: flex-start;
-    padding-top: 2px;
-    padding-left: 2px;
-  }
-
   .card-content {
     flex: 1;
     min-width: 0;

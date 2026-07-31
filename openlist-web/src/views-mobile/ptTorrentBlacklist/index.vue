@@ -121,7 +121,7 @@ const {
   searchCollapsed
 } = usePtTorrentBlacklist()
 
-// Element Plus 表单规则是 { required, message, trigger } 对象格式，
+// 表单规则是 { required, message, trigger } 对象格式（composable 返回），
 // Vuetify 的 v-text-field :rules 需要函数格式，这里就地转换，不改动 composable
 const toRuleFns = (ruleList: any[]) =>
   (ruleList || []).map((rule: any) => (value: any) => {
@@ -164,13 +164,6 @@ const shortHash = (value: string) => {
 }
 
 .task-card {
-  display: flex;
-  gap: 10px;
-  background: var(--osr-surface);
-  border-radius: var(--osr-radius-lg);
-  padding: 12px;
-  box-shadow: var(--osr-shadow-base);
-
   .card-content {
     flex: 1;
     min-width: 0;

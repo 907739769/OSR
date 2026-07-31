@@ -4,28 +4,41 @@
     <div class="welcome-header">
       <div class="welcome-text">
         <div class="welcome-title">欢迎回来，{{ userName }}</div>
-        <div class="welcome-quote">{{ quote }}</div>
+        <div class="welcome-quote" title="点击换一句" @click="loadQuote">“{{ quote }}”</div>
       </div>
-      <div class="welcome-date">{{ todayText }}</div>
+      <div class="welcome-date">
+        <div class="welcome-weekday">{{ weekdayText }}</div>
+        <div class="welcome-day">{{ dateText }}</div>
+      </div>
     </div>
 
     <!-- Stat Cards -->
     <v-row class="stat-row" dense>
-      <v-col cols="6" md="2" v-for="(stat, index) in statCards" :key="index">
-        <v-card
-          class="stat-card"
-          :class="[stat.type, { clickable: !!stat.path }]"
-          @click="stat.path && router.push(stat.path)"
-        >
-          <div class="stat-icon">
-            <v-icon :icon="stat.icon" size="16" />
-          </div>
-          <div class="stat-info">
-            <div class="stat-value">{{ stat.value }}</div>
-            <div class="stat-label">{{ stat.label }}</div>
-          </div>
-        </v-card>
-      </v-col>
+      <template v-if="statLoading">
+        <v-col cols="6" md="2" v-for="i in 6" :key="'skeleton-' + i">
+          <v-skeleton-loader type="list-item-avatar" class="stat-skeleton" />
+        </v-col>
+      </template>
+      <template v-else>
+        <v-col cols="6" md="2" v-for="(stat, index) in statCards" :key="index">
+          <v-card
+            class="stat-card"
+            :class="[stat.type, { clickable: !!stat.path }]"
+            @click="stat.path && router.push(stat.path)"
+          >
+            <div class="stat-icon">
+              <v-icon :icon="stat.icon" size="18" />
+            </div>
+            <div class="stat-info">
+              <div class="stat-value">{{ stat.value }}</div>
+              <div class="stat-label">{{ stat.label }}</div>
+              <div v-if="stat.sparkKey" class="stat-spark">
+                <MiniTrend :points="trendSeries[stat.sparkKey] || []" :tone="stat.type" />
+              </div>
+            </div>
+          </v-card>
+        </v-col>
+      </template>
     </v-row>
 
     <!-- Middle: task pie chart (tabbed) + PT subscription overview -->
@@ -46,7 +59,10 @@
               @update:model-value="loadTaskChart"
             />
           </div>
-          <div ref="taskChartContainer" class="echarts-container" />
+          <div class="chart-wrap">
+            <div ref="taskChartContainer" class="echarts-container" />
+            <v-skeleton-loader v-if="chartLoading" type="image" class="chart-skeleton" height="260" />
+          </div>
         </v-card>
       </v-col>
 
@@ -57,21 +73,10 @@
             <v-btn variant="text" size="small" color="primary" @click="goPtStats">查看详情</v-btn>
           </div>
           <div class="pt-overview-grid">
-            <div class="pt-overview-item">
-              <div class="pt-overview-value">{{ ptOverview.totalSubscriptions ?? '--' }}</div>
-              <div class="pt-overview-label">订阅总数</div>
-            </div>
-            <div class="pt-overview-item">
-              <div class="pt-overview-value">{{ ptOverview.activeSubscriptions ?? '--' }}</div>
-              <div class="pt-overview-label">活跃订阅</div>
-            </div>
-            <div class="pt-overview-item">
-              <div class="pt-overview-value">{{ ptOverview.successRate != null ? ptOverview.successRate + '%' : '--' }}</div>
-              <div class="pt-overview-label">下载成功率</div>
-            </div>
-            <div class="pt-overview-item">
-              <div class="pt-overview-value">{{ ptOverview.avgDurationMinutes != null ? ptOverview.avgDurationMinutes + '分' : '--' }}</div>
-              <div class="pt-overview-label">平均耗时</div>
+            <div v-for="item in ptOverviewItems" :key="item.label" class="pt-overview-item" :class="item.type">
+              <span class="pt-overview-dot" />
+              <div class="pt-overview-value">{{ formatPtValue(item) }}</div>
+              <div class="pt-overview-label">{{ item.label }}</div>
             </div>
           </div>
           <v-divider class="my-2" />
@@ -79,7 +84,12 @@
             <div class="pt-top-title">热门订阅 Top {{ ptTopSubscriptions.length }}</div>
             <div v-if="!ptTopSubscriptions.length" class="pt-top-empty">暂无数据</div>
             <div v-for="sub in ptTopSubscriptions" :key="sub.subId" class="pt-top-item">
-              <span class="pt-top-name" :title="sub.title">{{ sub.title }}</span>
+              <div class="pt-top-main">
+                <span class="pt-top-name" :title="sub.title">{{ sub.title }}</span>
+                <div class="pt-top-progress">
+                  <div class="pt-top-progress-bar" :style="{ width: ptProgressWidth(sub) + '%' }" />
+                </div>
+              </div>
               <span class="pt-top-count">{{ sub.completedCount }}/{{ sub.downloadCount }}</span>
             </div>
           </div>
@@ -94,7 +104,9 @@
           <div class="chart-header">
             <span class="chart-title">最近失败记录</span>
           </div>
-          <div v-if="!recentFailures.length" class="empty-tip">暂无失败记录</div>
+          <div v-if="!recentFailures.length" class="empty-tip">
+            <v-empty-state icon="mdi-check-circle-outline" title="暂无失败记录" />
+          </div>
           <div v-else class="failure-list">
             <div
               v-for="f in recentFailures"
@@ -102,9 +114,10 @@
               class="failure-item"
               @click="f.path && router.push(f.path)"
             >
-              <v-chip size="small" :color="f.color" variant="tonal" class="failure-tag">{{ f.typeLabel }}</v-chip>
+              <v-icon :icon="f.icon" size="18" class="failure-icon" :color="f.color" />
+              <span class="failure-tag-text">{{ f.typeLabel }}</span>
               <span class="failure-name" :title="f.name">{{ f.name }}</span>
-              <span class="failure-time">{{ f.time }}</span>
+              <span class="failure-time" :title="f.time">{{ formatRelativeTime(f.time) }}</span>
             </div>
           </div>
         </v-card>
@@ -116,17 +129,15 @@
             <span class="chart-title">快捷入口</span>
           </div>
           <div class="quick-links">
-            <v-btn
+            <div
               v-for="link in quickLinks"
-              :key="link.label"
-              variant="tonal"
-              size="small"
-              :prepend-icon="link.icon"
-              :disabled="!link.path"
+              :key="link.path"
+              class="quick-link-item"
               @click="link.path && router.push(link.path)"
             >
-              {{ link.label }}
-            </v-btn>
+              <v-icon :icon="link.icon" />
+              <span>{{ link.title }}</span>
+            </div>
           </div>
         </v-card>
       </v-col>
@@ -144,19 +155,23 @@ import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import { TitleComponent, TooltipComponent, GridComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
+import { osrCssVar } from '@/composables/useThemeMode'
+import MiniTrend from '@/components/MiniTrend.vue'
 import { getDashboardStatsApi, getDashboardTrendApi, type DashboardTrendPoint } from '@/api/openlist/dashboard'
 import { getHitokotoApi } from '@/api/openlist/hitokoto'
 import { getStrmRecordListApi } from '@/api/openlist/strmRecord'
 import { getCopyRecordListApi } from '@/api/openlist/copyRecord'
 import { getRenameDetailListApi } from '@/api/openlist/renameDetail'
 import { getPtStatsOverviewApi, getPtStatsTopSubscriptionsApi, type PtStatsOverview, type PtStatsActiveSubscription } from '@/api/openlist/ptStats'
+import { useMenuLinks } from '@/composables/useMenuLinks'
 
 echarts.use([LineChart, TitleComponent, TooltipComponent, GridComponent, LegendComponent, CanvasRenderer])
 
 const router = useRouter()
 const userStore = useUserStore()
 const userName = computed(() => userStore.userInfo?.userName || userStore.userInfo?.loginName || '管理员')
-const todayText = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })
+const weekdayText = new Date().toLocaleDateString('zh-CN', { weekday: 'long' })
+const dateText = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })
 
 /** 一言接口请求失败时的备用文案，与移动端首页保持一致 */
 const FALLBACK_QUOTES = [
@@ -189,9 +204,29 @@ interface StatCard {
   icon: string
   type: 'primary' | 'success' | 'warning' | 'info'
   path?: string | null
+  /** 有值时卡片右下角展示对应类型的近 7 天迷你趋势线 */
+  sparkKey?: 'copy' | 'strm' | 'rename'
 }
 
 const statCards = ref<StatCard[]>([])
+const statLoading = ref(true)
+const chartLoading = ref(true)
+const trendSeries = ref<Record<'copy' | 'strm' | 'rename', number[]>>({ copy: [], strm: [], rename: [] })
+
+/** 近 7 天完整趋势数据（sparkline 与初始图表共用，避免重复请求） */
+const trendCache = ref<Partial<Record<'copy' | 'strm' | 'rename', DashboardTrendPoint[]>>>({})
+
+/** 统计卡 sparkline 数据：复用 getDashboardTrendApi 的 totalCount 序列 */
+async function loadSparklines() {
+  const types = ['copy', 'strm', 'rename'] as const
+  const results = await Promise.allSettled(types.map((t) => getDashboardTrendApi(t, 7)))
+  results.forEach((r, i) => {
+    if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+      trendCache.value[types[i]] = r.value
+      trendSeries.value[types[i]] = r.value.map((p) => p.totalCount)
+    }
+  })
+}
 
 onMounted(async () => {
   loadQuote()
@@ -204,9 +239,9 @@ onMounted(async () => {
     const failedCount = statsData?.failedCount ?? 0
     const processingCount = statsData?.processingCount ?? 0
     statCards.value = [
-      { label: 'COPY 任务', value: copyCount, icon: 'mdi-file-multiple-outline', type: 'primary', path: getRoutePathForComponent('openlist/copyRecord/index') },
-      { label: 'STRM 任务', value: strmCount, icon: 'mdi-video-outline', type: 'success', path: getRoutePathForComponent('openlist/strmRecord/index') },
-      { label: 'Rename 任务', value: renameCount, icon: 'mdi-pencil-outline', type: 'warning', path: getRoutePathForComponent('openlist/renameDetail/index') },
+      { label: 'COPY 任务', value: copyCount, icon: 'mdi-file-multiple-outline', type: 'primary', path: getRoutePathForComponent('openlist/copyRecord/index'), sparkKey: 'copy' },
+      { label: 'STRM 任务', value: strmCount, icon: 'mdi-video-outline', type: 'success', path: getRoutePathForComponent('openlist/strmRecord/index'), sparkKey: 'strm' },
+      { label: 'Rename 任务', value: renameCount, icon: 'mdi-pencil-outline', type: 'warning', path: getRoutePathForComponent('openlist/renameDetail/index'), sparkKey: 'rename' },
       { label: '成功率', value: successRate > 0 ? successRate + '%' : '--', icon: 'mdi-check-circle-outline', type: 'info' },
       { label: '失败数', value: failedCount, icon: 'mdi-close-circle-outline', type: 'warning' },
       { label: '处理中', value: processingCount, icon: 'mdi-loading mdi-spin', type: 'primary' }
@@ -221,6 +256,8 @@ onMounted(async () => {
       { label: '失败数', value: '0', icon: 'mdi-close-circle-outline', type: 'warning' },
       { label: '处理中', value: '0', icon: 'mdi-loading mdi-spin', type: 'primary' }
     ]
+  } finally {
+    statLoading.value = false
   }
 })
 
@@ -239,26 +276,49 @@ let taskChart: any = null
 
 function renderTrendChart(points: DashboardTrendPoint[]) {
   if (!taskChart) return
+  const axisColor = osrCssVar('--osr-text-secondary') || '#64748b'
+  const splitColor = osrCssVar('--osr-border-light') || '#f1f5f9'
+
+  if (!points.length) {
+    taskChart.clear()
+    taskChart.setOption({
+      title: { text: '暂无数据', left: 'center', top: 'center', textStyle: { fontSize: 14, color: osrCssVar('--osr-text-placeholder') || '#94a3b8' } },
+      series: []
+    }, true)
+    return
+  }
+
   taskChart.setOption({
-    tooltip: { trigger: 'axis' },
-    legend: { data: ['总数', '成功', '失败'], top: 4, itemWidth: 12, itemHeight: 12, textStyle: { fontSize: 12 } },
+    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
+    legend: { data: ['总数', '成功', '失败'], top: 4, itemWidth: 12, itemHeight: 12, textStyle: { fontSize: 12, color: axisColor } },
     grid: { left: 36, right: 16, top: 40, bottom: 24 },
-    xAxis: { type: 'category', data: points.map(p => p.date.slice(5)), axisLabel: { fontSize: 11 } },
-    yAxis: { type: 'value', minInterval: 1, axisLabel: { fontSize: 11 } },
+    xAxis: { type: 'category', data: points.map(p => p.date.slice(5)), axisLabel: { fontSize: 11, color: axisColor }, axisLine: { lineStyle: { color: splitColor } } },
+    yAxis: { type: 'value', minInterval: 1, axisLabel: { fontSize: 11, color: axisColor }, splitLine: { lineStyle: { color: splitColor } } },
     series: [
-      { name: '总数', type: 'line', smooth: true, data: points.map(p => p.totalCount), itemStyle: { color: '#6366f1' }, lineStyle: { width: 2 } },
-      { name: '成功', type: 'line', smooth: true, data: points.map(p => p.successCount), itemStyle: { color: '#22c55e' }, lineStyle: { width: 2 } },
-      { name: '失败', type: 'line', smooth: true, data: points.map(p => p.failedCount), itemStyle: { color: '#ef4444' }, lineStyle: { width: 2 } }
+      { name: '总数', type: 'line', smooth: true, data: points.map(p => p.totalCount), itemStyle: { color: '#B4690E' }, lineStyle: { width: 2 }, areaStyle: { opacity: 0.1 } },
+      { name: '成功', type: 'line', smooth: true, data: points.map(p => p.successCount), itemStyle: { color: '#3F8F5F' }, lineStyle: { width: 2 }, areaStyle: { opacity: 0.1 } },
+      { name: '失败', type: 'line', smooth: true, data: points.map(p => p.failedCount), itemStyle: { color: '#C0362C' }, lineStyle: { width: 2 }, areaStyle: { opacity: 0.08 } }
     ]
   }, true)
 }
 
+let chartReqSeq = 0
+
 async function loadTaskChart() {
   if (!taskChart) return
+  // 初始 tab 近 7 天数据已由 loadSparklines 取过，直接复用避免重复请求
+  const cached = trendCache.value[activeTaskTab.value]
+  if (cached && taskDays.value === 7) {
+    renderTrendChart(cached)
+    return
+  }
+  const seq = ++chartReqSeq
   try {
     const points = await getDashboardTrendApi(activeTaskTab.value, taskDays.value)
+    if (seq !== chartReqSeq) return // 已切 tab/天数，丢弃过期响应
     renderTrendChart(points || [])
   } catch (e) {
+    if (seq !== chartReqSeq) return
     console.error('Failed to load task trend chart:', e)
     renderTrendChart([])
   }
@@ -269,6 +329,25 @@ async function loadTaskChart() {
    ============================================ */
 const ptOverview = ref<Partial<PtStatsOverview>>({})
 const ptTopSubscriptions = ref<PtStatsActiveSubscription[]>([])
+
+/** PT 概览四格：key 对应 PtStatsOverview 字段，type 决定色点 */
+const ptOverviewItems = [
+  { key: 'totalSubscriptions', label: '订阅总数', type: 'primary', suffix: '' },
+  { key: 'activeSubscriptions', label: '活跃订阅', type: 'success', suffix: '' },
+  { key: 'successRate', label: '下载成功率', type: 'warning', suffix: '%' },
+  { key: 'avgDurationMinutes', label: '平均耗时', type: 'info', suffix: '分' }
+] as const
+
+function formatPtValue(item: { key: string; suffix: string }): string {
+  const v = (ptOverview.value as any)?.[item.key]
+  if (v == null) return '--'
+  return item.suffix ? `${v}${item.suffix}` : String(v)
+}
+
+function ptProgressWidth(sub: PtStatsActiveSubscription): number {
+  if (!sub.downloadCount) return 0
+  return Math.min(100, Math.round((sub.completedCount / sub.downloadCount) * 100))
+}
 
 function goPtStats() {
   const path = getRoutePathForComponent('openlist/ptStatsDashboard/index')
@@ -295,10 +374,26 @@ interface FailureItem {
   type: string
   typeLabel: string
   color: string
+  icon: string
   id: number | string
   name: string
   time: string
   path: string | null
+}
+
+/** 后端时间转相对时间（x 分钟前/小时前/天前），无效值原样返回 */
+function formatRelativeTime(time: string): string {
+  if (!time) return ''
+  const t = new Date(time).getTime()
+  if (Number.isNaN(t)) return time
+  const min = Math.floor((Date.now() - t) / 60000)
+  if (min < 1) return '刚刚'
+  if (min < 60) return `${min} 分钟前`
+  const hour = Math.floor(min / 60)
+  if (hour < 24) return `${hour} 小时前`
+  const day = Math.floor(hour / 24)
+  if (day < 30) return `${day} 天前`
+  return new Date(time).toLocaleDateString('zh-CN')
 }
 
 const recentFailures = ref<FailureItem[]>([])
@@ -312,7 +407,7 @@ async function loadRecentFailures() {
   try {
     const res: any = await getStrmRecordListApi({ pageNum: 1, pageSize: 5, strmStatus: '0' })
     for (const r of res?.records || []) {
-      items.push({ type: 'strm', typeLabel: 'STRM', color: 'success', id: r.strmId, name: r.strmFileName, time: r.createTime, path: strmPath })
+      items.push({ type: 'strm', typeLabel: 'STRM', color: 'success', icon: 'mdi-video-outline', id: r.strmId, name: r.strmFileName, time: r.createTime, path: strmPath })
     }
   } catch (e) {
     console.error('[Dashboard] Failed to load strm failures:', e)
@@ -321,7 +416,7 @@ async function loadRecentFailures() {
   try {
     const res: any = await getCopyRecordListApi({ pageNum: 1, pageSize: 5, copyStatus: '0' })
     for (const r of res?.records || []) {
-      items.push({ type: 'copy', typeLabel: 'COPY', color: 'primary', id: r.copyId, name: r.copySrcFileName, time: r.createTime, path: copyPath })
+      items.push({ type: 'copy', typeLabel: 'COPY', color: 'primary', icon: 'mdi-file-multiple-outline', id: r.copyId, name: r.copySrcFileName, time: r.createTime, path: copyPath })
     }
   } catch (e) {
     console.error('[Dashboard] Failed to load copy failures:', e)
@@ -330,7 +425,7 @@ async function loadRecentFailures() {
   try {
     const res: any = await getRenameDetailListApi({ pageNum: 1, pageSize: 5, status: '0' })
     for (const r of res?.records || []) {
-      items.push({ type: 'rename', typeLabel: 'Rename', color: 'warning', id: r.id, name: r.originalName, time: r.createTime, path: renamePath })
+      items.push({ type: 'rename', typeLabel: 'Rename', color: 'warning', icon: 'mdi-pencil-outline', id: r.id, name: r.originalName, time: r.createTime, path: renamePath })
     }
   } catch (e) {
     console.error('[Dashboard] Failed to load rename failures:', e)
@@ -343,14 +438,7 @@ async function loadRecentFailures() {
 /* ============================================
    Quick links
    ============================================ */
-const quickLinks = computed(() => [
-  { label: 'STRM 任务', icon: 'mdi-video-outline', path: getRoutePathForComponent('openlist/strmTask/index') },
-  { label: 'COPY 任务', icon: 'mdi-file-multiple-outline', path: getRoutePathForComponent('openlist/copyTask/index') },
-  { label: 'Rename 任务', icon: 'mdi-pencil-outline', path: getRoutePathForComponent('openlist/renameTask/index') },
-  { label: 'PT 订阅', icon: 'mdi-bookmark-outline', path: getRoutePathForComponent('openlist/ptSubscription/index') },
-  { label: 'PT 统计', icon: 'mdi-chart-line', path: getRoutePathForComponent('openlist/ptStatsDashboard/index') },
-  { label: '孤儿扫描', icon: 'mdi-file-search-outline', path: getRoutePathForComponent('openlist/renameOrphan/index') }
-])
+const quickLinks = useMenuLinks()
 
 let resizeHandler: (() => void) | null = null
 
@@ -359,21 +447,37 @@ onMounted(async () => {
   if (taskChartContainer.value) {
     taskChart = echarts.init(taskChartContainer.value)
   }
-  await Promise.all([loadTaskChart(), loadPtOverview(), loadRecentFailures()])
+  // 先取 sparkline 趋势（填充 trendCache），loadTaskChart 复用初始 tab 数据避免重复请求
+  await Promise.all([loadSparklines(), loadPtOverview(), loadRecentFailures()])
+  await loadTaskChart()
+  chartLoading.value = false
 
   resizeHandler = () => taskChart?.resize()
   window.addEventListener('resize', resizeHandler)
+
+  // 主题切换后重绘图表（canvas 无法用 CSS 变量）
+  themeChangeHandler = () => {
+    if (taskChartContainer.value) {
+      taskChart?.dispose()
+      taskChart = echarts.init(taskChartContainer.value)
+      loadTaskChart()
+    }
+  }
+  document.addEventListener('osr-theme-change', themeChangeHandler)
 })
+
+let themeChangeHandler: (() => void) | null = null
 
 onUnmounted(() => {
   resizeHandler && window.removeEventListener('resize', resizeHandler)
+  themeChangeHandler && document.removeEventListener('osr-theme-change', themeChangeHandler)
   taskChart?.dispose()
 })
 </script>
 
 <style scoped lang="scss">
 .dashboard {
-  padding: 24px;
+  padding: 0;
 }
 
 .welcome-header {
@@ -401,13 +505,33 @@ onUnmounted(() => {
     text-overflow: ellipsis;
     white-space: nowrap;
     max-width: 480px;
+    cursor: pointer;
+    transition: color var(--osr-transition-fast);
+
+    &:hover {
+      color: var(--osr-primary);
+    }
   }
 
   .welcome-date {
     flex-shrink: 0;
-    font-size: 13px;
-    color: var(--osr-text-secondary);
-    padding-top: 2px;
+    background: var(--osr-primary-light-9);
+    color: var(--osr-primary);
+    padding: 8px 18px;
+    border-radius: var(--osr-radius-md);
+    text-align: center;
+
+    .welcome-weekday {
+      font-size: 15px;
+      font-weight: 600;
+      line-height: 1.3;
+    }
+
+    .welcome-day {
+      font-size: 12px;
+      margin-top: 2px;
+      opacity: 0.9;
+    }
   }
 }
 
@@ -437,13 +561,13 @@ onUnmounted(() => {
 
   display: flex;
   align-items: center;
-  padding: 8px 10px;
-  gap: 8px;
+  padding: 12px 14px;
+  gap: 12px;
 
   .stat-icon {
-    width: 28px;
-    height: 28px;
-    border-radius: var(--osr-radius-md);
+    width: 40px;
+    height: 40px;
+    border-radius: var(--osr-radius-lg);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -455,19 +579,24 @@ onUnmounted(() => {
     min-width: 0;
 
     .stat-value {
-      font-size: 16px;
+      font-size: 20px;
       font-weight: 700;
       color: var(--osr-text-primary);
       line-height: 1.2;
     }
 
     .stat-label {
-      font-size: 11px;
+      font-size: 12px;
       color: var(--osr-text-secondary);
       margin-top: 1px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+
+    .stat-spark {
+      margin-top: 4px;
+      height: 24px;
     }
   }
 
@@ -547,6 +676,20 @@ onUnmounted(() => {
   width: 100%;
 }
 
+.chart-wrap {
+  position: relative;
+
+  .chart-skeleton {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+  }
+}
+
+.stat-skeleton {
+  border-radius: var(--osr-radius-lg);
+}
+
 /* ============================================
    PT overview card
    ============================================ */
@@ -559,11 +702,29 @@ onUnmounted(() => {
 
 .pt-overview-item {
   text-align: center;
+  position: relative;
+
+  .pt-overview-dot {
+    position: absolute;
+    top: 2px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--osr-primary);
+    opacity: 0.85;
+  }
+
+  &.success .pt-overview-dot { background: var(--osr-success); }
+  &.warning .pt-overview-dot { background: var(--osr-warning); }
+  &.info .pt-overview-dot { background: var(--osr-info); }
 
   .pt-overview-value {
     font-size: 20px;
     font-weight: 700;
     color: var(--osr-text-primary);
+    margin-top: 6px;
   }
 
   .pt-overview-label {
@@ -594,6 +755,7 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 10px;
   padding: 6px 0;
   font-size: 13px;
   border-bottom: 1px dashed var(--osr-border-light);
@@ -602,18 +764,38 @@ onUnmounted(() => {
     border-bottom: none;
   }
 
+  .pt-top-main {
+    flex: 1;
+    min-width: 0;
+  }
+
   .pt-top-name {
+    display: block;
     color: var(--osr-text-primary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    flex: 1;
-    margin-right: 8px;
+    margin-bottom: 3px;
+  }
+
+  .pt-top-progress {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--osr-primary-light-9);
+    overflow: hidden;
+
+    .pt-top-progress-bar {
+      height: 100%;
+      border-radius: 2px;
+      background: linear-gradient(90deg, var(--osr-primary-light-5), var(--osr-primary));
+      transition: width var(--osr-transition-base);
+    }
   }
 
   .pt-top-count {
     color: var(--osr-text-secondary);
     flex-shrink: 0;
+    font-size: 12px;
   }
 }
 
@@ -621,10 +803,7 @@ onUnmounted(() => {
    Recent failures
    ============================================ */
 .empty-tip {
-  padding: 40px 0;
-  text-align: center;
-  color: var(--osr-text-secondary);
-  font-size: 13px;
+  padding: 8px 0;
 }
 
 .failure-list {
@@ -634,7 +813,7 @@ onUnmounted(() => {
 .failure-item {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
   padding: 10px 0;
   border-bottom: 1px dashed var(--osr-border-light);
   cursor: pointer;
@@ -647,8 +826,15 @@ onUnmounted(() => {
     color: var(--osr-primary);
   }
 
-  .failure-tag {
+  .failure-icon {
     flex-shrink: 0;
+  }
+
+  .failure-tag-text {
+    flex-shrink: 0;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--osr-text-secondary);
   }
 
   .failure-name {
@@ -673,10 +859,44 @@ onUnmounted(() => {
    Quick links
    ============================================ */
 .quick-links {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
   gap: 10px;
   padding: 16px 20px;
+
+  .quick-link-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 8px;
+    border-radius: var(--osr-radius-md);
+    background: var(--osr-bg-page);
+    cursor: pointer;
+    transition: all var(--osr-transition-fast);
+
+    .v-icon {
+      color: var(--osr-primary);
+      font-size: 20px;
+    }
+
+    span {
+      font-size: 12px;
+      color: var(--osr-text-secondary);
+      text-align: center;
+      line-height: 1.3;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+    }
+
+    &:hover {
+      background: var(--osr-primary-light-9);
+      transform: translateY(-1px);
+    }
+  }
 }
 
 /* ============================================

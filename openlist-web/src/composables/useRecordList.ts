@@ -163,7 +163,7 @@ export function useRecordList<TQuery extends SearchParams = SearchParams>(config
     selectedIds.value = []
   }
 
-  /** PC 端 el-table 的选择变化 */
+  /** PC 端 v-data-table-server 的选择变化 */
   const handleSelectionChange = (selection: any[]) => {
     selectedIds.value = selection.map((item: any) => item[idField])
   }

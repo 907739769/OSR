@@ -22,12 +22,18 @@ test.describe('Mobile Responsive', () => {
     await expect(page.locator('.mobile-dashboard')).toBeVisible()
     // PC 版首页的 echarts 不应出现在移动端
     await expect(page.locator('.echarts-container')).toHaveCount(0)
-    // 统计卡取自接口，数量固定为 6
-    await expect(page.locator('.stat-card')).toHaveCount(6)
+    // 统计卡：概览 6 张 + 今日处理 3 张 = 9；today 接口慢时今日区可能晚到，接受 >=6
+    await expect(page.locator('.stat-card').first()).toBeVisible()
+    await expect(page.locator('.stat-card')).toHaveCount(9)
   })
 
   test('dashboard quick links should all resolve to a real page', async ({ page }) => {
     await login(page)
+
+    // 该用例逐个访问 21 个路由，vite dev 首次编译对应 chunk 可能超过默认 10s 断言窗口，
+    // 提高超时以兼容冷编译（产品逻辑本身无需这么久）
+    test.setTimeout(240000)
+    expect.configure({ timeout: 25000 })
 
     // 快捷入口来自异步下发的菜单，先等它渲染出来再取数
     await expect(page.locator('.action-item').first()).toBeVisible()

@@ -7,6 +7,7 @@
 :root {
   /* Primary - 胶片琥珀 */
   --osr-primary: #b4690e;
+  --osr-on-primary: #ffffff;
   --osr-primary-light-9: #fbf1e4;
   --osr-primary-light-8: #f6e1c4;
   --osr-primary-light-7: #f0d0a3;
@@ -71,4 +72,60 @@
   --osr-transition-fast: 150ms ease;
   --osr-transition-base: 200ms ease;
   --osr-transition-slow: 300ms ease;
+}
+
+/* ============================================
+   Dark theme tokens —— 与 src/plugins/vuetify.ts 的 osrDark 同色系
+   由主题切换逻辑在 <html> 上设置 data-theme="dark" 生效
+   ============================================ */
+:root[data-theme='dark'] {
+  /* Primary - 亮琥珀 */
+  --osr-primary: #e0a548;
+  --osr-on-primary: #1a1305;
+  --osr-primary-light-9: #262017;
+  --osr-primary-light-8: #302818;
+  --osr-primary-light-7: #3c3219;
+  --osr-primary-light-6: #4a3c1c;
+  --osr-primary-light-5: #59491f;
+  --osr-primary-light-4: #6a5824;
+  --osr-primary-light-3: #7d692b;
+  --osr-primary-light-2: #927c34;
+  --osr-primary-light-1: #a9923e;
+
+  /* Colors */
+  --osr-success: #6bbf8c;
+  --osr-success-light: #16251b;
+  --osr-warning: #e3a947;
+  --osr-warning-light: #2a2112;
+  --osr-danger: #e1685c;
+  --osr-danger-light: #2b1614;
+  --osr-info: #7c9ac2;
+  --osr-info-light: #141c26;
+
+  /* Surfaces */
+  --osr-bg: #1c212c;
+  --osr-bg-page: #141821;
+  --osr-bg-sidebar: #1c212c;
+  --osr-bg-sidebar-hover: #232936;
+  --osr-bg-sidebar-active: #3a2f1a;
+  --osr-surface: #1c212c;
+  --osr-surface-hover: #232936;
+
+  /* Text */
+  --osr-text-primary: #e8eaed;
+  --osr-text-regular: #c6ccd4;
+  --osr-text-secondary: #8a93a5;
+  --osr-text-placeholder: #5f6b7c;
+  --osr-text-disabled: #434d5c;
+
+  /* Borders */
+  --osr-border-base: #2a303d;
+  --osr-border-light: #232936;
+  --osr-border-dark: #3a4150;
+
+  /* Shadows */
+  --osr-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --osr-shadow-base: 0 1px 3px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
+  --osr-shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.3);
+  --osr-shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.4), 0 4px 6px rgba(0, 0, 0, 0.3);
 }

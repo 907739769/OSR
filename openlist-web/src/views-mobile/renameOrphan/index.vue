@@ -135,16 +135,7 @@ getList()
 }
 
 .batch-bar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  background: var(--osr-bg-page);
-  border-radius: 8px;
-
   .selected-count {
-    font-size: 13px;
-    color: var(--osr-text-secondary);
     margin-right: auto;
   }
 }

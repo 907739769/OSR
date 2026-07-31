@@ -12,13 +12,17 @@ declare module 'vue' {
     DirectoryTreeSelect: typeof import('./components/DirectoryTreeSelect/index.vue')['default']
     FullTextDialog: typeof import('./components/mobile/FullTextDialog.vue')['default']
     GlobalFeedback: typeof import('./components/GlobalFeedback.vue')['default']
+    MiniTrend: typeof import('./components/MiniTrend.vue')['default']
     MobilePager: typeof import('./components/mobile/MobilePager.vue')['default']
     MobileSearchPanel: typeof import('./components/mobile/MobileSearchPanel.vue')['default']
     MobileSidebarMenuItem: typeof import('./components/MobileSidebarMenuItem.vue')['default']
     OpenListTree: typeof import('./components/OpenListTree.vue')['default']
+    PageHeader: typeof import('./components/PageHeader.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     SidebarMenuItem: typeof import('./components/SidebarMenuItem.vue')['default']
+    StatusChip: typeof import('./components/StatusChip.vue')['default']
+    ThemeSwitch: typeof import('./components/ThemeSwitch.vue')['default']
     TreeNodeItem: typeof import('./components/TreeNodeItem.vue')['default']
   }
 }

@@ -21,10 +21,14 @@
 import { computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAppStore } from '@/stores/app'
+import { useThemeMode } from '@/composables/useThemeMode'
 import DesktopLayout from '@/layouts/DesktopLayout.vue'
 import MobileLayout from '@/layouts/MobileLayout.vue'
 import AppUpdatePrompt from '@/components/AppUpdatePrompt.vue'
 import GlobalFeedback from '@/components/GlobalFeedback.vue'
+
+// 初始化主题模式（浅色/深色/跟随系统），写入 <html data-theme> 与 Vuetify 主题
+useThemeMode()
 
 const route = useRoute()
 const appStore = useAppStore()

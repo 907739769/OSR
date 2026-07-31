@@ -201,7 +201,7 @@ const {
   searchCollapsed
 } = usePtIndexer()
 
-// 将 Element Plus 风格的校验规则对象转换为 Vuetify 的规则函数数组
+// 将对象格式的校验规则（composable 返回）转换为 Vuetify 的规则函数数组
 const toRules = (fieldRules?: any[]) => {
   return (fieldRules || []).map((r: any) => (value: any) => {
     if (r.required && (value === undefined || value === null || value === '')) return r.message
@@ -211,7 +211,7 @@ const toRules = (fieldRules?: any[]) => {
   })
 }
 
-// el-option-group 的父子分类结构在 Vuetify v-select 中拍平为一层，父分类照常可选，
+// 原来的父子分类分组结构在 Vuetify v-select 中拍平为一层，父分类照常可选，
 // 子分类前缀全角空格保留原有的缩进视觉效果
 const categoryFlatOptions = computed(() => {
   const list: { title: string; value: string }[] = []
@@ -234,23 +234,6 @@ const categoryFlatOptions = computed(() => {
   padding-bottom: 8px;
 }
 
-.batch-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 14px;
-  background: var(--osr-primary-light-9);
-  border: 1px solid var(--osr-primary-light-7);
-  border-radius: var(--osr-radius-md);
-  font-size: 13px;
-
-  .selected-count {
-    font-weight: 600;
-    color: var(--osr-primary);
-    margin-right: 4px;
-    white-space: nowrap;
-  }
-}
 
 .task-list {
   display: flex;
@@ -261,37 +244,6 @@ const categoryFlatOptions = computed(() => {
 }
 
 .task-card {
-  display: flex;
-  gap: 10px;
-  background: var(--osr-surface);
-  border-radius: var(--osr-radius-lg);
-  padding: 12px;
-  box-shadow: var(--osr-shadow-base);
-  border: 2px solid transparent;
-  transition: all var(--osr-transition-fast);
-
-  &.selected {
-    border-color: var(--osr-primary-light-5);
-    background: var(--osr-primary-light-9);
-  }
-
-  &:active {
-    transform: scale(0.99);
-  }
-
-  .card-checkbox {
-    flex-shrink: 0;
-    display: flex;
-    align-items: flex-start;
-    padding-top: 2px;
-    padding-left: 2px;
-  }
-
-  .card-content {
-    flex: 1;
-    min-width: 0;
-  }
-
   .card-top {
     display: flex;
     align-items: center;
@@ -347,23 +299,6 @@ const categoryFlatOptions = computed(() => {
   }
 }
 
-.fab-add {
-  position: fixed;
-  right: 20px;
-  bottom: calc(56px + 16px + env(safe-area-inset-bottom, 0px));
-  z-index: 1000;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  transition: all var(--osr-transition-fast);
-
-  &:active {
-    transform: scale(0.96);
-  }
-
-  @media (min-width: 768px) {
-    right: 40px;
-    bottom: calc(56px + 24px);
-  }
-}
 
 .category-field {
   display: flex;

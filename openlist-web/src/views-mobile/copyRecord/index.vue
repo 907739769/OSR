@@ -177,7 +177,7 @@ const {
   getCopyStatusText, getCopyStatusType
 } = useCopyRecord()
 
-// dateRange 是 el-date-picker daterange 遗留的 [start, end] 数组结构，
+// dateRange 是 [start, end] 数组结构（从 el-date-picker daterange 迁移而来），
 // 拆成两个独立日期输入框绑定，写回时仍保持数组形状供 handleQuery 组装 params
 const dateStart = computed({
   get: () => dateRange.value?.[0] ?? '',
@@ -234,24 +234,7 @@ getList()
 /* ============================================
    Batch Action Bar
    ============================================ */
-.batch-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 14px;
-  background: var(--osr-primary-light-9);
-  border: 1px solid var(--osr-primary-light-7);
-  border-radius: var(--osr-radius-md);
-  font-size: 13px;
-  flex-wrap: wrap;
 
-  .selected-count {
-    font-weight: 600;
-    color: var(--osr-primary);
-    margin-right: 4px;
-    white-space: nowrap;
-  }
-}
 
 /* ============================================
    Record List

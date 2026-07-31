@@ -15,6 +15,7 @@
       <v-icon :icon="appStore.sidebarOpened ? 'mdi-menu-open' : 'mdi-menu'" />
     </v-app-bar-nav-icon>
     <v-spacer />
+    <ThemeSwitch />
     <v-menu>
       <template #activator="{ props: menuProps }">
         <div class="avatar-wrapper" v-bind="menuProps">
@@ -55,6 +56,7 @@ import { useAppStore } from '@/stores/app'
 import { useUserStore } from '@/stores/user'
 import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
 import SidebarMenuItem from '@/components/SidebarMenuItem.vue'
+import ThemeSwitch from '@/components/ThemeSwitch.vue'
 
 const router = useRouter()
 const appStore = useAppStore()

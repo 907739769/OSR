@@ -127,7 +127,7 @@ const {
   handleAdd, submitForm, handleDelete
 } = usePtTorrentBlacklist()
 
-// Element Plus 表单规则是 { required, message, trigger } 对象格式，
+// 表单规则是 { required, message, trigger } 对象格式（composable 返回），
 // Vuetify 的 v-text-field :rules 需要函数格式，这里就地转换，不改动 composable
 const toRuleFns = (ruleList: any[]) =>
   (ruleList || []).map((rule: any) => (value: any) => {
@@ -153,57 +153,16 @@ const shortHash = (value: string) => {
 </script>
 
 <style scoped lang="scss">
-.page-container {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.search-card {
-  padding: 14px 16px;
-}
 
 .search-fields {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 12px;
 
   > .v-text-field {
     width: 260px;
-    flex: 0 0 auto;
   }
 
   .type-select {
     width: 160px;
   }
-
-  .search-actions {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    margin-top: 2px;
-  }
-}
-
-.table-card {
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-}
-
-.action-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-}
-
-.pagination-wrapper {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: auto;
-  padding-top: 12px;
 }
 
 .card-grid {
@@ -283,9 +242,6 @@ const shortHash = (value: string) => {
 }
 
 @media (max-width: 768px) {
-  .page-container {
-    gap: 10px;
-  }
 
   .search-fields {
     > .v-text-field,
@@ -300,10 +256,6 @@ const shortHash = (value: string) => {
         flex: 1;
       }
     }
-  }
-
-  .table-card {
-    padding: 12px;
   }
 
   .card-grid {

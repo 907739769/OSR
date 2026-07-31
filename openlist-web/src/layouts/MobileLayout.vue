@@ -13,6 +13,7 @@
   <v-app-bar flat density="compact" height="50">
     <v-app-bar-nav-icon @click="menuOpen = !menuOpen" />
     <v-app-bar-title>{{ pageTitle }}</v-app-bar-title>
+    <ThemeSwitch />
     <v-avatar size="28" color="primary" class="mr-3" @click="showPasswordDialog = true">管</v-avatar>
     <v-icon icon="mdi-logout" class="mr-2" @click="handleLogout" />
   </v-app-bar>
@@ -53,6 +54,7 @@ import { confirm } from '@/composables/useConfirm'
 import { useUserStore, type MenuRoute } from '@/stores/user'
 import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
 import MobileSidebarMenuItem from '@/components/MobileSidebarMenuItem.vue'
+import ThemeSwitch from '@/components/ThemeSwitch.vue'
 
 const route = useRoute()
 const router = useRouter()

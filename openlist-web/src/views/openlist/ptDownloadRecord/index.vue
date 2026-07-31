@@ -265,16 +265,9 @@ const formatSize = (bytes: number): string => {
 </script>
 
 <style scoped lang="scss">
-.page-container {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
 
 .search-card {
-  border: none;
-  border-radius: var(--osr-radius-lg);
-  box-shadow: var(--osr-shadow-base);
+  padding: 14px 16px;
 }
 
 .search-actions {
@@ -284,9 +277,9 @@ const formatSize = (bytes: number): string => {
 }
 
 .table-card {
-  border: none;
-  border-radius: var(--osr-radius-lg);
-  box-shadow: var(--osr-shadow-base);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
 }
 
 .action-bar {
@@ -460,19 +453,6 @@ const formatSize = (bytes: number): string => {
 }
 
 @media (max-width: 768px) {
-  .page-container {
-    gap: 10px;
-  }
-
-  .action-bar {
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-bottom: 10px;
-
-    .action-left {
-      gap: 4px;
-    }
-  }
 
   .card-grid {
     grid-template-columns: 1fr;

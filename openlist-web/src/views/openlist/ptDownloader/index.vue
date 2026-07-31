@@ -244,7 +244,7 @@ const {
   testLoading, handleTest, savePathWarning, handleSavePathBlur
 } = usePtDownloader()
 
-// Element Plus 表单规则是 { required, message, trigger }/{ type, min, max } 对象格式，
+// 表单规则是 { required, message, trigger }/{ type, min, max } 对象格式（composable 返回），
 // Vuetify 的 v-text-field :rules 需要函数格式，这里就地转换，不改动 composable
 const toRuleFns = (ruleList: any[]) =>
   (ruleList || []).map((rule: any) => (value: any) => {
@@ -286,66 +286,6 @@ const handleSubmitClick = async () => {
   font-size: 12px;
   line-height: 1.5;
   color: var(--osr-text-secondary);
-}
-
-.page-container {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.search-card {
-  padding: 14px 16px;
-}
-
-.search-fields {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 12px;
-
-  > .v-text-field,
-  > .v-select {
-    width: 220px;
-    flex: 0 0 auto;
-  }
-
-  .status-select {
-    width: 140px;
-  }
-
-  .search-actions {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    margin-top: 2px;
-  }
-}
-
-.table-card {
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-}
-
-.action-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-
-  .action-left {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-  }
-}
-
-.pagination-wrapper {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: auto;
-  padding-top: 12px;
 }
 
 .card-grid {
@@ -444,39 +384,8 @@ const handleSubmitClick = async () => {
 }
 
 @media (max-width: 768px) {
-  .page-container {
-    gap: 10px;
-  }
 
-  .search-fields {
-    > .v-text-field,
-    > .v-select,
-    .status-select {
-      width: 100%;
-    }
-
-    .search-actions {
-      width: 100%;
-
-      .v-btn {
-        flex: 1;
-      }
-    }
-  }
-
-  .action-bar {
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-bottom: 10px;
-
-    .action-left {
-      gap: 4px;
-    }
-  }
-
-  .table-card {
-    padding: 12px;
-  }
+  
 
   .card-grid {
     grid-template-columns: 1fr;

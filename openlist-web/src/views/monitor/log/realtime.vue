@@ -232,8 +232,8 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   padding: 12px 16px;
-  border-bottom: 1px solid #e4e7ed;
-  background-color: #fafafa;
+  border-bottom: 1px solid var(--osr-border-base);
+  background-color: var(--osr-bg-page);
   flex-shrink: 0;
 }
 

@@ -1,17 +1,7 @@
 <template>
   <div class="page-container">
     <!-- Header -->
-    <div class="page-header">
-      <div class="page-header-left">
-        <div class="page-header-icon">
-          <v-icon icon="mdi-book-open-variant" />
-        </div>
-        <div>
-          <h2 class="page-title">字典管理</h2>
-          <p class="page-desc">维护系统枚举字典（视频格式、字幕格式、媒体类型等），点击「数据」查看字典项</p>
-        </div>
-      </div>
-    </div>
+    <PageHeader icon="mdi-book-open-variant" title="字典管理" desc="维护系统枚举字典（视频格式、字幕格式、媒体类型等），点击「数据」查看字典项" />
 
     <!-- Table Card -->
     <v-card class="table-card">
@@ -87,6 +77,7 @@ import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import { getDictTypeListApi } from '@/api/system/dict'
 import { useAppStore } from '@/stores/app'
+import PageHeader from '@/components/PageHeader.vue'
 import type { SearchParams, PageResult } from '@/types'
 
 const appStore = useAppStore()
@@ -147,43 +138,6 @@ getList()
   gap: 16px;
 }
 
-.page-header {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-
-  .page-header-left {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-
-    .page-header-icon {
-      width: 48px;
-      height: 48px;
-      border-radius: 14px;
-      background: rgb(var(--v-theme-primary));
-      color: rgb(var(--v-theme-on-primary));
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 24px;
-    }
-
-    .page-title {
-      margin: 0;
-      font-size: 22px;
-      font-weight: 700;
-      letter-spacing: 0.3px;
-    }
-
-    .page-desc {
-      margin: 4px 0 0;
-      font-size: 13px;
-      color: var(--osr-text-secondary);
-    }
-  }
-}
-
 .table-card {
   padding: 16px;
   display: flex;
@@ -200,19 +154,6 @@ getList()
 @media (max-width: 768px) {
   .page-container {
     gap: 12px;
-  }
-
-  .page-header {
-    padding: 0 4px;
-
-    .page-header-icon {
-      width: 42px;
-      height: 42px;
-      font-size: 20px;
-    }
-
-    .page-title { font-size: 19px; }
-    .page-desc { display: none; }
   }
 
   .table-card {

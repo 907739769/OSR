@@ -1,7 +1,7 @@
 # OpenList-strm-RuoYi 项目知识库
 
 ## OVERVIEW
-基于 RuoYi 4.8.1 二次开发的影视 STRM 管理系统。Java 25 (Spring Boot 4.0.6) + Vue 3 + Element Plus，Docker 双容器部署。核心功能：STRM 文件生成、文件夹同步、Telegram Bot 控制、TMDb 刮削/重命名、第三方回调自动化。
+基于 RuoYi 4.8.1 二次开发的影视 STRM 管理系统。Java 25 (Spring Boot 4.0.6) + Vue 3 + Vuetify 3，Docker 双容器部署。核心功能：STRM 文件生成、文件夹同步、Telegram Bot 控制、TMDb 刮削/重命名、第三方回调自动化。
 
 > 本文件是本项目唯一的 AI 知识库，Claude Code 与 opencode 共用。根目录 `CLAUDE.md` 仅做引用，改动请直接改本文件。
 
@@ -13,7 +13,7 @@
 ├── ruoyi-system/         # RuoYi 标准模块 (user/role/menu/dict domain)
 ├── ruoyi-quartz/         # 定时任务 (RuoYi job scheduler)
 ├── ruoyi-openliststrm/   # ★ 核心业务，新功能几乎都写在这里 (17个子包，见下)
-├── openlist-web/         # Vue 3 前端 (Vite + Pinia + Element Plus + PWA)
+├── openlist-web/         # Vue 3 前端 (Vite + Pinia + Vuetify 3 + PWA)
 ├── Dockerfile.backend    # Java 25 JRE + --enable-preview
 ├── Dockerfile.frontend   # Node 20 build → Nginx Alpine
 ├── docker-compose.yml    # MySQL 8.0 + backend + frontend

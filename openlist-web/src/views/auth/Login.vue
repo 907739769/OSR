@@ -1,7 +1,10 @@
 <template>
   <div class="login-container">
     <v-card class="login-card">
-      <h2 class="login-title">OpenList-strm-RuoYi</h2>
+      <div class="login-brand">
+        <img src="/icons/android-chrome-192x192.png" alt="OSR" class="login-logo" />
+        <h2 class="login-title">OpenList-strm-RuoYi</h2>
+      </div>
       <v-form ref="loginFormRef" class="login-form">
         <v-text-field
           v-model="loginForm.username"
@@ -76,18 +79,36 @@ const handleLogin = async () => {
   justify-content: center;
   align-items: center;
   min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #e0a548 0%, #b4690e 55%, #7a4706 100%);
 }
 
 .login-card {
   width: 400px;
-  padding: 20px;
+  padding: 32px 28px;
+  border-radius: var(--osr-radius-xl);
+  box-shadow: var(--osr-shadow-lg);
+
+  .login-brand {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 30px;
+  }
+
+  .login-logo {
+    width: 56px;
+    height: 56px;
+    border-radius: var(--osr-radius-md);
+  }
 
   .login-title {
     text-align: center;
-    margin-bottom: 30px;
-    color: #303133;
-    font-size: 24px;
+    margin: 0;
+    color: var(--osr-primary);
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
   }
 
   .login-btn {

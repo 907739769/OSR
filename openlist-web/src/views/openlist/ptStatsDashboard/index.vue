@@ -104,6 +104,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
+import { osrCssVar } from '@/composables/useThemeMode'
 // 按需引入：本页只用到 line/bar/pie，避免全量引入 echarts 拖大打包体积
 import * as echarts from 'echarts/core'
 import { LineChart, BarChart, PieChart } from 'echarts/charts'
@@ -151,16 +152,16 @@ let indexerChart: any = null
 let failReasonChart: any = null
 let resizeHandler: (() => void) | null = null
 
-const defaultColors = ['#0d9488', '#22c55e', '#f59e0b', '#ef4444', '#6366f1', '#8b5cf6', '#ec4899', '#14b8a6']
+const defaultColors = ['#B4690E', '#3F8F5F', '#C98A1E', '#C0362C', '#4C6C93', '#8A5A9E', '#D98A2B', '#3B4B6B']
 
 // 失败原因分布的配色：照抄 views/dashboard/desktop.vue 的 colorMap/getColor 实现思路
 // （同色系映射：名字里带"失败"字样的用红色，其余落到 defaultColors 轮转），
 // 设计文档6.1节明确"直接照抄这段逻辑到本页面"，两处各自独立演化更简单，不抽公共 util。
 const failReasonColorMap: Record<string, string> = {
-  '成功': '#22c55e',
-  '失败': '#ef4444',
-  '未知': '#f59e0b',
-  '处理中': '#0d9488'
+  '成功': '#3F8F5F',
+  '失败': '#C0362C',
+  '未知': '#C98A1E',
+  '处理中': '#B4690E'
 }
 
 function getFailReasonColor(name: string): string {
@@ -172,7 +173,7 @@ function getFailReasonColor(name: string): string {
 }
 
 function emptyOption(text: string) {
-  return { title: { text, left: 'center', top: 'center', textStyle: { fontSize: 14, color: '#94a3b8' } }, series: [] }
+  return { title: { text, left: 'center', top: 'center', textStyle: { fontSize: 14, color: osrCssVar('--osr-text-placeholder') || '#94a3b8' } }, series: [] }
 }
 
 async function loadOverview() {
@@ -209,14 +210,14 @@ async function loadTrend() {
     }
     trendChart.setOption({
       tooltip: { trigger: 'axis' },
-      legend: { data: ['推送', '完成', '失败'], top: 0 },
+      legend: { data: ['推送', '完成', '失败'], top: 0, textStyle: { color: osrCssVar('--osr-text-secondary') } },
       grid: { left: 40, right: 20, top: 40, bottom: 30 },
-      xAxis: { type: 'category', data: data.map(p => p.date) },
-      yAxis: { type: 'value' },
+      xAxis: { type: 'category', data: data.map(p => p.date), axisLabel: { color: osrCssVar('--osr-text-secondary') } },
+      yAxis: { type: 'value', axisLabel: { color: osrCssVar('--osr-text-secondary') }, splitLine: { lineStyle: { color: osrCssVar('--osr-border-light') } } },
       series: [
-        { name: '推送', type: 'line', data: data.map(p => p.pushedCount), itemStyle: { color: '#0d9488' } },
-        { name: '完成', type: 'line', data: data.map(p => p.completedCount), itemStyle: { color: '#22c55e' } },
-        { name: '失败', type: 'line', data: data.map(p => p.failedCount), itemStyle: { color: '#ef4444' } }
+        { name: '推送', type: 'line', data: data.map(p => p.pushedCount), itemStyle: { color: '#B4690E' } },
+        { name: '完成', type: 'line', data: data.map(p => p.completedCount), itemStyle: { color: '#3F8F5F' } },
+        { name: '失败', type: 'line', data: data.map(p => p.failedCount), itemStyle: { color: '#C0362C' } }
       ]
     }, true)
   } catch (e) {
@@ -242,14 +243,14 @@ async function loadIndexerHitRate() {
     }
     indexerChart.setOption({
       tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-      legend: { data: ['通过', '淘汰'], top: 0 },
+      legend: { data: ['通过', '淘汰'], top: 0, textStyle: { color: osrCssVar('--osr-text-secondary') } },
       grid: { left: 100, right: 20, top: 40, bottom: 20 },
-      xAxis: { type: 'value', max: 100, axisLabel: { formatter: '{value}%' } },
-      yAxis: { type: 'category', data: withData.map(i => i.indexerName) },
+      xAxis: { type: 'value', max: 100, axisLabel: { formatter: '{value}%', color: osrCssVar('--osr-text-secondary') }, splitLine: { lineStyle: { color: osrCssVar('--osr-border-light') } } },
+      yAxis: { type: 'category', data: withData.map(i => i.indexerName), axisLabel: { color: osrCssVar('--osr-text-secondary') } },
       series: [
-        { name: '通过', type: 'bar', stack: 'total', itemStyle: { color: '#22c55e' },
+        { name: '通过', type: 'bar', stack: 'total', itemStyle: { color: '#3F8F5F' },
           data: withData.map(i => Math.round(i.hitRate * 1000) / 10) },
-        { name: '淘汰', type: 'bar', stack: 'total', itemStyle: { color: '#ef4444' },
+        { name: '淘汰', type: 'bar', stack: 'total', itemStyle: { color: '#C0362C' },
           data: withData.map(i => Math.round((1 - i.hitRate) * 1000) / 10) }
       ]
     }, true)
@@ -279,7 +280,7 @@ async function loadFailReasons() {
         radius: ['35%', '65%'],
         center: ['50%', '55%'],
         avoidLabelOverlap: false,
-        itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 3 },
+        itemStyle: { borderRadius: 6, borderColor: osrCssVar('--osr-surface') || '#fff', borderWidth: 3 },
         label: { show: true, formatter: '{b}\n{c}', fontSize: 11 },
         labelLine: { length: 15, length2: 10 },
         minAngle: 5,
@@ -331,10 +332,21 @@ onMounted(async () => {
     failReasonChart?.resize()
   }
   window.addEventListener('resize', resizeHandler)
+
+  // 主题切换后重绘图表（canvas 无法用 CSS 变量）
+  themeChangeHandler = () => {
+    loadTrend()
+    loadIndexerHitRate()
+    loadFailReasons()
+  }
+  document.addEventListener('osr-theme-change', themeChangeHandler)
 })
+
+let themeChangeHandler: (() => void) | null = null
 
 onUnmounted(() => {
   resizeHandler && window.removeEventListener('resize', resizeHandler)
+  themeChangeHandler && document.removeEventListener('osr-theme-change', themeChangeHandler)
   trendChart?.dispose()
   indexerChart?.dispose()
   failReasonChart?.dispose()

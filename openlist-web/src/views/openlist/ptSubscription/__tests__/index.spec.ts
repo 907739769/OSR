@@ -32,11 +32,8 @@ import { usePtSubscription } from '@/composables/usePtSubscription'
 /**
  * usePtSubscription 展开了一长串 dialog/表单相关状态和方法，页面模板里都会用到
  * （即使本文件只关心 card-grid 分支），全部给够避免挂载时读 undefined.value 报错。
- * el-dialog/el-table/el-table-column 显式 stub 掉：这三个组件内部用 scoped slot
- * （el-table-column 的 #default="scope"）传行数据，测试环境没有注册真正的
- * Element Plus，未知组件会退化成普通 DOM 元素，普通元素遇到 scoped slot 对象会
- * 直接同步调用一次 slot 函数（不传参），导致 scope 是 undefined、scope.row 报错。
- * stub 之后这三个标签整体替换成空标记，跳过内部内容渲染，规避这个陷阱。
+ * v-dialog/v-data-table 等 Vuetify 组件按真实实现渲染（vitest.setup.ts 已全局安装插件），
+ * 无需手动 stub。
  */
 function baseComposable(overrides: Record<string, any> = {}) {
   return {

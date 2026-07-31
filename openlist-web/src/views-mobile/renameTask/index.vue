@@ -202,23 +202,7 @@ const showFullText = (content: string, title: string) => fullTextRef.value?.show
 /* ============================================
    Batch Action Bar
    ============================================ */
-.batch-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 14px;
-  background: var(--osr-primary-light-9);
-  border: 1px solid var(--osr-primary-light-7);
-  border-radius: var(--osr-radius-md);
-  font-size: 13px;
 
-  .selected-count {
-    font-weight: 600;
-    color: var(--osr-primary);
-    margin-right: 4px;
-    white-space: nowrap;
-  }
-}
 
 /* ============================================
    Task List
@@ -231,37 +215,6 @@ const showFullText = (content: string, title: string) => fullTextRef.value?.show
 }
 
 .task-card {
-  display: flex;
-  gap: 10px;
-  background: var(--osr-surface);
-  border-radius: var(--osr-radius-lg);
-  padding: 12px;
-  box-shadow: var(--osr-shadow-base);
-  border: 2px solid transparent;
-  transition: all var(--osr-transition-fast);
-
-  &.selected {
-    border-color: var(--osr-primary-light-5);
-    background: var(--osr-primary-light-9);
-  }
-
-  &:active {
-    transform: scale(0.99);
-  }
-
-  .card-checkbox {
-    flex-shrink: 0;
-    display: flex;
-    align-items: flex-start;
-    padding-top: 2px;
-    padding-left: 2px;
-  }
-
-  .card-content {
-    flex: 1;
-    min-width: 0;
-  }
-
   .card-top {
     display: flex;
     align-items: center;
@@ -360,23 +313,7 @@ const showFullText = (content: string, title: string) => fullTextRef.value?.show
 /* ============================================
    FAB Add Button
    ============================================ */
-.fab-add {
-  position: fixed;
-  right: 20px;
-  bottom: calc(56px + 16px + env(safe-area-inset-bottom, 0px));
-  z-index: 1000;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  transition: all var(--osr-transition-fast);
 
-  &:active {
-    transform: scale(0.96);
-  }
-
-  @media (min-width: 768px) {
-    right: 40px;
-    bottom: calc(56px + 24px);
-  }
-}
 
 /* ============================================
    Form

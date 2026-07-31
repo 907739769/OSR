@@ -1,19 +1,9 @@
 <template>
   <div class="page-container">
     <!-- Header -->
-    <div class="page-header">
-      <div class="page-header-left">
-        <div class="page-header-icon">
-          <v-icon icon="mdi-format-list-bulleted" />
-        </div>
-        <div>
-          <h2 class="page-title">字典数据</h2>
-          <p class="page-desc">
-            字典类型：<code class="dict-type-code">{{ currentDictType || '—' }}</code>
-          </p>
-        </div>
-      </div>
-    </div>
+    <PageHeader icon="mdi-format-list-bulleted" title="字典数据">
+      <template #desc>字典类型：<code class="dict-type-code">{{ currentDictType || '—' }}</code></template>
+    </PageHeader>
 
     <!-- Table Card -->
     <v-card class="table-card">
@@ -154,6 +144,7 @@ import { message } from '@/composables/useMessage'
 import { confirm } from '@/composables/useConfirm'
 import { getDictDataListApi, addDictDataApi, deleteDictDataApi, updateDictDataApi } from '@/api/system/dict'
 import { useAppStore } from '@/stores/app'
+import PageHeader from '@/components/PageHeader.vue'
 import type { SearchParams } from '@/types'
 import type { SysDictData } from '@/types/system'
 
@@ -317,52 +308,13 @@ getList()
 /* ============================================
    Page Header
    ============================================ */
-.page-header {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-
-  .page-header-left {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-
-    .page-header-icon {
-      width: 48px;
-      height: 48px;
-      border-radius: 14px;
-      background: linear-gradient(135deg, #0d9488, #14b8a6);
-      color: white;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 24px;
-      box-shadow: 0 4px 14px rgba(13, 148, 136, 0.35);
-    }
-
-    .page-title {
-      margin: 0;
-      font-size: 22px;
-      font-weight: 700;
-      color: var(--osr-text-primary);
-      letter-spacing: 0.3px;
-    }
-
-    .page-desc {
-      margin: 4px 0 0;
-      font-size: 13px;
-      color: var(--osr-text-secondary);
-
-      .dict-type-code {
-        font-family: 'SF Mono', 'Courier New', monospace;
-        font-size: 12px;
-        color: var(--osr-primary);
-        background: var(--osr-primary-light-9);
-        padding: 1px 8px;
-        border-radius: 5px;
-      }
-    }
-  }
+.dict-type-code {
+  font-family: 'SF Mono', 'Courier New', monospace;
+  font-size: 12px;
+  color: var(--osr-primary);
+  background: var(--osr-primary-light-9);
+  padding: 1px 8px;
+  border-radius: 5px;
 }
 
 /* ============================================
@@ -405,19 +357,6 @@ getList()
 @media (max-width: 768px) {
   .page-container {
     gap: 12px;
-  }
-
-  .page-header {
-    padding: 0 4px;
-
-    .page-header-icon {
-      width: 42px;
-      height: 42px;
-      font-size: 20px;
-    }
-
-    .page-title { font-size: 19px; }
-    .page-desc { font-size: 12px; }
   }
 
   .table-card {

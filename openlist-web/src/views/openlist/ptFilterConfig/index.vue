@@ -160,7 +160,7 @@ import { usePtFilterConfig } from '@/composables/usePtFilterConfig'
 const { loading, saving, formRef, form, rules, sortOrder, labelOf, moveUp, moveDown, load, save } =
   usePtFilterConfig()
 
-// Element Plus 表单规则是 { required, message, trigger } 对象格式，
+// 表单规则是 { required, message, trigger } 对象格式（composable 返回），
 // Vuetify 的 v-text-field :rules 需要函数格式，这里就地转换，不改动 composable
 const minSeedersRules = (rules.minSeeders || []).map((rule: any) => {
   return (value: any) => {

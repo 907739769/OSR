@@ -986,6 +986,6 @@ getList()
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-all;
-  color: var(--osr-text-danger, #f56c6c);
+  color: var(--osr-danger);
 }
 </style>

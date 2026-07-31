@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { defineComponent, h } from 'vue'
+import { createPinia } from 'pinia'
 import { VList } from 'vuetify/components'
 import SidebarMenuItem from '../SidebarMenuItem.vue'
 import type { MenuRoute } from '@/stores/user'
@@ -29,7 +30,8 @@ function mountInList(menu: MenuRoute) {
       return h(VList, { opened: collectGroupValues(menu) }, () => h(SidebarMenuItem, { menu }))
     }
   })
-  return mount(Host)
+  // SidebarMenuItem 的 setup 会调用 useAppStore()，测试环境需提供 Pinia 实例
+  return mount(Host, { global: { plugins: [createPinia()] } })
 }
 
 describe('SidebarMenuItem', () => {

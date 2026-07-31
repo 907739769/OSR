@@ -280,7 +280,7 @@ const {
 
 getList()
 
-// dateRange 是 el-date-picker daterange 遗留的 [start, end] 数组结构，
+// dateRange 是 [start, end] 数组结构（从 el-date-picker daterange 迁移而来），
 // 拆成两个独立日期输入框绑定，写回时仍保持数组形状供 handleQuery 组装 params
 const dateStart = computed({
   get: () => dateRange.value?.[0] ?? '',
@@ -340,24 +340,7 @@ const episodeRule = (v: string) => !v || /^\d{1,4}$/.test(v) || '集为 1-4 位�
 /* ============================================
    Batch Action Bar
    ============================================ */
-.batch-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 14px;
-  background: var(--osr-primary-light-9);
-  border: 1px solid var(--osr-primary-light-7);
-  border-radius: var(--osr-radius-md);
-  font-size: 13px;
-  flex-wrap: wrap;
 
-  .selected-count {
-    font-weight: 600;
-    color: var(--osr-primary);
-    margin-right: 4px;
-    white-space: nowrap;
-  }
-}
 
 /* ============================================
    Record List
@@ -429,15 +412,15 @@ const episodeRule = (v: string) => !v || /^\d{1,4}$/.test(v) || '集为 1-4 位�
         flex-shrink: 0;
 
         &.rename-label-original {
-          background: #fef2f2;
-          color: #ef4444;
-          border: 1px solid #fecaca;
+          background: var(--osr-danger-light);
+          color: var(--osr-danger);
+          border: 1px solid color-mix(in srgb, var(--osr-danger) 30%, transparent);
         }
 
         &.rename-label-new {
-          background: #f0fdf4;
-          color: #22c55e;
-          border: 1px solid #bbf7d0;
+          background: var(--osr-success-light);
+          color: var(--osr-success);
+          border: 1px solid color-mix(in srgb, var(--osr-success) 30%, transparent);
         }
       }
 
@@ -452,15 +435,15 @@ const episodeRule = (v: string) => !v || /^\d{1,4}$/.test(v) || '集为 1-4 位�
         word-break: break-all;
 
         &.rename-filename-original {
-          color: #dc2626;
+          color: var(--osr-danger);
           text-decoration: line-through;
-          text-decoration-color: #dc2626;
+          text-decoration-color: var(--osr-danger);
           flex: 1;
           min-width: 0;
         }
 
         &.rename-filename-new {
-          color: #16a34a;
+          color: var(--osr-success);
           font-weight: 600;
           flex: 1;
           min-width: 0;

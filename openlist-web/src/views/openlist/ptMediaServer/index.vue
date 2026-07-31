@@ -174,7 +174,7 @@ const {
   testLoading, handleTest
 } = usePtMediaServer()
 
-// 将 Element Plus 风格的校验规则对象转换为 Vuetify 的规则函数数组
+// 将对象格式的校验规则（composable 返回）转换为 Vuetify 的规则函数数组
 const toRules = (fieldRules?: any[]) => {
   return (fieldRules || []).map((r: any) => (value: any) => {
     if (r.required && (value === undefined || value === null || value === '')) return r.message
@@ -185,15 +185,6 @@ const toRules = (fieldRules?: any[]) => {
 </script>
 
 <style scoped lang="scss">
-.page-container {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.search-card {
-  padding: 14px 16px;
-}
 
 .search-row {
   display: flex;
@@ -215,32 +206,6 @@ const toRules = (fieldRules?: any[]) => {
   display: flex;
   gap: 8px;
   margin-left: auto;
-}
-
-.table-card {
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-}
-
-.action-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-
-  .action-left {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-  }
-}
-
-.pagination-wrapper {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: auto;
-  padding-top: 12px;
 }
 
 .card-grid {
@@ -324,9 +289,6 @@ const toRules = (fieldRules?: any[]) => {
 }
 
 @media (max-width: 768px) {
-  .page-container {
-    gap: 10px;
-  }
 
   .search-row {
     .search-field,
@@ -338,20 +300,6 @@ const toRules = (fieldRules?: any[]) => {
       margin-left: 0;
       width: 100%;
     }
-  }
-
-  .action-bar {
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-bottom: 10px;
-
-    .action-left {
-      gap: 4px;
-    }
-  }
-
-  .table-card {
-    padding: 12px;
   }
 
   .card-grid {

@@ -121,7 +121,7 @@
               @error="onPosterError(item.id)"
             />
             <div v-else class="sub-poster-placeholder" :class="item.mediaType === 'MOVIE' ? 'placeholder-movie' : 'placeholder-tv'">
-              <v-icon icon="mdi-image-outline" size="24" />
+              <v-icon :icon="item.mediaType === 'MOVIE' ? 'mdi-filmstrip' : 'mdi-television-play'" size="28" />
               <span class="placeholder-text">{{ item.mediaType === 'MOVIE' ? '电影' : '剧集' }}</span>
             </div>
           </div>
@@ -631,14 +631,14 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { usePtSubscription } from '@/composables/usePtSubscription'
 
 const router = useRouter()
 const route = useRoute()
 const showSearch = ref(window.innerWidth >= 768)
-/** 海报加载失败的订阅 id 集合，命中则展示占位图标而非裂图 */
+/** 海报加载失败的订阅 id 集合，命中则展示占位图标而非裂图；数据刷新后清除以便重试 */
 const posterErrorIds = reactive(new Set<number>())
 
 const onPosterError = (id: number) => { posterErrorIds.add(id) }
@@ -662,6 +662,9 @@ const {
   searchAllMissingLoading, handleSearchAllMissing,
   candidateDialogOpen, candidates, pushingSelected, pushSelectedCandidate, formatSize
 } = usePtSubscription()
+
+// 列表数据变化（刷新/翻页/重新查询）后清除海报失败集合，海报恢复或 TMDb 修复后能重新加载
+watch(taskList, () => posterErrorIds.clear())
 
 /** 候选种子表格中当前高亮的行 */
 const selectedCandidate = ref<any>(null)
@@ -733,15 +736,6 @@ const searchLogHeaders = [
 </script>
 
 <style scoped lang="scss">
-.page-container {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.search-card {
-  padding: 14px 16px;
-}
 
 .search-row {
   display: flex;
@@ -763,12 +757,6 @@ const searchLogHeaders = [
   display: flex;
   gap: 8px;
   margin-left: auto;
-}
-
-.table-card {
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
 }
 
 .action-bar {
@@ -923,12 +911,16 @@ const searchLogHeaders = [
     font-size: 22px;
 
     &.placeholder-movie {
-      background: linear-gradient(135deg, #1e3a5f 0%, #2d5a87 50%, #1e3a5f 100%);
+      background:
+        radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.14), transparent 45%),
+        linear-gradient(135deg, #1e3a5f 0%, #2d5a87 50%, #1e3a5f 100%);
       color: rgba(255, 255, 255, 0.7);
     }
 
     &.placeholder-tv {
-      background: linear-gradient(135deg, #3b1f47 0%, #6b3a7a 50%, #3b1f47 100%);
+      background:
+        radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.14), transparent 45%),
+        linear-gradient(135deg, #3b1f47 0%, #6b3a7a 50%, #3b1f47 100%);
       color: rgba(255, 255, 255, 0.7);
     }
 
@@ -1008,9 +1000,6 @@ const searchLogHeaders = [
 }
 
 @media (max-width: 768px) {
-  .page-container {
-    gap: 10px;
-  }
 
   .search-row {
     .search-field,
@@ -1022,20 +1011,6 @@ const searchLogHeaders = [
       margin-left: 0;
       width: 100%;
     }
-  }
-
-  .action-bar {
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-bottom: 10px;
-
-    .action-left {
-      gap: 4px;
-    }
-  }
-
-  .table-card {
-    padding: 12px;
   }
 
   .card-grid {

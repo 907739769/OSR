@@ -67,7 +67,6 @@
 
       <!-- Desktop Table -->
       <v-data-table-server
-        v-if="appStore.device === 'desktop'"
         :loading="loading"
         :items="taskList"
         :items-length="total"
@@ -106,51 +105,6 @@
           </v-btn>
         </template>
       </v-data-table-server>
-
-      <!-- Mobile Card List -->
-      <div v-if="appStore.device === 'mobile'" class="mobile-card-list">
-        <v-progress-linear v-if="loading" indeterminate color="primary" />
-        <v-card v-for="item in taskList" :key="item.id" variant="outlined" class="mobile-card">
-          <div class="mobile-card-header">
-            <span class="mobile-card-title"><v-icon icon="mdi-swap-horizontal" size="14" /> {{ item.sourceFolder }}</span>
-            <v-chip size="small" :color="item.status === '0' ? 'error' : 'success'" variant="tonal">
-              {{ item.status === '0' ? '停用' : '启用' }}
-            </v-chip>
-          </div>
-          <div class="mobile-card-body">
-            <div class="mobile-card-row">
-              <span class="mobile-card-label">目标</span>
-              <span class="mobile-card-value mobile-card-value-clip">{{ item.targetRoot }}</span>
-            </div>
-            <div class="mobile-card-row">
-              <span class="mobile-card-label">创建时间</span>
-              <span class="mobile-card-value mobile-card-value-light">{{ item.createTime }}</span>
-            </div>
-          </div>
-          <div class="mobile-card-actions">
-            <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(item)">
-              修改
-            </v-btn>
-            <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(item)">
-              删除
-            </v-btn>
-            <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-play-outline" @click="handleExecuteOne(item)">
-              执行
-            </v-btn>
-          </div>
-        </v-card>
-        <v-empty-state v-if="!loading && !taskList.length" icon="mdi-inbox-outline" title="暂无数据" />
-
-        <!-- Pagination (mobile; desktop paginates via v-data-table-server) -->
-        <div class="pagination-wrapper">
-          <v-pagination
-            v-model="queryParams.pageNum"
-            :length="Math.ceil(total / queryParams.pageSize) || 1"
-            density="comfortable"
-            @update:model-value="getList"
-          />
-        </div>
-      </div>
     </v-card>
 
     <!-- Add/Edit Dialog -->
@@ -207,10 +161,8 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import DirectoryTreeSelect from '@/components/DirectoryTreeSelect/index.vue'
-import { useAppStore } from '@/stores/app'
 import { useRenameTask } from '@/composables/useRenameTask'
 
-const appStore = useAppStore()
 const showSearch = ref(window.innerWidth >= 768)
 
 const {
@@ -250,73 +202,13 @@ const onSizeChange = (size: number) => {
 </script>
 
 <style scoped lang="scss">
-.page-container {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
+/* 公共布局（.page-container/.search-card/.table-card 等）由全局 styles/list.scss 统一提供 */
 
-/* ============================================
-   Search Card
-   ============================================ */
-.search-card {
-  padding: 16px 20px;
-}
 
-.search-fields {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-start;
-  gap: 12px;
 
-  > .v-text-field,
-  > .v-select {
-    width: 220px;
-    flex: 0 0 auto;
-  }
 
-  .status-select {
-    width: 140px;
-  }
 
-  .search-actions {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    margin-top: 2px;
-  }
-}
 
-/* ============================================
-   Table Card
-   ============================================ */
-.table-card {
-  padding: 20px;
-  display: flex;
-  flex-direction: column;
-}
-
-.action-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-
-  .action-left {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
-}
-
-/* ============================================
-   Pagination
-   ============================================ */
-.pagination-wrapper {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 16px;
-}
 
 /* ============================================
    Rename Config Column (Desktop Table)
@@ -345,13 +237,13 @@ const onSizeChange = (size: number) => {
 }
 
 .label-src {
-  color: #409eff;
-  background: rgba(64, 158, 255, 0.1);
+  color: #4C6C93;
+  background: rgba(76, 108, 147, 0.1);
 }
 
 .label-dst {
-  color: #67c23a;
-  background: rgba(103, 194, 58, 0.1);
+  color: #3F8F5F;
+  background: rgba(63, 143, 95, 0.1);
 }
 
 .path-text {
@@ -398,102 +290,5 @@ const onSizeChange = (size: number) => {
 /* ============================================
    Mobile Responsive
    ============================================ */
-@media (max-width: 768px) {
-  .search-fields {
-    > .v-text-field,
-    > .v-select,
-    .status-select {
-      width: 100%;
-    }
 
-    .search-actions {
-      width: 100%;
-
-      .v-btn {
-        flex: 1;
-      }
-    }
-  }
-
-  .action-bar {
-    flex-wrap: wrap;
-    gap: 8px;
-  }
-}
-
-/* ============================================
-   Mobile Card List
-   ============================================ */
-.mobile-card-list {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  padding: 4px 0;
-}
-
-.mobile-card {
-  overflow: hidden;
-
-  .mobile-card-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px 14px 8px;
-    border-bottom: 1px solid var(--osr-border-light);
-
-    .mobile-card-title {
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--osr-text-primary);
-      flex: 1;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      margin-right: 8px;
-
-      .v-icon { color: var(--osr-primary); margin-right: 4px; }
-    }
-  }
-
-  .mobile-card-body {
-    padding: 10px 14px;
-
-    .mobile-card-row {
-      display: flex;
-      padding: 4px 0;
-      font-size: 13px;
-
-      .mobile-card-label {
-        width: 72px;
-        color: var(--osr-text-secondary);
-        flex-shrink: 0;
-      }
-
-      .mobile-card-value {
-        flex: 1;
-        color: var(--osr-text-primary);
-        word-break: break-all;
-
-        &.mobile-card-value-clip {
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-          max-width: 200px;
-        }
-
-        &.mobile-card-value-light {
-          color: var(--osr-text-secondary);
-        }
-      }
-    }
-  }
-
-  .mobile-card-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 4px;
-    padding: 8px 14px 12px;
-    border-top: 1px solid var(--osr-border-light);
-  }
-}
 </style>

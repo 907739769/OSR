@@ -1,8 +1,16 @@
 <template>
   <div class="mobile-dashboard">
     <div class="welcome-card">
-      <h2>欢迎回来, {{ userStore.userInfo?.userName || '管理员' }}</h2>
-      <p class="subtitle">{{ quote }}</p>
+      <div class="welcome-top">
+        <div class="welcome-text">
+          <h2>欢迎回来, {{ userStore.userInfo?.userName || '管理员' }}</h2>
+          <p class="subtitle" title="点击换一句" @click="loadQuote">“{{ quote }}”</p>
+        </div>
+        <div class="welcome-date">
+          <div class="welcome-weekday">{{ weekdayText }}</div>
+          <div class="welcome-day">{{ dateText }}</div>
+        </div>
+      </div>
     </div>
 
     <!-- 统计概览 -->
@@ -63,12 +71,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { useUserStore, type MenuRoute } from '@/stores/user'
+import { useUserStore } from '@/stores/user'
 import { getDashboardStatsApi, getCopyStatsApi, getStrmStatsApi, getRenameStatsApi } from '@/api/openlist/dashboard'
 import { getHitokotoApi } from '@/api/openlist/hitokoto'
-import { getIconComponent } from '@/composables/useMenuIcon'
+import { useMenuLinks } from '@/composables/useMenuLinks'
 
 interface StatCard {
   label: string
@@ -97,6 +105,18 @@ const userStore = useUserStore()
 const loading = ref(true)
 const todayLoading = ref(true)
 const quote = ref(randomFallbackQuote())
+const weekdayText = new Date().toLocaleDateString('zh-CN', { weekday: 'long' })
+const dateText = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })
+
+function loadQuote() {
+  getHitokotoApi()
+    .then((data) => {
+      quote.value = data.from ? `${data.hitokoto} —— ${data.from}` : data.hitokoto
+    })
+    .catch((e) => {
+      console.error('[MobileDashboard] 每日一言加载失败:', e)
+    })
+}
 
 const statCards = ref<StatCard[]>([])
 const todayStatCards = ref<StatCard[]>([])
@@ -126,40 +146,10 @@ function buildTodayStatCards(copy: number, strm: number, rename: number): StatCa
   ]
 }
 
-/**
- * 拍平菜单树取叶子节点。后端顶层是 Layout 容器，真正能跳的是它的 children，
- * 子菜单 path 可能是相对的，需要拼上父级前缀（与 MobileLayout 的取值口径保持一致）。
- */
-function flattenMenus(menus: MenuRoute[], parentPath = ''): { path: string; title: string; icon: string }[] {
-  const result: { path: string; title: string; icon: string }[] = []
-  for (const menu of menus) {
-    const path = menu.path?.startsWith('/')
-      ? menu.path
-      : `${parentPath}/${menu.path || ''}`.replace(/\/+/g, '/')
-
-    if (menu.children?.length) {
-      result.push(...flattenMenus(menu.children, path))
-    } else if (menu.hidden !== true && menu.path) {
-      result.push({
-        path,
-        title: menu.meta?.title || '',
-        icon: getIconComponent(menu.meta?.icon) || 'mdi-menu'
-      })
-    }
-  }
-  return result
-}
-
-const quickLinks = computed(() => flattenMenus(userStore.routes))
+const quickLinks = useMenuLinks()
 
 onMounted(async () => {
-  getHitokotoApi()
-    .then((data) => {
-      quote.value = data.from ? `${data.hitokoto} —— ${data.from}` : data.hitokoto
-    })
-    .catch((e) => {
-      console.error('[MobileDashboard] 每日一言加载失败:', e)
-    })
+  loadQuote()
 
   try {
     const data: any = await getDashboardStatsApi()
@@ -200,9 +190,21 @@ onMounted(async () => {
 
 .welcome-card {
   background: linear-gradient(135deg, var(--osr-primary), var(--osr-primary-light-4));
-  color: #fff;
+  color: var(--osr-on-primary, #fff);
   padding: 20px 16px;
   border-radius: var(--osr-radius-lg);
+
+  .welcome-top {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+
+    .welcome-text {
+      flex: 1;
+      min-width: 0;
+    }
+  }
 
   h2 {
     margin: 0 0 4px;
@@ -213,6 +215,24 @@ onMounted(async () => {
     margin: 0;
     opacity: 0.9;
     font-size: 13px;
+    cursor: pointer;
+  }
+
+  .welcome-date {
+    flex-shrink: 0;
+    text-align: center;
+
+    .welcome-weekday {
+      font-size: 14px;
+      font-weight: 600;
+      line-height: 1.3;
+    }
+
+    .welcome-day {
+      font-size: 11px;
+      opacity: 0.85;
+      margin-top: 1px;
+    }
   }
 }
 
@@ -272,19 +292,19 @@ onMounted(async () => {
     }
 
     &.primary .stat-icon {
-      background-color: var(--osr-primary-light-9);
+      background: linear-gradient(135deg, var(--osr-primary-light-7), var(--osr-primary-light-9));
       color: var(--osr-primary);
     }
     &.success .stat-icon {
-      background-color: var(--osr-success-light);
+      background: linear-gradient(135deg, var(--osr-success-light), var(--osr-bg-page));
       color: var(--osr-success);
     }
     &.warning .stat-icon {
-      background-color: var(--osr-warning-light);
+      background: linear-gradient(135deg, var(--osr-warning-light), var(--osr-bg-page));
       color: var(--osr-warning);
     }
     &.info .stat-icon {
-      background-color: var(--osr-info-light);
+      background: linear-gradient(135deg, var(--osr-info-light), var(--osr-bg-page));
       color: var(--osr-info);
     }
   }

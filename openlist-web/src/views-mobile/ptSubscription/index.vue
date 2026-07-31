@@ -426,23 +426,6 @@ const goDownloadRecords = (row: any) => {
   flex: 1;
 }
 
-.batch-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 14px;
-  background: var(--osr-primary-light-9);
-  border: 1px solid var(--osr-primary-light-7);
-  border-radius: var(--osr-radius-md);
-  font-size: 13px;
-
-  .selected-count {
-    font-weight: 600;
-    color: var(--osr-primary);
-    margin-right: 4px;
-    white-space: nowrap;
-  }
-}
 
 .sub-card {
   display: flex;

@@ -1,20 +1,13 @@
 <template>
   <div class="page-container">
     <!-- Header -->
-    <div class="page-header">
-      <div class="page-header-left">
-        <div class="page-header-icon">
-          <v-icon icon="mdi-cog-outline" />
-        </div>
-        <div>
-          <h2 class="page-title">参数设置</h2>
-          <p class="page-desc">系统全局参数配置 — 开关直接切换即时生效，其余点击 ✏️ 编辑后保存</p>
-        </div>
-      </div>
-      <v-btn color="primary" variant="outlined" prepend-icon="mdi-refresh" :loading="refreshing" @click="handleRefreshCache">
-        刷新缓存
-      </v-btn>
-    </div>
+    <PageHeader icon="mdi-cog-outline" title="参数设置" desc="系统全局参数配置 — 开关直接切换即时生效，其余点击 ✏️ 编辑后保存">
+      <template #actions>
+        <v-btn color="primary" variant="outlined" prepend-icon="mdi-refresh" :loading="refreshing" @click="handleRefreshCache">
+          刷新缓存
+        </v-btn>
+      </template>
+    </PageHeader>
 
     <!-- Loading -->
     <div v-if="loading" class="page-loading">
@@ -182,6 +175,7 @@ import { ref, computed } from 'vue'
 import { message } from '@/composables/useMessage'
 import { getConfigListApi, updateConfigApi } from '@/api/system/config'
 import type { SysConfig } from '@/types/system'
+import PageHeader from '@/components/PageHeader.vue'
 
 interface ConfigSection {
   key: string
@@ -488,49 +482,6 @@ getList()
 }
 
 /* ============================================
-    Page Header
-    ============================================ */
-.page-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-
-  .page-header-left {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-
-    .page-header-icon {
-      width: 48px;
-      height: 48px;
-      border-radius: 14px;
-      background: linear-gradient(135deg, #0d9488, #14b8a6);
-      color: white;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 24px;
-      box-shadow: 0 4px 14px rgba(13, 148, 136, 0.35);
-    }
-
-    .page-title {
-      margin: 0;
-      font-size: 22px;
-      font-weight: 700;
-      color: var(--osr-text-primary);
-      letter-spacing: 0.3px;
-    }
-
-    .page-desc {
-      margin: 4px 0 0;
-      font-size: 13px;
-      color: var(--osr-text-secondary);
-    }
-  }
-}
-
-/* ============================================
     Loading
     ============================================ */
 .page-loading {
@@ -752,19 +703,6 @@ getList()
   .page-container {
     gap: 20px;
     padding: 0;
-  }
-
-  .page-header {
-    padding: 0 16px;
-
-    .page-header-icon {
-      width: 42px;
-      height: 42px;
-      font-size: 20px;
-    }
-
-    .page-title { font-size: 19px; }
-    .page-desc { display: none; }
   }
 
   .config-section {
