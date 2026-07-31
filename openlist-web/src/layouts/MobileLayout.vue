@@ -4,9 +4,9 @@
       <img src="/icons/android-chrome-192x192.png" alt="Logo" class="drawer-logo" />
       <span class="drawer-title">OSR</span>
     </div>
-    <v-list nav density="compact" @click:select="menuOpen = false">
-      <v-list-item to="/dashboard" prepend-icon="mdi-view-dashboard-outline" title="首页" @click="menuOpen = false" />
-      <SidebarMenuItem v-for="menu in sidebarMenus" :key="menu.path" :menu="menu" />
+    <v-list nav density="compact" :opened="openedGroups" @click:select="menuOpen = false">
+      <v-list-item to="/dashboard" prepend-icon="mdi-view-dashboard-outline" title="首页" rounded="lg" class="menu-item" @click="menuOpen = false" />
+      <MobileSidebarMenuItem v-for="menu in sidebarMenus" :key="menu.path" :menu="menu" />
     </v-list>
   </v-navigation-drawer>
 
@@ -50,9 +50,9 @@
 import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { confirm } from '@/composables/useConfirm'
-import { useUserStore } from '@/stores/user'
+import { useUserStore, type MenuRoute } from '@/stores/user'
 import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
-import SidebarMenuItem from '@/components/SidebarMenuItem.vue'
+import MobileSidebarMenuItem from '@/components/MobileSidebarMenuItem.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -61,6 +61,26 @@ const menuOpen = ref(false)
 const showPasswordDialog = ref(false)
 
 const sidebarMenus = computed(() => userStore.routes)
+
+// 展开当前路由所在的分类，避免用户切页后要重新点开折叠面板才能看到自己在哪
+function containsPath(menu: MenuRoute, targetPath: string): boolean {
+  if (menu.path === targetPath) return true
+  return !!menu.children?.some((child) => containsPath(child, targetPath))
+}
+
+function collectAncestorGroupIds(menus: MenuRoute[], targetPath: string): string[] {
+  const ids: string[] = []
+  for (const menu of menus) {
+    if (!menu.children?.length) continue
+    if (containsPath(menu, targetPath)) {
+      ids.push(menu.name || menu.path)
+      ids.push(...collectAncestorGroupIds(menu.children, targetPath))
+    }
+  }
+  return ids
+}
+
+const openedGroups = computed(() => collectAncestorGroupIds(sidebarMenus.value, route.path))
 
 const pageTitle = computed(() => (route.meta?.title as string) || 'OSR')
 
@@ -107,6 +127,16 @@ const handleLogout = async () => {
     font-size: 18px;
     font-weight: 700;
     letter-spacing: 0.5px;
+  }
+}
+
+:deep(.menu-item) {
+  margin: 1px 6px;
+  min-height: 44px;
+
+  &.v-list-item--active {
+    color: rgb(var(--v-theme-primary));
+    background: rgba(var(--v-theme-primary), 0.1);
   }
 }
 

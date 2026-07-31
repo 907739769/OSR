@@ -5,7 +5,7 @@
       <span v-show="appStore.sidebarOpened" class="logo-title">OSR</span>
     </div>
     <v-list nav density="compact" :opened="[]">
-      <v-list-item to="/dashboard" prepend-icon="mdi-view-dashboard-outline" title="首页" />
+      <v-list-item to="/dashboard" prepend-icon="mdi-view-dashboard-outline" title="首页" rounded="lg" class="menu-item" />
       <SidebarMenuItem v-for="menu in sidebarMenus" :key="menu.path" :menu="menu" />
     </v-list>
   </v-navigation-drawer>
@@ -99,6 +99,15 @@ const handleLogout = async () => {
     font-weight: 700;
     white-space: nowrap;
     letter-spacing: 0.5px;
+  }
+}
+
+:deep(.menu-item) {
+  margin: 1px 6px;
+
+  &.v-list-item--active {
+    color: rgb(var(--v-theme-primary));
+    background: rgba(var(--v-theme-primary), 0.1);
   }
 }
 

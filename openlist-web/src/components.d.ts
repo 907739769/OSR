@@ -14,6 +14,7 @@ declare module 'vue' {
     GlobalFeedback: typeof import('./components/GlobalFeedback.vue')['default']
     MobilePager: typeof import('./components/mobile/MobilePager.vue')['default']
     MobileSearchPanel: typeof import('./components/mobile/MobileSearchPanel.vue')['default']
+    MobileSidebarMenuItem: typeof import('./components/MobileSidebarMenuItem.vue')['default']
     OpenListTree: typeof import('./components/OpenListTree.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
