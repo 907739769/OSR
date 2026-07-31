@@ -13,7 +13,7 @@ on:
 env:
   DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
   DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-  IMAGE_NAME: openlist-strm-ruoyi
+  IMAGE_NAME: osr
 
 jobs:
   detect-changes:
@@ -35,7 +35,7 @@ jobs:
         with:
           filters: |
             backend:
-              - 'ruoyi-*/**'
+              - 'osr-*/**'
               - 'pom.xml'
               - 'mvnw'
               - 'Dockerfile.backend'

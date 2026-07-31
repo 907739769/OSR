@@ -27,7 +27,7 @@ export default defineConfig({
       registerType: 'prompt',
       includeAssets: ['favicon.svg', 'favicon.ico', 'favicon-16x16.png', 'favicon-32x32.png', 'robots.txt'],
       manifest: {
-        name: 'OpenList-strm-RuoYi',
+        name: 'OSR (OpenList STRM Relay)',
         short_name: 'OSR',
         description: 'OpenList STRM Management System',
         theme_color: '#B4690E',

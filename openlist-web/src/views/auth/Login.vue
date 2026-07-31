@@ -3,7 +3,7 @@
     <v-card class="login-card">
       <div class="login-brand">
         <img src="/icons/android-chrome-192x192.png" alt="OSR" class="login-logo" />
-        <h2 class="login-title">OpenList-strm-RuoYi</h2>
+        <h2 class="login-title">OSR</h2>
       </div>
       <v-form ref="loginFormRef" class="login-form">
         <v-text-field

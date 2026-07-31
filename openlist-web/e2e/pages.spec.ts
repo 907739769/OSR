@@ -2,7 +2,7 @@ import { test, expect } from '@playwright/test'
 
 /**
  * 与 sys_menu 中 C 类型菜单的 url 保持一致（见 ruoyi-common/src/main/resources/sql）。
- * 此前这里列的是 /system/user、/monitor/server、/openlist/strm-task 等 RuoYi 模板里的
+ * 此前这里列的是 /system/user、/monitor/server、/openlist/strm-task 等旧模板里的
  * 页面，本项目既没有对应菜单也没有对应组件；加上每个用例都用
  * isVisible().catch(() => false) 包着，找不到就静默跳过，因此全部永远通过。
  */

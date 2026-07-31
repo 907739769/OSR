@@ -1,0 +1,192 @@
+package com.osr.openliststrm.rename;
+
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.osr.common.utils.StringUtils;
+import com.osr.common.utils.ThreadTraceIdUtil;
+import com.osr.common.utils.spring.SpringUtils;
+import com.osr.openliststrm.config.OpenlistConfig;
+import com.osr.openliststrm.helper.OpenListHelper;
+import com.osr.openliststrm.monitor.processor.MediaRenameProcessor;
+import com.osr.openliststrm.mybatisplus.domain.RenameDetailPlus;
+import com.osr.openliststrm.mybatisplus.domain.RenameTaskPlus;
+import com.osr.openliststrm.mybatisplus.service.IRenameDetailPlusService;
+import com.osr.openliststrm.mybatisplus.service.IRenameTaskPlusService;
+import jakarta.annotation.PreDestroy;
+import lombok.extern.slf4j.Slf4j;
+import org.slf4j.MDC;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.TaskScheduler;
+import org.springframework.stereotype.Component;
+
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+/**
+ * 管理重命名任务的类。
+ * 轮询重命名任务表并保持FileMonitorService实例运行的类。
+ */
+@Slf4j
+@Component
+public class RenameTaskManager {
+
+
+    @Autowired
+    private OpenlistConfig config;
+    @Autowired
+    private OpenListHelper helper;
+    @Autowired
+    private RenameClientProvider clientProvider;
+    @Autowired
+    private RenameEventListenerFactory listenerFactory;
+    @Autowired
+    private IRenameTaskPlusService renameTaskService;
+    @Autowired
+    private IRenameDetailPlusService renameDetailService;
+
+    private final RenameMonitorRegistry registry = new RenameMonitorRegistry();
+    private final TaskScheduler scheduler = SpringUtils.getBean("virtualScheduledExecutor");
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void start() {
+        ThreadTraceIdUtil.initTraceId();
+        scheduler.scheduleAtFixedRate(this::poll, Instant.now().plusSeconds(10), Duration.ofSeconds(10));
+        log.info("RenameTaskManager started");
+    }
+
+    @PreDestroy
+    public void stop() {
+        registry.stopAll();
+        log.info("RenameTaskManager stopped");
+        MDC.clear();
+    }
+
+    public void executeRenameDetails(Integer id, String title, String year, String season, String episode) {
+        RenameDetailPlus rd = renameDetailService.getById(id);
+        if (rd == null) {
+            log.warn("Rename task not found: {}", id);
+            return;
+        }
+
+        String tgt = rd.getNewPath();
+        Path path = Paths.get(tgt);
+        Path target = path;
+        for (int i = path.getNameCount() - 1; i >= 0; i--) {
+            String name = path.getName(i).toString();
+            if (name.equals("电影") || name.equals("电视剧")) {
+                target = path.getRoot().resolve(path.subpath(0, i));
+                break;
+            }
+        }
+        tgt = target.toString();
+
+        // 用户留空则传空字符串，由 MediaParser 从文件名重新识别；手动填写则覆盖
+        MediaRenameProcessor processor = new MediaRenameProcessor(
+                Paths.get(tgt),
+                clientProvider,
+                helper,
+                config,
+                listenerFactory.create(id)
+        );
+        processor.handleOneFile(Paths.get(rd.getOriginalPath()).resolve(rd.getOriginalName()),
+                StringUtils.isNotBlank(title) ? title : null,
+                StringUtils.isNotBlank(year) ? year : null,
+                season, episode);
+    }
+
+    /**
+     * 立即执行单个任务一次（用于页面手动触发）。
+     * 返回 true 表示已成功触发处理（不代表全部文件处理成功）。
+     */
+    public void executeTaskNow(Integer taskId) {
+        try {
+            if (taskId == null) return;
+            RenameTaskPlus task = renameTaskService.getById(taskId);
+            if (task == null) {
+                log.warn("executeTaskNow: task {} not found", taskId);
+                return;
+            }
+            String src = task.getSourceFolder();
+            String tgt = task.getTargetRoot();
+            if (src == null || tgt == null) {
+                log.warn("executeTaskNow: task {} missing source/target", taskId);
+                return;
+            }
+            MediaRenameProcessor processor = new MediaRenameProcessor(
+                    Paths.get(tgt),
+                    clientProvider,
+                    helper,
+                    config,
+                    listenerFactory.create(taskId)
+            );
+            processor.processOnce(Paths.get(src));
+        } catch (Exception e) {
+            log.error("executeTaskNow error for {}: {}", taskId, e.getMessage(), e);
+        }
+    }
+
+    private void poll() {
+        try {
+            //更新配置
+            clientProvider.refresh(config);
+            if (!clientProvider.available()) {
+                registry.stopAll();
+                return;
+            }
+            //查询所有启用的重命名任务
+            Map<Integer, RenameTaskPlus> activeTasks = loadActiveTasks();
+            registry.reconcile(activeTasks, clientProvider, helper, config, listenerFactory);
+        } catch (Exception e) {
+            log.error("poll error", e);
+        }
+    }
+
+
+    private Map<Integer, RenameTaskPlus> loadActiveTasks() {
+        QueryWrapper<RenameTaskPlus> qw = new QueryWrapper<>();
+        qw.eq("status", "1");
+        List<RenameTaskPlus> list = renameTaskService.list(qw);
+        return list.stream().collect(Collectors.toMap(RenameTaskPlus::getId, t -> t));
+    }
+
+    /**
+     * 批量重试所有失败的重命名记录（最多重试最新 200 条）。
+     * executeRenameDetails 本身只在内部处理了 IOException，其他运行时异常会往外抛，
+     * 这里必须对每条记录单独 try/catch，避免一条异常中断整批。
+     */
+    public RetryOutcome retryAllFailed() {
+        QueryWrapper<RenameDetailPlus> countWrapper = new QueryWrapper<>();
+        countWrapper.eq("status", "0");
+        long total = renameDetailService.count(countWrapper);
+        if (total == 0) {
+            return new RetryOutcome(0, 0);
+        }
+
+        QueryWrapper<RenameDetailPlus> wrapper = new QueryWrapper<>();
+        wrapper.eq("status", "0")
+                .select("id")
+                .orderByDesc("create_time")
+                .last("LIMIT 200");
+        List<RenameDetailPlus> failed = renameDetailService.list(wrapper);
+        for (RenameDetailPlus detail : failed) {
+            try {
+                executeRenameDetails(detail.getId(), null, null, null, null);
+            } catch (Exception e) {
+                log.warn("retryAllFailed: 重试重命名明细失败 id={}", detail.getId(), e);
+            }
+        }
+        return new RetryOutcome(failed.size(), (int) total - failed.size());
+    }
+
+    /**
+     * @param retried   本次提交重试的记录数
+     * @param remaining 超出 200 条上限、未处理的剩余失败记录数
+     */
+    public record RetryOutcome(int retried, int remaining) {}
+}

@@ -2,11 +2,11 @@ FROM eclipse-temurin:25-jre-alpine
 
 WORKDIR /app
 
-COPY ruoyi-admin/target/ruoyi-admin.jar /app/
+COPY osr-admin/target/osr-admin.jar /app/
 
 # Create required directories with proper permissions, 打包镜像前记得重新打包jar
 RUN mkdir -p /data/upload /data/logs /data/strm && chmod -R 777 /data
 
 EXPOSE 6895
 
-ENTRYPOINT ["java", "--enable-preview", "--sun-misc-unsafe-memory-access=allow", "-Djava.security.egd=file:/dev/./urandom", "-jar", "/app/ruoyi-admin.jar"]
+ENTRYPOINT ["java", "--enable-preview", "--sun-misc-unsafe-memory-access=allow", "-Djava.security.egd=file:/dev/./urandom", "-jar", "/app/osr-admin.jar"]

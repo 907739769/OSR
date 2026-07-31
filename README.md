@@ -1,6 +1,6 @@
 ## 平台简介
 
-基于 [RuoYi-Vue](https://gitee.com/y_project/RuoYi-Vue) 4.8.1 二次开发的影视 STRM 管理系统。技术栈：Java 25 (Spring Boot 4.0.6) + Vue 3 + Element Plus + MyBatis-Plus + JWT，Docker 双容器部署。
+OSR (OpenList STRM Relay)：影视 STRM 管理系统。技术栈：Java 25 (Spring Boot 4.0.6) + Vue 3 + Element Plus + MyBatis-Plus + JWT，Docker 双容器部署。
 
 ## 内置功能
 
@@ -35,9 +35,9 @@
 - **数据看板**：Dashboard 汇总展示任务统计与运行概况
 
 ### 🔐 系统管理
-- 基于 RuoYi 的用户管理、角色管理、菜单管理、字典管理
+- 用户管理、角色管理、菜单管理、字典管理
 - JWT 无状态认证，细粒度权限控制
-- 定时任务管理（RuoYi Quartz），支持 Cron 表达式配置
+- 定时任务管理（Quartz），支持 Cron 表达式配置
 
 ## 技术栈
 
@@ -50,7 +50,7 @@
 | JSON | FastJSON2 |
 | 消息通知 | Telegram Bot SDK |
 | 模板引擎 | Pebble |
-| 定时任务 | RuoYi Quartz |
+| 定时任务 | Quartz |
 | 部署方式 | Docker Compose (MySQL + Spring Boot + Nginx) |
 
 ## 已完成功能
@@ -67,7 +67,7 @@
 
 ## 安装配置
 
-安装配置请查看[wiki](https://github.com/907739769/OpenList-strm-RuoYi/wiki)
+安装配置请查看[wiki](https://github.com/907739769/OSR/wiki)
 
 ## 演示图
 

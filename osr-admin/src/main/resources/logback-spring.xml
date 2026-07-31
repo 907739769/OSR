@@ -1,0 +1,127 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<configuration>
+    <!-- 日志基础参数 -->
+    <property name="log.path" value="/data/logs" />
+    <property name="log.pattern" value="[%d{yyyy-MM-dd HH:mm:ss.SSS}][%X{traceId}][%-5level][%logger{0}] %msg%n" />
+
+    <!-- DEBUG 文件（只含 DEBUG） -->
+    <appender name="file_debug" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${log.path}/sys-debug.log</file>
+
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${log.path}/sys-debug.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <maxFileSize>50MB</maxFileSize>
+            <maxHistory>7</maxHistory>
+        </rollingPolicy>
+
+        <encoder>
+            <pattern>${log.pattern}</pattern>
+        </encoder>
+
+        <!-- 记录 DEBUG及以上 -->
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>DEBUG</level>
+        </filter>
+    </appender>
+
+    <!-- INFO 文件（含 INFO/WARN/ERROR） -->
+    <appender name="file_info" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${log.path}/sys-info.log</file>
+
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${log.path}/sys-info.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <maxFileSize>50MB</maxFileSize>
+            <maxHistory>7</maxHistory>
+        </rollingPolicy>
+
+        <encoder>
+            <pattern>${log.pattern}</pattern>
+        </encoder>
+
+        <!-- INFO 及以上 -->
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>INFO</level>
+        </filter>
+    </appender>
+
+    <!-- ERROR 独立文件 -->
+    <appender name="file_error" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${log.path}/sys-error.log</file>
+
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${log.path}/sys-error.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <maxFileSize>50MB</maxFileSize>
+            <maxHistory>7</maxHistory>
+        </rollingPolicy>
+
+        <encoder>
+            <pattern>${log.pattern}</pattern>
+        </encoder>
+
+        <!-- 仅记录 ERROR -->
+        <filter class="ch.qos.logback.classic.filter.LevelFilter">
+            <level>ERROR</level>
+            <onMatch>ACCEPT</onMatch>
+            <onMismatch>DENY</onMismatch>
+        </filter>
+    </appender>
+
+    <!-- 用户行为日志 -->
+    <appender name="sys-user" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${log.path}/sys-user.log</file>
+
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${log.path}/sys-user.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <maxFileSize>50MB</maxFileSize>
+            <maxHistory>60</maxHistory>
+        </rollingPolicy>
+
+        <encoder>
+            <pattern>${log.pattern}</pattern>
+        </encoder>
+    </appender>
+
+    <!-- 模块日志级别控制 -->
+    <logger name="com.osr" level="info" />
+    <logger name="org.springframework" level="warn" />
+    <logger name="org.apache" level="warn" />
+    <logger name="com.osr.openliststrm" level="debug" />
+    <logger name="com.osr.framework.filter.RequestLogFilter" level="debug" />
+
+    <!-- 系统日志输出 -->
+    <root level="info">
+        <appender-ref ref="file_debug" />
+        <appender-ref ref="file_info" />
+        <appender-ref ref="file_error" />
+    </root>
+
+    <!-- 用户访问日志（独立 Logger，不进入 root） -->
+    <logger name="sys-user" level="info" additivity="false">
+        <appender-ref ref="sys-user"/>
+    </logger>
+
+    <!-- 开发环境（dev profile） -->
+    <springProfile name="dev">
+        <!-- 覆盖 pattern，增加方法名和行号 -->
+        <property name="log.pattern" value="[%d{yyyy-MM-dd HH:mm:ss.SSS}][%thread][%X{traceId}][%-5level][%logger{20}.%method:%line] %msg%n"/>
+        <!-- 控制台输出 -->
+        <appender name="console" class="ch.qos.logback.core.ConsoleAppender">
+            <encoder>
+                <pattern>${log.pattern}</pattern>
+            </encoder>
+        </appender>
+        
+        <logger name="com.osr" level="info" />
+        <logger name="org.springframework" level="warn" />
+        <logger name="org.apache" level="warn" />
+        <logger name="com.osr.openliststrm" level="debug" />
+
+        <!-- root logger dev 环境 -->
+        <root level="info">
+            <appender-ref ref="file_debug" />
+            <appender-ref ref="file_error" />
+            <appender-ref ref="file_info"/>
+            <appender-ref ref="console"/>
+        </root>
+    </springProfile>
+</configuration>

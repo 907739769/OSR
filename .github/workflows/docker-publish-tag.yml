@@ -8,7 +8,7 @@ on:
 env:
   DOCKER_USERNAME: ${{ secrets.DOCKER_USERNAME }}
   DOCKER_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-  IMAGE_NAME: openlist-strm-ruoyi
+  IMAGE_NAME: osr
 
 jobs:
   detect-changes:
@@ -40,7 +40,7 @@ jobs:
           
           # 检测后端变更
           BACKEND_FILES=$(git diff --name-only "$PREV_TAG" "$CURRENT_TAG" -- \
-            "ruoyi-*/**" "pom.xml" "mvnw" "Dockerfile.backend" \
+            "osr-*/**" "pom.xml" "mvnw" "Dockerfile.backend" \
             ".github/workflows/docker-publish-tag.yml" 2>/dev/null || true)
           
           if [ -n "$BACKEND_FILES" ]; then

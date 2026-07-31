@@ -3,16 +3,15 @@
         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>com.ruoyi</groupId>
-    <artifactId>ruoyi</artifactId>
+    <groupId>com.osr</groupId>
+    <artifactId>osr</artifactId>
     <version>4.8.1</version>
 
-    <name>ruoyi</name>
-    <url>http://www.ruoyi.vip</url>
-    <description>若依管理系统</description>
+    <name>osr</name>
+    <description>OSR (OpenList STRM Relay) 影视 STRM 管理系统</description>
     
     <properties>
-        <ruoyi.version>4.8.1</ruoyi.version>
+        <osr.version>4.8.1</osr.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
         <java.version>25</java.version>
@@ -128,48 +127,48 @@
 
             <!-- 定时任务-->
             <dependency>
-                <groupId>com.ruoyi</groupId>
-                <artifactId>ruoyi-quartz</artifactId>
-                <version>${ruoyi.version}</version>
+                <groupId>com.osr</groupId>
+                <artifactId>osr-quartz</artifactId>
+                <version>${osr.version}</version>
             </dependency>
 
             <!-- 核心模块-->
             <dependency>
-                <groupId>com.ruoyi</groupId>
-                <artifactId>ruoyi-framework</artifactId>
-                <version>${ruoyi.version}</version>
+                <groupId>com.osr</groupId>
+                <artifactId>osr-framework</artifactId>
+                <version>${osr.version}</version>
             </dependency>
 
             <!-- 系统模块-->
             <dependency>
-                <groupId>com.ruoyi</groupId>
-                <artifactId>ruoyi-system</artifactId>
-                <version>${ruoyi.version}</version>
+                <groupId>com.osr</groupId>
+                <artifactId>osr-system</artifactId>
+                <version>${osr.version}</version>
             </dependency>
 
             <!-- 通用工具-->
             <dependency>
-                <groupId>com.ruoyi</groupId>
-                <artifactId>ruoyi-common</artifactId>
-                <version>${ruoyi.version}</version>
+                <groupId>com.osr</groupId>
+                <artifactId>osr-common</artifactId>
+                <version>${osr.version}</version>
             </dependency>
 
             <dependency>
-                <groupId>com.ruoyi</groupId>
-                <artifactId>ruoyi-openliststrm</artifactId>
-                <version>${ruoyi.version}</version>
+                <groupId>com.osr</groupId>
+                <artifactId>osr-openliststrm</artifactId>
+                <version>${osr.version}</version>
             </dependency>
 
         </dependencies>
     </dependencyManagement>
 
     <modules>
-        <module>ruoyi-admin</module>
-        <module>ruoyi-framework</module>
-        <module>ruoyi-system</module>
-        <module>ruoyi-quartz</module>
-        <module>ruoyi-common</module>
-        <module>ruoyi-openliststrm</module>
+        <module>osr-admin</module>
+        <module>osr-framework</module>
+        <module>osr-system</module>
+        <module>osr-quartz</module>
+        <module>osr-common</module>
+        <module>osr-openliststrm</module>
     </modules>
     <packaging>pom</packaging>
 

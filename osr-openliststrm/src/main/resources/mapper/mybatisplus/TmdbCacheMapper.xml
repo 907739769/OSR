@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.osr.openliststrm.mybatisplus.mapper.TmdbCacheMapper">
+
+    <insert id="upsert">
+        INSERT INTO tmdb_cache (cache_key, cache_type, response_data, expire_time, create_time)
+        VALUES (#{item.cacheKey}, #{item.cacheType}, #{item.responseData}, #{item.expireTime}, #{item.createTime}) AS new
+        ON DUPLICATE KEY UPDATE
+            response_data = new.response_data,
+            expire_time = new.expire_time
+    </insert>
+
+</mapper>
