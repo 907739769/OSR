@@ -41,6 +41,11 @@
       />
     </MobileSearchPanel>
 
+    <!-- 新增 FAB -->
+    <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="mdi-plus" @click="openSubscribeDialog">
+      新增
+    </v-btn>
+
     <!-- 列表 -->
     <div class="task-list">
       <v-progress-linear v-if="loading" indeterminate color="primary" />
@@ -136,6 +141,94 @@
       @next="nextPage"
       @size-change="handleSizeChange"
     />
+
+    <!-- 新增订阅：TMDb 选片 -->
+    <v-dialog v-model="subscribeOpen" width="92%" class="modern-dialog">
+      <v-card title="新增订阅">
+        <v-card-text>
+          <div class="subscribe-search-row">
+            <v-select
+              v-model="searchForm.mediaType"
+              :items="[{ title: '剧集', value: 'TV' }, { title: '电影', value: 'MOVIE' }]"
+              label="类型"
+              density="compact"
+              variant="outlined"
+              hide-details
+              class="type-select"
+            />
+            <v-text-field
+              v-model="searchForm.keyword"
+              label="片名"
+              placeholder="输入片名后回车"
+              density="compact"
+              variant="outlined"
+              hide-details
+              class="keyword-field"
+              @keyup.enter="doSearch"
+            />
+          </div>
+          <v-btn color="primary" block :loading="searchLoading" class="mt-2" @click="doSearch">搜索 TMDb</v-btn>
+
+          <div class="search-result-list">
+            <v-progress-linear v-if="searchLoading" indeterminate color="primary" class="mt-2" />
+            <div
+              v-for="item in searchResults"
+              :key="item.tmdbId"
+              class="search-result-card"
+              :class="{ selected: picked && picked.tmdbId === item.tmdbId }"
+              @click="pick(item)"
+            >
+              <div class="result-poster">
+                <img
+                  v-if="item.posterPath"
+                  :src="posterUrl(item.posterPath)"
+                  loading="lazy"
+                  @error="(e: Event) => ((e.target as HTMLImageElement).style.visibility = 'hidden')"
+                />
+                <v-icon v-else icon="mdi-image-outline" />
+              </div>
+              <div class="result-info">
+                <span class="result-title">
+                  {{ item.title }}
+                  <span v-if="item.year" class="sub-year">({{ item.year }})</span>
+                </span>
+                <span v-if="item.originalTitle && item.originalTitle !== item.title" class="result-original">
+                  {{ item.originalTitle }}
+                </span>
+              </div>
+              <v-icon v-if="picked && picked.tmdbId === item.tmdbId" icon="mdi-check-circle" color="primary" />
+            </div>
+            <v-empty-state v-if="!searchLoading && searchResults.length === 0" icon="mdi-magnify" title="暂无搜索结果" />
+          </div>
+
+          <div v-if="picked" class="picked-bar">
+            已选：<strong>{{ picked.title }}</strong>
+            <template v-if="searchForm.mediaType !== 'MOVIE'">
+              &nbsp;第
+              <v-text-field
+                v-model.number="pickedSeason"
+                type="number"
+                min="0"
+                max="99"
+                density="compact"
+                variant="outlined"
+                hide-details
+                class="season-field"
+              />
+              季
+              <span class="sub-year">（第 0 季是特别篇）</span>
+            </template>
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn @click="subscribeOpen = false">取消</v-btn>
+          <v-btn color="primary" variant="flat" :loading="subscribeLoading" :disabled="!picked" @click="confirmSubscribe">
+            订阅
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
 
     <!-- 进度 -->
     <v-dialog v-model="progressOpen" width="90%" class="modern-dialog">
@@ -378,6 +471,8 @@ const router = useRouter()
 const {
   taskList, loading, total, queryParams,
   handleQuery, resetQuery,
+  subscribeOpen, searchLoading, subscribeLoading, searchResults, searchForm,
+  picked, pickedSeason, openSubscribeDialog, doSearch, pick, confirmSubscribe,
   progressOpen, progressLoading, progress, currentSubscription, showProgress,
   searchLogOpen, searchLogLoading, searchLogs, showSearchLogs,
   filterOverrideOpen, filterOverrideSaving, filterOverrideForm,
@@ -649,5 +744,105 @@ const goDownloadRecords = (row: any) => {
   flex-direction: column;
   gap: 8px;
   width: 100%;
+}
+
+.subscribe-search-row {
+  display: flex;
+  gap: 8px;
+
+  .type-select {
+    width: 110px;
+    flex: none;
+  }
+
+  .keyword-field {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.search-result-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 40vh;
+  overflow-y: auto;
+  margin-top: 10px;
+}
+
+.search-result-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: var(--osr-radius-sm);
+  border: 2px solid transparent;
+  background: var(--osr-bg-page);
+
+  &.selected {
+    border-color: var(--osr-primary-light-5);
+    background: var(--osr-primary-light-9);
+  }
+}
+
+.result-poster {
+  flex-shrink: 0;
+  width: 40px;
+  height: 60px;
+  border-radius: var(--osr-radius-sm);
+  overflow: hidden;
+  background: var(--osr-surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--osr-text-disabled);
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+}
+
+.result-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.result-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--osr-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.result-original {
+  font-size: 11px;
+  color: var(--osr-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picked-bar {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--osr-radius-sm);
+  background: var(--osr-bg-page);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 13px;
+
+  .season-field {
+    width: 90px;
+    display: inline-flex;
+  }
 }
 </style>

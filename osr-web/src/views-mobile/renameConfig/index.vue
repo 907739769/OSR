@@ -1,9 +1,9 @@
 <template>
   <div class="mobile-page">
     <v-tabs v-model="activeTab" color="primary" density="compact" grow>
-      <v-tab value="template">模板</v-tab>
-      <v-tab value="rules">分类规则</v-tab>
-      <v-tab value="test">测试</v-tab>
+      <v-tab value="template" prepend-icon="mdi-file-document-edit-outline">模板</v-tab>
+      <v-tab value="rules" prepend-icon="mdi-folder-cog-outline">分类规则</v-tab>
+      <v-tab value="test" prepend-icon="mdi-flask-outline">测试</v-tab>
     </v-tabs>
 
     <v-window v-model="activeTab">
@@ -46,6 +46,10 @@
             <v-progress-circular indeterminate color="primary" size="32" />
           </div>
           <div v-else>
+            <v-alert type="info" variant="tonal" density="compact" class="fallback-hint">
+              规则从上到下依次匹配，命中即用该目录；末尾的"兜底"规则在都未命中时生效，无法删除或调整匹配条件。
+            </v-alert>
+
             <div class="section-divider">电影</div>
             <RuleTable
               :rules="movieRules" media-type="movie"
@@ -92,10 +96,15 @@
               <template #title>重命名结果预览</template>
               <div class="result-text">{{ testResult.renamed }}</div>
             </v-alert>
-            <v-alert type="info" variant="tonal" density="compact">
-              <template #title>识别参数详情</template>
-              <pre class="result-json">{{ JSON.stringify(testResult.info, null, 2) }}</pre>
-            </v-alert>
+            <div class="result-info-card">
+              <div class="result-info-title">识别参数详情</div>
+              <div class="result-info-grid">
+                <template v-for="(value, key) in testResult.info" :key="key">
+                  <div class="info-key">{{ key }}</div>
+                  <div class="info-value">{{ value ?? '—' }}</div>
+                </template>
+              </div>
+            </div>
           </div>
         </div>
       </v-window-item>
@@ -204,14 +213,39 @@ const insertVariable = (varName: string) => {
     word-break: break-all;
     white-space: pre-wrap;
   }
+}
 
-  .result-json {
+.result-info-card {
+  background: var(--osr-bg-page);
+  border-radius: var(--osr-radius-md);
+  padding: 10px 12px;
+
+  .result-info-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--osr-text-secondary);
+    margin-bottom: 6px;
+  }
+
+  .result-info-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
     max-height: 300px;
     overflow: auto;
-    font-size: 12px;
-    background: var(--osr-bg-page);
-    padding: 10px;
-    border-radius: 4px;
+  }
+
+  .info-key {
+    font-size: 11px;
+    color: var(--osr-text-secondary);
+    font-family: Consolas, monospace;
+  }
+
+  .info-value {
+    font-size: 13px;
+    color: var(--osr-text-primary);
+    word-break: break-all;
+    margin-bottom: 2px;
   }
 }
 
@@ -223,6 +257,10 @@ const insertVariable = (varName: string) => {
   font-weight: 600;
   color: var(--osr-text-primary);
   border-left: 3px solid var(--osr-primary);
+}
+
+.fallback-hint {
+  margin-bottom: 4px;
 }
 
 .rules-save-btn {

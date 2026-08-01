@@ -70,9 +70,21 @@
             />
           </td>
           <td class="col-actions">
-            <v-btn variant="text" size="small" :disabled="row.isFallback === '1'" @click="$emit('move', mediaType, index, -1)">上移</v-btn>
-            <v-btn variant="text" size="small" :disabled="row.isFallback === '1'" @click="$emit('move', mediaType, index, 1)">下移</v-btn>
-            <v-btn variant="text" color="error" size="small" :disabled="row.isFallback === '1'" @click="$emit('remove', mediaType, index)">删除</v-btn>
+            <v-tooltip text="上移" location="top">
+              <template #activator="{ props: tip }">
+                <v-btn v-bind="tip" variant="text" size="small" icon="mdi-arrow-up" :disabled="row.isFallback === '1'" @click="$emit('move', mediaType, index, -1)" />
+              </template>
+            </v-tooltip>
+            <v-tooltip text="下移" location="top">
+              <template #activator="{ props: tip }">
+                <v-btn v-bind="tip" variant="text" size="small" icon="mdi-arrow-down" :disabled="row.isFallback === '1'" @click="$emit('move', mediaType, index, 1)" />
+              </template>
+            </v-tooltip>
+            <v-tooltip text="删除" location="top">
+              <template #activator="{ props: tip }">
+                <v-btn v-bind="tip" variant="text" color="error" size="small" icon="mdi-delete-outline" :disabled="row.isFallback === '1'" @click="$emit('remove', mediaType, index)" />
+              </template>
+            </v-tooltip>
           </td>
         </tr>
       </tbody>
@@ -145,7 +157,7 @@ const normalize = (arr: any[]): string[] =>
   }
 
   .col-actions {
-    width: 160px;
+    width: 120px;
     text-align: center;
     white-space: nowrap;
   }
