@@ -73,10 +73,10 @@
               <span class="value">{{ item.createTime }}</span>
             </div>
           </div>
-        </div>
-        <div class="card-actions" @click.stop>
-          <v-btn variant="text" color="primary" size="small" icon="mdi-pencil-outline" @click="handleUpdate(item, '修改媒体服务器')" />
-          <v-btn variant="text" color="error" size="small" icon="mdi-delete-outline" @click="handleDelete(item)" />
+          <div class="card-actions" @click.stop>
+            <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(item, '修改媒体服务器')">修改</v-btn>
+            <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(item)">删除</v-btn>
+          </div>
         </div>
       </div>
 
@@ -240,14 +240,6 @@ const toRules = (fieldRules?: any[]) => {
     }
   }
 
-  .card-actions {
-    display: flex;
-    align-items: center;
-    gap: 2px;
-    flex-shrink: 0;
-    padding-left: 4px;
-    border-left: 1px solid var(--osr-border-light);
-  }
 }
 
 </style>

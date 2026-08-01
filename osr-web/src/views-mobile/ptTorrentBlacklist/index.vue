@@ -55,11 +55,11 @@
               <span class="value">{{ item.createTime || '-' }}</span>
             </div>
           </div>
-        </div>
-        <div class="card-actions">
-          <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(item)">
-            删除
-          </v-btn>
+          <div class="card-actions">
+            <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(item)">
+              删除
+            </v-btn>
+          </div>
         </div>
       </div>
 
@@ -219,13 +219,6 @@ const shortHash = (value: string) => {
     }
   }
 
-  .card-actions {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    padding-left: 8px;
-    border-left: 1px solid var(--osr-border-light);
-  }
 }
 
 .fab-add {

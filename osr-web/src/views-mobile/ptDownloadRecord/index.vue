@@ -99,11 +99,11 @@
             </v-chip>
             <span>{{ item.failReason || '未知原因' }}</span>
           </div>
-        </div>
-        <div class="card-actions" v-if="item.state === 'FAILED'">
-          <v-btn variant="text" color="primary" size="small" :loading="retryingIds.has(item.id)" @click="handleRetry(item)">
-            重试
-          </v-btn>
+          <div class="card-actions" v-if="item.state === 'FAILED'">
+            <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-refresh" :loading="retryingIds.has(item.id)" @click="handleRetry(item)">
+              重试
+            </v-btn>
+          </div>
         </div>
       </div>
 
@@ -305,12 +305,5 @@ const formatSize = (bytes: number): string => {
     line-height: 1.5;
   }
 
-  .card-actions {
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    padding-left: 8px;
-    border-left: 1px solid var(--osr-border-light);
-  }
 }
 </style>

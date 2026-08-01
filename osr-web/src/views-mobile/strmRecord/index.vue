@@ -110,22 +110,29 @@
             <v-icon icon="mdi-clock-outline" size="14" />
             {{ record.createTime }}
           </div>
-        </div>
-        <div class="card-actions" @click.stop>
-          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-refresh" @click="handleRetryOne(record)">
-            重试
-          </v-btn>
-          <v-btn variant="text" color="warning" size="small" prepend-icon="mdi-download-outline" @click="handleRemoveNetDiskOne(record)">
-            删网盘
-          </v-btn>
-          <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDeleteOne(record)">
-            删记录
-          </v-btn>
+          <div class="card-actions" @click.stop>
+            <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-refresh" @click="handleRetryOne(record)">
+              重试
+            </v-btn>
+            <v-btn class="action-more" variant="text" color="default" size="small" icon="mdi-dots-horizontal" @click="openActionDrawer(record)" />
+          </div>
         </div>
       </div>
 
       <v-empty-state v-if="!loading && recordList.length === 0" icon="mdi-inbox-outline" title="暂无STRM记录" />
     </div>
+
+    <!-- 操作抽屉 -->
+    <v-bottom-sheet v-model="actionDrawerOpen">
+      <v-card v-if="actionDrawerTarget" title="更多操作">
+        <v-card-text>
+          <div class="drawer-actions">
+            <v-btn color="warning" block prepend-icon="mdi-download-outline" @click="handleRemoveNetDiskOne(actionDrawerTarget); actionDrawerOpen = false">删网盘</v-btn>
+            <v-btn color="error" block prepend-icon="mdi-delete-outline" @click="handleDeleteOne(actionDrawerTarget); actionDrawerOpen = false">删记录</v-btn>
+          </div>
+        </v-card-text>
+      </v-card>
+    </v-bottom-sheet>
 
     <!-- 分页 -->
     <MobilePager
@@ -179,6 +186,14 @@ const rangeEnd = computed({
 
 const fullTextRef = ref<InstanceType<typeof FullTextDialog>>()
 const showFullText = (content: string, title: string) => fullTextRef.value?.show(content, title)
+
+/** 更多操作抽屉 */
+const actionDrawerOpen = ref(false)
+const actionDrawerTarget = ref<any>(null)
+const openActionDrawer = (row: any) => {
+  actionDrawerTarget.value = row
+  actionDrawerOpen.value = true
+}
 
 getList()
 </script>
@@ -334,14 +349,14 @@ getList()
 
   .card-actions {
     display: flex;
-    flex-direction: column;
-    gap: 2px;
-    flex-shrink: 0;
-    padding-left: 8px;
-    border-left: 1px solid var(--osr-border-light);
+    align-items: center;
+    gap: 4px;
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid var(--osr-border-light);
 
-    .v-btn {
-      min-width: 0;
+    .action-more {
+      margin-left: auto;
     }
   }
 }

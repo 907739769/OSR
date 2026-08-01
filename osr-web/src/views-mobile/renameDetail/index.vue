@@ -166,25 +166,32 @@
             <v-icon icon="mdi-clock-outline" size="12" />
             {{ record.createTime }}
           </div>
-        </div>
-        <div class="card-actions" @click.stop>
-          <v-btn variant="text" color="warning" size="small" @click="handleScrapeOne(record)">
-            刮削
-          </v-btn>
-          <v-btn v-if="record.scrapeStatus === '1'" variant="text" color="error" size="small" @click="handleDeleteScrapeOne(record)">
-            删刮削
-          </v-btn>
-          <v-btn variant="text" color="primary" size="small" @click="handleRetryOne(record)">
-            重试
-          </v-btn>
-          <v-btn variant="text" color="error" size="small" @click="handleDeleteOne(record)">
-            删记录
-          </v-btn>
+          <div class="card-actions" @click.stop>
+            <v-btn variant="text" color="warning" size="small" @click="handleScrapeOne(record)">
+              刮削
+            </v-btn>
+            <v-btn variant="text" color="primary" size="small" @click="handleRetryOne(record)">
+              重试
+            </v-btn>
+            <v-btn class="action-more" variant="text" color="default" size="small" icon="mdi-dots-horizontal" @click="openActionDrawer(record)" />
+          </div>
         </div>
       </div>
 
       <v-empty-state v-if="!loading && recordList.length === 0" icon="mdi-inbox-outline" title="暂无重命名记录" />
     </div>
+
+    <!-- 操作抽屉 -->
+    <v-bottom-sheet v-model="actionDrawerOpen">
+      <v-card v-if="actionDrawerTarget" title="更多操作">
+        <v-card-text>
+          <div class="drawer-actions">
+            <v-btn v-if="actionDrawerTarget.scrapeStatus === '1'" color="error" block @click="handleDeleteScrapeOne(actionDrawerTarget); actionDrawerOpen = false">删刮削</v-btn>
+            <v-btn color="error" block prepend-icon="mdi-delete-outline" @click="handleDeleteOne(actionDrawerTarget); actionDrawerOpen = false">删记录</v-btn>
+          </div>
+        </v-card-text>
+      </v-card>
+    </v-bottom-sheet>
 
     <!-- 分页 -->
     <MobilePager
@@ -265,6 +272,14 @@ const searchCollapsed = ref(true)
 
 const fullTextRef = ref<InstanceType<typeof FullTextDialog>>()
 const showFullText = (content: string, title: string) => fullTextRef.value?.show(content, title)
+
+/** 更多操作抽屉 */
+const actionDrawerOpen = ref(false)
+const actionDrawerTarget = ref<any>(null)
+const openActionDrawer = (row: any) => {
+  actionDrawerTarget.value = row
+  actionDrawerOpen.value = true
+}
 
 const {
   recordList, loading, total, queryParams, totalPages,
@@ -534,16 +549,14 @@ const episodeRule = (v: string) => !v || /^\d{1,4}$/.test(v) || '集为 1-4 位�
 
   .card-actions {
     display: flex;
-    flex-direction: column;
-    gap: 2px;
-    flex-shrink: 0;
-    padding-left: 8px;
-    border-left: 1px solid var(--osr-border-light);
+    align-items: center;
+    gap: 4px;
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid var(--osr-border-light);
 
-    .v-btn {
-      font-size: 11px;
-      min-width: 0;
-      padding: 0 6px;
+    .action-more {
+      margin-left: auto;
     }
   }
 }
