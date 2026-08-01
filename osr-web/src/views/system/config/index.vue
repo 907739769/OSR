@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <!-- Header -->
-    <PageHeader icon="mdi-cog-outline" title="参数设置" desc="系统全局参数配置 — 开关直接切换即时生效，其余点击 ✏️ 编辑后保存">
+    <PageHeader icon="mdi-cog" title="参数设置" desc="系统全局参数配置 — 开关直接切换即时生效，其余点击 ✏️ 编辑后保存">
       <template #actions>
         <v-btn color="primary" variant="outlined" prepend-icon="mdi-refresh" :loading="refreshing" @click="handleRefreshCache">
           刷新缓存
@@ -15,163 +15,164 @@
       <p>正在加载参数配置...</p>
     </div>
 
-    <!-- Config Sections -->
+    <!-- Config Tabs -->
     <template v-else>
-      <div
-        v-for="section in configSections"
-        :key="section.key"
-        class="config-section"
-      >
-        <div class="section-header">
-          <div class="section-icon">
-            <v-icon :icon="section.icon" size="18" />
-          </div>
-          <h3>{{ section.title }}</h3>
-          <span class="section-count">{{ section.items.length }}</span>
-        </div>
-        <div class="section-cards">
-          <div
-            v-for="item in section.items"
-            :key="item.configId"
-            class="config-item"
-            :class="{ 'config-item--editing': editingId === item.configId }"
-          >
-            <!-- Header row: name + key + actions -->
-            <div class="config-item__header">
-              <div class="config-item__title">
-                <span class="config-item__name">{{ item.configName }}</span>
-                <code class="config-item__key" @click="copyText(item.configKey)" title="点击复制键名">{{ item.configKey }}</code>
-              </div>
-              <div class="config-item__actions">
-                <!-- Inline switch for boolean configs -->
-                <v-switch
-                  v-if="metaOf(item).type === 'switch' && editingId !== item.configId"
-                  :model-value="item.configValue === '1'"
-                  :loading="switchSavingId === item.configId"
-                  color="primary"
-                  density="compact"
-                  hide-details
-                  @update:model-value="(val: any) => toggleSwitch(item, val)"
-                />
-                <!-- 明确的编辑按钮（PC + 移动端均清晰可见） -->
-                <v-btn
-                  v-else-if="editingId !== item.configId"
-                  color="primary"
-                  variant="outlined"
-                  size="small"
-                  prepend-icon="mdi-pencil-outline"
-                  @click="startEdit(item)"
+      <v-card v-if="configSections.length > 0" class="table-card">
+        <v-tabs v-model="activeTab" color="primary" class="config-tabs" @update:model-value="cancelEdit">
+          <v-tab v-for="section in configSections" :key="section.key" :value="section.key">
+            <v-icon :icon="section.icon" size="18" class="config-tab__icon" />
+            {{ section.title }}
+            <span class="config-tab__count">{{ section.items.length }}</span>
+          </v-tab>
+        </v-tabs>
+
+        <v-window v-model="activeTab" class="config-window">
+          <v-window-item v-for="section in configSections" :key="section.key" :value="section.key">
+            <div class="section-cards">
+              <div
+                v-for="item in section.items"
+                :key="item.configId"
+                class="config-item"
+                :class="{ 'config-item--editing': editingId === item.configId }"
+              >
+                <!-- Header row: name + key + actions -->
+                <div class="config-item__header">
+                  <div class="config-item__title">
+                    <span class="config-item__name">{{ item.configName }}</span>
+                    <code class="config-item__key" @click="copyText(item.configKey)" title="点击复制键名">{{ item.configKey }}</code>
+                  </div>
+                  <div class="config-item__actions">
+                    <!-- Inline switch for boolean configs -->
+                    <v-switch
+                      v-if="metaOf(item).type === 'switch' && editingId !== item.configId"
+                      :model-value="item.configValue === '1'"
+                      :loading="switchSavingId === item.configId"
+                      color="primary"
+                      density="compact"
+                      hide-details
+                      @update:model-value="(val: any) => toggleSwitch(item, val)"
+                    />
+                    <!-- 明确的编辑按钮（PC + 移动端均清晰可见） -->
+                    <v-btn
+                      v-else-if="editingId !== item.configId"
+                      color="primary"
+                      variant="outlined"
+                      size="small"
+                      prepend-icon="mdi-pencil-outline"
+                      @click="startEdit(item)"
+                    >
+                      编辑
+                    </v-btn>
+                    <v-chip v-else size="small" color="warning" variant="tonal">编辑中</v-chip>
+                  </div>
+                </div>
+
+                <!-- Hint -->
+                <p v-if="metaOf(item).hint" class="config-item__hint">{{ metaOf(item).hint }}</p>
+
+                <!-- Display value (non-switch, non-editing) -->
+                <div
+                  v-if="editingId !== item.configId && metaOf(item).type !== 'switch'"
+                  class="config-item__value"
                 >
-                  编辑
-                </v-btn>
-                <v-chip v-else size="small" color="warning" variant="tonal">编辑中</v-chip>
-              </div>
-            </div>
+                  <span class="value-text" :class="{ 'value-text--empty': !item.configValue }">{{ displayValue(item) }}</span>
+                  <v-tooltip v-if="isSensitive(item.configKey) && item.configValue" :text="item.configValue" location="top" open-delay="300">
+                    <template #activator="{ props: tooltipProps }">
+                      <v-icon v-bind="tooltipProps" icon="mdi-magnify-plus-outline" class="value-expand" size="14" />
+                    </template>
+                  </v-tooltip>
+                </div>
 
-            <!-- Hint -->
-            <p v-if="metaOf(item).hint" class="config-item__hint">{{ metaOf(item).hint }}</p>
+                <!-- Edit Mode -->
+                <template v-if="editingId === item.configId">
+                  <div class="edit-body">
+                    <!-- number -->
+                    <v-text-field
+                      v-if="metaOf(item).type === 'number'"
+                      v-model.number="editNumber"
+                      type="number"
+                      :min="metaOf(item).min"
+                      :max="metaOf(item).max"
+                      step="1"
+                      density="compact"
+                      variant="outlined"
+                      hide-details
+                      class="edit-number"
+                    />
+                    <span v-if="metaOf(item).type === 'number' && metaOf(item).unit" class="edit-unit">{{ metaOf(item).unit }}</span>
 
-            <!-- Display value (non-switch, non-editing) -->
-            <div
-              v-if="editingId !== item.configId && metaOf(item).type !== 'switch'"
-              class="config-item__value"
-            >
-              <span class="value-text" :class="{ 'value-text--empty': !item.configValue }">{{ displayValue(item) }}</span>
-              <v-tooltip v-if="isSensitive(item.configKey) && item.configValue" :text="item.configValue" location="top" open-delay="300">
-                <template #activator="{ props: tooltipProps }">
-                  <v-icon v-bind="tooltipProps" icon="mdi-magnify-plus-outline" class="value-expand" size="14" />
+                    <!-- select -->
+                    <v-combobox
+                      v-else-if="metaOf(item).type === 'select'"
+                      v-model="editForm.configValue"
+                      :items="metaOf(item).options"
+                      item-title="label"
+                      item-value="value"
+                      density="compact"
+                      variant="outlined"
+                      hide-details
+                      class="edit-select"
+                      placeholder="请选择"
+                    />
+
+                    <!-- password -->
+                    <v-text-field
+                      v-else-if="metaOf(item).type === 'password'"
+                      v-model="editForm.configValue"
+                      type="password"
+                      placeholder="请输入参数值"
+                      density="compact"
+                      variant="outlined"
+                      hide-details
+                      class="edit-input"
+                      :error="!!editError"
+                    />
+
+                    <!-- textarea -->
+                    <v-textarea
+                      v-else-if="metaOf(item).type === 'textarea'"
+                      v-model="editForm.configValue"
+                      rows="3"
+                      placeholder="请输入参数值"
+                      density="compact"
+                      variant="outlined"
+                      hide-details
+                      class="edit-input"
+                      :error="!!editError"
+                    />
+
+                    <!-- text (default) -->
+                    <v-text-field
+                      v-else
+                      v-model="editForm.configValue"
+                      placeholder="请输入参数值"
+                      density="compact"
+                      variant="outlined"
+                      hide-details
+                      class="edit-input"
+                      :error="!!editError"
+                    />
+                  </div>
+                  <p v-if="editError" class="edit-error text-caption text-error">{{ editError }}</p>
+                  <div class="edit-actions">
+                    <v-btn variant="outlined" @click="cancelEdit">取消</v-btn>
+                    <v-btn color="primary" variant="flat" :loading="saving" @click="saveEdit(item)">保存</v-btn>
+                  </div>
                 </template>
-              </v-tooltip>
+              </div>
             </div>
-
-            <!-- Edit Mode -->
-            <template v-if="editingId === item.configId">
-              <div class="edit-body">
-                <!-- number -->
-                <v-text-field
-                  v-if="metaOf(item).type === 'number'"
-                  v-model.number="editNumber"
-                  type="number"
-                  :min="metaOf(item).min"
-                  :max="metaOf(item).max"
-                  step="1"
-                  density="compact"
-                  variant="outlined"
-                  hide-details
-                  class="edit-number"
-                />
-                <span v-if="metaOf(item).type === 'number' && metaOf(item).unit" class="edit-unit">{{ metaOf(item).unit }}</span>
-
-                <!-- select -->
-                <v-combobox
-                  v-else-if="metaOf(item).type === 'select'"
-                  v-model="editForm.configValue"
-                  :items="metaOf(item).options"
-                  item-title="label"
-                  item-value="value"
-                  density="compact"
-                  variant="outlined"
-                  hide-details
-                  class="edit-select"
-                  placeholder="请选择"
-                />
-
-                <!-- password -->
-                <v-text-field
-                  v-else-if="metaOf(item).type === 'password'"
-                  v-model="editForm.configValue"
-                  type="password"
-                  placeholder="请输入参数值"
-                  density="compact"
-                  variant="outlined"
-                  hide-details
-                  class="edit-input"
-                  :error="!!editError"
-                />
-
-                <!-- textarea -->
-                <v-textarea
-                  v-else-if="metaOf(item).type === 'textarea'"
-                  v-model="editForm.configValue"
-                  rows="3"
-                  placeholder="请输入参数值"
-                  density="compact"
-                  variant="outlined"
-                  hide-details
-                  class="edit-input"
-                  :error="!!editError"
-                />
-
-                <!-- text (default) -->
-                <v-text-field
-                  v-else
-                  v-model="editForm.configValue"
-                  placeholder="请输入参数值"
-                  density="compact"
-                  variant="outlined"
-                  hide-details
-                  class="edit-input"
-                  :error="!!editError"
-                />
-              </div>
-              <p v-if="editError" class="edit-error text-caption text-error">{{ editError }}</p>
-              <div class="edit-actions">
-                <v-btn variant="outlined" @click="cancelEdit">取消</v-btn>
-                <v-btn color="primary" variant="flat" :loading="saving" @click="saveEdit(item)">保存</v-btn>
-              </div>
-            </template>
-          </div>
-        </div>
-      </div>
+          </v-window-item>
+        </v-window>
+      </v-card>
 
       <!-- Empty State -->
-      <v-empty-state v-if="configSections.length === 0" icon="mdi-cog-off-outline" title="暂无参数配置" />
+      <v-empty-state v-else icon="mdi-cog-off-outline" title="暂无参数配置" />
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { message } from '@/composables/useMessage'
 import { getConfigListApi, updateConfigApi } from '@/api/system/config'
 import type { SysConfig } from '@/types/system'
@@ -200,6 +201,9 @@ const refreshing = ref(false)
 const saving = ref(false)
 const switchSavingId = ref<number | null>(null)
 const configList = ref<SysConfig[]>([])
+
+// 当前激活的分组 tab（默认第一个分组 openlist）
+const activeTab = ref('openlist')
 
 // Editing state
 const editingId = ref<number | null>(null)
@@ -281,6 +285,9 @@ const configSections = computed<ConfigSection[]>(() => {
     const key = config.configKey || ''
     const name = config.configName || ''
 
+    // 重命名文件名模板已由"重命名规则设置"页面（/openlist/renameConfig）独立管理，此处不再展示
+    if (key === 'rename.filename.template') return
+
     // OpenAI 相关
     if (key.includes('openai') || name.includes('openai') || name.includes('OpenAI') || name.includes('gpt') || name.includes('GPT')) {
       addSection('openai', 'OpenAI 配置', 'mdi-robot-outline')
@@ -321,6 +328,13 @@ const configSections = computed<ConfigSection[]>(() => {
   return order
     .filter(k => sections[k])
     .map(k => sections[k])
+})
+
+// 分组变化时确保 activeTab 有效：避免 order 调整后默认 tab 失配导致首屏空白
+watch(configSections, (sections) => {
+  if (sections.length > 0 && !sections.some(s => s.key === activeTab.value)) {
+    activeTab.value = sections[0].key
+  }
 })
 
 const getList = async () => {
@@ -485,52 +499,35 @@ getList()
 }
 
 /* ============================================
-    Config Section
+    Config Tabs + Window
     ============================================ */
-.config-section {
-  .section-header {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    margin-bottom: 14px;
-    padding-bottom: 10px;
-    border-bottom: 2px solid var(--osr-border-light);
+.config-tabs {
+  border-bottom: 1px solid var(--osr-border-light);
 
-    .section-icon {
-      width: 32px;
-      height: 32px;
-      border-radius: var(--osr-radius-base);
-      background: var(--osr-primary-subtle);
-      color: var(--osr-primary);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 16px;
-    }
-
-    h3 {
-      margin: 0;
-      font-size: 16px;
-      font-weight: 600;
-      color: var(--osr-text-primary);
-    }
-
-    .section-count {
-      margin-left: auto;
-      font-size: 12px;
-      color: var(--osr-text-secondary);
-      background: var(--osr-bg-page);
-      padding: 2px 10px;
-      border-radius: 10px;
-    }
+  .config-tab__icon {
+    margin-right: 4px;
   }
 
-  .section-cards {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 12px;
-    padding-top: 4px;
+  .config-tab__count {
+    margin-left: 8px;
+    font-size: 11px;
+    line-height: 1;
+    color: var(--osr-text-secondary);
+    background: var(--osr-bg-page);
+    padding: 3px 7px;
+    border-radius: 10px;
   }
+}
+
+.config-window {
+  padding-top: 16px;
+}
+
+.section-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  padding-top: 4px;
 }
 
 /* ============================================
@@ -689,25 +686,18 @@ getList()
     ============================================ */
 @media (max-width: 768px) {
 
-  .config-section {
-    padding: 0 16px;
+  .config-tabs {
+    .config-tab__count { display: none; }
+  }
 
-    .section-header {
-      .section-icon {
-        width: 28px;
-        height: 28px;
-        font-size: 14px;
-      }
+  .config-window {
+    padding-top: 12px;
+  }
 
-      h3 { font-size: 15px; }
-      .section-count { display: none; }
-    }
-
-    /* 移动端单列 */
-    .section-cards {
-      grid-template-columns: 1fr;
-      gap: 10px;
-    }
+  /* 移动端单列 */
+  .section-cards {
+    grid-template-columns: 1fr;
+    gap: 10px;
   }
 
   .config-item {
