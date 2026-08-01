@@ -1,5 +1,5 @@
 <template>
-  <v-dialog v-model="visible" width="85%">
+  <v-dialog v-model="visible" width="92%">
     <v-card :title="title">
       <v-card-text class="full-text-content">{{ content }}</v-card-text>
       <v-card-actions>

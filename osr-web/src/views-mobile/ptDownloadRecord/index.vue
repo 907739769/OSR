@@ -59,9 +59,7 @@
         <div class="card-content">
           <div class="card-top">
             <span class="card-title">{{ item.title }}</span>
-            <v-chip :color="stateTagType(item.state)" size="small" variant="tonal">
-              {{ stateLabel(item.state) }}
-            </v-chip>
+            <StatusChip :type="stateTagType(item.state)" :text="stateLabel(item.state)" />
           </div>
           <div class="card-sub">
             <router-link
@@ -106,9 +104,7 @@
           </div>
           <div class="card-fail" v-if="item.state === 'FAILED'">
             <v-icon icon="mdi-alert-circle" size="16" />
-            <v-chip v-if="item.failReasonCode" size="small" :color="failReasonTagType(item.failReasonCode)" variant="tonal">
-              {{ failReasonCodeLabel(item.failReasonCode) }}
-            </v-chip>
+            <StatusChip v-if="item.failReasonCode" :type="failReasonTagType(item.failReasonCode)" :text="failReasonCodeLabel(item.failReasonCode)" />
             <span>{{ item.failReason || '未知原因' }}</span>
           </div>
           <div class="card-actions" @click.stop>
@@ -184,6 +180,7 @@
 import { ref } from 'vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
+import StatusChip from '@/components/StatusChip.vue'
 import { usePtDownloadRecord } from '@/composables/usePtDownloadRecord'
 
 const {

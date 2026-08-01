@@ -22,7 +22,7 @@
       <v-data-table-server
         v-if="appStore.device === 'desktop'"
         :loading="loading"
-        :items="dataList"
+        :items="taskList"
         :items-length="total"
         :headers="headers"
         :items-per-page="queryParams.pageSize"
@@ -32,15 +32,13 @@
         @update:items-per-page="onSizeChange"
       >
         <template #item.status="{ item }">
-          <v-chip size="small" :color="item.status === '0' ? 'success' : 'error'" variant="tonal">
-            {{ item.status === '0' ? '正常' : '停用' }}
-          </v-chip>
+          <StatusChip :value="item.status" enabled-value="0" on-text="正常" off-text="停用" />
         </template>
         <template #item.actions="{ item }">
           <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(item)">
             编辑
           </v-btn>
-          <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(item)">
+          <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(item, `是否确认删除字典编码为“${item.dictCode}”的数据项？`)">
             删除
           </v-btn>
         </template>
@@ -49,12 +47,10 @@
       <!-- Mobile Card List -->
       <div v-if="appStore.device === 'mobile'" class="mobile-card-list">
         <v-progress-linear v-if="loading" indeterminate color="primary" />
-        <v-card v-for="item in dataList" :key="item.dictCode" variant="outlined" class="mobile-card">
+        <v-card v-for="item in taskList" :key="item.dictCode" variant="outlined" class="mobile-card">
           <div class="mobile-card-header">
             <span class="mobile-card-title">{{ item.dictLabel }}</span>
-            <v-chip size="small" :color="item.status === '0' ? 'success' : 'error'" variant="tonal">
-              {{ item.status === '0' ? '正常' : '停用' }}
-            </v-chip>
+            <StatusChip :value="item.status" enabled-value="0" on-text="正常" off-text="停用" />
           </div>
           <div class="mobile-card-body">
             <div class="mobile-card-row">
@@ -70,12 +66,12 @@
             <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(item)">
               编辑
             </v-btn>
-            <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(item)">
+            <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(item, `是否确认删除字典编码为“${item.dictCode}”的数据项？`)">
               删除
             </v-btn>
           </div>
         </v-card>
-        <v-empty-state v-if="!loading && !dataList.length" icon="mdi-inbox-outline" title="暂无数据" />
+        <v-empty-state v-if="!loading && !taskList.length" icon="mdi-inbox-outline" title="暂无数据" />
       </div>
 
       <!-- Pagination (mobile; desktop paginates via v-data-table-server) -->
@@ -90,10 +86,14 @@
     </v-card>
 
     <!-- Dialog -->
-    <v-dialog v-model="open" :width="appStore.device === 'mobile' ? '92%' : '600px'">
-      <v-card :title="title">
+    <v-dialog
+      v-model="open"
+      :width="appStore.device === 'mobile' ? '92%' : undefined"
+      :max-width="appStore.device === 'mobile' ? undefined : '600'"
+    >
+      <v-card :title="dialogTitle">
         <v-card-text>
-          <v-form ref="dataRef">
+          <v-form ref="formRef">
             <v-text-field
               v-model="form.dictType"
               label="字典类型"
@@ -138,15 +138,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { message } from '@/composables/useMessage'
-import { confirm } from '@/composables/useConfirm'
 import { getDictDataListApi, addDictDataApi, deleteDictDataApi, updateDictDataApi } from '@/api/system/dict'
 import { useAppStore } from '@/stores/app'
 import PageHeader from '@/components/PageHeader.vue'
+import { getRoutePathForComponent } from '@/router'
+import { useTaskList } from '@/composables/useTaskList'
+import StatusChip from '@/components/StatusChip.vue'
 import type { SearchParams } from '@/types'
-import type { SysDictData } from '@/types/system'
 
 const appStore = useAppStore()
 
@@ -156,14 +156,10 @@ const route = useRoute()
 const currentDictType = computed(() => (route.query.dictType as string) || '')
 
 const handleBack = () => {
-  router.push('/system/dict/type')
+  // 不要写死 path：system 模块菜单 path 历史上有多种前缀，按 meta.componentKey 反查
+  const path = getRoutePathForComponent('system/dict/type/index') || '/system/dict/type'
+  router.push(path)
 }
-
-const dataList = ref<any[]>([])
-const loading = ref(true)
-const total = ref(0)
-const title = ref('')
-const open = ref(false)
 
 const headers = [
   { title: '字典标签', key: 'dictLabel', minWidth: '120' },
@@ -174,40 +170,36 @@ const headers = [
   { title: '操作', key: 'actions', align: 'center' as const, width: '150', sortable: false }
 ]
 
-const queryParams = reactive<SearchParams>({
-  pageNum: 1,
-  pageSize: 10,
-  dictType: undefined
+const {
+  taskList, loading, total, queryParams,
+  open, dialogTitle, formRef, form,
+  getList: baseGetList,
+  handleAdd: baseHandleAdd, handleUpdate, handleDelete, submitForm
+} = useTaskList<SearchParams>({
+  listApi: getDictDataListApi,
+  addApi: addDictDataApi,
+  updateApi: updateDictDataApi,
+  deleteApi: deleteDictDataApi,
+  idField: 'dictCode',
+  initForm: () => ({
+    dictCode: undefined,
+    dictLabel: undefined,
+    dictValue: undefined,
+    dictType: undefined,
+    dictSort: undefined,
+    listClass: 'default',
+    cssClass: '',
+    isDefault: 'N',
+    status: '0'
+  }),
+  rules: {},
+  defaultQuery: {}
 })
 
-const dataRef = ref<any>()
-
-const form = reactive<Partial<SysDictData>>({ dictCode: undefined, dictLabel: undefined, dictValue: undefined, dictType: undefined, dictSort: undefined, listClass: 'default', cssClass: '', isDefault: 'N', status: '0' })
-
+/** 每次拉取前同步路由的 dictType（从字典类型页带 query 跳转而来，或直接访问带 query 的 URL） */
 const getList = async () => {
-  loading.value = true
-  try {
-    const dictType = route.query.dictType as string
-    if (dictType) {
-      queryParams.dictType = dictType
-    } else {
-      queryParams.dictType = undefined
-    }
-    const res = await getDictDataListApi(queryParams) as any
-    if (res && typeof res === 'object') {
-      dataList.value = res.records || res.list || []
-      total.value = res.total || res.totalCount || 0
-    } else {
-      dataList.value = []
-      total.value = 0
-    }
-  } catch (e: any) {
-    console.error('[dict/data] error:', e)
-    dataList.value = []
-    total.value = 0
-  } finally {
-    loading.value = false
-  }
+  queryParams.dictType = (route.query.dictType as string) || undefined
+  await baseGetList()
 }
 
 const onPageChange = (page: number) => {
@@ -221,78 +213,15 @@ const onSizeChange = (size: number) => {
   getList()
 }
 
+/** 新增时把路由带过来的 dictType 注入表单（useTaskList.handleAdd 会用 initForm 重置） */
 const handleAdd = () => {
-  reset()
-  open.value = true
-  title.value = '新增字典数据'
+  baseHandleAdd('新增字典数据')
   const dictType = route.query.dictType as string
-  if (dictType) {
-    form.dictType = dictType
-  }
-}
-
-const handleUpdate = (row?: any) => {
-  open.value = true
-  title.value = row ? '修改字典数据' : '新增字典数据'
-  if (row) {
-    form.dictCode = row.dictCode
-    form.dictLabel = row.dictLabel
-    form.dictValue = row.dictValue
-    form.dictType = row.dictType
-    form.dictSort = row.dictSort
-    form.listClass = row.listClass || 'default'
-    form.cssClass = row.cssClass || ''
-    form.isDefault = row.isDefault || 'N'
-    form.status = row.status
-  }
-}
-
-const handleDelete = async (row: any) => {
-  try {
-    await confirm({ message: `是否确认删除字典编码为"${row.dictCode}"的数据项？`, title: '警告', type: 'warning' })
-    await deleteDictDataApi(row.dictCode)
-    message.success('删除成功')
-    getList()
-  } catch (e) {
-    if (e !== 'cancel') console.error(e)
-  }
-}
-
-const reset = () => {
-  form.dictCode = undefined
-  form.dictLabel = undefined
-  form.dictValue = undefined
-  form.dictType = undefined
-  form.dictSort = undefined
-  form.listClass = 'default'
-  form.cssClass = ''
-  form.isDefault = 'N'
-  form.status = '0'
-  dataRef.value?.resetValidation()
+  if (dictType) form.value.dictType = dictType
 }
 
 const cancel = () => {
   open.value = false
-  reset()
-}
-
-const submitForm = async () => {
-  const formEl = dataRef.value
-  if (!formEl) return
-  const { valid } = await formEl.validate()
-  if (!valid) return
-  try {
-    if (form.dictCode) {
-      await updateDictDataApi(form as SysDictData)
-    } else {
-      await addDictDataApi(form as SysDictData)
-    }
-    message.success('操作成功')
-    open.value = false
-    getList()
-  } catch (error) {
-    console.error(error)
-  }
 }
 
 getList()

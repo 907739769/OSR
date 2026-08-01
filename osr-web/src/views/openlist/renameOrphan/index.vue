@@ -90,16 +90,16 @@
           <span v-if="item.year" class="orphan-year">（{{ item.year }}）</span>
         </template>
         <template #item.reason="{ item }">
-          <v-chip v-if="item.reason === 'local_missing'" size="small" color="warning" variant="tonal">本地文件丢失</v-chip>
-          <v-chip v-else-if="item.reason === 'source_missing'" size="small" color="error" variant="tonal">网盘源丢失</v-chip>
+          <StatusChip v-if="item.reason === 'local_missing'" type="warning" text="本地文件丢失" />
+          <StatusChip v-else-if="item.reason === 'source_missing'" type="error" text="网盘源丢失" />
         </template>
         <template #item.path="{ item }">
           <span class="orphan-path" :title="`${item.newPath}/${item.newName}`">{{ item.newPath }}/{{ item.newName }}</span>
         </template>
         <template #item.status="{ item }">
-          <v-chip v-if="item.status === '0'" size="small" color="info" variant="tonal">待处理</v-chip>
-          <v-chip v-else-if="item.status === '1'" size="small" color="success" variant="tonal">已清理</v-chip>
-          <v-chip v-else size="small" color="info" variant="tonal">已忽略</v-chip>
+          <StatusChip v-if="item.status === '0'" type="info" text="待处理" />
+          <StatusChip v-else-if="item.status === '1'" type="success" text="已清理" />
+          <StatusChip v-else type="info" text="已忽略" />
         </template>
         <template #item.actions="{ item }">
           <v-btn v-if="item.status === '0'" variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleCleanOne(item)">
@@ -116,6 +116,7 @@
 
 <script setup lang="ts">
 import PageHeader from '@/components/PageHeader.vue'
+import StatusChip from '@/components/StatusChip.vue'
 import { ref } from 'vue'
 import { useRenameOrphanList } from '@/composables/useRenameOrphanList'
 

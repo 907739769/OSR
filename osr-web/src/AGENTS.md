@@ -83,8 +83,9 @@ src/
 | 类 | 定义在 | 用途 |
 |---|---|---|
 | `.page-container` `.search-card` `.table-card` `.action-bar` `.batch-toolbar` `.pagination-wrapper` | `styles/list.scss` | PC 列表页骨架 |
-| `.search-fields` + `.field-sm/.field-md/.field-lg/.date-field` | `styles/list.scss` | PC 搜索区（**只有这一种搜索布局**，不要再用 `v-row/v-col` 或自造 `.search-row`） |
+| `.search-fields` + `.field-sm/.field-md/.field-lg/.date-field` | `styles/list.scss` | PC 搜索区（**只有这一种搜索布局**，不要再用 `v-row/v-col`、自造的 `.search-row`/`.search-form-row`） |
 | `.inline-fields` | `styles/list.scss` | 弹窗里的一行输入组合（宽度自定，不套搜索区档位） |
+| `.log-search-form` | `views/monitor/job/index.vue` | 日志弹窗内嵌搜索行（布局已复用 `.inline-fields`，此私有类只留分隔线与 select 宽度） |
 | `.path-box/.path-row/.path-label--src\|dst\|mon/.path-text/.path-name` | `styles/list.scss` | 表格里的「源/目标/监控」路径对照 |
 | `.card-grid` `.item-card`（`--failed/--selectable/--compact`）+ `.card-header/body/row/footer` | `styles/list.scss` | PC 卡片网格（PT 配置类页面） |
 | `.mobile-page` `.task-list` `.task-card` `.fab-add` `.batch-bar` `.card-actions` `.drawer-actions` `.date-range-fields` | `styles/mobile-list.scss` | 移动端页面骨架与卡片 |
@@ -107,7 +108,7 @@ src/
   （DirectoryTreeSelect / v-radio-group / v-switch / 输入框+按钮组合），或需要补说明文字时。
   `v-text-field` / `v-select` / `v-textarea` 若不需要说明，**直接用它们自己的 `label` prop**，
   别套 FormField —— 否则同一个弹窗里会出现浮动 label 和贴顶 label 两种标签位置。
-  **禁止再手写 `.form-item` / `.form-label` / `.field-label`**（那是 `el-form-item` 的复刻）。
+  **禁止再手写 `.form-item` / `.form-label` / `.field-label` / `.rule-field-label`**（那是 `el-form-item` 的复刻）。
 - **`StatusChip`**：所有状态徽章走它。二元开关用 `<StatusChip :value="row.enabled" />`，
   开=success 关=error 全站一致；自定义状态用 `<StatusChip type="warning" text="下载中" />`。
 - **`PageHeader`**：每个业务页顶部都要有。

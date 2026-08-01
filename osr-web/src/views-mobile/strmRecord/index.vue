@@ -95,9 +95,7 @@
               <v-icon class="card-title-icon" icon="mdi-file-video-outline" size="18" />
               <span class="card-title card-title--link" @click.stop="showFullText(record.strmFileName, '文件名')">{{ record.strmFileName }}</span>
             </div>
-            <v-chip :color="record.strmStatus === '1' ? 'success' : 'error'" size="small" variant="tonal">
-              {{ record.strmStatus === '1' ? '成功' : '失败' }}
-            </v-chip>
+            <StatusChip :value="record.strmStatus" enabled-value="1" on-text="成功" off-text="失败" />
           </div>
           <div class="card-path card-path--link" @click.stop="showFullText(record.strmPath, '路径')">
             <v-icon class="card-path-icon" icon="mdi-map-marker-outline" size="14" />
@@ -152,6 +150,7 @@ import { ref, computed } from 'vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import FullTextDialog from '@/components/mobile/FullTextDialog.vue'
+import StatusChip from '@/components/StatusChip.vue'
 import { useStrmRecord } from '@/composables/useStrmRecord'
 
 const searchCollapsed = ref(true)

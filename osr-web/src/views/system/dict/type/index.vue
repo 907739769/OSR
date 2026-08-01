@@ -9,7 +9,7 @@
       <v-data-table-server
         v-if="appStore.device === 'desktop'"
         :loading="loading"
-        :items="typeList"
+        :items="taskList"
         :items-length="total"
         :headers="headers"
         :items-per-page="queryParams.pageSize"
@@ -19,9 +19,7 @@
         @update:items-per-page="onSizeChange"
       >
         <template #item.status="{ item }">
-          <v-chip size="small" :color="item.status === '0' ? 'success' : 'error'" variant="tonal">
-            {{ item.status === '0' ? '正常' : '停用' }}
-          </v-chip>
+          <StatusChip :value="item.status" enabled-value="0" on-text="正常" off-text="停用" />
         </template>
         <template #item.actions="{ item }">
           <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-format-list-bulleted" @click="handleData(item)">
@@ -33,12 +31,10 @@
       <!-- Mobile Card List -->
       <div v-if="appStore.device === 'mobile'" class="mobile-card-list">
         <v-progress-linear v-if="loading" indeterminate color="primary" />
-        <v-card v-for="item in typeList" :key="item.dictId" variant="outlined" class="mobile-card">
+        <v-card v-for="item in taskList" :key="item.dictId" variant="outlined" class="mobile-card">
           <div class="mobile-card-header">
             <span class="mobile-card-title">{{ item.dictName }}</span>
-            <v-chip size="small" :color="item.status === '0' ? 'success' : 'error'" variant="tonal">
-              {{ item.status === '0' ? '正常' : '停用' }}
-            </v-chip>
+            <StatusChip :value="item.status" enabled-value="0" on-text="正常" off-text="停用" />
           </div>
           <div class="mobile-card-body">
             <div v-if="item.remark" class="mobile-card-row">
@@ -56,7 +52,7 @@
             </v-btn>
           </div>
         </v-card>
-        <v-empty-state v-if="!loading && !typeList.length" icon="mdi-inbox-outline" title="暂无数据" />
+        <v-empty-state v-if="!loading && !taskList.length" icon="mdi-inbox-outline" title="暂无数据" />
       </div>
 
       <!-- Pagination (mobile; desktop paginates via v-data-table-server) -->
@@ -73,19 +69,17 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
 import { useRouter } from 'vue-router'
-import { getDictTypeListApi } from '@/api/system/dict'
+import { getDictTypeListApi, addDictTypeApi, updateDictTypeApi, deleteDictTypeApi } from '@/api/system/dict'
 import { useAppStore } from '@/stores/app'
 import PageHeader from '@/components/PageHeader.vue'
-import type { SearchParams, PageResult } from '@/types'
+import { getRoutePathForComponent } from '@/router'
+import { useTaskList } from '@/composables/useTaskList'
+import StatusChip from '@/components/StatusChip.vue'
+import type { SearchParams } from '@/types'
 
 const appStore = useAppStore()
 const router = useRouter()
-
-const typeList = ref<any[]>([])
-const loading = ref(true)
-const total = ref(0)
 
 const headers = [
   { title: '字典名称', key: 'dictName', minWidth: '140' },
@@ -95,23 +89,18 @@ const headers = [
   { title: '操作', key: 'actions', align: 'center' as const, width: '100', sortable: false }
 ]
 
-const queryParams = reactive<SearchParams>({
-  pageNum: 1,
-  pageSize: 10
+const { taskList, loading, total, queryParams, getList } = useTaskList<SearchParams>({
+  listApi: getDictTypeListApi,
+  // 本页只读（新增/编辑/删除在 dict/data 侧），但 useTaskList 的 CRUD API 为必填，
+  // 传真实 API 保证底座完整，后续若在类型页加操作无需再改结构
+  addApi: addDictTypeApi,
+  updateApi: updateDictTypeApi,
+  deleteApi: deleteDictTypeApi,
+  idField: 'dictId',
+  initForm: () => ({ dictName: '', dictType: '', status: '0', remark: '' }),
+  rules: {},
+  defaultQuery: {}
 })
-
-const getList = async () => {
-  loading.value = true
-  try {
-    const res = await getDictTypeListApi(queryParams) as PageResult
-    typeList.value = res.records
-    total.value = res.total
-  } catch (error) {
-    console.error(error)
-  } finally {
-    loading.value = false
-  }
-}
 
 const onPageChange = (page: number) => {
   queryParams.pageNum = page
@@ -125,7 +114,9 @@ const onSizeChange = (size: number) => {
 }
 
 const handleData = (row: any) => {
-  router.push({ path: '/system/dict/data', query: { dictType: row.dictType } })
+  // 不要写死 path：system 模块菜单 path 历史上有多种前缀，按 meta.componentKey 反查
+  const path = getRoutePathForComponent('system/dict/data/index') || '/system/dict/data'
+  router.push({ path, query: { dictType: row.dictType } })
 }
 
 getList()

@@ -212,7 +212,7 @@
           >
             <template #item.season="{ item }">{{ item.season ?? '-' }}</template>
             <template #item.result="{ item }">
-              <v-chip :color="resultTagType(item.result)" size="small" variant="tonal">{{ resultLabel(item.result) }}</v-chip>
+              <StatusChip :type="resultTagType(item.result)" :text="resultLabel(item.result)" />
             </template>
           </v-data-table>
           <v-empty-state v-if="!logLoading && logList.length === 0" icon="mdi-inbox-outline" title="暂无日志" />

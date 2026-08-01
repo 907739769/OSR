@@ -141,9 +141,7 @@
           </div>
         </template>
         <template #item.copyStatus="{ item }">
-          <v-chip size="small" :color="getCopyStatusType(item.copyStatus)" variant="tonal">
-            {{ getCopyStatusText(item.copyStatus) }}
-          </v-chip>
+          <StatusChip :type="getCopyStatusType(item.copyStatus)" :text="getCopyStatusText(item.copyStatus)" />
         </template>
         <template #item.actions="{ item }">
           <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-refresh" @click="handleRetryOne(item)">
@@ -163,6 +161,7 @@
 
 <script setup lang="ts">
 import PageHeader from '@/components/PageHeader.vue'
+import StatusChip from '@/components/StatusChip.vue'
 import { ref, computed, watch } from 'vue'
 import { useCopyRecord } from '@/composables/useCopyRecord'
 import { useDebounce } from '@/composables/useDebounce'

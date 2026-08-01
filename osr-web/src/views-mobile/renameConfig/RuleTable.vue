@@ -18,8 +18,7 @@
         <v-chip v-if="row.isFallback === '1'" color="primary" size="small" variant="tonal" class="fallback-badge">兜底</v-chip>
       </div>
 
-      <div class="rule-field">
-        <label class="rule-field-label">类型（Genre）</label>
+      <FormField label="类型（Genre）">
         <v-combobox
           :model-value="toArray(row.genreIds)"
           :items="genreOptions"
@@ -34,10 +33,9 @@
           hide-details
           @update:model-value="(v: any[]) => { row.genreIds = toCsv(normalize(v)) }"
         />
-      </div>
+      </FormField>
 
-      <div class="rule-field">
-        <label class="rule-field-label">原始语言</label>
+      <FormField label="原始语言">
         <v-combobox
           :model-value="toArray(row.originalLanguages)"
           :items="LANGUAGE_OPTIONS"
@@ -52,10 +50,9 @@
           hide-details
           @update:model-value="(v: any[]) => { row.originalLanguages = toCsv(normalize(v)) }"
         />
-      </div>
+      </FormField>
 
-      <div class="rule-field">
-        <label class="rule-field-label">国家/地区</label>
+      <FormField label="国家/地区">
         <v-combobox
           :model-value="toArray(row.originCountries)"
           :items="COUNTRY_OPTIONS"
@@ -70,7 +67,7 @@
           hide-details
           @update:model-value="(v: any[]) => { row.originCountries = toCsv(normalize(v)) }"
         />
-      </div>
+      </FormField>
 
       <div class="rule-card-actions">
         <v-btn variant="text" size="small" icon="mdi-arrow-up" :disabled="row.isFallback === '1'" @click="$emit('move', mediaType, index, -1)" />
@@ -86,6 +83,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import FormField from '@/components/FormField.vue'
 import type { CategoryRule } from '@/api/openlist/renameConfig'
 import { MOVIE_GENRE_OPTIONS, TV_GENRE_OPTIONS, LANGUAGE_OPTIONS, COUNTRY_OPTIONS } from '@/constants/categoryRuleOptions'
 
@@ -148,17 +146,6 @@ const normalize = (arr: any[]): string[] =>
 
   .fallback-badge {
     flex-shrink: 0;
-  }
-}
-
-.rule-field {
-  margin-bottom: 10px;
-
-  .rule-field-label {
-    display: block;
-    margin-bottom: 4px;
-    font-size: 12px;
-    color: var(--osr-text-secondary);
   }
 }
 

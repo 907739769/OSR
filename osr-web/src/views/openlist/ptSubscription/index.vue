@@ -136,9 +136,9 @@
                 {{ item.title }}
                 <span v-if="item.year" class="sub-year">({{ item.year }})</span>
               </span>
-              <v-chip v-if="item.status === 'ACTIVE'" color="success" size="small" variant="tonal">订阅中</v-chip>
-              <v-chip v-else-if="item.status === 'COMPLETED'" color="info" size="small" variant="tonal">已完成</v-chip>
-              <v-chip v-else color="warning" size="small" variant="tonal">已暂停</v-chip>
+              <StatusChip v-if="item.status === 'ACTIVE'" type="success" text="订阅中" />
+              <StatusChip v-else-if="item.status === 'COMPLETED'" type="info" text="已完成" />
+              <StatusChip v-else type="warning" text="已暂停" />
             </div>
             <div class="sub-meta">
               <span>{{ item.mediaType === 'MOVIE' ? '电影' : '剧集' }}</span>
@@ -467,14 +467,12 @@
             class="modern-table"
           >
             <template #item.source="{ item }">
-              <v-chip size="small" :color="item.source === 'RSS' ? 'info' : 'primary'" variant="tonal">
-                {{ item.source === 'RSS' ? 'RSS轮询' : '搜索补集' }}
-              </v-chip>
+              <StatusChip :type="item.source === 'RSS' ? 'info' : 'primary'" :text="item.source === 'RSS' ? 'RSS轮询' : '搜索补集'" />
             </template>
             <template #item.torrentTitle="{ item }">{{ item.torrentTitle || '-' }}</template>
             <template #item.accepted="{ item }">
-              <v-chip v-if="item.accepted === '1'" color="success" size="small" variant="tonal">通过</v-chip>
-              <v-chip v-else color="error" size="small" variant="tonal">淘汰</v-chip>
+              <StatusChip v-if="item.accepted === '1'" type="success" text="通过" />
+              <StatusChip v-else type="error" text="淘汰" />
             </template>
             <template #item.reason="{ item }">{{ item.reason || '-' }}</template>
           </v-data-table>
@@ -636,6 +634,7 @@
 </template>
 
 <script setup lang="ts">
+import StatusChip from '@/components/StatusChip.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { ref, reactive, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'

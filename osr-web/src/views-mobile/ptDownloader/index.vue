@@ -172,6 +172,15 @@
               :rules="toRules(rules.tag)"
               class="mb-2"
             />
+            <FormField class="mb-2" tip="0 表示不限，达到上限时新任务会等到下一轮自动重试">
+              <v-text-field
+                v-model.number="form.maxConcurrent"
+                label="最大并发数"
+                type="number"
+                min="0"
+                :rules="toRules(rules.maxConcurrent)"
+              />
+            </FormField>
             <v-radio-group v-model="form.enabled" inline label="状态" hide-details>
               <v-radio label="启用" value="1" />
               <v-radio label="停用" value="0" />
@@ -182,7 +191,7 @@
           <v-btn :loading="testLoading" variant="outlined" @click="handleTest">测试连接</v-btn>
           <v-spacer />
           <v-btn variant="outlined" @click="open = false">取消</v-btn>
-          <v-btn color="primary" variant="flat" :loading="submitLoading" @click="submitForm">确定</v-btn>
+          <v-btn color="primary" variant="flat" :loading="submitLoading" @click="handleSubmitClick">确定</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -223,6 +232,14 @@ const toRules = (fieldRules?: any[]) => {
     }
     return true
   })
+}
+
+/** 与 PC 端一致：先校验 v-form 再提交，防止端口范围等非法值直接落库 */
+const handleSubmitClick = async () => {
+  if (!formRef.value) return
+  const { valid } = await formRef.value.validate()
+  if (!valid) return
+  submitForm()
 }
 </script>
 

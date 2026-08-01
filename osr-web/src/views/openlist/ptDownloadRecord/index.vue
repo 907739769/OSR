@@ -85,7 +85,7 @@
           />
           <div class="card-header card-header--top">
             <span class="card-title card-title--clamp2" :title="item.title">{{ item.title }}</span>
-            <v-chip :color="stateTagType(item.state)" size="small" variant="tonal">{{ stateLabel(item.state) }}</v-chip>
+            <StatusChip :type="stateTagType(item.state)" :text="stateLabel(item.state)" />
           </div>
           <div class="record-sub">
             <router-link
@@ -127,9 +127,7 @@
           </div>
           <div class="record-fail" v-if="item.state === 'FAILED'">
             <v-icon icon="mdi-alert-circle" size="16" />
-            <v-chip v-if="item.failReasonCode" size="small" :color="failReasonTagType(item.failReasonCode)" variant="tonal">
-              {{ failReasonCodeLabel(item.failReasonCode) }}
-            </v-chip>
+            <StatusChip v-if="item.failReasonCode" :type="failReasonTagType(item.failReasonCode)" :text="failReasonCodeLabel(item.failReasonCode)" />
             <span>{{ item.failReason || '未知原因' }}</span>
           </div>
           <div class="card-footer">
@@ -192,6 +190,7 @@
 
 <script setup lang="ts">
 import PageHeader from '@/components/PageHeader.vue'
+import StatusChip from '@/components/StatusChip.vue'
 import { ref, onMounted, onUnmounted } from 'vue'
 import { usePtDownloadRecord } from '@/composables/usePtDownloadRecord'
 

@@ -113,9 +113,7 @@
           </div>
         </template>
         <template #item.strmStatus="{ item }">
-          <v-chip size="small" :color="item.strmStatus === '1' ? 'success' : 'error'" variant="tonal">
-            {{ item.strmStatus === '1' ? '成功' : '失败' }}
-          </v-chip>
+          <StatusChip :value="item.strmStatus" enabled-value="1" on-text="成功" off-text="失败" />
         </template>
         <template #item.actions="{ item }">
           <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-refresh" @click="handleRetryOne(item)">
@@ -135,6 +133,7 @@
 
 <script setup lang="ts">
 import PageHeader from '@/components/PageHeader.vue'
+import StatusChip from '@/components/StatusChip.vue'
 import { ref, computed } from 'vue'
 import { useStrmRecord } from '@/composables/useStrmRecord'
 

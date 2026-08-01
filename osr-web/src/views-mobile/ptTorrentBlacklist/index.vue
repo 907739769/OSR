@@ -36,9 +36,7 @@
         <div class="card-content">
           <div class="card-top">
             <span class="card-title" :title="item.displayValue">{{ item.displayValue || '(无展示内容)' }}</span>
-            <v-chip :color="item.type === 'GUID' ? 'error' : 'warning'" size="small" variant="tonal">
-              {{ item.type === 'GUID' ? '种子' : '发布组' }}
-            </v-chip>
+            <StatusChip :type="item.type === 'GUID' ? 'error' : 'warning'" :text="item.type === 'GUID' ? '种子' : '发布组'" />
           </div>
           <div class="card-detail">
             <div class="detail-row">
@@ -109,6 +107,7 @@
 <script setup lang="ts">
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
+import StatusChip from '@/components/StatusChip.vue'
 import { usePtTorrentBlacklist } from '@/composables/usePtTorrentBlacklist'
 
 const {

@@ -120,6 +120,13 @@ describe('Element Plus 残留', () => {
     expect(bad).toEqual([])
   })
 
+  it('没有自造的搜索区/表单项平行类（.search-form-row / .rule-field-label），分别用 .search-fields 与 FormField', () => {
+    const bad = allVue
+      .filter(([, s]) => /(class="(search-form-row|rule-field-label)[ "]|\.(search-form-row|rule-field-label)\s*\{)/.test(s))
+      .map(([n]) => n)
+    expect(bad).toEqual([])
+  })
+
   it('tokens.scss 不再有 Element Plus 的 light-1..9 阶梯命名', () => {
     expect(tokensCss).not.toMatch(/--osr-primary-light-\d/)
   })

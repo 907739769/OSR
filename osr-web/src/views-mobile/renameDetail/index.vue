@@ -143,12 +143,10 @@
             </div>
           </div>
           <div class="mobile-status-row">
-            <v-chip :color="record.status === '1' ? 'success' : 'error'" size="small" variant="tonal" class="status-tag">
-              {{ record.status === '1' ? '成功' : '失败' }}
-            </v-chip>
-            <v-chip v-if="record.scrapeStatus === '1'" color="success" size="small" variant="tonal" class="scrape-tag">NFO</v-chip>
-            <v-chip v-else-if="record.scrapeStatus === '2'" color="error" size="small" variant="tonal" class="scrape-tag">刮削失败</v-chip>
-            <v-chip v-else-if="record.scrapeStatus === '0'" color="info" size="small" variant="tonal" class="scrape-tag">未刮削</v-chip>
+            <StatusChip :type="record.status === '1' ? 'success' : 'error'" :text="record.status === '1' ? '成功' : '失败'" class="status-tag" />
+            <StatusChip v-if="record.scrapeStatus === '1'" type="success" text="NFO" class="scrape-tag" />
+            <StatusChip v-else-if="record.scrapeStatus === '2'" type="error" text="刮削失败" class="scrape-tag" />
+            <StatusChip v-else-if="record.scrapeStatus === '0'" type="info" text="未刮削" class="scrape-tag" />
           </div>
           <!-- Path comparison -->
           <div class="rename-paths">
@@ -208,7 +206,7 @@
     <FullTextDialog ref="fullTextRef" />
 
     <!-- Retry Dialog -->
-    <v-dialog v-model="retryDialogVisible" max-width="92%" @update:model-value="onRetryDialogUpdate">
+    <v-dialog v-model="retryDialogVisible" width="92%" @update:model-value="onRetryDialogUpdate">
       <v-card title="重试重命名">
         <v-card-text>
           <v-form ref="retryFormRef">
@@ -266,6 +264,7 @@ import { ref, computed } from 'vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import FullTextDialog from '@/components/mobile/FullTextDialog.vue'
+import StatusChip from '@/components/StatusChip.vue'
 import { useRenameDetailList } from '@/composables/useRenameDetailList'
 
 const searchCollapsed = ref(true)

@@ -296,15 +296,32 @@ onUnmounted(() => {
 }
 
 @media (max-width: 768px) {
+  .realtime-log-container {
+    /* 移动端可用区 = 100dvh - appbar(50) - tabbar(56) - safe-area - 页面 padding，
+       留 20px 余量防止底部被固定 tabbar 遮挡导致 autoScroll 看不到最新日志 */
+    height: calc(100dvh - 140px - env(safe-area-inset-bottom, 0px));
+  }
+
   .log-header {
     flex-direction: column;
     gap: 8px;
     align-items: flex-start;
   }
 
+  .header-left {
+    width: 100%;
+    flex-wrap: wrap;
+    row-gap: 4px;
+  }
+
   .header-right {
     width: 100%;
     justify-content: flex-start;
+    gap: 4px 12px;
+  }
+
+  .header-right :deep(.v-label) {
+    font-size: 12px;
   }
 
   .log-content {

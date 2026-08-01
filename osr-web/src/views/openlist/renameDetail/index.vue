@@ -166,14 +166,12 @@
           </div>
         </template>
         <template #item.status="{ item }">
-          <v-chip size="small" :color="item.status === '0' ? 'error' : 'success'" variant="tonal">
-            {{ item.status === '0' ? '失败' : '成功' }}
-          </v-chip>
+          <StatusChip :type="item.status === '0' ? 'error' : 'success'" :text="item.status === '0' ? '失败' : '成功'" />
         </template>
         <template #item.scrapeStatus="{ item }">
-          <v-chip v-if="item.scrapeStatus === '1'" color="success" size="small" variant="tonal">成功</v-chip>
-          <v-chip v-else-if="item.scrapeStatus === '2'" color="error" size="small" variant="tonal">失败</v-chip>
-          <v-chip v-else-if="item.scrapeStatus === '0'" color="info" size="small" variant="tonal">未执行</v-chip>
+          <StatusChip v-if="item.scrapeStatus === '1'" type="success" text="成功" />
+          <StatusChip v-else-if="item.scrapeStatus === '2'" type="error" text="失败" />
+          <StatusChip v-else-if="item.scrapeStatus === '0'" type="info" text="未执行" />
           <span v-else class="scrape-none">-</span>
         </template>
         <template #item.actions="{ item }">
@@ -250,6 +248,7 @@
 
 <script setup lang="ts">
 import PageHeader from '@/components/PageHeader.vue'
+import StatusChip from '@/components/StatusChip.vue'
 import { ref, computed } from 'vue'
 import { useRenameDetailList } from '@/composables/useRenameDetailList'
 

@@ -80,8 +80,8 @@
               <span class="label">上次结果</span>
               <span class="value">
                 <span v-if="!item.lastStatus">-</span>
-                <v-chip v-else-if="item.lastStatus === 'OK'" color="success" size="small" variant="tonal">正常</v-chip>
-                <v-chip v-else color="error" size="small" variant="tonal">{{ item.lastStatus }}</v-chip>
+                <StatusChip v-else-if="item.lastStatus === 'OK'" type="success" text="正常" />
+                <StatusChip v-else type="error" :text="item.lastStatus" />
               </span>
             </div>
             <div class="detail-row" v-if="item.failCount > 0">

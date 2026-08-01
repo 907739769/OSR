@@ -94,9 +94,9 @@
               {{ item.title }}
               <span v-if="item.year" class="sub-year">({{ item.year }})</span>
             </span>
-            <v-chip v-if="item.status === 'ACTIVE'" color="success" size="small" variant="tonal">订阅中</v-chip>
-            <v-chip v-else-if="item.status === 'COMPLETED'" color="info" size="small" variant="tonal">已完成</v-chip>
-            <v-chip v-else color="warning" size="small" variant="tonal">已暂停</v-chip>
+            <StatusChip v-if="item.status === 'ACTIVE'" type="success" text="订阅中" />
+            <StatusChip v-else-if="item.status === 'COMPLETED'" type="info" text="已完成" />
+            <StatusChip v-else type="warning" text="已暂停" />
           </div>
           <div class="sub-meta">
             <span>{{ item.mediaType === 'MOVIE' ? '电影' : '剧集' }}</span>
@@ -310,9 +310,7 @@
               <v-progress-linear v-if="episodeDetailLoading" indeterminate color="primary" />
               <div v-for="ep in episodeDetail" :key="ep.episode" class="episode-detail-row">
                 <span class="ep-num">第{{ ep.episode }}集</span>
-                <v-chip size="small" :color="episodeStateColor(ep.state)" variant="tonal">
-                  {{ episodeStateLabel(ep.state) }}
-                </v-chip>
+                <StatusChip :type="episodeStateColor(ep.state)" :text="episodeStateLabel(ep.state)" />
                 <v-btn
                   v-if="ep.state === 'IN_LIBRARY' || ep.state === 'BLOCKED'"
                   variant="text"
@@ -417,11 +415,9 @@
             <div v-for="(log, idx) in searchLogs" :key="idx" class="log-item">
               <div class="log-top">
                 <span class="log-time">{{ log.createTime }}</span>
-                <v-chip size="small" :color="log.source === 'RSS' ? 'info' : 'primary'" variant="tonal">
-                  {{ log.source === 'RSS' ? 'RSS轮询' : '搜索补集' }}
-                </v-chip>
-                <v-chip v-if="log.accepted === '1'" color="success" size="small" variant="tonal">通过</v-chip>
-                <v-chip v-else color="error" size="small" variant="tonal">淘汰</v-chip>
+                <StatusChip :type="log.source === 'RSS' ? 'info' : 'primary'" :text="log.source === 'RSS' ? 'RSS轮询' : '搜索补集'" />
+                <StatusChip v-if="log.accepted === '1'" type="success" text="通过" />
+                <StatusChip v-else type="error" text="淘汰" />
               </div>
               <div class="log-title">{{ log.torrentTitle || '-' }}</div>
               <div v-if="log.reason" class="log-reason">{{ log.reason }}</div>
@@ -492,6 +488,16 @@
               <div class="override-row">
                 <v-checkbox v-model="filterOverrideForm.freeOnly.enabled" hide-details density="compact" />
                 <v-radio-group v-model="filterOverrideForm.freeOnly.value" inline hide-details :disabled="!filterOverrideForm.freeOnly.enabled">
+                  <v-radio label="否" value="0" />
+                  <v-radio label="是" value="1" />
+                </v-radio-group>
+              </div>
+            </div>
+            <div class="override-field">
+              <span class="override-label">外语电影需中字</span>
+              <div class="override-row">
+                <v-checkbox v-model="filterOverrideForm.requireChineseSubtitle.enabled" hide-details density="compact" />
+                <v-radio-group v-model="filterOverrideForm.requireChineseSubtitle.value" inline hide-details :disabled="!filterOverrideForm.requireChineseSubtitle.enabled">
                   <v-radio label="否" value="0" />
                   <v-radio label="是" value="1" />
                 </v-radio-group>
@@ -585,6 +591,7 @@ import { reactive, ref, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
+import StatusChip from '@/components/StatusChip.vue'
 import { usePtSubscription } from '@/composables/usePtSubscription'
 
 const route = useRoute()

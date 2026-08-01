@@ -208,7 +208,7 @@
             <div v-for="log in logList" :key="log.id" class="log-item">
               <div class="log-top">
                 <span class="log-title" :title="log.title">{{ log.title || '-' }}</span>
-                <v-chip :color="resultTagType(log.result)" size="small" variant="tonal">{{ resultLabel(log.result) }}</v-chip>
+                <StatusChip :type="resultTagType(log.result)" :text="resultLabel(log.result)" />
               </div>
               <div class="log-meta">{{ log.createTime }}<span v-if="log.season"> · 第{{ log.season }}季</span></div>
               <div class="log-message" v-if="log.message">{{ log.message }}</div>

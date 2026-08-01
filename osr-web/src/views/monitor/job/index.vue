@@ -10,7 +10,7 @@
     <v-card class="search-card" v-if="showSearch">
       <v-card-text>
         <v-form ref="queryRef" @submit.prevent="handleQuery">
-          <div class="search-form-row">
+          <div class="search-fields">
             <v-text-field
               v-model="queryParams.jobName"
               label="任务名称"
@@ -19,7 +19,6 @@
               density="compact"
               variant="outlined"
               hide-details
-              style="max-width: 220px"
               @keyup.enter="handleQuery"
             />
             <v-select
@@ -31,7 +30,7 @@
               density="compact"
               variant="outlined"
               hide-details
-              style="max-width: 160px"
+              class="field-sm"
             />
             <v-btn color="primary" prepend-icon="mdi-magnify" @click="handleQuery">搜索</v-btn>
             <v-btn variant="outlined" prepend-icon="mdi-refresh" @click="resetQuery">重置</v-btn>
@@ -229,7 +228,7 @@
           </MobileSearchPanel>
 
           <!-- Desktop: Inline Search -->
-          <div v-else class="log-search-form">
+          <div v-else class="inline-fields log-search-form">
             <v-select
               v-model="logQueryParams.status"
               :items="[{ title: '成功', value: '0' }, { title: '失败', value: '1' }]"
@@ -239,7 +238,6 @@
               density="compact"
               variant="outlined"
               hide-details
-              style="max-width: 160px"
             />
             <v-btn color="primary" prepend-icon="mdi-magnify" @click="logQueryParams.pageNum = 1; getJobLogList()">搜索</v-btn>
             <v-btn variant="outlined" prepend-icon="mdi-refresh" @click="resetLogQuery">重置</v-btn>
@@ -256,9 +254,7 @@
             class="modern-table log-table"
           >
             <template #item.status="{ item }">
-              <v-chip :color="item.status === '0' ? 'success' : 'error'" size="small" variant="tonal">
-                {{ item.status === '0' ? '成功' : '失败' }}
-              </v-chip>
+              <StatusChip :type="item.status === '0' ? 'success' : 'error'" :text="item.status === '0' ? '成功' : '失败'" />
             </template>
             <template #item.duration="{ item }">
               <span v-if="item.startTime && item.endTime">
@@ -291,9 +287,7 @@
                     <v-icon icon="mdi-clock-outline" size="14" />
                     {{ item.jobName }}
                   </span>
-                  <v-chip :color="item.status === '0' ? 'success' : 'error'" size="small" variant="tonal">
-                    {{ item.status === '0' ? '成功' : '失败' }}
-                  </v-chip>
+                  <StatusChip :type="item.status === '0' ? 'success' : 'error'" :text="item.status === '0' ? '成功' : '失败'" />
                 </div>
               </div>
               <div class="mobile-card-body">
@@ -355,9 +349,7 @@
                 <td class="detail-value">{{ logDetail.jobLogId }}</td>
                 <td class="detail-label">执行状态</td>
                 <td class="detail-value">
-                  <v-chip :color="logDetail.status === '0' ? 'success' : 'error'" size="small" variant="tonal">
-                    {{ logDetail.status === '0' ? '成功' : '失败' }}
-                  </v-chip>
+                  <StatusChip :type="logDetail.status === '0' ? 'success' : 'error'" :text="logDetail.status === '0' ? '成功' : '失败'" />
                 </td>
               </tr>
               <tr>
@@ -406,6 +398,7 @@
 
 <script setup lang="ts">
 import PageHeader from '@/components/PageHeader.vue'
+import StatusChip from '@/components/StatusChip.vue'
 import { ref, reactive } from 'vue'
 import { message } from '@/composables/useMessage'
 import { confirm } from '@/composables/useConfirm'
@@ -581,13 +574,6 @@ getList()
 </script>
 
 <style scoped lang="scss">
-.search-form-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
 .cron-field {
   display: flex;
   align-items: flex-start;
@@ -637,18 +623,6 @@ getList()
 /* ============================================
    Mobile Responsive
    ============================================ */
-@media (max-width: 768px) {
-
-  .search-form-row {
-    flex-direction: column;
-    align-items: stretch;
-
-    .v-text-field,
-    .v-select {
-      max-width: 100% !important;
-    }
-  }
-}
 
 /* ============================================
    Log Search Form
@@ -657,9 +631,11 @@ getList()
   margin-bottom: 12px;
   padding-bottom: 12px;
   border-bottom: 1px solid var(--osr-border-light);
-  display: flex;
-  align-items: center;
-  gap: 12px;
+
+  /* 弹窗内嵌搜索行：inline-fields 布局宽度自定，这里给状态下拉一个合适宽度 */
+  .v-select {
+    max-width: 160px;
+  }
 }
 
 /* ============================================

@@ -1,4 +1,4 @@
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive } from 'vue'
 import { useRoute } from 'vue-router'
 import { message } from '@/composables/useMessage'
 import { confirm } from '@/composables/useConfirm'
@@ -7,52 +7,38 @@ import {
   blacklistGuidApi, blacklistReleaseGroupApi
 } from '@/api/openlist/ptDownloadRecord'
 import type { PtDownloadRecordQuery } from '@/api/openlist/ptDownloadRecord'
+import { useRecordList } from './useRecordList'
 import { usePtStatusSocket } from './usePtStatusSocket'
 
 /**
- * PT 下载记录 composable：只读列表 + 失败重试，没有增删改，
- * 因此不复用 useTaskList（那个是围绕 CRUD 设计的，硬凑只会留一堆空实现）。
+ * PT 下载记录 composable：只读列表 + 失败重试 + 拉黑，没有增删改。
+ *
+ * 列表/分页/搜索/选择底座复用 useRecordList（含 keep-alive 返回时的静默刷新）。
+ * 重试与拉黑的交互跟 useRecordList 内置的通用流程不同——单条重试不弹确认、
+ * 带逐行 loading 与「已推送/未搜到」的结果提示、批量重试带 pushedCount 统计——
+ * 因此这几块保留自定义实现，不为复用而改变用户交互。
  */
 export function usePtDownloadRecord() {
   const route = useRoute()
 
-  const taskList = ref<any[]>([])
-  const loading = ref(true)
-  const total = ref(0)
-
   // 支持从订阅页"下载记录"按钮带 subId 跳转过来，直接筛出该订阅的记录
   const initialSubId = route.query.subId ? Number(route.query.subId) : undefined
 
-  const queryParams = reactive<PtDownloadRecordQuery>({
-    pageNum: 1,
-    pageSize: 12,
-    subId: initialSubId,
-    state: undefined,
-    title: undefined
+  const {
+    recordList: taskList, loading, total, queryParams,
+    totalPages, prevPage, nextPage, handleSizeChange,
+    queryRef, handleQuery, resetQuery,
+    selectedIds, toggleSelect,
+    getList
+  } = useRecordList<PtDownloadRecordQuery>({
+    listApi: getPtDownloadRecordListApi,
+    // 下载记录不支持删除；useRecordList 的 batchDeleteApi 为必填项，页面不会解构
+    // handleDeleteOne/handleBatchDelete，这里给显式报错的占位，误用即暴露
+    batchDeleteApi: async () => { throw new Error('下载记录不支持删除操作') },
+    idField: 'id',
+    recordLabel: '下载记录',
+    defaultQuery: { subId: initialSubId, state: undefined, title: undefined }
   })
-
-  const queryRef = ref<any>()
-
-  const getList = async () => {
-    loading.value = true
-    try {
-      const res = await getPtDownloadRecordListApi(queryParams)
-      taskList.value = res.records || []
-      total.value = res.total || 0
-    } finally {
-      loading.value = false
-    }
-  }
-
-  const handleQuery = () => {
-    queryParams.pageNum = 1
-    getList()
-  }
-
-  const resetQuery = () => {
-    queryRef.value?.reset?.()
-    handleQuery()
-  }
 
   // ---------- 实时状态推送：状态/进度原地更新，不用整页刷新 ----------
   usePtStatusSocket({
@@ -82,18 +68,11 @@ export function usePtDownloadRecord() {
     }
   }
 
-  // ---------- 批量重试 ----------
+  // ---------- 批量操作 ----------
   const selectionMode = ref(false)
-  const selectedIds = ref<number[]>([])
 
-  const toggleRecordSelect = (row: any) => {
-    const idx = selectedIds.value.indexOf(row.id)
-    if (idx === -1) {
-      selectedIds.value.push(row.id)
-    } else {
-      selectedIds.value.splice(idx, 1)
-    }
-  }
+  /** 卡片选中（兼容原接口签名：入参是行对象，内部取 id） */
+  const toggleRecordSelect = (row: any) => toggleSelect(row.id)
 
   const handleBatchRetry = async () => {
     if (!selectedIds.value.length) return
@@ -135,28 +114,7 @@ export function usePtDownloadRecord() {
     }
   }
 
-  // ---------- 移动端 - 分页辅助 ----------
-  const totalPages = computed(() => Math.ceil(total.value / queryParams.pageSize!) || 1)
-
-  const prevPage = () => {
-    if (queryParams.pageNum! > 1) {
-      queryParams.pageNum!--
-      getList()
-    }
-  }
-
-  const nextPage = () => {
-    if (queryParams.pageNum! < totalPages.value) {
-      queryParams.pageNum!++
-      getList()
-    }
-  }
-
-  const handleSizeChange = () => {
-    queryParams.pageNum = 1
-    getList()
-  }
-
+  // ---------- 移动端 - 搜索面板折叠 ----------
   const searchCollapsed = ref(true)
 
   getList()

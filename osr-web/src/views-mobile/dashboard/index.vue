@@ -77,6 +77,7 @@ import { useUserStore } from '@/stores/user'
 import { getDashboardStatsApi, getCopyStatsApi, getStrmStatsApi, getRenameStatsApi } from '@/api/openlist/dashboard'
 import { getHitokotoApi } from '@/api/openlist/hitokoto'
 import { useMenuLinks } from '@/composables/useMenuLinks'
+import { getRoutePathForComponent } from '@/router'
 
 interface StatCard {
   label: string
@@ -121,11 +122,18 @@ function loadQuote() {
 const statCards = ref<StatCard[]>([])
 const todayStatCards = ref<StatCard[]>([])
 
+/** 通过 meta.componentKey 反查动态路由，避免写死 /openliststrm 前缀路径（后端菜单两种前缀并存，写死会 404） */
+const recordPaths = {
+  copy: getRoutePathForComponent('openlist/copyRecord/index') || '/openliststrm/copy',
+  strm: getRoutePathForComponent('openlist/strmRecord/index') || '/openliststrm/strm',
+  renameDetail: getRoutePathForComponent('openlist/renameDetail/index') || '/openliststrm/renameDetail'
+}
+
 function buildStatCards(data: any): StatCard[] {
   return [
-    { label: '同步记录', value: data?.copyRecordCount ?? 0, icon: 'mdi-file-multiple-outline', type: 'primary', path: '/openliststrm/copy' },
-    { label: 'STRM 记录', value: data?.strmRecordCount ?? 0, icon: 'mdi-video-outline', type: 'success', path: '/openliststrm/strm' },
-    { label: '重命名明细', value: data?.renameDetailCount ?? 0, icon: 'mdi-pencil-outline', type: 'warning', path: '/openliststrm/renameDetail' },
+    { label: '同步记录', value: data?.copyRecordCount ?? 0, icon: 'mdi-file-multiple-outline', type: 'primary', path: recordPaths.copy },
+    { label: 'STRM 记录', value: data?.strmRecordCount ?? 0, icon: 'mdi-video-outline', type: 'success', path: recordPaths.strm },
+    { label: '重命名明细', value: data?.renameDetailCount ?? 0, icon: 'mdi-pencil-outline', type: 'warning', path: recordPaths.renameDetail },
     { label: '成功率', value: data?.successRate > 0 ? data.successRate + '%' : '--', icon: 'mdi-check-circle-outline', type: 'info' },
     { label: '失败数', value: data?.failedCount ?? 0, icon: 'mdi-close-circle-outline', type: 'warning' },
     { label: '处理中', value: data?.processingCount ?? 0, icon: 'mdi-loading mdi-spin', type: 'primary' }
@@ -140,9 +148,9 @@ function sumStatusCounts(data: Record<string, number> | null | undefined): numbe
 
 function buildTodayStatCards(copy: number, strm: number, rename: number): StatCard[] {
   return [
-    { label: '今日同步', value: copy, icon: 'mdi-file-multiple-outline', type: 'primary', path: '/openliststrm/copy' },
-    { label: '今日STRM', value: strm, icon: 'mdi-video-outline', type: 'success', path: '/openliststrm/strm' },
-    { label: '今日重命名', value: rename, icon: 'mdi-pencil-outline', type: 'warning', path: '/openliststrm/renameDetail' }
+    { label: '今日同步', value: copy, icon: 'mdi-file-multiple-outline', type: 'primary', path: recordPaths.copy },
+    { label: '今日STRM', value: strm, icon: 'mdi-video-outline', type: 'success', path: recordPaths.strm },
+    { label: '今日重命名', value: rename, icon: 'mdi-pencil-outline', type: 'warning', path: recordPaths.renameDetail }
   ]
 }
 

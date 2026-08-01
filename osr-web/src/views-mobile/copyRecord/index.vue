@@ -109,13 +109,15 @@
               <v-icon class="card-title-icon" icon="mdi-file-multiple-outline" size="18" />
               <span class="card-title card-title--link" @click.stop="showFullText(record.copySrcFileName, '文件名')">{{ record.copySrcFileName }}</span>
             </div>
-            <v-chip :color="getCopyStatusType(record.copyStatus)" size="small" variant="tonal">
-              {{ getCopyStatusText(record.copyStatus) }}
-            </v-chip>
+            <StatusChip :type="getCopyStatusType(record.copyStatus)" :text="getCopyStatusText(record.copyStatus)" />
           </div>
           <div class="card-path card-path--link" @click.stop="showFullText(record.copySrcPath, '源路径')">
             <v-icon class="card-path-icon" icon="mdi-map-marker-outline" size="14" />
             <span class="card-path-text">{{ record.copySrcPath }}</span>
+          </div>
+          <div class="card-path card-path--link card-path--success" @click.stop="showFullText(record.copyDstFileName, '目标文件名')">
+            <v-icon class="card-path-icon" icon="mdi-file-outline" size="14" />
+            <span class="card-path-text">{{ record.copyDstFileName }}</span>
           </div>
           <div class="card-path card-path--link card-path--success" @click.stop="showFullText(record.copyDstPath, '目标路径')">
             <v-icon class="card-path-icon" icon="mdi-map-marker-outline" size="14" />
@@ -170,6 +172,7 @@ import { ref, computed } from 'vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import FullTextDialog from '@/components/mobile/FullTextDialog.vue'
+import StatusChip from '@/components/StatusChip.vue'
 import { useCopyRecord } from '@/composables/useCopyRecord'
 
 const searchCollapsed = ref(true)
