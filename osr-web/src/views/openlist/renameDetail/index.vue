@@ -1,5 +1,11 @@
 <template>
   <div class="page-container">
+    <PageHeader
+      icon="mdi-format-list-checks"
+      title="重命名明细"
+      desc="逐文件的重命名与刮削结果，可单条重试或删除刮削产物"
+    />
+
     <!-- Search Panel -->
     <v-card v-if="showSearch" class="search-card">
       <v-form ref="queryRef" @submit.prevent="handleQuery">
@@ -189,7 +195,7 @@
     </v-card>
 
     <!-- Retry Dialog -->
-    <v-dialog v-model="retryDialogVisible" max-width="420" @update:model-value="onRetryDialogUpdate">
+    <v-dialog v-model="retryDialogVisible" max-width="480" @update:model-value="onRetryDialogUpdate">
       <v-card title="重试重命名">
         <v-card-text>
           <v-form ref="retryFormRef">
@@ -243,6 +249,7 @@
 </template>
 
 <script setup lang="ts">
+import PageHeader from '@/components/PageHeader.vue'
 import { ref, computed } from 'vue'
 import { useRenameDetailList } from '@/composables/useRenameDetailList'
 
@@ -317,13 +324,6 @@ const episodeRule = (v: string) => !v || /^\d{1,4}$/.test(v) || '集为 1-4 位�
 </script>
 
 <style scoped lang="scss">
-
-
-
-
-
-
-
 /* ============================================
    Rename Comparison (PC Table)
    ============================================ */
@@ -358,9 +358,9 @@ const episodeRule = (v: string) => !v || /^\d{1,4}$/.test(v) || '集为 1-4 位�
         flex-shrink: 0;
 
         &.rename-badge-original {
-          background: var(--osr-danger-light);
-          color: var(--osr-danger);
-          border: 1px solid color-mix(in srgb, var(--osr-danger) 30%, transparent);
+          background: var(--osr-error-light);
+          color: var(--osr-error);
+          border: 1px solid color-mix(in srgb, var(--osr-error) 30%, transparent);
         }
 
         &.rename-badge-new {
@@ -431,16 +431,5 @@ const episodeRule = (v: string) => !v || /^\d{1,4}$/.test(v) || '集为 1-4 位�
   display: flex;
   align-items: center;
   gap: 4px;
-}
-
-
-
-/* ============================================
-   Mobile Responsive
-   ============================================ */
-@media (max-width: 768px) {
-
-  .search-fields {
-  }
 }
 </style>

@@ -1,5 +1,5 @@
 <template>
-  <div class="pagination-bar" v-if="total > 0">
+  <v-card v-if="total > 0" class="pagination-bar">
     <div class="pagination-info">
       <span class="total-text">共 {{ total }} 条</span>
     </div>
@@ -13,7 +13,7 @@
       <v-btn icon="mdi-chevron-right" variant="text" size="small" :disabled="pageNum >= totalPages" class="page-btn" @click="$emit('next')" />
       <v-select
         :model-value="pageSize"
-        :items="[10, 20, 50]"
+        :items="pageSizes"
         density="compact"
         variant="outlined"
         hide-details
@@ -22,16 +22,21 @@
       />
       <span class="page-size-label">条/页</span>
     </div>
-  </div>
+  </v-card>
 </template>
 
 <script setup lang="ts">
-defineProps<{
-  pageNum: number
-  pageSize: number
-  total: number
-  totalPages: number
-}>()
+withDefaults(
+  defineProps<{
+    pageNum: number
+    pageSize: number
+    total: number
+    totalPages: number
+    /** 每页条数档位。默认与 PC 列表页一致；卡片型页面（订阅/下载记录）传 [12, 24, 48] */
+    pageSizes?: number[]
+  }>(),
+  { pageSizes: () => [10, 20, 50] }
+)
 
 const emit = defineEmits<{
   prev: []
@@ -47,14 +52,12 @@ function onSizeChange(value: number) {
 </script>
 
 <style scoped lang="scss">
+/* 外观由 v-card 提供，这里只写内部排布 */
 .pagination-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 12px 14px;
-  background: var(--osr-surface);
-  border-radius: var(--osr-radius-lg);
-  box-shadow: var(--osr-shadow-base);
   gap: 12px;
 
   .pagination-info {

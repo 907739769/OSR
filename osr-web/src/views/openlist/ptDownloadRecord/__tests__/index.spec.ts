@@ -63,22 +63,22 @@ describe('failReasonCode 标签', () => {
 })
 
 describe('PtDownloadRecord 失败卡片视觉强化', () => {
-  it('FAILED 状态的卡片带有 record-card--failed 类', () => {
+  it('FAILED 状态的卡片带有 item-card--failed 类', () => {
     (usePtDownloadRecord as any).mockReturnValue(baseComposable({
       taskList: ref([{ id: 1, title: 'A', state: 'FAILED', failReason: 'boom' }])
     }))
     const wrapper = mount(PtDownloadRecordPage)
-    const card = wrapper.find('.record-card')
-    expect(card.classes()).toContain('record-card--failed')
+    const card = wrapper.find('.item-card')
+    expect(card.classes()).toContain('item-card--failed')
   })
 
-  it('非 FAILED 状态的卡片不带 record-card--failed 类', () => {
+  it('非 FAILED 状态的卡片不带 item-card--failed 类', () => {
     (usePtDownloadRecord as any).mockReturnValue(baseComposable({
       taskList: ref([{ id: 2, title: 'B', state: 'COMPLETED' }])
     }))
     const wrapper = mount(PtDownloadRecordPage)
-    const card = wrapper.find('.record-card')
-    expect(card.classes()).not.toContain('record-card--failed')
+    const card = wrapper.find('.item-card')
+    expect(card.classes()).not.toContain('item-card--failed')
   })
 })
 
@@ -89,8 +89,8 @@ describe('PtDownloadRecord 骨架屏', () => {
       loading: ref(true)
     }))
     const wrapper = mount(PtDownloadRecordPage)
-    expect(wrapper.findAll('.record-card-skeleton').length).toBe(6)
-    expect(wrapper.find('.record-card').exists()).toBe(false)
+    expect(wrapper.findAll('.item-card-skeleton').length).toBe(6)
+    expect(wrapper.find('.item-card').exists()).toBe(false)
   })
 
   it('已有数据时重新查询（loading 且列表非空）不回退成骨架屏', () => {
@@ -99,8 +99,8 @@ describe('PtDownloadRecord 骨架屏', () => {
       loading: ref(true)
     }))
     const wrapper = mount(PtDownloadRecordPage)
-    expect(wrapper.find('.record-card-skeleton').exists()).toBe(false)
-    expect(wrapper.find('.record-card').exists()).toBe(true)
+    expect(wrapper.find('.item-card-skeleton').exists()).toBe(false)
+    expect(wrapper.find('.item-card').exists()).toBe(true)
   })
 
   it('骨架屏数量根据页面宽度动态变化（至少 3 张）', () => {
@@ -109,7 +109,7 @@ describe('PtDownloadRecord 骨架屏', () => {
       loading: ref(true)
     }))
     const wrapper = mount(PtDownloadRecordPage)
-    const count = wrapper.findAll('.record-card-skeleton').length
+    const count = wrapper.findAll('.item-card-skeleton').length
     expect(count).toBeGreaterThanOrEqual(3)
     expect(count).toBeLessThanOrEqual(12)
   })
@@ -122,7 +122,7 @@ describe('PtDownloadRecord 批量重试', () => {
     }))
     const wrapper = mount(PtDownloadRecordPage)
     expect(wrapper.find('.batch-toolbar').exists()).toBe(false)
-    expect(wrapper.find('.record-card-checkbox').exists()).toBe(false)
+    expect(wrapper.find('.item-card-checkbox').exists()).toBe(false)
   })
 
   it('selectionMode 为 true 时仅 FAILED 卡片显示 checkbox', () => {
@@ -134,7 +134,7 @@ describe('PtDownloadRecord 批量重试', () => {
       ])
     }))
     const wrapper = mount(PtDownloadRecordPage)
-    expect(wrapper.findAll('.record-card-checkbox').length).toBe(1)
+    expect(wrapper.findAll('.item-card-checkbox').length).toBe(1)
   })
 
   it('批量工具条展示已选数量', () => {
@@ -177,7 +177,7 @@ describe('PtDownloadRecord 批量重试', () => {
       toggleRecordSelect
     }))
     const wrapper = mount(PtDownloadRecordPage)
-    await wrapper.find('.record-card-checkbox').trigger('click')
+    await wrapper.find('.item-card-checkbox').trigger('click')
     expect(toggleRecordSelect).toHaveBeenCalled()
   })
 
@@ -189,26 +189,26 @@ describe('PtDownloadRecord 批量重试', () => {
       toggleRecordSelect
     }))
     const wrapper = mount(PtDownloadRecordPage)
-    await wrapper.find('.record-card').trigger('click')
+    await wrapper.find('.item-card').trigger('click')
     expect(toggleRecordSelect).toHaveBeenCalled()
   })
 
-  it('批量模式下 FAILED 卡片带有 selectable class', () => {
+  it('批量模式下 FAILED 卡片带有 item-card--selectable class', () => {
     (usePtDownloadRecord as any).mockReturnValue(baseComposable({
       selectionMode: ref(true),
       taskList: ref([{ id: 1, title: 'A', state: 'FAILED', failReason: 'boom' }])
     }))
     const wrapper = mount(PtDownloadRecordPage)
-    expect(wrapper.find('.record-card').classes()).toContain('selectable')
+    expect(wrapper.find('.item-card').classes()).toContain('item-card--selectable')
   })
 
-  it('批量模式下非 FAILED 卡片不带 selectable class', () => {
+  it('批量模式下非 FAILED 卡片不带 item-card--selectable class', () => {
     (usePtDownloadRecord as any).mockReturnValue(baseComposable({
       selectionMode: ref(true),
       taskList: ref([{ id: 1, title: 'A', state: 'COMPLETED' }])
     }))
     const wrapper = mount(PtDownloadRecordPage)
-    expect(wrapper.find('.record-card').classes()).not.toContain('selectable')
+    expect(wrapper.find('.item-card').classes()).not.toContain('item-card--selectable')
   })
 })
 

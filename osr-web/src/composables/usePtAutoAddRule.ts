@@ -164,12 +164,22 @@ export function usePtAutoAddRule() {
     }
   }
 
+  /** 规则的过滤条件摘要（PC 表格列与移动端卡片共用，避免两端文案漂移） */
+  const filterText = (row: any): string => {
+    const parts: string[] = []
+    if (row?.minVoteAverage) parts.push(`评分≥${row.minVoteAverage}`)
+    if (row?.minVoteCount) parts.push(`评分人数≥${row.minVoteCount}`)
+    if (row?.genreExclude) parts.push(`排除类型:${row.genreExclude}`)
+    return parts.join(' ')
+  }
+
   base.getList()
 
   return {
     ...base, searchCollapsed, totalPages, prevPage, nextPage, handleSizeChange,
     runningIds, handleRun,
     logDialogVisible, logLoading, logList, handleShowLogs,
-    genreOptions, genreExcludeArr, downloaderOptions
+    genreOptions, genreExcludeArr, downloaderOptions,
+    filterText
   }
 }

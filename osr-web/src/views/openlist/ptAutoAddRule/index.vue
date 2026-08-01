@@ -1,5 +1,11 @@
 <template>
   <div class="page-container">
+    <PageHeader
+      icon="mdi-auto-fix"
+      title="PT 热门自动订阅"
+      desc="按 TMDb 热门榜或评分条件定时自动建订阅"
+    />
+
     <v-card v-if="showSearch" class="search-card">
       <v-form ref="queryRef" @submit.prevent="handleQuery">
         <div class="search-fields">
@@ -22,7 +28,7 @@
             density="compact"
             variant="outlined"
             hide-details
-            class="type-select"
+            class="field-sm"
           />
           <v-select
             v-model="queryParams.enabled"
@@ -69,19 +75,12 @@
         <template #item.mediaType="{ item }">{{ item.mediaType === 'MOVIE' ? '电影' : '剧集' }}</template>
         <template #item.source="{ item }">{{ sourceLabel(item.source) }}</template>
         <template #item.filter="{ item }">
-          <span v-if="item.minVoteAverage || item.minVoteCount || item.genreExclude">
-            {{ item.minVoteAverage ? `评分≥${item.minVoteAverage} ` : '' }}
-            {{ item.minVoteCount ? `评分人数≥${item.minVoteCount} ` : '' }}
-            {{ item.genreExclude ? `排除类型:${item.genreExclude}` : '' }}
-          </span>
-          <span v-else class="text-muted">无</span>
+          <span :class="{ 'text-muted': !filterText(item) }">{{ filterText(item) || '无' }}</span>
         </template>
         <template #item.intervalHours="{ item }">{{ item.intervalHours }}h</template>
         <template #item.lastRunTime="{ item }">{{ item.lastRunTime || '未执行' }}</template>
         <template #item.enabled="{ item }">
-          <v-chip :color="item.enabled === '1' ? 'success' : 'info'" size="small" variant="tonal">
-            {{ item.enabled === '1' ? '启用' : '停用' }}
-          </v-chip>
+          <StatusChip :value="item.enabled" />
         </template>
         <template #item.actions="{ item }">
           <v-btn variant="text" color="primary" size="small" :loading="runningIds.has(item.id)" @click="handleRun(item)">立即执行</v-btn>
@@ -92,7 +91,7 @@
       </v-data-table-server>
     </v-card>
 
-    <v-dialog v-model="open" max-width="560">
+    <v-dialog v-model="open" max-width="600">
       <v-card :title="dialogTitle">
         <v-card-text>
           <v-form ref="formRef">
@@ -103,17 +102,15 @@
               :rules="nameRules"
               class="mb-3"
             />
-            <div class="form-item">
-              <label class="form-label">是否启用</label>
+            <FormField label="是否启用">
               <v-switch v-model="form.enabled" true-value="1" false-value="0" color="primary" hide-details />
-            </div>
-            <div class="form-item">
-              <label class="form-label">媒体类型</label>
+            </FormField>
+            <FormField label="媒体类型">
               <v-radio-group v-model="form.mediaType" inline hide-details>
                 <v-radio label="电影" value="MOVIE" />
                 <v-radio label="剧集" value="TV" />
               </v-radio-group>
-            </div>
+            </FormField>
             <v-select
               v-model="form.source"
               label="数据源"
@@ -202,7 +199,7 @@
       </v-card>
     </v-dialog>
 
-    <v-dialog v-model="logDialogVisible" max-width="720">
+    <v-dialog v-model="logDialogVisible" max-width="600">
       <v-card title="执行日志">
         <v-card-text>
           <v-data-table
@@ -226,6 +223,9 @@
 </template>
 
 <script setup lang="ts">
+import StatusChip from '@/components/StatusChip.vue'
+import PageHeader from '@/components/PageHeader.vue'
+import FormField from '@/components/FormField.vue'
 import { ref } from 'vue'
 import { usePtAutoAddRule, REGION_OPTIONS } from '@/composables/usePtAutoAddRule'
 
@@ -237,7 +237,8 @@ const {
   handleAdd, handleUpdate, submitForm, handleDelete,
   runningIds, handleRun,
   logDialogVisible, logLoading, logList, handleShowLogs,
-  genreOptions, genreExcludeArr, downloaderOptions
+  genreOptions, genreExcludeArr, downloaderOptions,
+  filterText
 } = usePtAutoAddRule()
 
 // 表单规则是 { required, message, trigger } 对象格式（composable 返回），
@@ -321,44 +322,8 @@ const resultTagType = (result: string): 'success' | 'info' | 'warning' | 'error'
 </script>
 
 <style scoped lang="scss">
-
-.search-fields {
-
-  .type-select {
-    width: 140px;
-  }
-}
-
 .text-muted {
   color: var(--osr-text-secondary);
 }
 
-.form-item {
-  margin-bottom: 16px;
-
-  .form-label {
-    display: block;
-    margin-bottom: 6px;
-    font-size: 13px;
-    color: var(--osr-text-secondary);
-  }
-}
-
-@media (max-width: 768px) {
-  .search-fields {
-    > .v-text-field,
-    .type-select,
-    .status-select {
-      width: 100%;
-    }
-
-    .search-actions {
-      width: 100%;
-
-      .v-btn {
-        flex: 1;
-      }
-    }
-  }
-}
 </style>

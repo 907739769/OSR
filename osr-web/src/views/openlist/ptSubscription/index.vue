@@ -1,9 +1,15 @@
 <template>
   <div class="page-container">
+    <PageHeader
+      icon="mdi-bookmark-multiple-outline"
+      title="PT 订阅"
+      desc="按 TMDb 作品订阅，自动匹配 RSS 与补搜缺集"
+    />
+
     <!-- 搜索 -->
     <v-card v-if="showSearch" class="search-card">
       <v-form @submit.prevent="handleQuery">
-        <div class="search-row">
+        <div class="search-fields">
           <v-text-field
             v-model="queryParams.title"
             label="标题"
@@ -12,7 +18,6 @@
             density="compact"
             variant="outlined"
             hide-details
-            class="search-field"
             @keyup.enter="handleQuery"
           />
           <v-select
@@ -24,7 +29,7 @@
             density="compact"
             variant="outlined"
             hide-details
-            class="search-field search-field-sm"
+            class="field-sm"
           />
           <v-select
             v-model="queryParams.status"
@@ -35,7 +40,7 @@
             density="compact"
             variant="outlined"
             hide-details
-            class="search-field search-field-sm"
+            class="field-sm"
           />
           <div class="search-actions">
             <v-btn color="primary" prepend-icon="mdi-magnify" @click="handleQuery">搜索</v-btn>
@@ -92,7 +97,7 @@
         <v-btn variant="text" size="small" class="batch-cancel-btn" @click="selectionMode = false">取消</v-btn>
       </div>
 
-      <div v-if="loading && taskList.length === 0" class="card-grid">
+      <div v-if="loading && taskList.length === 0" class="card-grid card-grid--wide">
         <div v-for="n in skeletonCount" :key="n" class="sub-card-skeleton">
           <v-skeleton-loader type="image" class="sub-card-skeleton__poster" width="72" height="108" />
           <div class="sub-card-skeleton__info">
@@ -103,7 +108,7 @@
           </div>
         </div>
       </div>
-      <div v-else class="card-grid">
+      <div v-else class="card-grid card-grid--wide">
         <v-progress-linear v-if="loading" indeterminate color="primary" />
         <div v-for="item in taskList" :key="item.id" class="sub-card" :class="{ selectable: selectionMode }" @click="selectionMode && toggleSubSelect(item)">
           <v-checkbox-btn
@@ -204,10 +209,10 @@
     </v-card>
 
     <!-- 新增订阅：TMDb 选片 -->
-    <v-dialog v-model="subscribeOpen" max-width="720" class="modern-dialog">
+    <v-dialog v-model="subscribeOpen" max-width="600">
       <v-card title="新增订阅">
         <v-card-text>
-          <div class="search-row">
+          <div class="inline-fields">
             <v-select
               v-model="searchForm.mediaType"
               :items="[{ title: '剧集', value: 'TV' }, { title: '电影', value: 'MOVIE' }]"
@@ -282,7 +287,7 @@
         </v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn @click="subscribeOpen = false">取消</v-btn>
+          <v-btn variant="outlined" @click="subscribeOpen = false">取消</v-btn>
           <v-btn color="primary" variant="flat" :loading="subscribeLoading" :disabled="!picked" @click="confirmSubscribe">
             订阅
           </v-btn>
@@ -291,7 +296,7 @@
     </v-dialog>
 
     <!-- 进度 -->
-    <v-dialog v-model="progressOpen" max-width="520" class="modern-dialog">
+    <v-dialog v-model="progressOpen" max-width="600">
       <v-card title="订阅进度">
         <v-card-text>
           <v-progress-linear v-if="progressLoading" indeterminate color="primary" class="mb-3" />
@@ -332,7 +337,7 @@
                 <span class="ep-num">第{{ ep.episode }}集</span>
                 <v-chip
                   size="small"
-                  :color="ep.state === 'IN_LIBRARY' ? 'success' : ep.state === 'IN_FLIGHT' ? 'primary' : ep.state === 'BLOCKED' ? 'error' : 'info'"
+                  :color="episodeStateColor(ep.state)"
                   variant="tonal"
                 >
                   {{ episodeStateLabel(ep.state) }}
@@ -363,13 +368,13 @@
             一键补齐全部（{{ progress.missingEpisodes.length }}集）
           </v-btn>
           <v-spacer />
-          <v-btn @click="progressOpen = false">关闭</v-btn>
+          <v-btn variant="outlined" @click="progressOpen = false">关闭</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
 
     <!-- 搜索补集确认 -->
-    <v-dialog v-model="searchDialogOpen" max-width="480" class="modern-dialog">
+    <v-dialog v-model="searchDialogOpen" max-width="480">
       <v-card title="搜索补集">
         <v-card-text>
           <v-text-field
@@ -382,14 +387,14 @@
         </v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn @click="searchDialogOpen = false">取消</v-btn>
+          <v-btn variant="outlined" @click="searchDialogOpen = false">取消</v-btn>
           <v-btn color="primary" variant="flat" :loading="searchDialogLoading" @click="confirmSearch">搜索</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
 
     <!-- 候选种子手动选择 -->
-    <v-dialog v-model="candidateDialogOpen" max-width="800" class="modern-dialog">
+    <v-dialog v-model="candidateDialogOpen" max-width="900">
       <v-card title="选择候选种子">
         <v-card-text>
           <div v-if="candidates.length === 0" class="empty-tip">
@@ -432,7 +437,7 @@
         </v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn @click="candidateDialogOpen = false">取消</v-btn>
+          <v-btn variant="outlined" @click="candidateDialogOpen = false">取消</v-btn>
           <v-btn
             color="primary"
             variant="flat"
@@ -447,7 +452,7 @@
     </v-dialog>
 
     <!-- 匹配日志 -->
-    <v-dialog v-model="searchLogOpen" max-width="720" class="modern-dialog">
+    <v-dialog v-model="searchLogOpen" max-width="600">
       <v-card title="匹配日志">
         <v-card-text>
           <v-data-table
@@ -477,13 +482,13 @@
         </v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn @click="searchLogOpen = false">关闭</v-btn>
+          <v-btn variant="outlined" @click="searchLogOpen = false">关闭</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
 
     <!-- 过滤规则覆盖 -->
-    <v-dialog v-model="filterOverrideOpen" max-width="640" class="modern-dialog">
+    <v-dialog v-model="filterOverrideOpen" max-width="600">
       <v-card title="过滤规则覆盖">
         <v-card-text>
           <p class="override-tip">只勾选需要覆盖的项，不勾选的沿用全局过滤规则（PT过滤规则页配置的）。</p>
@@ -622,7 +627,7 @@
         </v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn @click="filterOverrideOpen = false">取消</v-btn>
+          <v-btn variant="outlined" @click="filterOverrideOpen = false">取消</v-btn>
           <v-btn color="primary" variant="flat" :loading="filterOverrideSaving" @click="saveFilterOverride">保存</v-btn>
         </v-card-actions>
       </v-card>
@@ -631,6 +636,7 @@
 </template>
 
 <script setup lang="ts">
+import PageHeader from '@/components/PageHeader.vue'
 import { ref, reactive, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { usePtSubscription } from '@/composables/usePtSubscription'
@@ -649,7 +655,7 @@ const {
   picked, pickedSeason, openSubscribeDialog, doSearch, pick, confirmSubscribe,
   progressOpen, progressLoading, progress, currentSubscription, showProgress, showProgressById,
   episodeDetailOpen, episodeDetailLoading, episodeDetail, resettingEpisode,
-  loadEpisodeDetail, handleResetEpisode,
+  loadEpisodeDetail, handleResetEpisode, episodeStateLabel, episodeStateColor,
   searchLogOpen, searchLogLoading, searchLogs, showSearchLogs,
   filterOverrideOpen, filterOverrideSaving, filterOverrideForm,
   openFilterOverride, saveFilterOverride,
@@ -687,11 +693,6 @@ onMounted(() => {
   if (subId) showProgressById(subId)
 })
 onUnmounted(() => { window.removeEventListener('resize', updateSkeletonCount) })
-
-const EPISODE_STATE_LABELS: Record<string, string> = {
-  MISSING: '缺失', IN_FLIGHT: '在途', IN_LIBRARY: '已入库', BLOCKED: '已熔断'
-}
-const episodeStateLabel = (state: string) => EPISODE_STATE_LABELS[state] || state
 
 const goDownloadRecords = (row: any) => {
   router.push({ path: '/openlist/ptDownloadRecord', query: { subId: row.id } })
@@ -736,66 +737,6 @@ const searchLogHeaders = [
 </script>
 
 <style scoped lang="scss">
-
-.search-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.search-field {
-  width: 220px;
-  flex: none;
-}
-
-.search-field-sm {
-  width: 140px;
-}
-
-.search-actions {
-  display: flex;
-  gap: 8px;
-  margin-left: auto;
-}
-
-.action-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-  flex-wrap: wrap;
-  gap: 10px;
-
-  .action-left {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-  }
-
-  .action-right {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    flex-wrap: wrap;
-  }
-}
-
-.batch-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 12px;
-  padding: 8px 12px;
-  border-radius: var(--osr-radius-sm);
-  background: var(--osr-bg-page);
-  font-size: 13px;
-  color: var(--osr-text-secondary);
-  position: sticky;
-  top: 0;
-  z-index: 2;
-}
-
 .select-all-checkbox {
   margin-left: 4px;
   font-size: 13px;
@@ -805,35 +746,9 @@ const searchLogHeaders = [
   }
 }
 
-.pagination-wrapper {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 10px;
-  margin-top: auto;
-  padding-top: 12px;
-
-  .total-text {
-    font-size: 13px;
-    color: var(--osr-text-secondary);
-    white-space: nowrap;
-  }
-
-  .page-size-select {
-    width: 90px;
-    flex: none;
-  }
-}
-
 /* ============================================
    订阅卡片网格（带海报）
    ============================================ */
-.card-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
-  gap: 14px;
-  min-height: 120px;
-}
 
 .sub-card {
   position: relative;
@@ -852,7 +767,7 @@ const searchLogHeaders = [
   &.selectable {
     cursor: pointer;
     &:hover {
-      border-color: var(--osr-primary-light-5);
+      border-color: var(--osr-primary-accent);
     }
   }
 }
@@ -910,6 +825,8 @@ const searchLogHeaders = [
     color: var(--osr-text-disabled);
     font-size: 22px;
 
+    /* 下面两组渐变是刻意的装饰色：海报占位在明暗主题下都保持深底白字，
+       与主题色无关，因此不走 --osr-* 令牌 */
     &.placeholder-movie {
       background:
         radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.14), transparent 45%),
@@ -999,22 +916,16 @@ const searchLogHeaders = [
   border-top: 1px solid var(--osr-border-light);
 }
 
-@media (max-width: 768px) {
-
-  .search-row {
-    .search-field,
-    .search-field-sm {
-      width: 100%;
-    }
-
-    .search-actions {
-      margin-left: 0;
-      width: 100%;
-    }
+.pagination-wrapper {
+  .total-text {
+    font-size: 13px;
+    color: var(--osr-text-secondary);
+    white-space: nowrap;
   }
 
-  .card-grid {
-    grid-template-columns: 1fr;
+  .page-size-select {
+    width: 90px;
+    flex: none;
   }
 }
 
@@ -1032,7 +943,7 @@ const searchLogHeaders = [
 .picked-bar {
   margin-top: 12px;
   padding: 10px 12px;
-  border-radius: 4px;
+  border-radius: var(--osr-radius-sm);
   background: var(--osr-bg-page);
   display: flex;
   align-items: center;
@@ -1167,6 +1078,6 @@ const searchLogHeaders = [
 }
 
 :deep(.row-selected) {
-  background: var(--osr-primary-light-9);
+  background: var(--osr-primary-subtle);
 }
 </style>

@@ -27,7 +27,7 @@ const appStore = useAppStore()
   font-size: 11px;
   font-weight: 500;
   letter-spacing: 0.5px;
-  color: var(--osr-text-tertiary, rgba(var(--v-theme-on-surface), 0.5));
+  color: rgba(var(--v-theme-on-surface), 0.5);
   white-space: nowrap;
   overflow: hidden;
 }

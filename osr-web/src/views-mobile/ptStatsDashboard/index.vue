@@ -1,6 +1,7 @@
 <template>
   <div class="mobile-pt-stats">
     <div class="toolbar">
+      <span class="toolbar-label">统计范围</span>
       <v-btn-toggle v-model="rangeDays" color="primary" density="compact" variant="outlined" mandatory @update:model-value="onRangeChange">
         <v-btn :value="7" size="small">近7天</v-btn>
         <v-btn :value="30" size="small">近30天</v-btn>
@@ -10,7 +11,7 @@
     </div>
 
     <div class="stat-grid">
-      <div v-for="(stat, index) in statCards" :key="index" class="stat-card" :class="stat.type">
+      <v-card v-for="(stat, index) in statCards" :key="index" class="stat-card" :class="stat.type">
         <div class="stat-icon">
           <v-icon :icon="stat.icon" size="22" />
         </div>
@@ -18,17 +19,17 @@
           <div class="stat-value">{{ stat.value }}</div>
           <div class="stat-label">{{ stat.label }}</div>
         </div>
-      </div>
+      </v-card>
     </div>
 
-    <div class="chart-card">
+    <v-card class="chart-card">
       <div class="chart-header">
         <span class="chart-title">下载量趋势</span>
       </div>
       <div ref="trendContainer" class="echarts-container" />
-    </div>
+    </v-card>
 
-    <div class="chart-card">
+    <v-card class="chart-card">
       <div class="chart-header">
         <span class="chart-title">索引器命中率</span>
         <span class="chart-subtitle">基于每订阅最近 200 条匹配记录</span>
@@ -37,32 +38,45 @@
       <div v-if="noDataIndexerNames.length" class="no-data-indexers">
         暂无数据：{{ noDataIndexerNames.join('、') }}
       </div>
-    </div>
+    </v-card>
 
-    <div class="chart-card">
+    <v-card class="chart-card">
       <div class="chart-header">
         <span class="chart-title">失败原因分布</span>
       </div>
       <div ref="failReasonContainer" class="echarts-container" />
-    </div>
+    </v-card>
 
-    <div class="chart-card">
+    <v-card class="chart-card">
       <div class="chart-header">
         <span class="chart-title">Top 活跃订阅</span>
       </div>
       <div>
         <v-progress-linear v-if="topSubscriptionsLoading" indeterminate color="primary" class="list-loading" />
-        <div v-for="row in topSubscriptions" :key="row.title" class="top-sub-item">
-          <div class="top-sub-title">{{ row.title }}</div>
+        <div v-for="row in topSubscriptions" :key="row.subId ?? row.title" class="top-sub-item">
+          <div class="top-sub-title">
+            <router-link
+              v-if="row.subId"
+              :to="{ path: '/openlist/ptSubscription', query: { id: row.subId } }"
+              class="top-sub-link"
+            >{{ row.title }}</router-link>
+            <span v-else>{{ row.title }}</span>
+            <span class="top-sub-season">
+              {{ row.mediaType === 'MOVIE' ? '电影' : row.season != null ? `S${row.season}` : '-' }}
+            </span>
+          </div>
           <div class="top-sub-meta">
             <span>下载 {{ row.downloadCount }}</span>
             <span>完成 {{ row.completedCount }}</span>
             <span>失败 {{ row.failedCount }}</span>
           </div>
+          <div class="top-sub-meta">
+            <span>上次命中 {{ row.lastMatchTime || '-' }}</span>
+          </div>
         </div>
-        <div v-if="!topSubscriptionsLoading && topSubscriptions.length === 0" class="empty-hint">暂无数据</div>
+        <v-empty-state v-if="!topSubscriptionsLoading && topSubscriptions.length === 0" icon="mdi-inbox-outline" title="暂无数据" />
       </div>
-    </div>
+    </v-card>
   </div>
 </template>
 
@@ -286,7 +300,13 @@ onUnmounted(() => {
 
 <style scoped lang="scss">
 .mobile-pt-stats {
-  padding: 12px;
+  padding-bottom: 8px;
+}
+
+.toolbar-label {
+  font-size: 13px;
+  color: var(--osr-text-secondary);
+  white-space: nowrap;
 }
 
 .toolbar {
@@ -309,9 +329,6 @@ onUnmounted(() => {
   align-items: center;
   gap: 10px;
   padding: 12px;
-  border-radius: 8px;
-  background: var(--osr-surface);
-  border: 1px solid var(--osr-border-light);
 
   .stat-icon {
     width: 40px;
@@ -341,16 +358,13 @@ onUnmounted(() => {
     }
   }
 
-  &.primary .stat-icon { background: var(--osr-primary-light-9); color: var(--osr-primary); }
+  &.primary .stat-icon { background: var(--osr-primary-subtle); color: var(--osr-primary); }
   &.success .stat-icon { background: var(--osr-success-light); color: var(--osr-success); }
   &.warning .stat-icon { background: var(--osr-warning-light); color: var(--osr-warning); }
   &.info .stat-icon { background: var(--osr-info-light); color: var(--osr-info); }
 }
 
 .chart-card {
-  background: var(--osr-surface);
-  border: 1px solid var(--osr-border-light);
-  border-radius: 8px;
   padding: 12px;
   margin-bottom: 12px;
 
@@ -389,12 +403,28 @@ onUnmounted(() => {
   &:last-child { border-bottom: none; }
 
   .top-sub-title {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
     font-size: 13px;
     font-weight: 500;
     color: var(--osr-text-primary);
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+
+    .top-sub-link {
+      color: var(--osr-primary);
+      text-decoration: none;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .top-sub-season {
+      flex-shrink: 0;
+      font-size: 11px;
+      font-weight: 400;
+      color: var(--osr-text-secondary);
+    }
   }
 
   .top-sub-meta {
@@ -407,14 +437,8 @@ onUnmounted(() => {
 }
 
 .list-loading {
-  border-radius: 8px;
+  border-radius: var(--osr-radius-base);
   margin-bottom: 8px;
 }
 
-.empty-hint {
-  text-align: center;
-  padding: 20px 0;
-  font-size: 13px;
-  color: var(--osr-text-secondary);
-}
 </style>

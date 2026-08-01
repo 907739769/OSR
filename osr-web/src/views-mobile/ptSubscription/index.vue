@@ -41,10 +41,36 @@
       />
     </MobileSearchPanel>
 
+    <!-- 新增 FAB -->
+    <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="mdi-plus" @click="openSubscribeDialog">
+      新增
+    </v-btn>
+
+    <!-- 批量选择开关：与 PC 一致，不开启时点卡片不会误选 -->
+    <div class="list-toolbar">
+      <v-btn variant="text" size="small" @click="toggleSelectionMode">
+        {{ selectionMode ? '退出批量操作' : '批量操作' }}
+      </v-btn>
+    </div>
+
     <!-- 列表 -->
     <div class="task-list">
       <v-progress-linear v-if="loading" indeterminate color="primary" />
-      <div v-for="item in taskList" :key="item.id" class="sub-card" :class="{ selected: selectedIds.includes(item.id) }" @click="toggleSubSelect(item)">
+      <v-card
+        v-for="item in taskList"
+        :key="item.id"
+        class="task-card"
+        :class="{ selected: selectionMode && isSubSelected(item.id) }"
+        @click="selectionMode && toggleSubSelect(item)"
+      >
+        <div class="card-checkbox" v-if="selectionMode">
+          <v-checkbox
+            :model-value="isSubSelected(item.id)"
+            density="compact"
+            hide-details
+            @click.stop="toggleSubSelect(item)"
+          />
+        </div>
         <div class="sub-poster">
           <img
             v-if="item.posterPath && !posterErrorIds.has(item.id)"
@@ -53,13 +79,18 @@
             loading="lazy"
             @error="posterErrorIds.add(item.id)"
           />
-          <div v-else class="sub-poster-placeholder">
-            <v-icon icon="mdi-image-outline" />
+          <div
+            v-else
+            class="sub-poster-placeholder"
+            :class="item.mediaType === 'MOVIE' ? 'placeholder-movie' : 'placeholder-tv'"
+          >
+            <v-icon :icon="item.mediaType === 'MOVIE' ? 'mdi-filmstrip' : 'mdi-television-play'" size="22" />
+            <span class="placeholder-text">{{ item.mediaType === 'MOVIE' ? '电影' : '剧集' }}</span>
           </div>
         </div>
-        <div class="sub-content">
-          <div class="sub-top">
-            <span class="sub-name">
+        <div class="card-content">
+          <div class="card-top">
+            <span class="card-title">
               {{ item.title }}
               <span v-if="item.year" class="sub-year">({{ item.year }})</span>
             </span>
@@ -77,6 +108,10 @@
             <span class="value">{{ item.lastMatchTime || '-' }}</span>
           </div>
           <div class="detail-row">
+            <span class="label">上次搜索</span>
+            <span class="value">{{ item.lastSearchTime || '-' }}</span>
+          </div>
+          <div class="detail-row">
             <span class="label">自动补搜</span>
             <v-switch
               v-model="item.autoSearch"
@@ -89,19 +124,19 @@
               @update:model-value="() => toggleAutoSearch(item)"
             />
           </div>
-          <div class="sub-actions" @click.stop>
+          <div class="card-actions" @click.stop>
             <v-btn variant="text" color="primary" size="small" @click="showProgress(item)">进度</v-btn>
             <v-btn variant="text" color="primary" size="small" @click="goDownloadRecords(item)">下载记录</v-btn>
-            <v-btn variant="text" color="info" size="small" @click="openActionDrawer(item)">···</v-btn>
+            <v-btn class="action-more" variant="text" color="default" size="small" icon="mdi-dots-horizontal" @click="openActionDrawer(item)" />
           </div>
         </div>
-      </div>
+      </v-card>
 
       <v-empty-state v-if="!loading && taskList.length === 0" icon="mdi-inbox-outline" title="暂无订阅" />
     </div>
 
     <!-- 操作抽屉 -->
-    <v-bottom-sheet v-model="actionDrawerOpen" class="modern-drawer">
+    <v-bottom-sheet v-model="actionDrawerOpen">
       <v-card v-if="actionDrawerTarget" title="更多操作">
         <v-card-text>
           <div class="drawer-actions">
@@ -118,17 +153,27 @@
     </v-bottom-sheet>
 
     <!-- 批量操作 -->
-    <div v-if="selectedIds.length > 0" class="batch-bar">
+    <div v-if="selectionMode" class="batch-bar">
       <span class="selected-count">已选 {{ selectedIds.length }} 项</span>
-      <v-btn variant="text" color="warning" size="small" @click="handleBatchPause">批量暂停</v-btn>
-      <v-btn variant="text" color="success" size="small" @click="handleBatchResume">批量恢复</v-btn>
-      <v-btn variant="text" color="error" size="small" @click="handleDelete()">批量删除</v-btn>
-      <v-btn variant="text" size="small" @click="selectedIds.length = 0">取消</v-btn>
+      <v-checkbox
+        :model-value="isAllPageSelected"
+        :indeterminate="isIndeterminate"
+        density="compact"
+        hide-details
+        label="全选本页"
+        class="select-all-checkbox"
+        @update:model-value="(v: boolean | null) => toggleSelectAllPage(!!v)"
+      />
+      <v-btn variant="text" color="warning" size="small" :disabled="!selectedIds.length" @click="handleBatchPause">批量暂停</v-btn>
+      <v-btn variant="text" color="success" size="small" :disabled="!selectedIds.length" @click="handleBatchResume">批量恢复</v-btn>
+      <v-btn variant="text" color="error" size="small" :disabled="!selectedIds.length" @click="handleDelete()">批量删除</v-btn>
+      <v-btn variant="text" size="small" @click="toggleSelectionMode">取消</v-btn>
     </div>
 
     <!-- 分页 -->
     <MobilePager
       v-model:page-size="queryParams.pageSize"
+      :page-sizes="[12, 24, 48]"
       :page-num="queryParams.pageNum"
       :total="total"
       :total-pages="totalPages"
@@ -137,8 +182,96 @@
       @size-change="handleSizeChange"
     />
 
+    <!-- 新增订阅：TMDb 选片 -->
+    <v-dialog v-model="subscribeOpen" width="92%">
+      <v-card title="新增订阅">
+        <v-card-text>
+          <div class="subscribe-search-row">
+            <v-select
+              v-model="searchForm.mediaType"
+              :items="[{ title: '剧集', value: 'TV' }, { title: '电影', value: 'MOVIE' }]"
+              label="类型"
+              density="compact"
+              variant="outlined"
+              hide-details
+              class="type-select"
+            />
+            <v-text-field
+              v-model="searchForm.keyword"
+              label="片名"
+              placeholder="输入片名后回车"
+              density="compact"
+              variant="outlined"
+              hide-details
+              class="keyword-field"
+              @keyup.enter="doSearch"
+            />
+          </div>
+          <v-btn color="primary" block :loading="searchLoading" class="mt-2" @click="doSearch">搜索 TMDb</v-btn>
+
+          <div class="search-result-list">
+            <v-progress-linear v-if="searchLoading" indeterminate color="primary" class="mt-2" />
+            <div
+              v-for="item in searchResults"
+              :key="item.tmdbId"
+              class="search-result-card"
+              :class="{ selected: picked && picked.tmdbId === item.tmdbId }"
+              @click="pick(item)"
+            >
+              <div class="result-poster">
+                <img
+                  v-if="item.posterPath"
+                  :src="posterUrl(item.posterPath)"
+                  loading="lazy"
+                  @error="(e: Event) => ((e.target as HTMLImageElement).style.visibility = 'hidden')"
+                />
+                <v-icon v-else icon="mdi-image-outline" />
+              </div>
+              <div class="result-info">
+                <span class="result-title">
+                  {{ item.title }}
+                  <span v-if="item.year" class="sub-year">({{ item.year }})</span>
+                </span>
+                <span v-if="item.originalTitle && item.originalTitle !== item.title" class="result-original">
+                  {{ item.originalTitle }}
+                </span>
+              </div>
+              <v-icon v-if="picked && picked.tmdbId === item.tmdbId" icon="mdi-check-circle" color="primary" />
+            </div>
+            <v-empty-state v-if="!searchLoading && searchResults.length === 0" icon="mdi-magnify" title="暂无搜索结果" />
+          </div>
+
+          <div v-if="picked" class="picked-bar">
+            已选：<strong>{{ picked.title }}</strong>
+            <template v-if="searchForm.mediaType !== 'MOVIE'">
+              &nbsp;第
+              <v-text-field
+                v-model.number="pickedSeason"
+                type="number"
+                min="0"
+                max="99"
+                density="compact"
+                variant="outlined"
+                hide-details
+                class="season-field"
+              />
+              季
+              <span class="sub-year">（第 0 季是特别篇）</span>
+            </template>
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="outlined" @click="subscribeOpen = false">取消</v-btn>
+          <v-btn color="primary" variant="flat" :loading="subscribeLoading" :disabled="!picked" @click="confirmSubscribe">
+            订阅
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- 进度 -->
-    <v-dialog v-model="progressOpen" width="90%" class="modern-dialog">
+    <v-dialog v-model="progressOpen" width="92%">
       <v-card title="订阅进度">
         <v-card-text>
           <v-progress-linear v-if="progressLoading" indeterminate color="primary" class="mb-3" />
@@ -168,34 +301,115 @@
               集
             </div>
             <p v-else class="all-done">全部集已入库</p>
+
+            <div class="episode-detail-toggle" @click="loadEpisodeDetail">
+              {{ episodeDetailOpen ? '收起全部集' : '查看全部集' }}
+              <v-icon icon="mdi-chevron-down" :class="{ 'is-open': episodeDetailOpen }" size="16" />
+            </div>
+            <div v-if="episodeDetailOpen" class="episode-detail-list">
+              <v-progress-linear v-if="episodeDetailLoading" indeterminate color="primary" />
+              <div v-for="ep in episodeDetail" :key="ep.episode" class="episode-detail-row">
+                <span class="ep-num">第{{ ep.episode }}集</span>
+                <v-chip size="small" :color="episodeStateColor(ep.state)" variant="tonal">
+                  {{ episodeStateLabel(ep.state) }}
+                </v-chip>
+                <v-btn
+                  v-if="ep.state === 'IN_LIBRARY' || ep.state === 'BLOCKED'"
+                  variant="text"
+                  color="warning"
+                  size="small"
+                  :loading="resettingEpisode === ep.episode"
+                  @click="handleResetEpisode(ep)"
+                >重置</v-btn>
+              </div>
+              <v-empty-state v-if="!episodeDetailLoading && episodeDetail.length === 0" icon="mdi-inbox-outline" title="暂无数据" />
+            </div>
           </template>
         </v-card-text>
-        <v-card-actions>
-          <v-btn v-if="currentSubscription" color="primary" @click="openSeasonSearch(currentSubscription)">
+        <v-card-actions class="progress-actions">
+          <v-btn v-if="currentSubscription" color="primary" size="small" @click="openSeasonSearch(currentSubscription)">
             搜索补齐
           </v-btn>
+          <v-btn
+            v-if="currentSubscription && progress && progress.missingEpisodes && progress.missingEpisodes.length > 1"
+            color="success"
+            size="small"
+            :loading="searchAllMissingLoading"
+            @click="handleSearchAllMissing"
+          >
+            一键补齐（{{ progress.missingEpisodes.length }}集）
+          </v-btn>
           <v-spacer />
-          <v-btn @click="progressOpen = false">关闭</v-btn>
+          <v-btn variant="outlined" size="small" @click="progressOpen = false">关闭</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
 
     <!-- 搜索补集确认 -->
-    <v-dialog v-model="searchDialogOpen" width="90%" class="modern-dialog">
+    <v-dialog v-model="searchDialogOpen" width="92%">
       <v-card title="搜索补集">
         <v-card-text>
-          <v-text-field v-model="searchDialogKeyword" label="关键词" placeholder="搜索关键词，可编辑后再搜" />
+          <v-text-field v-model="searchDialogKeyword" label="关键词" placeholder="搜索关键词，可编辑后再搜" class="mb-2" />
+          <v-checkbox v-model="searchManualSelect" label="手动选择结果" density="compact" hide-details />
         </v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn @click="searchDialogOpen = false">取消</v-btn>
+          <v-btn variant="outlined" @click="searchDialogOpen = false">取消</v-btn>
           <v-btn color="primary" variant="flat" :loading="searchDialogLoading" @click="confirmSearch">搜索</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
 
+    <!-- 候选种子手动选择：PC 用表格，移动端改成可点选的卡片列表 -->
+    <v-dialog v-model="candidateDialogOpen" width="92%">
+      <v-card title="选择候选种子">
+        <v-card-text>
+          <v-empty-state v-if="candidates.length === 0" icon="mdi-inbox-outline" title="未搜索到匹配资源" />
+          <div v-else class="candidate-list">
+            <div
+              v-for="(cand, idx) in candidates"
+              :key="idx"
+              class="candidate-card"
+              :class="{ selected: selectedCandidate === cand }"
+              @click="selectedCandidate = cand"
+            >
+              <div class="candidate-title">{{ cand.title }}</div>
+              <div class="candidate-tags">
+                <v-chip v-if="cand.parsedEpisode && cand.parsedEpisodeEnd > cand.parsedEpisode" size="x-small" color="warning" variant="tonal">
+                  第{{ cand.parsedEpisode }}-{{ cand.parsedEpisodeEnd }}集
+                </v-chip>
+                <v-chip v-else-if="cand.parsedEpisode" size="x-small" color="warning" variant="tonal">第{{ cand.parsedEpisode }}集</v-chip>
+                <v-chip v-else size="x-small" color="success" variant="tonal">整季</v-chip>
+                <v-chip size="x-small" color="info" variant="tonal">{{ cand.indexerName }}</v-chip>
+                <v-chip v-if="cand.free" size="x-small" color="warning" variant="tonal">免费</v-chip>
+                <v-chip size="x-small" :color="cand.seeders > 0 ? 'success' : 'error'" variant="tonal">
+                  {{ cand.seeders }} 做种
+                </v-chip>
+              </div>
+              <div class="candidate-meta">
+                {{ cand.resolution || '-' }} · {{ cand.source || '-' }} · {{ formatSize(cand.size) }}
+              </div>
+            </div>
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="outlined" @click="candidateDialogOpen = false">取消</v-btn>
+          <v-btn
+            color="primary"
+            variant="flat"
+            :loading="pushingSelected"
+            :disabled="!selectedCandidate"
+            @click="pushSelectedCandidate(selectedCandidate)"
+          >
+            下载选中版本
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
     <!-- 匹配日志 -->
-    <v-dialog v-model="searchLogOpen" width="92%" class="modern-dialog">
+    <v-dialog v-model="searchLogOpen" width="92%">
       <v-card title="匹配日志">
         <v-card-text>
           <v-progress-linear v-if="searchLogLoading" indeterminate color="primary" class="mb-2" />
@@ -217,13 +431,13 @@
         </v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn @click="searchLogOpen = false">关闭</v-btn>
+          <v-btn variant="outlined" @click="searchLogOpen = false">关闭</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
 
     <!-- 过滤规则覆盖 -->
-    <v-dialog v-model="filterOverrideOpen" width="94%" class="modern-dialog">
+    <v-dialog v-model="filterOverrideOpen" width="92%">
       <v-card title="过滤规则覆盖">
         <v-card-text>
           <p class="override-tip">只勾选需要覆盖的项，不勾选的沿用全局过滤规则。</p>
@@ -358,7 +572,7 @@
         </v-card-text>
         <v-card-actions>
           <v-spacer />
-          <v-btn @click="filterOverrideOpen = false">取消</v-btn>
+          <v-btn variant="outlined" @click="filterOverrideOpen = false">取消</v-btn>
           <v-btn color="primary" variant="flat" :loading="filterOverrideSaving" @click="saveFilterOverride">保存</v-btn>
         </v-card-actions>
       </v-card>
@@ -367,28 +581,48 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { reactive, ref, watch, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import { usePtSubscription } from '@/composables/usePtSubscription'
 
+const route = useRoute()
 const router = useRouter()
 
 const {
   taskList, loading, total, queryParams,
   handleQuery, resetQuery,
-  progressOpen, progressLoading, progress, currentSubscription, showProgress,
+  subscribeOpen, searchLoading, subscribeLoading, searchResults, searchForm,
+  picked, pickedSeason, openSubscribeDialog, doSearch, pick, confirmSubscribe,
+  progressOpen, progressLoading, progress, currentSubscription, showProgress, showProgressById,
+  episodeDetailOpen, episodeDetailLoading, episodeDetail, resettingEpisode,
+  loadEpisodeDetail, handleResetEpisode, episodeStateLabel, episodeStateColor,
   searchLogOpen, searchLogLoading, searchLogs, showSearchLogs,
   filterOverrideOpen, filterOverrideSaving, filterOverrideForm,
   openFilterOverride, saveFilterOverride,
-  searchDialogOpen, searchDialogLoading, searchDialogKeyword,
+  searchDialogOpen, searchDialogLoading, searchDialogKeyword, searchManualSelect,
   openSeasonSearch, openEpisodeSearch, confirmSearch, toggleAutoSearch,
+  candidateDialogOpen, candidates, pushingSelected, pushSelectedCandidate, formatSize,
+  searchAllMissingLoading, handleSearchAllMissing,
   handleRefresh, handlePause, handleResume, handleRemove,
   totalPages, prevPage, nextPage, handleSizeChange,
   searchCollapsed,
-  selectedIds, toggleSubSelect, handleBatchPause, handleBatchResume, handleDelete
+  selectionMode, isAllPageSelected, isIndeterminate, toggleSelectAllPage,
+  selectedIds, toggleSubSelect, isSubSelected, handleBatchPause, handleBatchResume, handleDelete
 } = usePtSubscription()
+
+/** 候选种子弹窗里当前选中的那一条 */
+const selectedCandidate = ref<any>(null)
+watch(candidateDialogOpen, (open) => {
+  if (open) selectedCandidate.value = null
+})
+
+/** 退出批量模式时清空已选，避免下次进入还残留上次的选择 */
+const toggleSelectionMode = () => {
+  selectionMode.value = !selectionMode.value
+  if (!selectionMode.value) selectedIds.value = []
+}
 
 /** TMDb 海报路径拼完整图片地址，w200 宽度足够列表缩略图使用 */
 const posterUrl = (path: string) => `https://image.tmdb.org/t/p/w200${path}`
@@ -407,26 +641,128 @@ const openActionDrawer = (row: any) => {
 const goDownloadRecords = (row: any) => {
   router.push({ path: '/openlist/ptDownloadRecord', query: { subId: row.id } })
 }
+
+// 从下载记录页点订阅名跳过来时带 ?id=，直接弹出该订阅的进度（与 PC 端一致）
+onMounted(() => {
+  const subId = Number(route.query.id)
+  if (subId) showProgressById(subId)
+})
 </script>
 
 <style scoped lang="scss">
-.mobile-page {
+.list-toolbar {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: calc(100vh - 120px);
-  padding-bottom: 8px;
+  justify-content: flex-end;
 }
 
-.task-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 200px;
-  flex: 1;
+.batch-bar .select-all-checkbox {
+  flex: none;
+
+  :deep(.v-selection-control) {
+    min-height: auto;
+  }
+
+  :deep(.v-label) {
+    font-size: 13px;
+  }
 }
 
+/* ---- 进度弹窗：每集明细 ---- */
+.episode-detail-toggle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--osr-border-light);
+  font-size: 13px;
+  color: var(--osr-primary);
+  cursor: pointer;
 
+  .v-icon {
+    transition: transform var(--osr-transition-fast);
+
+    &.is-open {
+      transform: rotate(180deg);
+    }
+  }
+}
+
+.episode-detail-list {
+  margin-top: 8px;
+  max-height: 44vh;
+  overflow-y: auto;
+}
+
+.episode-detail-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  font-size: 13px;
+  border-bottom: 1px solid var(--osr-border-light);
+
+  .ep-num {
+    width: 60px;
+    flex-shrink: 0;
+    color: var(--osr-text-primary);
+  }
+}
+
+.progress-actions {
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* ---- 候选种子选择 ---- */
+.candidate-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.candidate-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px;
+  border-radius: var(--osr-radius-sm);
+  border: 2px solid transparent;
+  background: var(--osr-bg-page);
+  cursor: pointer;
+
+  &.selected {
+    border-color: var(--osr-primary-accent);
+    background: var(--osr-primary-subtle);
+  }
+
+  .candidate-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--osr-text-primary);
+    line-height: 1.4;
+    word-break: break-all;
+  }
+
+  .candidate-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+
+  .candidate-meta {
+    font-size: 11px;
+    color: var(--osr-text-secondary);
+  }
+}
+
+.card-title .sub-year {
+  font-weight: 400;
+  color: var(--osr-text-secondary);
+  font-size: 12px;
+}
 .sub-card {
   display: flex;
   gap: 10px;
@@ -438,8 +774,8 @@ const goDownloadRecords = (row: any) => {
   transition: all var(--osr-transition-fast);
 
   &.selected {
-    border-color: var(--osr-primary-light-5);
-    background: var(--osr-primary-light-9);
+    border-color: var(--osr-primary-accent);
+    background: var(--osr-primary-subtle);
   }
 
   &:active {
@@ -466,45 +802,33 @@ const goDownloadRecords = (row: any) => {
     width: 100%;
     height: 100%;
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
+    gap: 3px;
     color: var(--osr-text-disabled);
     font-size: 20px;
-  }
-}
 
-.sub-content {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-}
+    /* 与 PC 端一致的装饰渐变：明暗主题下都是深底白字，刻意不走 --osr-* 令牌 */
+    &.placeholder-movie {
+      background:
+        radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.14), transparent 45%),
+        linear-gradient(135deg, #1e3a5f 0%, #2d5a87 50%, #1e3a5f 100%);
+      color: rgba(255, 255, 255, 0.7);
+    }
 
-.sub-top {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
+    &.placeholder-tv {
+      background:
+        radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.14), transparent 45%),
+        linear-gradient(135deg, #3b1f47 0%, #6b3a7a 50%, #3b1f47 100%);
+      color: rgba(255, 255, 255, 0.7);
+    }
 
-  .sub-name {
-    flex: 1;
-    min-width: 0;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--osr-text-primary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    display: -webkit-box;
-    -webkit-line-clamp: 2;
-    -webkit-box-orient: vertical;
-    line-height: 1.4;
-  }
-
-  .sub-year {
-    font-weight: 400;
-    color: var(--osr-text-secondary);
-    font-size: 12px;
+    .placeholder-text {
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 1px;
+    }
   }
 }
 
@@ -513,38 +837,6 @@ const goDownloadRecords = (row: any) => {
   gap: 8px;
   font-size: 11px;
   color: var(--osr-text-secondary);
-}
-
-.detail-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  line-height: 1.6;
-
-  .label {
-    flex-shrink: 0;
-    width: 58px;
-    color: var(--osr-text-secondary);
-  }
-
-  .value {
-    flex: 1;
-    min-width: 0;
-    color: var(--osr-text-primary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-}
-
-.sub-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px;
-  margin-top: 2px;
-  padding-top: 6px;
-  border-top: 1px solid var(--osr-border-light);
 }
 
 .progress-title {
@@ -607,7 +899,7 @@ const goDownloadRecords = (row: any) => {
 
 .log-reason {
   font-size: 11px;
-  color: var(--osr-error);
+  color: rgb(var(--v-theme-error));
 }
 
 .override-tip {
@@ -644,10 +936,103 @@ const goDownloadRecords = (row: any) => {
   }
 }
 
-.drawer-actions {
+.subscribe-search-row {
+  display: flex;
+  gap: 8px;
+
+  .type-select {
+    width: 110px;
+    flex: none;
+  }
+
+  .keyword-field {
+    flex: 1;
+    min-width: 0;
+  }
+}
+
+.search-result-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  width: 100%;
+  max-height: 40vh;
+  overflow-y: auto;
+  margin-top: 10px;
+}
+
+.search-result-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px;
+  border-radius: var(--osr-radius-sm);
+  border: 2px solid transparent;
+  background: var(--osr-bg-page);
+
+  &.selected {
+    border-color: var(--osr-primary-accent);
+    background: var(--osr-primary-subtle);
+  }
+}
+
+.result-poster {
+  flex-shrink: 0;
+  width: 40px;
+  height: 60px;
+  border-radius: var(--osr-radius-sm);
+  overflow: hidden;
+  background: var(--osr-surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--osr-text-disabled);
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+}
+
+.result-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.result-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--osr-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.result-original {
+  font-size: 11px;
+  color: var(--osr-text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.picked-bar {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--osr-radius-sm);
+  background: var(--osr-bg-page);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 13px;
+
+  .season-field {
+    width: 90px;
+    display: inline-flex;
+  }
 }
 </style>

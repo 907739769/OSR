@@ -42,6 +42,9 @@
       <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-play-outline" @click="handleBatchExecute">
         批量执行
       </v-btn>
+      <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleBatchDelete">
+        批量删除
+      </v-btn>
       <v-btn variant="text" size="small" @click="clearSelection">
         取消
       </v-btn>
@@ -55,7 +58,7 @@
     <!-- Task List -->
     <div class="task-list">
       <v-progress-linear v-if="loading" indeterminate color="primary" />
-      <div
+      <v-card
         v-for="task in taskList"
         :key="task.id"
         class="task-card"
@@ -72,17 +75,15 @@
         </div>
         <div class="card-content">
           <div class="card-top">
-            <div class="task-name-row">
-              <v-icon class="task-icon" icon="mdi-map-marker-outline" size="18" />
-              <span class="task-name" @click.stop="showFullText(task.sourceFolder, '源目录')">{{ task.sourceFolder }}</span>
+            <div class="card-title-row">
+              <v-icon class="card-title-icon" icon="mdi-map-marker-outline" size="18" />
+              <span class="card-title card-title--link" @click.stop="showFullText(task.sourceFolder, '源目录')">{{ task.sourceFolder }}</span>
             </div>
-            <v-chip :color="task.status === '1' ? 'success' : 'error'" size="small" variant="tonal">
-              {{ task.status === '1' ? '启用' : '停用' }}
-            </v-chip>
+            <StatusChip :value="task.status" />
           </div>
-          <div class="task-path" @click.stop="showFullText(task.targetRoot, '目标目录')">
-            <v-icon class="path-icon" icon="mdi-map-marker-outline" size="14" />
-            <span class="path-text">{{ task.targetRoot }}</span>
+          <div class="card-path card-path--link" @click.stop="showFullText(task.targetRoot, '目标目录')">
+            <v-icon class="card-path-icon" icon="mdi-map-marker-outline" size="14" />
+            <span class="card-path-text">{{ task.targetRoot }}</span>
           </div>
           <div class="card-time">
             <v-icon icon="mdi-clock-outline" size="12" />
@@ -94,7 +95,7 @@
             <v-btn class="action-more" variant="text" color="default" size="small" icon="mdi-dots-horizontal" @click="openActionDrawer(task)" />
           </div>
         </div>
-      </div>
+      </v-card>
 
       <v-empty-state v-if="!loading && taskList.length === 0" icon="mdi-inbox-outline" title="暂无重命名任务" />
     </div>
@@ -125,43 +126,36 @@
     <FullTextDialog ref="fullTextRef" />
 
     <!-- Add/Edit Dialog -->
-    <v-dialog v-model="open" max-width="90%">
+    <v-dialog v-model="open" width="92%">
       <v-card :title="dialogTitle">
         <v-card-text>
           <v-form ref="formRef">
-            <div class="form-item">
-              <label class="form-label">源目录</label>
+            <FormField label="源目录">
               <DirectoryTreeSelect v-model="form.sourceFolder" type="local" placeholder="请选择源目录" />
-            </div>
-            <div class="form-item">
-              <label class="form-label">目标目录</label>
+            </FormField>
+            <FormField label="目标目录">
               <DirectoryTreeSelect v-model="form.targetRoot" type="local" placeholder="请选择目标目录" />
-            </div>
-            <div class="form-item">
-              <label class="form-label">状态</label>
+            </FormField>
+            <FormField label="状态">
               <v-radio-group v-model="form.status" inline hide-details>
                 <v-radio label="停用" value="0" />
                 <v-radio label="启用" value="1" />
               </v-radio-group>
-            </div>
+            </FormField>
             <div class="section-label">刮削配置</div>
             <v-divider class="mb-3" />
-            <div class="form-item form-item-inline">
-              <label class="form-label">启用刮削</label>
+            <FormField label="启用刮削" inline>
               <v-switch v-model="form.scrapeEnabled" true-value="1" false-value="0" color="primary" hide-details density="compact" />
-            </div>
-            <div class="form-item form-item-inline" v-if="form.scrapeEnabled === '1'">
-              <label class="form-label">生成NFO</label>
+            </FormField>
+            <FormField v-if="form.scrapeEnabled === '1'" label="生成NFO" inline>
               <v-switch v-model="form.scrapeNfo" true-value="1" false-value="0" color="primary" hide-details density="compact" />
-            </div>
-            <div class="form-item form-item-inline" v-if="form.scrapeEnabled === '1'">
-              <label class="form-label">下载图片</label>
+            </FormField>
+            <FormField v-if="form.scrapeEnabled === '1'" label="下载图片" inline>
               <v-switch v-model="form.scrapeImages" true-value="1" false-value="0" color="primary" hide-details density="compact" />
-            </div>
-            <div class="form-item form-item-inline" v-if="form.scrapeEnabled === '1'">
-              <label class="form-label">强制覆盖</label>
+            </FormField>
+            <FormField v-if="form.scrapeEnabled === '1'" label="强制覆盖" inline>
               <v-switch v-model="form.scrapeForceOverwrite" true-value="1" false-value="0" color="primary" hide-details density="compact" />
-            </div>
+            </FormField>
           </v-form>
         </v-card-text>
         <v-card-actions>
@@ -176,6 +170,8 @@
 </template>
 
 <script setup lang="ts">
+import StatusChip from '@/components/StatusChip.vue'
+import FormField from '@/components/FormField.vue'
 import { ref } from 'vue'
 import DirectoryTreeSelect from '@/components/DirectoryTreeSelect/index.vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
@@ -190,7 +186,7 @@ const {
   selectedIds, toggleSelect, handleCardClick, clearSelection,
   open, dialogTitle, submitLoading, formRef, form,
   handleAdd, handleUpdate, submitForm, handleDelete,
-  handleExecuteOne, handleBatchExecute
+  handleExecuteOne, handleBatchExecute, handleBatchDelete
 } = useRenameTask()
 
 const fullTextRef = ref<InstanceType<typeof FullTextDialog>>()
@@ -206,149 +202,10 @@ const openActionDrawer = (row: any) => {
 </script>
 
 <style scoped lang="scss">
-.mobile-page {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: calc(100vh - 120px);
-  padding-bottom: 8px;
-
-  .task-list {
-    flex: 1;
-  }
-}
-
-/* ============================================
-   Batch Action Bar
-   ============================================ */
-
-
-/* ============================================
-   Task List
-   ============================================ */
-.task-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 200px;
-}
-
-.task-card {
-  .card-top {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 6px;
-    gap: 8px;
-  }
-
-  .task-name-row {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    min-width: 0;
-    flex: 1;
-
-    .task-icon {
-      color: var(--osr-primary);
-      flex-shrink: 0;
-    }
-
-    .task-name {
-      font-size: 14px;
-      font-weight: 500;
-      color: var(--osr-text-primary);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-      line-height: 1.4;
-      cursor: pointer;
-      word-break: break-all;
-
-      &:hover {
-        color: var(--osr-primary);
-      }
-    }
-  }
-
-  .task-path {
-    display: flex;
-    align-items: flex-start;
-    gap: 3px;
-    font-size: 12px;
-    color: var(--osr-text-secondary);
-    margin-bottom: 6px;
-    cursor: pointer;
-    line-height: 1.5;
-
-    .path-icon {
-      flex-shrink: 0;
-      margin-top: 2px;
-      color: var(--osr-text-disabled);
-    }
-
-    .path-text {
-      flex: 1;
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-      word-break: break-all;
-    }
-
-    &:hover {
-      color: var(--osr-primary);
-    }
-  }
-
-  .card-time {
-    display: flex;
-    align-items: center;
-    gap: 3px;
-    font-size: 11px;
-    color: var(--osr-text-disabled);
-  }
-
-}
-
-/* ============================================
-   FAB Add Button
-   ============================================ */
-
-
-/* ============================================
-   Form
-   ============================================ */
-.form-item {
-  margin-bottom: 16px;
-
-  .form-label {
-    display: block;
-    margin-bottom: 6px;
-    font-size: 13px;
-    color: var(--osr-text-secondary);
-  }
-
-  &.form-item-inline {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-
-    .form-label {
-      margin-bottom: 0;
-    }
-  }
-}
-
 .section-label {
   font-size: 13px;
   font-weight: 600;
   color: var(--osr-text-primary);
   margin-bottom: 8px;
 }
-
 </style>

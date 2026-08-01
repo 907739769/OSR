@@ -1,5 +1,11 @@
 <template>
   <div class="page-container">
+    <PageHeader
+      icon="mdi-rename-outline"
+      title="重命名任务配置"
+      desc="配置需要按 TMDb 刮削结果重命名的目录，支持同时生成 NFO 与图片"
+    />
+
     <!-- Search Panel -->
     <v-card v-if="showSearch" class="search-card">
       <v-form ref="queryRef" @submit.prevent="handleQuery">
@@ -84,14 +90,12 @@
       >
         <template #item.config="{ item }">
           <div class="path-box">
-            <div class="path-row"><span class="path-label label-src">源</span> <span class="path-text">{{ item.sourceFolder }}</span></div>
-            <div class="path-row"><span class="path-label label-dst">目</span> <span class="path-text">{{ item.targetRoot }}</span></div>
+            <div class="path-row"><span class="path-label path-label--src">源</span> <span class="path-text">{{ item.sourceFolder }}</span></div>
+            <div class="path-row"><span class="path-label path-label--dst">目</span> <span class="path-text">{{ item.targetRoot }}</span></div>
           </div>
         </template>
         <template #item.status="{ item }">
-          <v-chip size="small" :color="item.status === '0' ? 'error' : 'success'" variant="tonal">
-            {{ item.status === '0' ? '停用' : '启用' }}
-          </v-chip>
+          <StatusChip :value="item.status" />
         </template>
         <template #item.actions="{ item }">
           <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(item)">
@@ -112,39 +116,32 @@
       <v-card :title="dialogTitle">
         <v-card-text>
           <v-form ref="formRef">
-            <div class="form-item">
-              <label class="form-label">源目录</label>
+            <FormField label="源目录">
               <DirectoryTreeSelect v-model="form.sourceFolder" type="local" placeholder="请选择源目录" />
-            </div>
-            <div class="form-item">
-              <label class="form-label">目标目录</label>
+            </FormField>
+            <FormField label="目标目录">
               <DirectoryTreeSelect v-model="form.targetRoot" type="local" placeholder="请选择目标目录" />
-            </div>
-            <div class="form-item">
-              <label class="form-label">状态</label>
+            </FormField>
+            <FormField label="状态">
               <v-radio-group v-model="form.status" inline hide-details>
                 <v-radio label="停用" value="0" />
                 <v-radio label="启用" value="1" />
               </v-radio-group>
-            </div>
+            </FormField>
             <div class="section-label">刮削配置</div>
             <v-divider class="mb-3" />
-            <div class="form-item form-item-inline">
-              <label class="form-label">启用刮削</label>
+            <FormField label="启用刮削" inline>
               <v-switch v-model="form.scrapeEnabled" true-value="1" false-value="0" color="primary" hide-details density="compact" />
-            </div>
-            <div class="form-item form-item-inline" v-if="form.scrapeEnabled === '1'">
-              <label class="form-label">生成NFO</label>
+            </FormField>
+            <FormField v-if="form.scrapeEnabled === '1'" label="生成NFO" inline>
               <v-switch v-model="form.scrapeNfo" true-value="1" false-value="0" color="primary" hide-details density="compact" />
-            </div>
-            <div class="form-item form-item-inline" v-if="form.scrapeEnabled === '1'">
-              <label class="form-label">下载图片</label>
+            </FormField>
+            <FormField v-if="form.scrapeEnabled === '1'" label="下载图片" inline>
               <v-switch v-model="form.scrapeImages" true-value="1" false-value="0" color="primary" hide-details density="compact" />
-            </div>
-            <div class="form-item form-item-inline" v-if="form.scrapeEnabled === '1'">
-              <label class="form-label">强制覆盖</label>
+            </FormField>
+            <FormField v-if="form.scrapeEnabled === '1'" label="强制覆盖" inline>
               <v-switch v-model="form.scrapeForceOverwrite" true-value="1" false-value="0" color="primary" hide-details density="compact" />
-            </div>
+            </FormField>
           </v-form>
         </v-card-text>
         <v-card-actions>
@@ -159,6 +156,9 @@
 </template>
 
 <script setup lang="ts">
+import StatusChip from '@/components/StatusChip.vue'
+import PageHeader from '@/components/PageHeader.vue'
+import FormField from '@/components/FormField.vue'
 import { ref } from 'vue'
 import DirectoryTreeSelect from '@/components/DirectoryTreeSelect/index.vue'
 import { useRenameTask } from '@/composables/useRenameTask'
@@ -204,91 +204,10 @@ const onSizeChange = (size: number) => {
 <style scoped lang="scss">
 /* 公共布局（.page-container/.search-card/.table-card 等）由全局 styles/list.scss 统一提供 */
 
-
-
-
-
-
-
-/* ============================================
-   Rename Config Column (Desktop Table)
-   ============================================ */
-.path-box {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px 0;
-}
-
-.path-row {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  min-width: 0;
-}
-
-.path-label {
-  flex-shrink: 0;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 3px;
-  line-height: 1.4;
-}
-
-.label-src {
-  color: #4C6C93;
-  background: rgba(76, 108, 147, 0.1);
-}
-
-.label-dst {
-  color: #3F8F5F;
-  background: rgba(63, 143, 95, 0.1);
-}
-
-.path-text {
-  flex: 1;
-  min-width: 0;
-  font-size: 12px;
-  color: var(--osr-text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* ============================================
-   Form
-   ============================================ */
-.form-item {
-  margin-bottom: 16px;
-
-  .form-label {
-    display: block;
-    margin-bottom: 6px;
-    font-size: 13px;
-    color: var(--osr-text-secondary);
-  }
-
-  &.form-item-inline {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-
-    .form-label {
-      margin-bottom: 0;
-    }
-  }
-}
-
 .section-label {
   font-size: 13px;
   font-weight: 600;
   color: var(--osr-text-primary);
   margin-bottom: 8px;
 }
-
-/* ============================================
-   Mobile Responsive
-   ============================================ */
-
 </style>

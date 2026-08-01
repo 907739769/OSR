@@ -34,13 +34,19 @@
 
   <v-main>
     <div class="content-wrapper">
+      <!-- 这里刻意不加 <transition>。
+           原先包了一层 <transition name="fade-slide">，但在「<KeepAlive> 与裸 <component>
+           交替 + 页面组件异步加载」这个结构下过渡钩子从首屏起就没正常收敛过：
+           fade-slide-enter-from 一直挂在元素上不被移除，离场过渡也永远收不到结束事件，
+           结果是每导航一次旧页面就留在新页面下方，越堆越多。
+           加 mode="out-in" / :duration 都压不住（离场卡住后新页面根本进不来），
+           所以直接去掉这层过渡。要重做页面切换动画得先解决异步组件的过渡时机，
+           属于单独一件事。 -->
       <router-view v-slot="{ Component, route: currentRoute }">
-        <transition name="fade-slide">
-          <keep-alive v-if="currentRoute.meta?.keepAlive" :max="6">
-            <component :is="Component" :key="currentRoute.path" />
-          </keep-alive>
-          <component v-else :is="Component" :key="currentRoute.path" />
-        </transition>
+        <keep-alive v-if="currentRoute.meta?.keepAlive" :max="6">
+          <component :is="Component" :key="currentRoute.path" />
+        </keep-alive>
+        <component v-else :is="Component" :key="currentRoute.path" />
       </router-view>
     </div>
   </v-main>
@@ -131,18 +137,4 @@ const handleLogout = async () => {
   min-height: 0;
 }
 
-.fade-slide-enter-active,
-.fade-slide-leave-active {
-  transition: opacity var(--osr-transition-base);
-}
-
-.fade-slide-enter-from {
-  opacity: 0;
-  transform: translateX(8px);
-}
-
-.fade-slide-leave-to {
-  opacity: 0;
-  transform: translateX(-8px);
-}
 </style>

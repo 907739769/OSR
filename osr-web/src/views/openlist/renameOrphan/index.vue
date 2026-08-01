@@ -1,5 +1,11 @@
 <template>
   <div class="page-container">
+    <PageHeader
+      icon="mdi-file-remove-outline"
+      title="重命名一致性检查"
+      desc="扫描重命名后已失效的记录（本地文件丢失或网盘源丢失），可清理或忽略"
+    />
+
     <!-- Search Panel -->
     <v-card v-if="showSearch" class="search-card">
       <v-form ref="queryRef" @submit.prevent="handleQuery">
@@ -23,7 +29,7 @@
             density="compact"
             variant="outlined"
             hide-details
-            class="reason-select"
+            class="field-md"
           />
           <v-select
             v-model="queryParams.status"
@@ -109,6 +115,7 @@
 </template>
 
 <script setup lang="ts">
+import PageHeader from '@/components/PageHeader.vue'
 import { ref } from 'vue'
 import { useRenameOrphanList } from '@/composables/useRenameOrphanList'
 
@@ -155,14 +162,6 @@ getList()
 </script>
 
 <style scoped lang="scss">
-
-.search-fields {
-
-  .reason-select {
-    width: 180px;
-  }
-}
-
 .orphan-year {
   color: var(--osr-text-secondary);
   font-size: 12px;
@@ -175,24 +174,5 @@ getList()
   text-overflow: ellipsis;
   white-space: nowrap;
   display: block;
-}
-
-@media (max-width: 768px) {
-
-  .search-fields {
-    > .v-text-field,
-    .reason-select,
-    .status-select {
-      width: 100%;
-    }
-
-    .search-actions {
-      width: 100%;
-
-      .v-btn {
-        flex: 1;
-      }
-    }
-  }
 }
 </style>

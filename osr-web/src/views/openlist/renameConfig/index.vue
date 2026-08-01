@@ -1,10 +1,16 @@
 <template>
   <div class="page-container">
+    <PageHeader
+      icon="mdi-file-swap-outline"
+      title="重命名规则设置"
+      desc="配置文件名生成模板与分类目录规则，可在下方直接测试解析效果"
+    />
+
     <v-card class="table-card">
       <v-tabs v-model="activeTab" color="primary">
-        <v-tab value="template">文件名模板</v-tab>
-        <v-tab value="rules">分类规则</v-tab>
-        <v-tab value="test">重命名测试</v-tab>
+        <v-tab value="template" prepend-icon="mdi-file-document-edit-outline">文件名模板</v-tab>
+        <v-tab value="rules" prepend-icon="mdi-folder-cog-outline">分类规则</v-tab>
+        <v-tab value="test" prepend-icon="mdi-flask-outline">重命名测试</v-tab>
       </v-tabs>
 
       <v-window v-model="activeTab">
@@ -51,6 +57,10 @@
               <v-progress-circular indeterminate color="primary" size="32" />
             </div>
             <div v-else>
+              <v-alert type="info" variant="tonal" density="compact" class="fallback-hint">
+                规则从上到下依次匹配，命中即用该目录；列表末尾的"兜底"规则在都未命中时生效，无法删除或调整匹配条件，仅目录名可编辑。
+              </v-alert>
+
               <div class="section-divider">电影</div>
               <RuleTable
                 :rules="movieRules" media-type="movie"
@@ -102,10 +112,15 @@
                   <template #title>重命名结果预览</template>
                   <div class="result-text">{{ testResult.renamed }}</div>
                 </v-alert>
-                <v-alert type="info" variant="tonal" density="compact">
-                  <template #title>识别参数详情</template>
-                  <pre class="result-json">{{ JSON.stringify(testResult.info, null, 2) }}</pre>
-                </v-alert>
+                <div class="result-info-card">
+                  <div class="result-info-title">识别参数详情</div>
+                  <div class="result-info-grid">
+                    <template v-for="(value, key) in testResult.info" :key="key">
+                      <div class="info-key">{{ key }}</div>
+                      <div class="info-value">{{ value ?? '—' }}</div>
+                    </template>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -117,6 +132,7 @@
 
 <script setup lang="ts">
 import { ref, nextTick } from 'vue'
+import PageHeader from '@/components/PageHeader.vue'
 import RuleTable from './RuleTable.vue'
 import { useRenameConfig, TEMPLATE_VARIABLES } from '@/composables/useRenameConfig'
 
@@ -156,18 +172,6 @@ const insertVariable = (varName: string) => {
 </script>
 
 <style scoped lang="scss">
-.page-container {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-}
-
-.table-card {
-  border: none;
-  border-radius: var(--osr-radius-lg);
-  box-shadow: var(--osr-shadow-base);
-}
-
 .tab-body {
   padding: 16px;
 }
@@ -226,14 +230,40 @@ const insertVariable = (varName: string) => {
     word-break: break-all;
     white-space: pre-wrap;
   }
+}
 
-  .result-json {
+.result-info-card {
+  background: var(--osr-bg-page);
+  border-radius: var(--osr-radius-md);
+  padding: 12px 14px;
+
+  .result-info-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--osr-text-secondary);
+    margin-bottom: 8px;
+  }
+
+  .result-info-grid {
+    display: grid;
+    grid-template-columns: max-content 1fr;
+    row-gap: 6px;
+    column-gap: 16px;
     max-height: 300px;
     overflow: auto;
+  }
+
+  .info-key {
     font-size: 12px;
-    background: var(--osr-bg-page);
-    padding: 10px;
-    border-radius: 4px;
+    color: var(--osr-text-secondary);
+    font-family: Consolas, monospace;
+    white-space: nowrap;
+  }
+
+  .info-value {
+    font-size: 13px;
+    color: var(--osr-text-primary);
+    word-break: break-all;
   }
 }
 
@@ -250,6 +280,10 @@ const insertVariable = (varName: string) => {
 .template-actions,
 .rules-actions {
   margin-top: 12px;
+}
+
+.fallback-hint {
+  margin-bottom: 4px;
 }
 
 @media (max-width: 768px) {

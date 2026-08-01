@@ -515,7 +515,7 @@ onUnmounted(() => {
 
   .welcome-date {
     flex-shrink: 0;
-    background: var(--osr-primary-light-9);
+    background: var(--osr-primary-subtle);
     color: var(--osr-primary);
     padding: 8px 18px;
     border-radius: var(--osr-radius-md);
@@ -601,7 +601,7 @@ onUnmounted(() => {
   }
 
   &.primary .stat-icon {
-    background-color: var(--osr-primary-light-9);
+    background-color: var(--osr-primary-subtle);
     color: var(--osr-primary);
   }
   &.success .stat-icon {
@@ -781,13 +781,13 @@ onUnmounted(() => {
   .pt-top-progress {
     height: 4px;
     border-radius: 2px;
-    background: var(--osr-primary-light-9);
+    background: var(--osr-primary-subtle);
     overflow: hidden;
 
     .pt-top-progress-bar {
       height: 100%;
       border-radius: 2px;
-      background: linear-gradient(90deg, var(--osr-primary-light-5), var(--osr-primary));
+      background: linear-gradient(90deg, var(--osr-primary-accent), var(--osr-primary));
       transition: width var(--osr-transition-base);
     }
   }
@@ -893,7 +893,7 @@ onUnmounted(() => {
     }
 
     &:hover {
-      background: var(--osr-primary-light-9);
+      background: var(--osr-primary-subtle);
       transform: translateY(-1px);
     }
   }

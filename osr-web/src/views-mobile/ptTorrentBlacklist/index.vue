@@ -11,7 +11,6 @@
           clearable
           density="compact"
           variant="outlined"
-          class="mb-3"
         />
         <v-text-field
           v-model="queryParams.displayValue"
@@ -33,10 +32,10 @@
     <!-- 列表 -->
     <div class="task-list">
       <v-progress-linear v-if="loading" indeterminate color="primary" />
-      <div v-for="item in taskList" :key="item.id" class="task-card">
+      <v-card v-for="item in taskList" :key="item.id" class="task-card">
         <div class="card-content">
           <div class="card-top">
-            <span class="task-name" :title="item.displayValue">{{ item.displayValue || '(无展示内容)' }}</span>
+            <span class="card-title" :title="item.displayValue">{{ item.displayValue || '(无展示内容)' }}</span>
             <v-chip :color="item.type === 'GUID' ? 'error' : 'warning'" size="small" variant="tonal">
               {{ item.type === 'GUID' ? '种子' : '发布组' }}
             </v-chip>
@@ -61,7 +60,7 @@
             </v-btn>
           </div>
         </div>
-      </div>
+      </v-card>
 
       <v-empty-state v-if="!loading && taskList.length === 0" icon="mdi-inbox-outline" title="暂无黑名单规则" />
     </div>
@@ -78,7 +77,7 @@
     />
 
     <!-- 新增弹窗 -->
-    <v-dialog v-model="open" max-width="90%">
+    <v-dialog v-model="open" width="92%">
       <v-card :title="dialogTitle">
         <v-card-text>
           <v-form ref="formRef">
@@ -145,102 +144,3 @@ const shortHash = (value: string) => {
   return value.length > 12 ? `${value.slice(0, 6)}...${value.slice(-4)}` : value
 }
 </script>
-
-<style scoped lang="scss">
-.mobile-page {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: calc(100vh - 120px);
-  padding-bottom: 8px;
-}
-
-.task-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 200px;
-  flex: 1;
-}
-
-.task-card {
-  .card-content {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .card-top {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 8px;
-
-    .task-name {
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--osr-text-primary);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-      line-height: 1.4;
-    }
-  }
-
-  .card-detail {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .detail-row {
-    display: flex;
-    gap: 8px;
-    font-size: 12px;
-    line-height: 1.6;
-
-    .label {
-      flex-shrink: 0;
-      width: 62px;
-      color: var(--osr-text-secondary);
-    }
-
-    .value {
-      flex: 1;
-      min-width: 0;
-      color: var(--osr-text-primary);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-  }
-
-}
-
-.fab-add {
-  position: fixed;
-  right: 20px;
-  bottom: calc(56px + 16px + env(safe-area-inset-bottom, 0px));
-  z-index: 1000;
-  padding: 12px 20px;
-  font-size: 14px;
-  font-weight: 500;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  transition: all var(--osr-transition-fast);
-
-  &:active {
-    transform: scale(0.96);
-  }
-
-  @media (min-width: 768px) {
-    right: 40px;
-    bottom: calc(56px + 24px);
-    padding: 14px 24px;
-    font-size: 15px;
-  }
-}
-</style>

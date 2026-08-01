@@ -11,7 +11,6 @@
           density="compact"
           variant="outlined"
           hide-details
-          class="mb-3"
           @keyup.enter="handleQuery"
         />
         <v-select
@@ -30,8 +29,11 @@
     <!-- Batch Actions -->
     <div class="batch-bar" v-if="selectedIds.length > 0">
       <span class="selected-count">已选 {{ selectedIds.length }} 项</span>
-      <v-btn variant="text" color="primary" size="small" @click="handleBatchExecute">
-        <v-icon icon="mdi-play-circle-outline" start />批量执行
+      <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-play-circle-outline" @click="handleBatchExecute">
+        批量执行
+      </v-btn>
+      <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(undefined, `是否确认删除选中的 ${selectedIds.length} 个STRM任务？`)">
+        批量删除
       </v-btn>
       <v-btn variant="text" size="small" @click="clearSelection">
         取消
@@ -46,7 +48,7 @@
     <!-- Task List -->
     <div class="task-list">
       <v-progress-linear v-if="loading" indeterminate color="primary" />
-      <div
+      <v-card
         v-for="task in taskList"
         :key="task.strmTaskId"
         class="task-card"
@@ -63,13 +65,11 @@
         </div>
         <div class="card-content">
           <div class="card-top">
-            <div class="task-name-row">
-              <v-icon class="task-icon" icon="mdi-file-video-outline" size="18" />
-              <span class="task-name" @click.stop="showFullText(task.strmTaskPath, 'STRM目录')">{{ task.strmTaskPath }}</span>
+            <div class="card-title-row">
+              <v-icon class="card-title-icon" icon="mdi-file-video-outline" size="18" />
+              <span class="card-title card-title--link" @click.stop="showFullText(task.strmTaskPath, 'STRM目录')">{{ task.strmTaskPath }}</span>
             </div>
-            <v-chip :color="task.strmTaskStatus === '1' ? 'success' : 'error'" size="small" variant="tonal">
-              {{ task.strmTaskStatus === '1' ? '启用' : '停用' }}
-            </v-chip>
+            <StatusChip :value="task.strmTaskStatus" />
           </div>
           <div class="card-time">
             <v-icon icon="mdi-clock-outline" size="14" />
@@ -81,7 +81,7 @@
             <v-btn class="action-more" variant="text" color="default" size="small" icon="mdi-dots-horizontal" @click="openActionDrawer(task)" />
           </div>
         </div>
-      </div>
+      </v-card>
 
       <v-empty-state v-if="!loading && taskList.length === 0" icon="mdi-inbox-outline" title="暂无STRM任务" />
     </div>
@@ -112,21 +112,19 @@
     <FullTextDialog ref="fullTextRef" />
 
     <!-- Add/Edit Dialog -->
-    <v-dialog v-model="open" width="90%" class="modern-dialog">
+    <v-dialog v-model="open" width="92%">
       <v-card :title="dialogTitle">
         <v-card-text>
           <v-form ref="formRef">
-            <div class="form-item">
-              <label class="form-label">STRM目录</label>
+            <FormField label="STRM目录">
               <DirectoryTreeSelect v-model="form.strmTaskPath" type="openlist" placeholder="请选择STRM目录" />
-            </div>
-            <div class="form-item">
-              <label class="form-label">状态</label>
+            </FormField>
+            <FormField label="状态">
               <v-radio-group v-model="form.strmTaskStatus" inline hide-details>
                 <v-radio label="停用" value="0" />
                 <v-radio label="启用" value="1" />
               </v-radio-group>
-            </div>
+            </FormField>
           </v-form>
         </v-card-text>
         <v-card-actions>
@@ -140,6 +138,8 @@
 </template>
 
 <script setup lang="ts">
+import StatusChip from '@/components/StatusChip.vue'
+import FormField from '@/components/FormField.vue'
 import { ref, watch } from 'vue'
 import DirectoryTreeSelect from '@/components/DirectoryTreeSelect/index.vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
@@ -192,129 +192,3 @@ watch(
   () => debouncedSearch()
 )
 </script>
-
-<style scoped lang="scss">
-.mobile-page {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: calc(100vh - 120px);
-  padding-bottom: 8px;
-
-  .task-list {
-    flex: 1;
-  }
-}
-
-/* ============================================
-   Batch Action Bar
-   ============================================ */
-
-
-/* ============================================
-   Task List
-   ============================================ */
-.task-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 200px;
-  flex: 1;
-}
-
-.task-card {
-  .card-top {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 6px;
-    gap: 8px;
-  }
-
-  .task-name-row {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    min-width: 0;
-    flex: 1;
-
-    .task-icon {
-      color: var(--osr-primary);
-      flex-shrink: 0;
-    }
-
-    .task-name {
-      font-size: 14px;
-      font-weight: 500;
-      color: var(--osr-text-primary);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-      line-height: 1.4;
-      cursor: pointer;
-      word-break: break-all;
-
-      &:hover {
-        color: var(--osr-primary);
-      }
-    }
-  }
-
-  .card-time {
-    display: flex;
-    align-items: center;
-    gap: 3px;
-    font-size: 11px;
-    color: var(--osr-text-disabled);
-  }
-
-}
-
-/* ============================================
-   FAB Add Button
-   ============================================ */
-.fab-add {
-  position: fixed;
-  right: 20px;
-  bottom: calc(56px + 16px + env(safe-area-inset-bottom, 0px));
-  z-index: 1000;
-  padding: 12px 20px;
-  font-size: 14px;
-  font-weight: 500;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  transition: all var(--osr-transition-fast);
-
-  &:active {
-    transform: scale(0.96);
-  }
-
-  @media (min-width: 768px) {
-    right: 40px;
-    bottom: calc(56px + 24px);
-    padding: 14px 24px;
-    font-size: 15px;
-  }
-}
-
-/* ============================================
-   Dialog
-   ============================================ */
-:deep(.modern-dialog) {
-  .v-card-text {
-    padding: 16px;
-  }
-}
-
-.form-item {
-  margin-bottom: 16px;
-
-  .form-label {
-    display: block;
-    margin-bottom: 6px;
-    font-size: 13px;
-    color: var(--osr-text-secondary);
-  }
-}
-</style>

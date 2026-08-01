@@ -53,13 +53,76 @@ src/
 - **路由**: 后端动态返回菜单，前端根据权限生成路由
 - **列表页模式**: 使用 composables (`useTaskList`/`useRecordList`) 封装增删改查 + 分页 + 搜索
 - **移动端**: `views-mobile/` 独立于 `views/`，使用 `MobileSearchPanel` + `MobilePager` + `FullTextDialog` 组件
-- **移动端页面**: 使用 `.modern-dialog` 类名 + `width="90%"` 适配小屏
+- **移动端页面**: 弹窗统一 `width="92%"`（不要再写 85%/90%/94%，也不要用 `max-width` 传百分比）
 - **TypeScript**: 严格模式，`vue-tsc` 类型检查
-- **CSS 变量**: 使用 `--osr-*` 前缀的设计令牌 (surface, bg-page, text-primary, primary, radius-*, shadow-*, transition-*)；暗色值在 `tokens.scss` 的 `:root[data-theme='dark']` 块中，由 `useThemeMode` 切换
+- **CSS 变量 / 设计令牌**: 见下方「DESIGN SYSTEM」一节
 - **暗色模式**: 顶栏 ThemeSwitch 切换 浅色/深色/跟随系统，`useThemeMode`（模块级单例）同步 Vuetify 主题 (osrLight/osrDark) 与 `<html data-theme>`，localStorage key `osr-theme` 持久化；切换时派发 `osr-theme-change` 事件供 ECharts 等 canvas 场景重绘（`osrCssVar()` 读取当前令牌值）
-- **列表页公共样式**: PC 用 `styles/list.scss`（page-container/search-card/table-card/action-bar/modern-table 等），移动端用 `styles/mobile-list.scss`（task-card/fab-add/batch-bar），**禁止在页面里复制这些类**；各页只保留特有子规则
-- **PageHeader**: 页面头部「图标+标题+描述+操作区」统一用 `PageHeader` 组件，不要自造 page-header 样式
+- **列表页公共样式**: PC 用 `styles/list.scss`，移动端用 `styles/mobile-list.scss`，**禁止在页面里复制这些类**；各页只保留特有子规则（见下方 DESIGN SYSTEM）
+- **PageHeader**: 每个业务页顶部都要有 `PageHeader`（图标+标题+描述+操作区），不要自造 page-header 样式
+- **页面切换不要包 `<transition>`**: 两个 Layout 里都刻意去掉了。在「`<KeepAlive>` 与裸 `<component>` 交替 + 页面组件异步加载」这个结构下，过渡类不会被清掉、离场过渡收不到结束事件，结果是每导航一次旧页面就留在新页面下方越堆越多（`mode="out-in"` / `:duration` 都压不住）。要重做切换动画需先解决异步组件的过渡时机
 - **Dashboard**: PC 统计卡用 `MiniTrend`（SVG sparkline，颜色走 `--osr-*` CSS 变量自动适配暗色）；快捷入口统一用 `useMenuLinks`（菜单树拍平，PC/移动共用，禁止写死路径）；PT 概览/失败列表/图表空态/骨架屏均在 `views/dashboard/desktop.vue` 内
+
+## DESIGN SYSTEM
+
+从 Element Plus 迁到 Vuetify 后做过一轮收口，下面是收口后的单一事实来源。
+`src/styles/__tests__/design-system.spec.ts` 与 `src/router/__tests__/device-parity.spec.ts`
+会在 CI 里挡住违反这些约定的改动，改之前先看一眼这两个 spec。
+
+### 颜色只有一个来源
+- **品牌色/表面色的唯一定义在 `plugins/vuetify.ts` 的 `osrLight` / `osrDark`。**
+  `styles/tokens.scss` 里的 `--osr-primary` / `--osr-surface` / `--osr-success` … 都是
+  `rgb(var(--v-theme-*))` 派生，不再抄第二份色值，暗色切换由 Vuetify 单点负责。
+- `tokens.scss` 的 `:root[data-theme='dark']` 块**只剩文字 / 边框 / 阴影**——这些 Vuetify 没有对应项。
+- primary 的层级用语义名，不要再用 Element Plus 那套 `light-1..9` 阶梯：
+  `--osr-primary-subtle`（选中块背景）/ `--osr-primary-muted`（浅描边）/
+  `--osr-primary-accent`（强调描边）/ `--osr-primary-hover`（hover 文字）
+- **样式里不写死十六进制颜色**。语义色一律 `rgb(var(--v-theme-xxx))` 或 `--osr-*`。
+  例外只有：海报占位装饰渐变、日志终端配色、登录页品牌渐变、ECharts 配色（spec 里有白名单）。
+
+### 布局类单源
+| 类 | 定义在 | 用途 |
+|---|---|---|
+| `.page-container` `.search-card` `.table-card` `.action-bar` `.batch-toolbar` `.pagination-wrapper` | `styles/list.scss` | PC 列表页骨架 |
+| `.search-fields` + `.field-sm/.field-md/.field-lg/.date-field` | `styles/list.scss` | PC 搜索区（**只有这一种搜索布局**，不要再用 `v-row/v-col` 或自造 `.search-row`） |
+| `.inline-fields` | `styles/list.scss` | 弹窗里的一行输入组合（宽度自定，不套搜索区档位） |
+| `.path-box/.path-row/.path-label--src\|dst\|mon/.path-text/.path-name` | `styles/list.scss` | 表格里的「源/目标/监控」路径对照 |
+| `.card-grid` `.item-card`（`--failed/--selectable/--compact`）+ `.card-header/body/row/footer` | `styles/list.scss` | PC 卡片网格（PT 配置类页面） |
+| `.mobile-page` `.task-list` `.task-card` `.fab-add` `.batch-bar` `.card-actions` `.drawer-actions` `.date-range-fields` | `styles/mobile-list.scss` | 移动端页面骨架与卡片 |
+| `.mobile-card*` | `styles/mobile-list.scss` | PC 页在 <768px 时的表格降级卡片（monitor/job、dict/*） |
+
+**移动端卡片解剖结构固定为**（不要再自造 `.record-card` / `.sub-card` / `.file-name-row` 这类同义名）：
+```
+<v-card class="task-card">        surface/圆角/阴影由 v-card 给
+  .card-checkbox
+  .card-content                   flex column，gap 6px 统一纵向节奏
+    .card-top > .card-title-row > .card-title-icon + .card-title[.card-title--link]
+    .card-path[.card-path--link|--success|--warning] > .card-path-icon + .card-path-text
+    .card-detail > .detail-row > .label + .value
+    .card-time
+    .card-actions > … + .action-more
+```
+
+### 组件
+- **`FormField`**：外置 label + 控件 + 下方说明。用于控件自身没有 label 的场景
+  （DirectoryTreeSelect / v-radio-group / v-switch / 输入框+按钮组合），或需要补说明文字时。
+  `v-text-field` / `v-select` / `v-textarea` 若不需要说明，**直接用它们自己的 `label` prop**，
+  别套 FormField —— 否则同一个弹窗里会出现浮动 label 和贴顶 label 两种标签位置。
+  **禁止再手写 `.form-item` / `.form-label` / `.field-label`**（那是 `el-form-item` 的复刻）。
+- **`StatusChip`**：所有状态徽章走它。二元开关用 `<StatusChip :value="row.enabled" />`，
+  开=success 关=error 全站一致；自定义状态用 `<StatusChip type="warning" text="下载中" />`。
+- **`PageHeader`**：每个业务页顶部都要有。
+- 卡片一律用 `<v-card>`，不要手写 `background: var(--osr-surface) + border-radius + box-shadow`。
+
+### 弹窗
+- PC 三档：`max-width="480"`（确认类）/ `600`（表单类）/ `900`（数据表类）
+- 移动端统一 `width="92%"`
+- 次要按钮（取消/关闭/测试连接）统一 `variant="outlined"`，主按钮 `variant="flat"`
+
+### PC / 移动端对齐
+- 新增功能必须同时改 `views/` 和 `views-mobile/`。
+- 两端功能差异由 `device-parity.spec.ts` 比对 composable 解构出的动作集合；
+  确有差异要在该 spec 的 `ALLOWED_GAPS` 里登记原因（登记本身就是一次评审）。
+- 选择/分页这层交互外壳按设备不同是正常的，已在 spec 的 `SHELL_ONLY` 里排除。
 
 ## ANTI-PATTERNS
 - 不要在组件中直接调用 `axios`，统一用 `src/api/` 中的封装
@@ -68,3 +131,6 @@ src/
 - 移动端页面不要使用 PC 端组件 (Vuetify PC 组件)
 - 每个页面都要考虑H5端的适配
 - 列表页不要各自实现分页/搜索逻辑，复用 `useTaskList`/`useRecordList`
+- **不要写死路由 path**。后端菜单 path 历史上有 `/openlist/xxx` 与 `/openliststrm/xxx` 两种前缀，
+  写死会跳 404。用 `getRoutePathForComponent('openlist/xxx/index')` 按 `meta.componentKey` 反查
+  （不要用组件对象引用比对，HMR 下会失效）。菜单快捷入口用 `useMenuLinks`。

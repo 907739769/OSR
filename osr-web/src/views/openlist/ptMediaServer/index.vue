@@ -1,9 +1,15 @@
 <template>
   <div class="page-container">
+    <PageHeader
+      icon="mdi-server-network-outline"
+      title="媒体服务器"
+      desc="配置 Emby / Jellyfin，用于入库对账"
+    />
+
     <!-- Search Panel -->
     <v-card v-if="showSearch" class="search-card">
       <v-form @submit.prevent="handleQuery">
-        <div class="search-row">
+        <div class="search-fields">
           <v-text-field
             v-model="queryParams.name"
             label="名称"
@@ -12,7 +18,6 @@
             density="compact"
             variant="outlined"
             hide-details
-            class="search-field"
             @keyup.enter="handleQuery"
           />
           <v-select
@@ -24,7 +29,7 @@
             density="compact"
             variant="outlined"
             hide-details
-            class="search-field search-field-sm"
+            class="field-sm"
           />
           <div class="search-actions">
             <v-btn color="primary" prepend-icon="mdi-magnify" @click="handleQuery">搜索</v-btn>
@@ -58,15 +63,15 @@
         <div v-for="item in taskList" :key="item.id" class="item-card">
           <div class="card-header">
             <div class="card-checkbox">
-              <v-checkbox-btn
+              <v-checkbox
                 :model-value="selectedIds.includes(item.id)"
+                density="compact"
+                hide-details
                 @update:model-value="toggleSelect(item.id)"
               />
             </div>
             <span class="card-title" :title="item.name">{{ item.name }}</span>
-            <v-chip :color="item.enabled === '1' ? 'success' : 'error'" size="small" variant="tonal">
-              {{ item.enabled === '1' ? '启用' : '停用' }}
-            </v-chip>
+            <StatusChip :value="item.enabled" />
           </div>
           <div class="card-body">
             <div class="card-row">
@@ -105,7 +110,7 @@
     </v-card>
 
     <!-- Add/Edit Dialog -->
-    <v-dialog v-model="open" max-width="600" class="modern-dialog">
+    <v-dialog v-model="open" max-width="600">
       <v-card :title="dialogTitle">
         <v-card-text>
           <v-form ref="formRef">
@@ -152,7 +157,7 @@
         <v-card-actions>
           <v-btn :loading="testLoading" @click="handleTest">测试连接</v-btn>
           <v-spacer />
-          <v-btn @click="open = false">取消</v-btn>
+          <v-btn variant="outlined" @click="open = false">取消</v-btn>
           <v-btn color="primary" variant="flat" :loading="submitLoading" @click="submitForm">确定</v-btn>
         </v-card-actions>
       </v-card>
@@ -161,6 +166,8 @@
 </template>
 
 <script setup lang="ts">
+import StatusChip from '@/components/StatusChip.vue'
+import PageHeader from '@/components/PageHeader.vue'
 import { ref } from 'vue'
 import { usePtMediaServer } from '@/composables/usePtMediaServer'
 
@@ -183,127 +190,3 @@ const toRules = (fieldRules?: any[]) => {
   })
 }
 </script>
-
-<style scoped lang="scss">
-
-.search-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.search-field {
-  width: 220px;
-  flex: none;
-}
-
-.search-field-sm {
-  width: 140px;
-}
-
-.search-actions {
-  display: flex;
-  gap: 8px;
-  margin-left: auto;
-}
-
-.card-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 14px;
-  min-height: 120px;
-}
-
-.item-card {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 14px 16px;
-  border: 1px solid var(--osr-border-light);
-  border-radius: var(--osr-radius-md);
-  transition: box-shadow var(--osr-transition-fast), border-color var(--osr-transition-fast);
-
-  &:hover {
-    box-shadow: var(--osr-shadow-md);
-    border-color: var(--osr-border-base);
-  }
-}
-
-.card-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-
-  .card-checkbox {
-    flex-shrink: 0;
-    display: flex;
-  }
-
-  .card-title {
-    flex: 1;
-    min-width: 0;
-    font-size: 15px;
-    font-weight: 600;
-    color: var(--osr-text-primary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-}
-
-.card-body {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.card-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-
-  .label {
-    flex-shrink: 0;
-    width: 64px;
-    color: var(--osr-text-secondary);
-  }
-
-  .value {
-    flex: 1;
-    min-width: 0;
-    color: var(--osr-text-primary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-}
-
-.card-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 4px;
-  padding-top: 8px;
-  border-top: 1px solid var(--osr-border-light);
-}
-
-@media (max-width: 768px) {
-
-  .search-row {
-    .search-field,
-    .search-field-sm {
-      width: 100%;
-    }
-
-    .search-actions {
-      margin-left: 0;
-      width: 100%;
-    }
-  }
-
-  .card-grid {
-    grid-template-columns: 1fr;
-  }
-}
-</style>

@@ -130,8 +130,8 @@ const normalize = (arr: any[]): string[] =>
   border: 2px solid transparent;
 
   &.fallback {
-    border-color: var(--osr-primary-light-7);
-    background: var(--osr-primary-light-9);
+    border-color: var(--osr-primary-muted);
+    background: var(--osr-primary-subtle);
   }
 }
 

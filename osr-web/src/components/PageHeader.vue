@@ -42,13 +42,13 @@ defineProps<{
     width: 48px;
     height: 48px;
     border-radius: var(--osr-radius-lg);
-    background: linear-gradient(135deg, rgb(var(--v-theme-primary-lighten-4)), rgb(var(--v-theme-primary)));
+    background: linear-gradient(135deg, rgb(var(--v-theme-primary)), rgb(var(--v-theme-primary-darken-1)));
     color: rgb(var(--v-theme-on-primary));
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 24px;
-    box-shadow: 0 4px 14px rgba(var(--v-theme-primary), 0.35);
+    box-shadow: 0 4px 14px rgba(var(--v-theme-primary), 0.45);
     flex-shrink: 0;
   }
 

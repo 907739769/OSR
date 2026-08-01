@@ -1,5 +1,11 @@
 <template>
   <div class="page-container">
+    <PageHeader
+      icon="mdi-cancel"
+      title="PT 黑名单"
+      desc="被拉黑的种子与发布组，命中后不再推送下载"
+    />
+
     <v-card v-if="showSearch" class="search-card">
       <v-form ref="queryRef" @submit.prevent="handleQuery">
         <div class="search-fields">
@@ -12,7 +18,7 @@
             density="compact"
             variant="outlined"
             hide-details
-            class="type-select"
+            class="field-md"
           />
           <v-text-field
             v-model="queryParams.displayValue"
@@ -116,6 +122,7 @@
 </template>
 
 <script setup lang="ts">
+import PageHeader from '@/components/PageHeader.vue'
 import { ref } from 'vue'
 import { usePtTorrentBlacklist } from '@/composables/usePtTorrentBlacklist'
 
@@ -151,115 +158,3 @@ const shortHash = (value: string) => {
   return value.length > 12 ? `${value.slice(0, 6)}...${value.slice(-4)}` : value
 }
 </script>
-
-<style scoped lang="scss">
-
-.search-fields {
-
-  > .v-text-field {
-    width: 260px;
-  }
-
-  .type-select {
-    width: 160px;
-  }
-}
-
-.card-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 14px;
-  min-height: 120px;
-}
-
-.item-card {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  padding: 14px 16px;
-  border: 1px solid var(--osr-border-light);
-  border-radius: var(--osr-radius-md);
-  transition: box-shadow var(--osr-transition-fast), border-color var(--osr-transition-fast);
-
-  &:hover {
-    box-shadow: var(--osr-shadow-md);
-    border-color: var(--osr-border-base);
-  }
-}
-
-.card-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-
-  .card-title {
-    flex: 1;
-    min-width: 0;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--osr-text-primary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-}
-
-.card-body {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.card-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-
-  .label {
-    flex-shrink: 0;
-    width: 64px;
-    color: var(--osr-text-secondary);
-  }
-
-  .value {
-    flex: 1;
-    min-width: 0;
-    color: var(--osr-text-primary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-}
-
-.card-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 4px;
-  padding-top: 8px;
-  border-top: 1px solid var(--osr-border-light);
-}
-
-@media (max-width: 768px) {
-
-  .search-fields {
-    > .v-text-field,
-    .type-select {
-      width: 100%;
-    }
-
-    .search-actions {
-      width: 100%;
-
-      .v-btn {
-        flex: 1;
-      }
-    }
-  }
-
-  .card-grid {
-    grid-template-columns: 1fr;
-  }
-}
-</style>

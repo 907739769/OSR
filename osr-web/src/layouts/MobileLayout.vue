@@ -20,13 +20,13 @@
 
   <v-main>
     <div class="mobile-content">
+      <!-- 同 DesktopLayout：原先的 <transition name="fade"> 既没有配套 CSS，
+           又会让旧页面残留在新页面下方，这里一并去掉，原因见 DesktopLayout 的注释 -->
       <router-view v-slot="{ Component, route: currentRoute }">
-        <transition name="fade">
-          <keep-alive v-if="currentRoute.meta?.keepAlive" :max="6">
-            <component :is="Component" :key="currentRoute.path" />
-          </keep-alive>
-          <component v-else :is="Component" :key="currentRoute.path" />
-        </transition>
+        <keep-alive v-if="currentRoute.meta?.keepAlive" :max="6">
+          <component :is="Component" :key="currentRoute.path" />
+        </keep-alive>
+        <component v-else :is="Component" :key="currentRoute.path" />
       </router-view>
     </div>
 
@@ -86,16 +86,52 @@ const openedGroups = computed(() => collectAncestorGroupIds(sidebarMenus.value, 
 
 const pageTitle = computed(() => (route.meta?.title as string) || 'OSR')
 
-// 底部主 tab（最常用的四个页面）
-const mainTabs = [
+// 底部主 tab（最常用的四个页面）。
+// 路径不能写死：后端菜单 path 历史上有 /openlist/xxx 与 /openliststrm/xxx 两种前缀
+// （见 router/index.ts 的 normalizeComponentPath），写死会让 tab 跳到 404。
+// 改为按注册路由上的 meta.componentKey 反查真实 path。
+interface TabDef {
+  /** componentMap 的 key；为空表示用固定 path（首页是常量路由） */
+  component?: string
+  path?: string
+  label: string
+  icon: string
+}
+
+const TAB_DEFS: TabDef[] = [
   { path: '/dashboard', label: '首页', icon: 'mdi-view-dashboard-outline' },
-  { path: '/openliststrm/copy', label: '同步记录', icon: 'mdi-file-multiple-outline' },
-  { path: '/openliststrm/strm', label: 'STRM记录', icon: 'mdi-movie-open-outline' },
-  { path: '/openliststrm/renameDetail', label: '重命名记录', icon: 'mdi-pencil-outline' }
+  { component: 'openlist/copyRecord/index', label: '同步记录', icon: 'mdi-file-multiple-outline' },
+  { component: 'openlist/strmRecord/index', label: 'STRM记录', icon: 'mdi-movie-open-outline' },
+  { component: 'openlist/renameDetail/index', label: '重命名记录', icon: 'mdi-pencil-outline' }
 ]
 
+// 菜单未授权 / 未注册的 tab 直接隐藏，而不是留一个点了报 404 的死链。
+//
+// 两个坑：
+// 1. router.getRoutes() 不是响应式的，动态路由是登录后才注册的。这里同时依赖
+//    route.path 与 sidebarMenus —— 路由注册完守卫会再导航一次（next({...to, replace:true})），
+//    route.path 变化能保证 computed 至少重算一次，不会停在「只剩首页」的空结果上。
+// 2. 用组件对象引用比对会在 HMR 下失效，所以走 meta.componentKey。
+const mainTabs = computed(() => {
+  void route.path
+  void sidebarMenus.value.length
+
+  const registered = new Map<string, string>()
+  for (const r of router.getRoutes()) {
+    const key = r.meta?.componentKey as string | undefined
+    if (key && !registered.has(key)) registered.set(key, r.path)
+  }
+
+  const tabs: { label: string; icon: string; path: string }[] = []
+  for (const tab of TAB_DEFS) {
+    const path = tab.component ? registered.get(tab.component) : tab.path
+    if (path) tabs.push({ label: tab.label, icon: tab.icon, path })
+  }
+  return tabs
+})
+
 const activeTab = computed(() => {
-  const match = mainTabs.find((tab) => {
+  const match = mainTabs.value.find((tab) => {
     if (tab.path === '/dashboard') return route.path === '/dashboard'
     return route.path.startsWith(tab.path)
   })

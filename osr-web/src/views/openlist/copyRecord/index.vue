@@ -1,5 +1,11 @@
 <template>
   <div class="page-container">
+    <PageHeader
+      icon="mdi-file-multiple-outline"
+      title="文件同步记录"
+      desc="逐文件的同步结果，失败项可重试或清理网盘文件"
+    />
+
     <!-- Search Panel -->
     <v-card v-if="showSearch" class="search-card">
       <v-form ref="queryRef" @submit.prevent="handleQuery">
@@ -121,16 +127,16 @@
         @update:items-per-page="onSizeChange"
       >
         <template #item.detail="{ item }">
-          <div class="file-change-box">
-            <div class="file-row">
-              <span class="file-label label-src">源</span>
-              <span class="file-name" :title="item.copySrcFileName">{{ item.copySrcFileName }}</span>
-              <span class="file-path" :title="item.copySrcPath">{{ item.copySrcPath }}</span>
+          <div class="path-box">
+            <div class="path-row">
+              <span class="path-label path-label--src">源</span>
+              <span class="path-name" :title="item.copySrcFileName">{{ item.copySrcFileName }}</span>
+              <span class="path-text path-text--muted" :title="item.copySrcPath">{{ item.copySrcPath }}</span>
             </div>
-            <div class="file-row">
-              <span class="file-label label-dst">目</span>
-              <span class="file-name" :title="item.copyDstFileName">{{ item.copyDstFileName }}</span>
-              <span class="file-path" :title="item.copyDstPath">{{ item.copyDstPath }}</span>
+            <div class="path-row">
+              <span class="path-label path-label--dst">目</span>
+              <span class="path-name" :title="item.copyDstFileName">{{ item.copyDstFileName }}</span>
+              <span class="path-text path-text--muted" :title="item.copyDstPath">{{ item.copyDstPath }}</span>
             </div>
           </div>
         </template>
@@ -156,6 +162,7 @@
 </template>
 
 <script setup lang="ts">
+import PageHeader from '@/components/PageHeader.vue'
 import { ref, computed, watch } from 'vue'
 import { useCopyRecord } from '@/composables/useCopyRecord'
 import { useDebounce } from '@/composables/useDebounce'
@@ -226,78 +233,3 @@ watch(
 
 getList()
 </script>
-
-<style scoped lang="scss">
-
-
-
-
-
-
-
-/* ============================================
-   Copy Detail Column (Desktop Table)
-   ============================================ */
-.file-change-box {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px 0;
-}
-
-.file-row {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  min-width: 0;
-}
-
-.file-label {
-  flex-shrink: 0;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 3px;
-  line-height: 1.4;
-}
-
-.label-src {
-  color: #4C6C93;
-  background: rgba(76, 108, 147, 0.1);
-}
-
-.label-dst {
-  color: #3F8F5F;
-  background: rgba(63, 143, 95, 0.1);
-}
-
-.file-name {
-  flex-shrink: 0;
-  max-width: 200px;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--osr-text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.file-path {
-  flex: 1;
-  min-width: 0;
-  font-size: 12px;
-  color: var(--osr-text-placeholder);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* ============================================
-   Mobile Responsive
-   ============================================ */
-@media (max-width: 768px) {
-
-  .search-fields {
-  }
-}
-</style>

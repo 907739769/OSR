@@ -188,6 +188,22 @@ export function usePtSubscription() {
     }
   }
 
+  /** 每集状态文案。PC 与移动端共用，避免两端文案漂移 */
+  const EPISODE_STATE_LABELS: Record<string, string> = {
+    MISSING: '缺失', IN_FLIGHT: '在途', IN_LIBRARY: '已入库', BLOCKED: '已熔断'
+  }
+  const episodeStateLabel = (state: string) => EPISODE_STATE_LABELS[state] || state
+
+  /** 每集状态对应的 chip 颜色，同样两端共用 */
+  const episodeStateColor = (state: string) => {
+    switch (state) {
+      case 'IN_LIBRARY': return 'success'
+      case 'IN_FLIGHT': return 'primary'
+      case 'BLOCKED': return 'error'
+      default: return 'info'
+    }
+  }
+
   /** 重置某一集为缺失：只对 IN_LIBRARY/BLOCKED 这类"卡住"的状态开放，需二次确认 */
   const handleResetEpisode = async (ep: any) => {
     if (!currentSubscription.value) return
@@ -621,7 +637,7 @@ export function usePtSubscription() {
     progressOpen, progressLoading, progress, currentSubscription, showProgress, showProgressById,
     // 每集明细 + 手动重置
     episodeDetailOpen, episodeDetailLoading, episodeDetail, resettingEpisode,
-    loadEpisodeDetail, handleResetEpisode,
+    loadEpisodeDetail, handleResetEpisode, episodeStateLabel, episodeStateColor,
     // 匹配日志
     searchLogOpen, searchLogLoading, searchLogs, showSearchLogs,
     // 过滤规则覆盖

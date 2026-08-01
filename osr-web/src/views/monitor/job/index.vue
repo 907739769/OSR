@@ -1,5 +1,11 @@
 <template>
   <div class="page-container">
+    <PageHeader
+      icon="mdi-clock-outline"
+      title="定时任务"
+      desc="基于 Quartz 的调度任务，可手动执行并查看执行日志"
+    />
+
     <!-- Search Panel -->
     <v-card class="search-card" v-if="showSearch">
       <v-card-text>
@@ -126,7 +132,7 @@
     </v-card>
 
     <!-- Add/Edit Dialog -->
-    <v-dialog v-model="open" width="650px" class="modern-dialog">
+    <v-dialog v-model="open" max-width="600">
       <v-card :title="dialogTitle">
         <v-card-text>
           <v-form ref="formRef">
@@ -174,7 +180,7 @@
     </v-dialog>
 
     <!-- Cron Expression Dialog -->
-    <v-dialog v-model="showCronDialog" width="500px" class="modern-dialog">
+    <v-dialog v-model="showCronDialog" max-width="480">
       <v-card title="Cron表达式说明">
         <v-card-text>
           <div class="cron-desc">
@@ -195,40 +201,32 @@
     <!-- Job Log Dialog -->
     <v-dialog
       v-model="logOpen"
-      :width="appStore.device === 'mobile' ? '100%' : '900px'"
+      :width="appStore.device === 'mobile' ? '92%' : '900px'"
       :fullscreen="appStore.device === 'mobile'"
-      class="modern-dialog log-dialog"
+      class="log-dialog"
     >
       <v-card :title="`${logTitle} - 执行记录`">
         <v-card-text>
           <!-- Mobile: Collapsible Search Panel -->
-          <div v-if="appStore.device === 'mobile'" class="mobile-search-panel" :class="{ collapsed: logSearchCollapsed }">
-            <div class="mobile-search-panel-header" @click="logSearchCollapsed = !logSearchCollapsed">
-              <span class="mobile-search-panel-title">
-                <v-icon icon="mdi-magnify" size="16" />
-                筛选查询
-              </span>
-              <v-icon icon="mdi-chevron-down" class="collapse-icon" :class="{ expanded: !logSearchCollapsed }" />
-            </div>
-            <div class="mobile-search-panel-body">
-              <v-select
-                v-model="logQueryParams.status"
-                :items="[{ title: '成功', value: '0' }, { title: '失败', value: '1' }]"
-                label="执行状态"
-                placeholder="全部状态"
-                clearable
-                density="compact"
-                variant="outlined"
-                hide-details
-              />
-              <div class="search-actions">
-                <v-btn color="primary" prepend-icon="mdi-magnify" @click="logQueryParams.pageNum = 1; getJobLogList()">
-                  搜索
-                </v-btn>
-                <v-btn variant="outlined" prepend-icon="mdi-refresh" @click="resetLogQuery">重置</v-btn>
-              </div>
-            </div>
-          </div>
+          <MobileSearchPanel
+            v-if="appStore.device === 'mobile'"
+            v-model:collapsed="logSearchCollapsed"
+            :loading="logLoading"
+            class="mb-3"
+            @search="logQueryParams.pageNum = 1; getJobLogList()"
+            @reset="resetLogQuery"
+          >
+            <v-select
+              v-model="logQueryParams.status"
+              :items="[{ title: '成功', value: '0' }, { title: '失败', value: '1' }]"
+              label="执行状态"
+              placeholder="全部状态"
+              clearable
+              density="compact"
+              variant="outlined"
+              hide-details
+            />
+          </MobileSearchPanel>
 
           <!-- Desktop: Inline Search -->
           <div v-else class="log-search-form">
@@ -279,17 +277,17 @@
           </v-data-table>
 
           <!-- Mobile Card List -->
-          <div v-if="appStore.device === 'mobile'" class="log-card-list">
+          <div v-if="appStore.device === 'mobile'" class="mobile-card-list">
             <v-progress-linear v-if="logLoading" indeterminate color="primary" />
             <v-card
               v-for="item in logList"
               :key="item.jobLogId"
-              variant="outlined"
-              class="log-card"
+              variant="flat"
+              class="mobile-card"
             >
-              <div class="log-card-header">
-                <div class="log-card-title-row">
-                  <span class="log-card-title">
+              <div class="mobile-card-header">
+                <div class="mobile-card-title-row">
+                  <span class="mobile-card-title">
                     <v-icon icon="mdi-clock-outline" size="14" />
                     {{ item.jobName }}
                   </span>
@@ -298,25 +296,25 @@
                   </v-chip>
                 </div>
               </div>
-              <div class="log-card-body">
-                <div class="log-card-row">
-                  <span class="log-card-label">调用目标</span>
-                  <span class="log-card-value log-card-value-clip">{{ item.invokeTarget }}</span>
+              <div class="mobile-card-body">
+                <div class="mobile-card-row">
+                  <span class="mobile-card-label">调用目标</span>
+                  <span class="mobile-card-value mobile-card-value-clip">{{ item.invokeTarget }}</span>
                 </div>
-                <div class="log-card-row">
-                  <span class="log-card-label">日志信息</span>
-                  <span class="log-card-value log-card-value-clip" @click.stop="handleViewLogDetail(item)">{{ item.jobMessage || '-' }}</span>
+                <div class="mobile-card-row">
+                  <span class="mobile-card-label">日志信息</span>
+                  <span class="mobile-card-value mobile-card-value-clip" @click.stop="handleViewLogDetail(item)">{{ item.jobMessage || '-' }}</span>
                 </div>
-                <div class="log-card-row">
-                  <span class="log-card-label">开始时间</span>
-                  <span class="log-card-value log-card-value-light">{{ formatTime(item.startTime) }}</span>
+                <div class="mobile-card-row">
+                  <span class="mobile-card-label">开始时间</span>
+                  <span class="mobile-card-value mobile-card-value-light">{{ formatTime(item.startTime) }}</span>
                 </div>
-                <div class="log-card-row" v-if="item.startTime && item.endTime">
-                  <span class="log-card-label">耗时</span>
-                  <span class="log-card-value log-card-value-light">{{ formatDuration(item.startTime, item.endTime) }}</span>
+                <div class="mobile-card-row" v-if="item.startTime && item.endTime">
+                  <span class="mobile-card-label">耗时</span>
+                  <span class="mobile-card-value mobile-card-value-light">{{ formatDuration(item.startTime, item.endTime) }}</span>
                 </div>
               </div>
-              <div class="log-card-footer">
+              <div class="mobile-card-actions">
                 <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-eye-outline" @click="handleViewLogDetail(item)">
                   查看详情
                 </v-btn>
@@ -345,8 +343,8 @@
     <!-- Log Detail Dialog -->
     <v-dialog
       v-model="detailOpen"
-      :width="appStore.device === 'mobile' ? '100%' : '700px'"
-      class="modern-dialog log-detail-dialog"
+      :width="appStore.device === 'mobile' ? '92%' : '600px'"
+      class="log-detail-dialog"
     >
       <v-card title="执行记录详情">
         <v-card-text v-if="logDetail">
@@ -407,12 +405,14 @@
 </template>
 
 <script setup lang="ts">
+import PageHeader from '@/components/PageHeader.vue'
 import { ref, reactive } from 'vue'
 import { message } from '@/composables/useMessage'
 import { confirm } from '@/composables/useConfirm'
 import { getJobListApi, addJobApi, updateJobApi, deleteJobApi, changeJobStatusApi, runJobApi } from '@/api/monitor/job'
 import { getJobLogListApi, getJobLogDetailApi } from '@/api/monitor/jobLog'
 import { useAppStore } from '@/stores/app'
+import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import { useTaskList } from '@/composables/useTaskList'
 import type { SearchParams, PageResult } from '@/types'
 
@@ -581,56 +581,11 @@ getList()
 </script>
 
 <style scoped lang="scss">
-.page-container {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-/* ============================================
-   Search Card
-   ============================================ */
-.search-card {
-  padding: 4px 8px;
-}
-
 .search-form-row {
   display: flex;
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-}
-
-/* ============================================
-   Table Card
-   ============================================ */
-.table-card {
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-}
-
-.action-bar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 12px;
-
-  .action-left {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-  }
-}
-
-/* ============================================
-   Pagination
-   ============================================ */
-.pagination-wrapper {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: auto;
-  padding-top: 12px;
 }
 
 .cron-field {
@@ -683,9 +638,6 @@ getList()
    Mobile Responsive
    ============================================ */
 @media (max-width: 768px) {
-  .page-container {
-    gap: 10px;
-  }
 
   .search-form-row {
     flex-direction: column;
@@ -694,106 +646,6 @@ getList()
     .v-text-field,
     .v-select {
       max-width: 100% !important;
-    }
-  }
-
-  .action-bar {
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-bottom: 10px;
-
-    .action-left {
-      gap: 4px;
-    }
-  }
-
-  .table-card {
-    padding: 12px;
-  }
-
-  /* ============================================
-     Mobile Card List
-     ============================================ */
-  .mobile-card-list {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .mobile-card {
-    overflow: hidden;
-
-    .mobile-card-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 10px 12px 8px;
-      border-bottom: 1px solid var(--osr-border-light);
-      background: var(--osr-bg-page);
-
-      .mobile-card-title {
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--osr-text-primary);
-        flex: 1;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        margin-right: 8px;
-      }
-    }
-
-    .mobile-card-body {
-      padding: 0;
-
-      .mobile-card-row {
-        display: flex;
-        align-items: flex-start;
-        padding: 8px 12px;
-        font-size: 13px;
-        border-bottom: 1px solid var(--osr-border-light);
-
-        &:last-child {
-          border-bottom: none;
-        }
-
-        .mobile-card-label {
-          width: 64px;
-          color: var(--osr-text-secondary);
-          flex-shrink: 0;
-          font-size: 12px;
-          line-height: 1.5;
-          padding-top: 1px;
-        }
-
-        .mobile-card-value {
-          flex: 1;
-          min-width: 0;
-          color: var(--osr-text-primary);
-          font-size: 13px;
-          line-height: 1.5;
-          word-break: break-all;
-
-          &.mobile-card-value-clip {
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-          }
-
-          &.mobile-card-value-light {
-            color: var(--osr-text-secondary);
-            font-size: 12px;
-          }
-        }
-      }
-    }
-
-    .mobile-card-actions {
-      display: flex;
-      justify-content: flex-end;
-      gap: 2px;
-      padding: 8px 12px 10px;
-      border-top: 1px solid var(--osr-border-light);
     }
   }
 }
@@ -808,157 +660,6 @@ getList()
   display: flex;
   align-items: center;
   gap: 12px;
-}
-
-/* ============================================
-   Mobile Search Panel (for log dialog)
-   ============================================ */
-.mobile-search-panel {
-  border: 1px solid var(--osr-border-light);
-  border-radius: 8px;
-  margin-bottom: 12px;
-  overflow: hidden;
-
-  &.collapsed {
-    .mobile-search-panel-body {
-      display: none;
-    }
-  }
-}
-
-.mobile-search-panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
-  background: var(--osr-bg-page);
-  cursor: pointer;
-  user-select: none;
-  border-bottom: 1px solid transparent;
-
-  .mobile-search-panel-title {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--osr-text-primary);
-  }
-
-  .collapse-icon {
-    transition: transform 0.2s;
-
-    &.expanded {
-      transform: rotate(180deg);
-    }
-  }
-}
-
-.mobile-search-panel-body {
-  padding: 12px 14px;
-
-  .search-actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 8px;
-  }
-}
-
-/* ============================================
-   Log Card List (mobile)
-   ============================================ */
-.log-card-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.log-card {
-  overflow: hidden;
-
-  .log-card-header {
-    padding: 12px 14px 10px;
-    border-bottom: 1px solid var(--osr-border-light);
-    background: var(--osr-bg-page);
-  }
-
-  .log-card-title-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 8px;
-  }
-
-  .log-card-title {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 14px;
-    font-weight: 600;
-    color: var(--osr-text-primary);
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-
-    .v-icon {
-      color: var(--osr-primary);
-      flex-shrink: 0;
-    }
-  }
-
-  .log-card-body {
-    padding: 0;
-  }
-
-  .log-card-row {
-    display: flex;
-    align-items: flex-start;
-    padding: 9px 14px;
-    font-size: 13px;
-    border-bottom: 1px solid var(--osr-border-light);
-
-    &:last-child {
-      border-bottom: none;
-    }
-
-    .log-card-label {
-      width: 72px;
-      color: var(--osr-text-secondary);
-      flex-shrink: 0;
-      font-size: 12px;
-      line-height: 1.5;
-      padding-top: 1px;
-    }
-
-    .log-card-value {
-      flex: 1;
-      min-width: 0;
-      color: var(--osr-text-primary);
-      font-size: 13px;
-      line-height: 1.5;
-      word-break: break-all;
-      cursor: default;
-
-      &.log-card-value-clip {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      &.log-card-value-light {
-        color: var(--osr-text-secondary);
-        font-size: 12px;
-      }
-    }
-  }
-
-  .log-card-footer {
-    display: flex;
-    justify-content: flex-end;
-    padding: 8px 14px 10px;
-    border-top: 1px solid var(--osr-border-light);
-  }
 }
 
 /* ============================================
@@ -979,13 +680,13 @@ getList()
   overflow-y: auto;
   margin: 0;
   padding: 12px;
-  background: var(--osr-bg-content, #1e1e1e);
-  border-radius: 4px;
+  background: rgba(var(--v-theme-error), 0.08);
+  border-radius: var(--osr-radius-sm);
   font-family: 'Courier New', monospace;
   font-size: 12px;
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-all;
-  color: var(--osr-danger);
+  color: rgb(var(--v-theme-error));
 }
 </style>

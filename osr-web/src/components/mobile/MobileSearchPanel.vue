@@ -1,5 +1,5 @@
 <template>
-  <div class="search-panel" :class="{ collapsed }">
+  <v-card class="search-panel" :class="{ collapsed }">
     <div class="search-panel-header" @click="collapsed = !collapsed">
       <span class="search-panel-title">
         <v-icon icon="mdi-magnify" size="16" />
@@ -19,7 +19,7 @@
         </v-btn>
       </div>
     </div>
-  </div>
+  </v-card>
 </template>
 
 <script setup lang="ts">
@@ -37,10 +37,8 @@ const collapsed = defineModel<boolean>('collapsed', { default: true })
 </script>
 
 <style scoped lang="scss">
+/* 外观（surface / 圆角 / 阴影）由 v-card 提供，这里只写结构与折叠行为 */
 .search-panel {
-  background: var(--osr-surface);
-  border-radius: var(--osr-radius-lg);
-  box-shadow: var(--osr-shadow-base);
   overflow: hidden;
   transition: all var(--osr-transition-base);
 
