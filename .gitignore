@@ -58,3 +58,5 @@ test-results/
 .playwright-mcp/
 /.qoder
 .claude/worktrees/
+
+node_modules
