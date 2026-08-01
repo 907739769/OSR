@@ -76,16 +76,12 @@ OSR (OpenList STRM Relay)：影视 STRM 管理系统。技术栈：Java 25 (Spri
 
 <table>
     <tr>
-        <td><img src="https://github.com/user-attachments/assets/947f620b-e953-4d40-bff9-a612278ecec7"/></td>
-        <td><img src="https://github.com/user-attachments/assets/f74ce0a2-0740-4959-90a8-5711ffaa7ff8"/></td>
+        <td><img src="https://github.com/user-attachments/assets/cc623bda-d4fe-4415-a4e0-cd5c72f12b17"/></td>
+        <td><img src="https://github.com/user-attachments/assets/e83bd9ca-ad39-4500-87b1-ec1b7663fda7"/></td>
     </tr>
     <tr>
-        <td><img src="https://github.com/user-attachments/assets/b94e1556-e40e-47d3-9b6f-b31da8632d28"/></td>
-        <td><img src="https://github.com/user-attachments/assets/834de439-126e-4851-ac18-209b75b4a59d"/></td>
-    </tr>
-    <tr>
-        <td><img src="https://github.com/user-attachments/assets/5bc78d26-48b4-45cb-944f-52fada4796dd"/></td>
-        <td><img src="https://github.com/user-attachments/assets/c2810049-e5c8-4403-aee3-bcffd55a63b4"/></td>
+        <td><img src="https://github.com/user-attachments/assets/80956447-f498-40b6-9098-b35855f1be14"/></td>
+        <td><img src="https://github.com/user-attachments/assets/9ad7e11d-8bd9-4f08-8200-cef5bb0929ac"/></td>
     </tr>
 
 </table>
@@ -93,12 +89,13 @@ OSR (OpenList STRM Relay)：影视 STRM 管理系统。技术栈：Java 25 (Spri
 ### 移动端
 
 
+
 <table>
     <tr>
-        <td><img src="https://github.com/user-attachments/assets/3a9111f5-8a5c-4a79-8464-369db124f127"/></td>
-        <td><img src="https://github.com/user-attachments/assets/04bdb2d2-ee5d-4666-8cd9-f4f41848aa35"/></td>
-        <td><img src="https://github.com/user-attachments/assets/b6b27293-c655-42b8-bdd0-45bf34944c60"/></td>
-        <td><img src="https://github.com/user-attachments/assets/0946b107-235f-4829-94f5-9363abe1f362"/></td>
+        <td><img src="https://github.com/user-attachments/assets/5a6c2c05-da25-45ce-937c-232ec3b1cbf5"/></td>
+        <td><img src="https://github.com/user-attachments/assets/e48edb09-bfc5-4d39-8210-66ea3daa7875"/></td>
+        <td><img src="https://github.com/user-attachments/assets/ece12a38-32df-4a33-87a1-c998583b2a3e"/></td>
+        <td><img src="https://github.com/user-attachments/assets/5a66a223-2e63-4ffe-a2fe-ecd8e5f08065"/></td>
     </tr>
 </table>
 
