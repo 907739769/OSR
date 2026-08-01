@@ -3,7 +3,6 @@
     <v-card class="login-card">
       <div class="login-brand">
         <img src="/icons/android-chrome-192x192.png" alt="OSR" class="login-logo" />
-        <h2 class="login-title">OSR</h2>
       </div>
       <v-form ref="loginFormRef" class="login-form">
         <v-text-field
@@ -79,11 +78,13 @@ const handleLogin = async () => {
   justify-content: center;
   align-items: center;
   min-height: 100vh;
+  padding: 0 20px;
   background: linear-gradient(135deg, #e0a548 0%, #b4690e 55%, #7a4706 100%);
 }
 
 .login-card {
-  width: 400px;
+  width: 100%;
+  max-width: 400px;
   padding: 32px 28px;
   border-radius: var(--osr-radius-xl);
   box-shadow: var(--osr-shadow-lg);
@@ -100,15 +101,6 @@ const handleLogin = async () => {
     width: 56px;
     height: 56px;
     border-radius: var(--osr-radius-md);
-  }
-
-  .login-title {
-    text-align: center;
-    margin: 0;
-    color: var(--osr-primary);
-    font-size: 22px;
-    font-weight: 700;
-    letter-spacing: 0.5px;
   }
 
   .login-btn {
