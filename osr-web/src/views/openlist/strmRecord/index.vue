@@ -1,5 +1,11 @@
 <template>
   <div class="page-container">
+    <PageHeader
+      icon="mdi-movie-open-outline"
+      title="STRM 生成记录"
+      desc="每个 STRM 文件的生成结果，失败项可重试或清理网盘源文件"
+    />
+
     <!-- Search Panel -->
     <v-card v-if="showSearch" class="search-card">
       <v-form ref="queryRef" @submit.prevent="handleQuery">
@@ -128,6 +134,7 @@
 </template>
 
 <script setup lang="ts">
+import PageHeader from '@/components/PageHeader.vue'
 import { ref, computed } from 'vue'
 import { useStrmRecord } from '@/composables/useStrmRecord'
 
@@ -186,21 +193,7 @@ getList()
 </script>
 
 <style scoped lang="scss">
-
-
-
-.search-fields {
-
-  .date-field {
-    width: 170px;
-  }
-}
-
-
-
-/* ============================================
-    Desktop Table Text Overflow
-    ============================================ */
+/* 表格「文件信息」列：文件名 + 目录路径两行 */
 .file-info-box {
   display: flex;
   flex-direction: column;
@@ -231,28 +224,5 @@ getList()
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-/* ============================================
-    Mobile Responsive
-    ============================================ */
-@media (max-width: 768px) {
-
-  .search-fields {
-    > .v-text-field,
-    > .v-select,
-    .status-select,
-    .date-field {
-      width: 100%;
-    }
-
-    .search-actions {
-      width: 100%;
-
-      .v-btn {
-        flex: 1;
-      }
-    }
-  }
 }
 </style>

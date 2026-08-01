@@ -1,5 +1,11 @@
 <template>
   <div class="page-container">
+    <PageHeader
+      icon="mdi-movie-cog-outline"
+      title="STRM 任务配置"
+      desc="配置需要生成 STRM 文件的网盘目录，可手动执行或由定时任务触发"
+    />
+
     <!-- Search Panel -->
     <v-card v-if="showSearch" class="search-card">
       <v-form ref="queryRef" @submit.prevent="handleQuery">
@@ -79,9 +85,7 @@
           </div>
         </template>
         <template #item.strmTaskStatus="{ item }">
-          <v-chip size="small" :color="item.strmTaskStatus === '0' ? 'error' : 'success'" variant="tonal">
-            {{ item.strmTaskStatus === '0' ? '停用' : '启用' }}
-          </v-chip>
+          <StatusChip :value="item.strmTaskStatus" />
         </template>
         <template #item.actions="{ item }">
           <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(item, '修改STRM任务')">
@@ -102,17 +106,15 @@
       <v-card :title="dialogTitle">
         <v-card-text>
           <v-form ref="formRef">
-            <div class="form-item">
-              <label class="form-label">STRM目录</label>
+            <FormField label="STRM目录">
               <DirectoryTreeSelect v-model="form.strmTaskPath" type="openlist" placeholder="请选择STRM目录" />
-            </div>
-            <div class="form-item">
-              <label class="form-label">状态</label>
+            </FormField>
+            <FormField label="状态">
               <v-radio-group v-model="form.strmTaskStatus" inline hide-details>
                 <v-radio label="停用" value="0" />
                 <v-radio label="启用" value="1" />
               </v-radio-group>
-            </div>
+            </FormField>
           </v-form>
         </v-card-text>
         <v-card-actions>
@@ -126,6 +128,9 @@
 </template>
 
 <script setup lang="ts">
+import StatusChip from '@/components/StatusChip.vue'
+import PageHeader from '@/components/PageHeader.vue'
+import FormField from '@/components/FormField.vue'
 import { ref, watch } from 'vue'
 import { useStrmTask } from '@/composables/useStrmTask'
 import { useDebounce } from '@/composables/useDebounce'
@@ -189,49 +194,3 @@ watch(
   () => debouncedSearch()
 )
 </script>
-
-<style scoped lang="scss">
-
-
-
-
-
-/* ============================================
-    Desktop Table Text Overflow
-    ============================================ */
-.path-text {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  min-width: 0;
-  font-size: 13px;
-  color: var(--osr-text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-
-  .v-icon {
-    color: var(--osr-primary);
-    flex-shrink: 0;
-  }
-}
-
-/* ============================================
-   Form
-   ============================================ */
-.form-item {
-  margin-bottom: 16px;
-
-  .form-label {
-    display: block;
-    margin-bottom: 6px;
-    font-size: 13px;
-    color: var(--osr-text-secondary);
-  }
-}
-
-/* ============================================
-    Mobile Responsive
-    ============================================ */
-
-</style>

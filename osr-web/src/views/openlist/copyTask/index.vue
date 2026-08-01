@@ -1,5 +1,11 @@
 <template>
   <div class="page-container">
+    <PageHeader
+      icon="mdi-folder-sync-outline"
+      title="文件同步任务"
+      desc="配置源目录到目标目录的同步规则，可选监控本地目录变化自动触发"
+    />
+
     <!-- Search Panel -->
     <v-card v-if="showSearch" class="search-card">
       <v-form ref="queryRef" @submit.prevent="handleQuery">
@@ -94,15 +100,13 @@
       >
         <template #item.config="{ item }">
           <div class="path-box">
-            <div class="path-row"><span class="path-label label-src">源</span> <span class="path-text">{{ item.copyTaskSrc }}</span></div>
-            <div class="path-row"><span class="path-label label-dst">目</span> <span class="path-text">{{ item.copyTaskDst }}</span></div>
-            <div class="path-row" v-if="item.monitorDir"><span class="path-label label-mon">监</span> <span class="path-text">{{ item.monitorDir }}</span></div>
+            <div class="path-row"><span class="path-label path-label--src">源</span> <span class="path-text">{{ item.copyTaskSrc }}</span></div>
+            <div class="path-row"><span class="path-label path-label--dst">目</span> <span class="path-text">{{ item.copyTaskDst }}</span></div>
+            <div class="path-row" v-if="item.monitorDir"><span class="path-label path-label--mon">监</span> <span class="path-text">{{ item.monitorDir }}</span></div>
           </div>
         </template>
         <template #item.copyTaskStatus="{ item }">
-          <v-chip size="small" :color="item.copyTaskStatus === '1' ? 'success' : 'error'" variant="tonal">
-            {{ item.copyTaskStatus === '1' ? '启用' : '停用' }}
-          </v-chip>
+          <StatusChip :value="item.copyTaskStatus" />
         </template>
         <template #item.actions="{ item }">
           <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(item, '修改文件同步任务')">
@@ -123,25 +127,21 @@
       <v-card :title="dialogTitle">
         <v-card-text>
           <v-form ref="formRef">
-            <div class="form-item">
-              <label class="form-label">源目录</label>
+            <FormField label="源目录">
               <DirectoryTreeSelect v-model="form.copyTaskSrc" type="openlist" placeholder="请选择源目录" />
-            </div>
-            <div class="form-item">
-              <label class="form-label">目标目录</label>
+            </FormField>
+            <FormField label="目标目录">
               <DirectoryTreeSelect v-model="form.copyTaskDst" type="openlist" placeholder="请选择目标目录" />
-            </div>
-            <div class="form-item">
-              <label class="form-label">监控目录</label>
+            </FormField>
+            <FormField label="监控目录">
               <DirectoryTreeSelect v-model="form.monitorDir" type="local" placeholder="请选择监控目录（可选）" />
-            </div>
-            <div class="form-item">
-              <label class="form-label">状态</label>
+            </FormField>
+            <FormField label="状态">
               <v-radio-group v-model="form.copyTaskStatus" inline hide-details>
                 <v-radio label="启用" value="1" />
                 <v-radio label="停用" value="0" />
               </v-radio-group>
-            </div>
+            </FormField>
           </v-form>
         </v-card-text>
         <v-card-actions>
@@ -155,6 +155,9 @@
 </template>
 
 <script setup lang="ts">
+import StatusChip from '@/components/StatusChip.vue'
+import PageHeader from '@/components/PageHeader.vue'
+import FormField from '@/components/FormField.vue'
 import { ref, watch } from 'vue'
 import { useCopyTask } from '@/composables/useCopyTask'
 import { useDebounce } from '@/composables/useDebounce'
@@ -222,80 +225,3 @@ watch(
   () => debouncedSearch()
 )
 </script>
-
-<style scoped lang="scss">
-
-
-
-
-
-/* ============================================
-   Sync Config Column (Desktop Table)
-   ============================================ */
-.path-box {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px 0;
-}
-
-.path-row {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  min-width: 0;
-}
-
-.path-label {
-  flex-shrink: 0;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 3px;
-  line-height: 1.4;
-}
-
-.label-src {
-  color: #4C6C93;
-  background: rgba(76, 108, 147, 0.1);
-}
-
-.label-dst {
-  color: #3F8F5F;
-  background: rgba(63, 143, 95, 0.1);
-}
-
-.label-mon {
-  color: #C98A1E;
-  background: rgba(201, 138, 30, 0.1);
-}
-
-.path-text {
-  flex: 1;
-  min-width: 0;
-  font-size: 12px;
-  color: var(--osr-text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* ============================================
-   Form
-   ============================================ */
-.form-item {
-  margin-bottom: 16px;
-
-  .form-label {
-    display: block;
-    margin-bottom: 6px;
-    font-size: 13px;
-    color: var(--osr-text-secondary);
-  }
-}
-
-/* ============================================
-   Mobile Responsive
-   ============================================ */
-
-</style>

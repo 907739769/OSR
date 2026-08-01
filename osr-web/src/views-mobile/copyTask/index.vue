@@ -46,6 +46,9 @@
       <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-play-outline" @click="handleBatchExecute">
         批量执行
       </v-btn>
+      <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(undefined, `是否确认删除选中的 ${selectedIds.length} 个文件同步任务？`)">
+        批量删除
+      </v-btn>
       <v-btn variant="text" size="small" @click="clearSelection">
         取消
       </v-btn>
@@ -59,7 +62,7 @@
     <!-- Task List -->
     <div class="task-list">
       <v-progress-linear v-if="loading" indeterminate color="primary" />
-      <div
+      <v-card
         v-for="task in taskList"
         :key="task.copyTaskId"
         class="task-card"
@@ -76,21 +79,19 @@
         </div>
         <div class="card-content">
           <div class="card-top">
-            <div class="task-name-row">
-              <v-icon class="task-icon" icon="mdi-map-marker-outline" size="18" />
-              <span class="task-name" @click.stop="showFullText(task.copyTaskSrc, '源目录')">{{ task.copyTaskSrc }}</span>
+            <div class="card-title-row">
+              <v-icon class="card-title-icon" icon="mdi-map-marker-outline" size="18" />
+              <span class="card-title card-title--link" @click.stop="showFullText(task.copyTaskSrc, '源目录')">{{ task.copyTaskSrc }}</span>
             </div>
-            <v-chip :color="task.copyTaskStatus === '1' ? 'success' : 'error'" size="small" variant="tonal">
-              {{ task.copyTaskStatus === '1' ? '启用' : '停用' }}
-            </v-chip>
+            <StatusChip :value="task.copyTaskStatus" />
           </div>
-          <div class="task-path" @click.stop="showFullText(task.copyTaskDst, '目标目录')">
-            <v-icon class="path-icon" icon="mdi-map-marker-outline" size="14" />
-            <span class="path-text">{{ task.copyTaskDst }}</span>
+          <div class="card-path card-path--link" @click.stop="showFullText(task.copyTaskDst, '目标目录')">
+            <v-icon class="card-path-icon" icon="mdi-map-marker-outline" size="14" />
+            <span class="card-path-text">{{ task.copyTaskDst }}</span>
           </div>
-          <div class="task-path monitor-path" v-if="task.monitorDir" @click.stop="showFullText(task.monitorDir, '监控目录')">
-            <v-icon class="path-icon" icon="mdi-filter-outline" size="14" />
-            <span class="path-text">{{ task.monitorDir }}</span>
+          <div class="card-path card-path--link card-path--warning" v-if="task.monitorDir" @click.stop="showFullText(task.monitorDir, '监控目录')">
+            <v-icon class="card-path-icon" icon="mdi-filter-outline" size="14" />
+            <span class="card-path-text">{{ task.monitorDir }}</span>
           </div>
           <div class="card-time">
             <v-icon icon="mdi-clock-outline" size="12" />
@@ -106,7 +107,7 @@
             <v-btn class="action-more" variant="text" color="default" size="small" icon="mdi-dots-horizontal" @click="openActionDrawer(task)" />
           </div>
         </div>
-      </div>
+      </v-card>
 
       <v-empty-state v-if="!loading && taskList.length === 0" icon="mdi-inbox-outline" title="暂无同步任务" />
     </div>
@@ -137,29 +138,25 @@
     <FullTextDialog ref="fullTextRef" />
 
     <!-- Add/Edit Dialog -->
-    <v-dialog v-model="open" width="90%" class="modern-dialog">
+    <v-dialog v-model="open" width="92%">
       <v-card :title="dialogTitle">
         <v-card-text>
           <v-form ref="formRef">
-            <div class="form-item">
-              <label class="form-label">源目录</label>
+            <FormField label="源目录">
               <DirectoryTreeSelect v-model="form.copyTaskSrc" type="openlist" placeholder="请选择源目录" />
-            </div>
-            <div class="form-item">
-              <label class="form-label">目标目录</label>
+            </FormField>
+            <FormField label="目标目录">
               <DirectoryTreeSelect v-model="form.copyTaskDst" type="openlist" placeholder="请选择目标目录" />
-            </div>
-            <div class="form-item">
-              <label class="form-label">监控目录</label>
+            </FormField>
+            <FormField label="监控目录">
               <DirectoryTreeSelect v-model="form.monitorDir" type="local" placeholder="请选择监控目录（可选）" />
-            </div>
-            <div class="form-item">
-              <label class="form-label">状态</label>
+            </FormField>
+            <FormField label="状态">
               <v-radio-group v-model="form.copyTaskStatus" inline hide-details>
                 <v-radio label="启用" value="1" />
                 <v-radio label="停用" value="0" />
               </v-radio-group>
-            </div>
+            </FormField>
           </v-form>
         </v-card-text>
         <v-card-actions>
@@ -173,6 +170,8 @@
 </template>
 
 <script setup lang="ts">
+import StatusChip from '@/components/StatusChip.vue'
+import FormField from '@/components/FormField.vue'
 import { ref, watch } from 'vue'
 import DirectoryTreeSelect from '@/components/DirectoryTreeSelect/index.vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
@@ -229,137 +228,3 @@ watch(
   () => debouncedSearch()
 )
 </script>
-
-<style scoped lang="scss">
-.mobile-page {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: calc(100vh - 120px);
-  padding-bottom: 8px;
-
-  .task-list {
-    flex: 1;
-  }
-}
-
-/* ============================================
-   Batch Action Bar
-   ============================================ */
-
-
-/* ============================================
-   Task List
-   ============================================ */
-.task-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 200px;
-}
-
-.task-card {
-  .card-top {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 6px;
-    gap: 8px;
-  }
-
-  .task-name-row {
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    min-width: 0;
-    flex: 1;
-
-    .task-icon {
-      color: var(--osr-primary);
-      flex-shrink: 0;
-    }
-
-    .task-name {
-      font-size: 14px;
-      font-weight: 500;
-      color: var(--osr-text-primary);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-      line-height: 1.4;
-      cursor: pointer;
-      word-break: break-all;
-
-      &:hover {
-        color: var(--osr-primary);
-      }
-    }
-  }
-
-  .task-path {
-    display: flex;
-    align-items: flex-start;
-    gap: 3px;
-    font-size: 12px;
-    color: var(--osr-text-secondary);
-    margin-bottom: 6px;
-    cursor: pointer;
-    line-height: 1.5;
-
-    .path-icon {
-      flex-shrink: 0;
-      margin-top: 2px;
-      color: var(--osr-text-disabled);
-    }
-
-    .path-text {
-      flex: 1;
-      min-width: 0;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-      word-break: break-all;
-    }
-
-    &.monitor-path .path-text {
-      color: var(--osr-warning);
-    }
-
-    &:hover {
-      color: var(--osr-primary);
-    }
-  }
-
-  .card-time {
-    display: flex;
-    align-items: center;
-    gap: 3px;
-    font-size: 11px;
-    color: var(--osr-text-disabled);
-  }
-
-}
-
-/* ============================================
-   FAB Add Button
-   ============================================ */
-
-
-/* ============================================
-   Form
-   ============================================ */
-.form-item {
-  margin-bottom: 16px;
-
-  .form-label {
-    display: block;
-    margin-bottom: 6px;
-    font-size: 13px;
-    color: var(--osr-text-secondary);
-  }
-}
-</style>

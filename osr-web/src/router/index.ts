@@ -214,7 +214,9 @@ function convertMenuToRoute(menu: MenuRoute): RouteRecordRaw {
       icon: menu.meta?.icon || '',
       hidden: menu.hidden || false,
       isParentLayout: isLayout,
-      keepAlive: KEEP_ALIVE_COMPONENTS.has(componentPath)
+      keepAlive: KEEP_ALIVE_COMPONENTS.has(componentPath),
+      // 归一化后的 componentMap key，供 getRoutePathForComponent 反查（见其注释）
+      componentKey: componentPath
     },
     children
   }
@@ -241,16 +243,16 @@ function extractLeafRoutes(menus: MenuRoute[]): MenuRoute[] {
 /**
  * 根据 componentMap 的 key（如 'openlist/strmRecord/index'）找到当前已注册的路由 path。
  * 菜单 path 由后端 DB 配置，历史遗留数据前缀不统一（/openliststrm/xxx、/openlist/xxx 都存在），
- * 不能靠字符串猜测，只能用组件引用反查已注册路由。
+ * 不能靠字符串猜测。
+ *
+ * 注册路由时把归一化后的 key 记在 meta.componentKey 上，这里按 key 反查。
+ * 不用「比对组件对象引用」：Vite HMR 下模块可能被重新求值，componentMap 里的对象
+ * 与已注册路由上挂的对象会变成两个实例，引用比对就会全部落空。
  */
 export function getRoutePathForComponent(componentKey: string): string | null {
-  const target = componentMap[componentKey]
-  if (!target) return null
+  if (!componentMap[componentKey]) return null
   for (const r of router.getRoutes()) {
-    const rr = r as any
-    if (rr.components?.default === target || rr.component === target) {
-      return r.path
-    }
+    if (r.meta?.componentKey === componentKey) return r.path
   }
   return null
 }

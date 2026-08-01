@@ -150,13 +150,6 @@ const insertVariable = (varName: string) => {
 </script>
 
 <style scoped lang="scss">
-.mobile-page {
-  display: flex;
-  flex-direction: column;
-  min-height: calc(100vh - 120px);
-  padding-bottom: 8px;
-}
-
 .tab-body {
   padding: 12px 2px;
 }

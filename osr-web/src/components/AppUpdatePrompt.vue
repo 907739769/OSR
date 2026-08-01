@@ -73,7 +73,7 @@ const { needRefresh, updating, applyUpdate, dismiss } = useAppUpdate()
 
     &:hover {
       color: var(--osr-text-primary);
-      background-color: var(--osr-primary-light-9);
+      background-color: var(--osr-primary-subtle);
     }
   }
 }

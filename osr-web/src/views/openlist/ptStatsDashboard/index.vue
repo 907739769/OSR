@@ -1,5 +1,11 @@
 <template>
   <div class="pt-stats-dashboard">
+    <PageHeader
+      icon="mdi-chart-box-outline"
+      title="PT 统计仪表盘"
+      desc="下载量趋势、索引器命中率与失败原因分布"
+    />
+
     <div class="toolbar">
       <span class="toolbar-label">统计范围</span>
       <v-btn-toggle v-model="rangeDays" color="primary" density="comfortable" variant="outlined" mandatory @update:model-value="onRangeChange">
@@ -103,6 +109,7 @@
 </template>
 
 <script setup lang="ts">
+import PageHeader from '@/components/PageHeader.vue'
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { osrCssVar } from '@/composables/useThemeMode'
 // 按需引入：本页只用到 line/bar/pie，避免全量引入 echarts 拖大打包体积
@@ -358,6 +365,11 @@ onUnmounted(() => {
   padding: 24px;
 }
 
+/* 本页根容器不是 .page-container，PageHeader 的下间距在这里补 */
+:deep(.page-header) {
+  margin-bottom: 16px;
+}
+
 .toolbar {
   display: flex;
   align-items: center;
@@ -425,7 +437,7 @@ onUnmounted(() => {
   }
 
   &.primary .stat-icon {
-    background-color: var(--osr-primary-light-9);
+    background-color: var(--osr-primary-subtle);
     color: var(--osr-primary);
   }
   &.success .stat-icon {
@@ -502,7 +514,7 @@ onUnmounted(() => {
   font-weight: 500;
   &:hover {
     text-decoration: underline;
-    color: var(--osr-primary-light-3);
+    color: var(--osr-primary-hover);
   }
 }
 

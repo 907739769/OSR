@@ -1,11 +1,17 @@
 <template>
   <div class="page-container">
+    <PageHeader
+      icon="mdi-filter-cog-outline"
+      title="PT 过滤规则"
+      desc="全局的种子硬性过滤与择优排序规则，可被单条订阅覆盖"
+    />
+
     <v-card :loading="loading" class="table-card">
       <v-card-text>
         <v-form ref="formRef" class="filter-form">
           <div class="section-divider"><span>硬性过滤（不满足即淘汰）</span></div>
 
-          <div class="form-item">
+          <FormField>
             <v-text-field
               v-model.number="form.minSeeders"
               label="最低做种数"
@@ -13,13 +19,15 @@
               min="0"
               density="comfortable"
               variant="outlined"
-              class="field-w200"
+              class="field-num-lg"
               :rules="minSeedersRules"
             />
-            <span class="form-tip">做种数低于此值的种子直接淘汰</span>
-          </div>
+            <template #tip>
+              做种数低于此值的种子直接淘汰
+            </template>
+          </FormField>
 
-          <div class="form-item">
+          <FormField>
             <v-text-field
               v-model.number="form.minSize"
               label="体积下限"
@@ -28,12 +36,14 @@
               max="999"
               density="comfortable"
               variant="outlined"
-              class="field-w160"
+              class="field-num"
             />
-            <span class="form-tip">GB，0 表示不限</span>
-          </div>
+            <template #tip>
+              GB，0 表示不限
+            </template>
+          </FormField>
 
-          <div class="form-item">
+          <FormField>
             <v-text-field
               v-model.number="form.maxSize"
               label="体积上限"
@@ -42,32 +52,34 @@
               max="999"
               density="comfortable"
               variant="outlined"
-              class="field-w160"
+              class="field-num"
             />
-            <span class="form-tip">GB，0 表示不限</span>
-          </div>
+            <template #tip>
+              GB，0 表示不限
+            </template>
+          </FormField>
 
-          <div class="form-item">
-            <label class="field-label">仅要免费种</label>
+          <FormField label="仅要免费种">
             <v-radio-group v-model="form.freeOnly" inline hide-details density="comfortable">
               <v-radio label="否" value="0" />
               <v-radio label="是" value="1" />
             </v-radio-group>
-            <span class="form-tip">开启后 50% 促销种也会被淘汰，只留完全免费的</span>
-          </div>
+            <template #tip>
+              开启后 50% 促销种也会被淘汰，只留完全免费的
+            </template>
+          </FormField>
 
-          <div class="form-item">
-            <label class="field-label">外语电影需中字</label>
+          <FormField label="外语电影需中字">
             <v-radio-group v-model="form.requireChineseSubtitle" inline hide-details density="comfortable">
               <v-radio label="否" value="0" />
               <v-radio label="是" value="1" />
             </v-radio-group>
-            <span class="form-tip">
+            <template #tip>
               外语电影（TMDb 原始语言非中文）的种子标题或描述中未检测到中文字幕标识（CHS/CHT/中字等）时直接淘汰。中文电影自动跳过此规则
-            </span>
-          </div>
+            </template>
+          </FormField>
 
-          <div class="form-item">
+          <FormField>
             <v-text-field
               v-model="form.resolutionWhitelist"
               label="分辨率白名单"
@@ -75,12 +87,12 @@
               density="comfortable"
               variant="outlined"
             />
-            <span class="form-tip">
+            <template #tip>
               <strong>硬性过滤</strong>：不在白名单内的分辨率直接淘汰。解析不出分辨率的种子在白名单非空时也会被淘汰
-            </span>
-          </div>
+            </template>
+          </FormField>
 
-          <div class="form-item">
+          <FormField>
             <v-text-field
               v-model="form.includeKeywords"
               label="标题包含词"
@@ -88,9 +100,9 @@
               density="comfortable"
               variant="outlined"
             />
-          </div>
+          </FormField>
 
-          <div class="form-item">
+          <FormField>
             <v-text-field
               v-model="form.excludeKeywords"
               label="标题排除词"
@@ -98,11 +110,11 @@
               density="comfortable"
               variant="outlined"
             />
-          </div>
+          </FormField>
 
           <div class="section-divider"><span>择优排序（从存活的候选里挑一个）</span></div>
 
-          <div class="form-item">
+          <FormField>
             <v-text-field
               v-model="form.resolutionPriority"
               label="分辨率优先级"
@@ -110,12 +122,12 @@
               density="comfortable"
               variant="outlined"
             />
-            <span class="form-tip">
+            <template #tip>
               <strong>只影响排序</strong>，不做过滤——不在此列表内的分辨率只是排在最后，仍可能被下载。要过滤请用上面的白名单
-            </span>
-          </div>
+            </template>
+          </FormField>
 
-          <div class="form-item">
+          <FormField>
             <v-text-field
               v-model.number="form.preferredSize"
               label="偏好体积"
@@ -124,13 +136,14 @@
               max="999"
               density="comfortable"
               variant="outlined"
-              class="field-w160"
+              class="field-num"
             />
-            <span class="form-tip">GB，0 表示体积不参与择优比较</span>
-          </div>
+            <template #tip>
+              GB，0 表示体积不参与择优比较
+            </template>
+          </FormField>
 
-          <div class="form-item">
-            <label class="field-label">维度优先顺序</label>
+          <FormField label="维度优先顺序">
             <div class="dimension-list">
               <div v-for="(dimension, index) in sortOrder" :key="dimension" class="dimension-row">
                 <span class="dimension-index">{{ index + 1 }}</span>
@@ -139,12 +152,12 @@
                 <v-btn variant="text" size="small" :disabled="index === sortOrder.length - 1" @click="moveDown(index)">下移</v-btn>
               </div>
             </div>
-            <span class="form-tip">
+            <template #tip>
               排在前面的维度先比较。例如把「促销优先」放到「分辨率优先级」之前，就表示宁可要免费的 1080p，也不要收费的 4K
-            </span>
-          </div>
+            </template>
+          </FormField>
 
-          <div class="form-item form-actions">
+          <div class="form-actions">
             <v-btn color="primary" :loading="saving" @click="save">保存</v-btn>
             <v-btn variant="outlined" @click="load">重置</v-btn>
           </div>
@@ -155,6 +168,8 @@
 </template>
 
 <script setup lang="ts">
+import PageHeader from '@/components/PageHeader.vue'
+import FormField from '@/components/FormField.vue'
 import { usePtFilterConfig } from '@/composables/usePtFilterConfig'
 
 const { loading, saving, formRef, form, rules, sortOrder, labelOf, moveUp, moveDown, load, save } =
@@ -197,31 +212,19 @@ const minSeedersRules = (rules.minSeeders || []).map((rule: any) => {
   margin-top: 4px;
 }
 
-.form-item {
-  margin-bottom: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.field-label {
-  font-size: 13px;
-  color: var(--osr-text-primary);
-  margin-bottom: 2px;
-}
-
-.field-w200 {
+/* 数字输入框限宽，避免「最低做种数」这类两三位数的框拉满整行 */
+.field-num-lg {
   max-width: 200px;
 }
 
-.field-w160 {
+.field-num {
   max-width: 160px;
 }
 
 .form-actions {
-  flex-direction: row;
+  display: flex;
   gap: 12px;
-  margin-top: 8px;
+  margin-top: 16px;
 }
 
 .dimension-list {
@@ -266,8 +269,8 @@ const minSeedersRules = (rules.minSeeders || []).map((rule: any) => {
     width: 100%;
   }
 
-  .field-w200,
-  .field-w160 {
+  .field-num-lg,
+  .field-num {
     max-width: 100%;
   }
 

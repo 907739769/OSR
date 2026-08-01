@@ -39,7 +39,7 @@
     <!-- 列表 -->
     <div class="task-list">
       <v-progress-linear v-if="loading" indeterminate color="primary" />
-      <div
+      <v-card
         v-for="item in taskList"
         :key="item.id"
         class="task-card"
@@ -47,17 +47,17 @@
         @click="handleCardClick($event, item.id)"
       >
         <div class="card-checkbox">
-          <v-checkbox-btn
+          <v-checkbox
             :model-value="selectedIds.includes(item.id)"
-            @update:model-value="toggleSelect(item.id)"
+            density="compact"
+            hide-details
+            @click.stop="toggleSelect(item.id)"
           />
         </div>
         <div class="card-content">
           <div class="card-top">
-            <span class="task-name">{{ item.name }}</span>
-            <v-chip :color="item.enabled === '1' ? 'success' : 'error'" size="small" variant="tonal">
-              {{ item.enabled === '1' ? '启用' : '停用' }}
-            </v-chip>
+            <span class="card-title">{{ item.name }}</span>
+            <StatusChip :value="item.enabled" />
           </div>
           <div class="card-detail">
             <div class="detail-row">
@@ -78,7 +78,7 @@
             <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(item)">删除</v-btn>
           </div>
         </div>
-      </div>
+      </v-card>
 
       <v-empty-state v-if="!loading && taskList.length === 0" icon="mdi-inbox-outline" title="暂无媒体服务器" />
     </div>
@@ -95,7 +95,7 @@
     />
 
     <!-- 新增/编辑弹窗 -->
-    <v-dialog v-model="open" width="90%" class="modern-dialog">
+    <v-dialog v-model="open" width="92%">
       <v-card :title="dialogTitle">
         <v-card-text>
           <v-form ref="formRef">
@@ -140,9 +140,9 @@
           </v-form>
         </v-card-text>
         <v-card-actions>
-          <v-btn :loading="testLoading" @click="handleTest">测试连接</v-btn>
+          <v-btn :loading="testLoading" variant="outlined" @click="handleTest">测试连接</v-btn>
           <v-spacer />
-          <v-btn @click="open = false">取消</v-btn>
+          <v-btn variant="outlined" @click="open = false">取消</v-btn>
           <v-btn color="primary" variant="flat" :loading="submitLoading" @click="submitForm">确定</v-btn>
         </v-card-actions>
       </v-card>
@@ -151,6 +151,7 @@
 </template>
 
 <script setup lang="ts">
+import StatusChip from '@/components/StatusChip.vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import { usePtMediaServer } from '@/composables/usePtMediaServer'
@@ -175,71 +176,3 @@ const toRules = (fieldRules?: any[]) => {
   })
 }
 </script>
-
-<style scoped lang="scss">
-.mobile-page {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: calc(100vh - 120px);
-  padding-bottom: 8px;
-}
-
-
-.task-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 200px;
-  flex: 1;
-}
-
-.task-card {
-  .card-top {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 6px;
-    gap: 8px;
-
-    .task-name {
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--osr-text-primary);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-  }
-
-  .card-detail {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .detail-row {
-    display: flex;
-    gap: 8px;
-    font-size: 12px;
-    line-height: 1.6;
-
-    .label {
-      flex-shrink: 0;
-      width: 74px;
-      color: var(--osr-text-secondary);
-    }
-
-    .value {
-      flex: 1;
-      min-width: 0;
-      color: var(--osr-text-primary);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-  }
-
-}
-
-</style>

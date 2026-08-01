@@ -189,7 +189,7 @@ onMounted(async () => {
 }
 
 .welcome-card {
-  background: linear-gradient(135deg, var(--osr-primary), var(--osr-primary-light-4));
+  background: linear-gradient(135deg, var(--osr-primary), var(--osr-primary-hover));
   color: var(--osr-on-primary, #fff);
   padding: 20px 16px;
   border-radius: var(--osr-radius-lg);
@@ -292,7 +292,7 @@ onMounted(async () => {
     }
 
     &.primary .stat-icon {
-      background: linear-gradient(135deg, var(--osr-primary-light-7), var(--osr-primary-light-9));
+      background: linear-gradient(135deg, var(--osr-primary-muted), var(--osr-primary-subtle));
       color: var(--osr-primary);
     }
     &.success .stat-icon {

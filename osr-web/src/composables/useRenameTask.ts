@@ -59,6 +59,8 @@ export function useRenameTask() {
     base.handleExecuteOne(row, `是否确认执行重命名任务"${row?.sourceFolder}"？`)
   const handleBatchExecute = () =>
     base.handleExecute(`是否确认批量执行选中的 ${base.selectedIds.value.length} 个重命名任务？`)
+  const handleBatchDelete = () =>
+    base.handleDelete(undefined, `是否确认删除选中的 ${base.selectedIds.value.length} 个重命名任务？`)
 
   // 移动端 - 卡片选择
   const toggleSelect = (id: number) => {
@@ -109,7 +111,7 @@ export function useRenameTask() {
 
   return {
     ...base,
-    handleAdd, handleUpdate, handleDelete, handleExecuteOne, handleBatchExecute,
+    handleAdd, handleUpdate, handleDelete, handleExecuteOne, handleBatchExecute, handleBatchDelete,
     // 移动端卡片选择
     toggleSelect, handleCardClick, clearSelection,
     // 移动端分页

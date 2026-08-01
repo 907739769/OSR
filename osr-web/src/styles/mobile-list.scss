@@ -1,22 +1,40 @@
 /* ============================================
    Mobile list common styles（views-mobile 共享）
-   任务卡片 / FAB 按钮 / 批量操作栏 —— 单源定义，
+   页面外壳 / 列表容器 / 任务卡片 / FAB 按钮 / 批量操作栏 —— 单源定义，
    各移动端页面禁止再复制；页面特有的子规则保留在各自 scoped
    ============================================ */
 
+/* 移动端页面外壳。左右内边距由 MobileLayout 的 .mobile-content 统一给，
+   页面自身只管纵向节奏，不要再加 padding，否则会双重留白 */
+.mobile-page {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: calc(100vh - 120px);
+  padding-bottom: 8px;
+}
+
+/* 卡片列表容器。min-height 让加载中/空态不塌陷，flex:1 把分页条压到底部 */
+.task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 200px;
+  flex: 1;
+}
+
+/* 用 <v-card class="task-card"> —— surface / 圆角 / 阴影由 v-card 提供，
+   这里只补选中态与内部排布 */
 .task-card {
   display: flex;
   gap: 10px;
-  background: var(--osr-surface);
-  border-radius: var(--osr-radius-lg);
   padding: 12px;
-  box-shadow: var(--osr-shadow-base);
   border: 2px solid transparent;
   transition: all var(--osr-transition-fast);
 
   &.selected {
-    border-color: var(--osr-primary-light-5);
-    background: var(--osr-primary-light-9);
+    border-color: var(--osr-primary-accent);
+    background: var(--osr-primary-subtle);
   }
 
   &:active {
@@ -31,9 +49,254 @@
     padding-left: 2px;
   }
 
+  /* 内容区统一用 flex column + gap 控制纵向节奏，
+     子块一律不再自带 margin-bottom，避免各页节奏对不齐 */
   .card-content {
     flex: 1;
     min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  /* ---- 卡片解剖结构（全站唯一一套，页面不要再自造同义类名）----
+     .card-top        标题行 + 状态 chip
+       .card-title-row / .card-title-icon / .card-title
+     .card-path       次级路径行，可重复；--success / --warning 变体只改文字色
+     .card-detail     label / value 明细行容器
+     .card-time       时间脚注
+     .card-actions    底部操作横排（定义在下方顶层，抽屉里也复用）
+     -------------------------------------------------------------- */
+
+  .card-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .card-title-row {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    min-width: 0;
+    flex: 1;
+
+    .card-title-icon {
+      color: var(--osr-primary);
+      flex-shrink: 0;
+    }
+  }
+
+  .card-title {
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--osr-text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    line-height: 1.4;
+    word-break: break-all;
+
+    /* 点击弹全文查看的标题才给手势与 hover 反馈 */
+    &.card-title--link {
+      cursor: pointer;
+
+      &:hover {
+        color: var(--osr-primary);
+      }
+    }
+  }
+
+  .card-path {
+    display: flex;
+    align-items: flex-start;
+    gap: 3px;
+    font-size: 12px;
+    color: var(--osr-text-secondary);
+    line-height: 1.5;
+
+    .card-path-icon {
+      flex-shrink: 0;
+      margin-top: 2px;
+      color: var(--osr-text-disabled);
+    }
+
+    .card-path-text {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      word-break: break-all;
+    }
+
+    &.card-path--link {
+      cursor: pointer;
+
+      &:hover {
+        color: var(--osr-primary);
+      }
+    }
+
+    &.card-path--success .card-path-text {
+      color: var(--osr-success);
+    }
+
+    &.card-path--warning .card-path-text {
+      color: var(--osr-warning);
+    }
+  }
+
+  .card-detail {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .detail-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    line-height: 1.6;
+
+    .label {
+      flex-shrink: 0;
+      width: 64px;
+      color: var(--osr-text-secondary);
+    }
+
+    .value {
+      flex: 1;
+      min-width: 0;
+      color: var(--osr-text-primary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  .card-time {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    font-size: 11px;
+    color: var(--osr-text-disabled);
+  }
+}
+
+/* ============================================
+   窄屏表格降级卡片（.mobile-card）
+   PC 列表页在 <768px 时把表格换成 label / value 行式卡片，
+   monitor/job、system/dict/* 共用 —— 与 .task-card 是两种形态：
+   .task-card 用于 views-mobile 的原生移动页，
+   .mobile-card 用于 PC 页的窄屏降级，行式对齐更贴近原表格
+   ============================================ */
+.mobile-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.mobile-card {
+  overflow: hidden;
+  background: var(--osr-surface);
+  border-radius: var(--osr-radius-md);
+  border: 1px solid var(--osr-border-light);
+
+  .mobile-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px 8px;
+    border-bottom: 1px solid var(--osr-border-light);
+    background: var(--osr-bg-page);
+
+    .mobile-card-title {
+      flex: 1;
+      min-width: 0;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--osr-text-primary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  .mobile-card-body {
+    padding: 0;
+
+    .mobile-card-row {
+      display: flex;
+      align-items: flex-start;
+      padding: 8px 12px;
+      font-size: 13px;
+      border-bottom: 1px solid var(--osr-border-light);
+
+      &:last-child {
+        border-bottom: none;
+      }
+
+      .mobile-card-label {
+        width: 64px;
+        flex-shrink: 0;
+        padding-top: 1px;
+        font-size: 12px;
+        line-height: 1.5;
+        color: var(--osr-text-secondary);
+      }
+
+      .mobile-card-value {
+        flex: 1;
+        min-width: 0;
+        font-size: 13px;
+        line-height: 1.5;
+        color: var(--osr-text-primary);
+        word-break: break-all;
+
+        &.mobile-card-value-clip {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        &.mobile-card-value-light {
+          color: var(--osr-text-secondary);
+          font-size: 12px;
+        }
+      }
+    }
+  }
+
+  .mobile-card-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 2px;
+    padding: 8px 12px 10px;
+    border-top: 1px solid var(--osr-border-light);
+  }
+}
+
+/* 搜索面板里的「开始日期 - 结束日期」并排组合 */
+.date-range-fields {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  .date-field {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .date-range-sep {
+    color: var(--osr-text-secondary);
   }
 }
 
@@ -42,7 +305,7 @@
   right: 20px;
   bottom: calc(56px + 16px + env(safe-area-inset-bottom, 0px));
   z-index: 1000;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--osr-shadow-lg);
   transition: all var(--osr-transition-fast);
 
   &:active {
@@ -61,7 +324,6 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  margin-top: 6px;
   padding-top: 6px;
   border-top: 1px solid var(--osr-border-light);
 
@@ -82,8 +344,8 @@
   align-items: center;
   gap: 6px;
   padding: 10px 14px;
-  background: var(--osr-primary-light-9);
-  border: 1px solid var(--osr-primary-light-7);
+  background: var(--osr-primary-subtle);
+  border: 1px solid var(--osr-primary-muted);
   border-radius: var(--osr-radius-md);
   font-size: 13px;
   flex-wrap: wrap;

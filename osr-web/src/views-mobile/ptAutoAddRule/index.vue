@@ -9,7 +9,6 @@
           clearable
           density="compact"
           variant="outlined"
-          class="mb-3"
           @keyup.enter="handleQuery"
         />
         <v-select
@@ -17,6 +16,15 @@
           label="媒体类型"
           :items="[{ title: '电影', value: 'MOVIE' }, { title: '剧集', value: 'TV' }]"
           placeholder="全部类型"
+          clearable
+          density="compact"
+          variant="outlined"
+        />
+        <v-select
+          v-model="queryParams.enabled"
+          label="启用状态"
+          :items="[{ title: '启用', value: '1' }, { title: '停用', value: '0' }]"
+          placeholder="全部"
           clearable
           density="compact"
           variant="outlined"
@@ -30,13 +38,11 @@
 
     <div class="task-list">
       <v-progress-linear v-if="loading" indeterminate color="primary" />
-      <div v-for="item in taskList" :key="item.id" class="task-card">
+      <v-card v-for="item in taskList" :key="item.id" class="task-card">
         <div class="card-content">
           <div class="card-top">
-            <span class="task-name" :title="item.name">{{ item.name }}</span>
-            <v-chip :color="item.enabled === '1' ? 'success' : 'info'" size="small" variant="tonal">
-              {{ item.enabled === '1' ? '启用' : '停用' }}
-            </v-chip>
+            <span class="card-title" :title="item.name">{{ item.name }}</span>
+            <StatusChip :value="item.enabled" />
           </div>
           <div class="card-detail">
             <div class="detail-row">
@@ -51,14 +57,18 @@
               <span class="label">上次执行</span>
               <span class="value">{{ item.lastRunTime || '未执行' }}</span>
             </div>
+            <div class="detail-row">
+              <span class="label">过滤条件</span>
+              <span class="value" :class="{ 'text-muted': !filterText(item) }">{{ filterText(item) || '无' }}</span>
+            </div>
+          </div>
+          <div class="card-actions">
+            <v-btn variant="text" color="primary" size="small" :loading="runningIds.has(item.id)" @click="handleRun(item)">执行</v-btn>
+            <v-btn variant="text" color="primary" size="small" @click="handleUpdate(item, '编辑规则')">编辑</v-btn>
+            <v-btn class="action-more" variant="text" color="default" size="small" icon="mdi-dots-horizontal" @click="openActionDrawer(item)" />
           </div>
         </div>
-        <div class="card-actions">
-          <v-btn variant="text" color="primary" size="small" :loading="runningIds.has(item.id)" @click="handleRun(item)">执行</v-btn>
-          <v-btn variant="text" color="primary" size="small" @click="handleUpdate(item, '编辑规则')">编辑</v-btn>
-          <v-btn class="action-more" variant="text" color="default" size="small" icon="mdi-dots-horizontal" @click="openActionDrawer(item)" />
-        </div>
-      </div>
+      </v-card>
 
       <v-empty-state v-if="!loading && taskList.length === 0" icon="mdi-inbox-outline" title="暂无规则" />
     </div>
@@ -85,7 +95,7 @@
       @size-change="handleSizeChange"
     />
 
-    <v-dialog v-model="open" max-width="90%">
+    <v-dialog v-model="open" width="92%">
       <v-card :title="dialogTitle">
         <v-card-text>
           <v-form ref="formRef">
@@ -96,17 +106,15 @@
               :rules="nameRules"
               class="mb-3"
             />
-            <div class="form-item">
-              <label class="form-label">是否启用</label>
+            <FormField label="是否启用">
               <v-switch v-model="form.enabled" true-value="1" false-value="0" color="primary" hide-details />
-            </div>
-            <div class="form-item">
-              <label class="form-label">媒体类型</label>
+            </FormField>
+            <FormField label="媒体类型">
               <v-radio-group v-model="form.mediaType" inline hide-details>
                 <v-radio label="电影" value="MOVIE" />
                 <v-radio label="剧集" value="TV" />
               </v-radio-group>
-            </div>
+            </FormField>
             <v-select
               v-model="form.source"
               label="数据源"
@@ -192,7 +200,7 @@
       </v-card>
     </v-dialog>
 
-    <v-dialog v-model="logDialogVisible" max-width="90%">
+    <v-dialog v-model="logDialogVisible" width="92%">
       <v-card title="执行日志">
         <v-card-text>
           <div class="log-list">
@@ -214,6 +222,8 @@
 </template>
 
 <script setup lang="ts">
+import StatusChip from '@/components/StatusChip.vue'
+import FormField from '@/components/FormField.vue'
 import { ref } from 'vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
@@ -236,7 +246,8 @@ const {
   searchCollapsed,
   runningIds, handleRun,
   logDialogVisible, logLoading, logList, handleShowLogs,
-  genreOptions, genreExcludeArr, downloaderOptions
+  genreOptions, genreExcludeArr, downloaderOptions,
+  filterText
 } = usePtAutoAddRule()
 
 // 表单规则是 { required, message, trigger } 对象格式（composable 返回），
@@ -289,118 +300,8 @@ const resultTagType = (result: string): 'success' | 'info' | 'warning' | 'error'
 </script>
 
 <style scoped lang="scss">
-.mobile-page {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: calc(100vh - 120px);
-  padding-bottom: 8px;
-}
-
-.task-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 200px;
-  flex: 1;
-}
-
-.task-card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  background: var(--osr-surface);
-  border-radius: var(--osr-radius-lg);
-  padding: 12px;
-  box-shadow: var(--osr-shadow-base);
-
-  .card-content {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .card-top {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 8px;
-
-    .task-name {
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--osr-text-primary);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-  }
-
-  .card-detail {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .detail-row {
-    display: flex;
-    gap: 8px;
-    font-size: 12px;
-    line-height: 1.6;
-
-    .label {
-      flex-shrink: 0;
-      width: 62px;
-      color: var(--osr-text-secondary);
-    }
-
-    .value {
-      flex: 1;
-      min-width: 0;
-      color: var(--osr-text-primary);
-    }
-  }
-
-  .card-actions {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    padding-top: 6px;
-    border-top: 1px solid var(--osr-border-light);
-
-    .action-more {
-      margin-left: auto;
-    }
-  }
-}
-
-.form-item {
-  margin-bottom: 16px;
-
-  .form-label {
-    display: block;
-    margin-bottom: 6px;
-    font-size: 13px;
-    color: var(--osr-text-secondary);
-  }
-}
-
-.fab-add {
-  position: fixed;
-  right: 20px;
-  bottom: calc(56px + 16px + env(safe-area-inset-bottom, 0px));
-  z-index: 1000;
-  padding: 12px 20px;
-  font-size: 14px;
-  font-weight: 500;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-
-  @media (min-width: 768px) {
-    right: 40px;
-    bottom: calc(56px + 24px);
-    padding: 14px 24px;
-    font-size: 15px;
-  }
+.text-muted {
+  color: var(--osr-text-placeholder);
 }
 
 .log-list {

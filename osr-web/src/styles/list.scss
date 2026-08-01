@@ -27,8 +27,22 @@
     flex: 0 0 auto;
   }
 
+  /* 字段宽度只有这几档，页面不要再写死 px */
+  .field-sm,
   .status-select {
     width: 140px;
+  }
+
+  .field-md {
+    width: 180px;
+  }
+
+  .field-lg {
+    width: 260px;
+  }
+
+  .date-field {
+    width: 170px;
   }
 
   .date-range-fields {
@@ -36,10 +50,6 @@
     align-items: center;
     gap: 6px;
     flex: 0 0 auto;
-
-    .date-field {
-      width: 150px;
-    }
 
     .date-range-sep {
       color: var(--osr-text-secondary);
@@ -54,6 +64,14 @@
   }
 }
 
+/* 弹窗内的一行输入组合（宽度由各字段自己定，不套用列表页搜索区的固定档位） */
+.inline-fields {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .table-card {
   padding: 16px;
   display: flex;
@@ -65,18 +83,42 @@
   justify-content: space-between;
   align-items: center;
   margin-bottom: 12px;
+  flex-wrap: wrap;
+  gap: 10px;
 
-  .action-left {
+  .action-left,
+  .action-right {
     display: flex;
+    align-items: center;
     gap: 6px;
     flex-wrap: wrap;
   }
 }
 
+/* 批量操作条：吸顶，长列表滚动时批量按钮仍可见 */
+.batch-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border-radius: var(--osr-radius-sm);
+  background: var(--osr-bg-page);
+  font-size: 13px;
+  color: var(--osr-text-secondary);
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+/* margin-top:auto 让分页条贴在 .table-card 底部（table-card 是 flex column） */
 .pagination-wrapper {
   display: flex;
   justify-content: flex-end;
-  margin-top: 16px;
+  align-items: center;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 12px;
 }
 
 /* ============================================
@@ -112,8 +154,211 @@
   }
 }
 
+/* ============================================
+   源 / 目标 / 监控 路径对照块
+   copyTask、copyRecord、renameTask 的表格列共用；
+   颜色走 Vuetify 主题色，暗色模式自动适配
+   ============================================ */
+.path-box {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0;
+}
+
+.path-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+
+.path-label {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: var(--osr-radius-sm);
+  line-height: 1.4;
+
+  &.path-label--src {
+    color: rgb(var(--v-theme-info));
+    background: rgba(var(--v-theme-info), 0.12);
+  }
+
+  &.path-label--dst {
+    color: rgb(var(--v-theme-success));
+    background: rgba(var(--v-theme-success), 0.12);
+  }
+
+  &.path-label--mon {
+    color: rgb(var(--v-theme-warning));
+    background: rgba(var(--v-theme-warning), 0.12);
+  }
+}
+
+/* 文件名（强调）与其后的目录路径（弱化），同一行内并排 */
+.path-name {
+  flex-shrink: 0;
+  max-width: 200px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--osr-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.path-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--osr-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+
+  &.path-text--muted {
+    color: var(--osr-text-placeholder);
+  }
+}
+
+/* ============================================
+   卡片网格（PT 配置类页面：索引器 / 下载器 / 媒体服务器 / 黑名单）
+   与 .modern-table 并列的第二种列表范式，单源定义
+   ============================================ */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
+  min-height: 120px;
+
+  /* 带海报的订阅卡需要更宽的最小列宽 */
+  &.card-grid--wide {
+    grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  }
+}
+
+.item-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--osr-border-light);
+  border-radius: var(--osr-radius-md);
+  transition: box-shadow var(--osr-transition-fast), border-color var(--osr-transition-fast);
+
+  &:hover {
+    box-shadow: var(--osr-shadow-md);
+    border-color: var(--osr-border-base);
+  }
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+
+    /* 全局样式表里不需要 :deep()，直接命中 Vuetify 内部节点 */
+    .card-checkbox {
+      flex-shrink: 0;
+      display: flex;
+
+      .v-selection-control {
+        min-height: unset;
+      }
+    }
+
+    .card-title {
+      flex: 1;
+      min-width: 0;
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--osr-text-primary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+
+      /* 种子标题这类长文本改两行截断，而不是单行省略 */
+      &.card-title--clamp2 {
+        white-space: normal;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        line-height: 1.4;
+      }
+    }
+
+    &.card-header--top {
+      align-items: flex-start;
+    }
+  }
+
+  /* 失败态：左侧红色标记条 */
+  &.item-card--failed {
+    border-left: 3px solid rgb(var(--v-theme-error));
+  }
+
+  /* 批量模式下可点选 */
+  &.item-card--selectable {
+    cursor: pointer;
+
+    &:hover {
+      border-color: rgb(var(--v-theme-primary));
+    }
+  }
+
+  /* 信息密度更高的变体（PT 下载记录）：内容行多，收紧间距，
+     并给绝对定位的角标勾选框做定位上下文 */
+  &.item-card--compact {
+    position: relative;
+    gap: 8px;
+    padding: 14px;
+  }
+
+  .card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .card-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+
+    .label {
+      flex-shrink: 0;
+      width: 72px;
+      color: var(--osr-text-secondary);
+    }
+
+    .value {
+      flex: 1;
+      min-width: 0;
+      color: var(--osr-text-primary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  .card-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 4px;
+    padding-top: 8px;
+    border-top: 1px solid var(--osr-border-light);
+    margin-top: auto;
+  }
+}
+
 /* 窄屏：搜索字段与按钮占满整行 */
 @media (max-width: 768px) {
+  .card-grid {
+    grid-template-columns: 1fr;
+  }
+
   .page-container {
     gap: 10px;
   }
@@ -121,16 +366,16 @@
   .search-fields {
     > .v-text-field,
     > .v-select,
-    .status-select {
+    .field-sm,
+    .field-md,
+    .field-lg,
+    .status-select,
+    .date-field {
       width: 100%;
     }
 
     .date-range-fields {
       width: 100%;
-
-      .date-field {
-        width: 100%;
-      }
     }
 
     .search-actions {

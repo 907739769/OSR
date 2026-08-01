@@ -470,18 +470,6 @@ getList()
 
 <style scoped lang="scss">
 /* ============================================
-    Page Container
-    ============================================ */
-.page-container {
-  display: flex;
-  flex-direction: column;
-  gap: 28px;
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 0 4px;
-}
-
-/* ============================================
     Loading
     ============================================ */
 .page-loading {
@@ -511,8 +499,8 @@ getList()
     .section-icon {
       width: 32px;
       height: 32px;
-      border-radius: 8px;
-      background: var(--osr-primary-light-9);
+      border-radius: var(--osr-radius-base);
+      background: var(--osr-primary-subtle);
       color: var(--osr-primary);
       display: flex;
       align-items: center;
@@ -550,7 +538,7 @@ getList()
     ============================================ */
 .config-item {
   background: var(--osr-surface);
-  border-radius: 12px;
+  border-radius: var(--osr-radius-lg);
   border: 1px solid var(--osr-border-light);
   padding: 14px 16px;
   transition: all var(--osr-transition-base);
@@ -558,13 +546,13 @@ getList()
   flex-direction: column;
 
   &:hover:not(.config-item--editing) {
-    border-color: var(--osr-primary-light-6);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+    border-color: var(--osr-primary-muted);
+    box-shadow: var(--osr-shadow-md);
   }
 
   &--editing {
-    border-color: var(--osr-warning);
-    box-shadow: 0 0 0 2px rgba(230, 162, 60, 0.15);
+    border-color: rgb(var(--v-theme-warning));
+    box-shadow: 0 0 0 2px rgba(var(--v-theme-warning), 0.2);
     grid-column: 1 / -1;
   }
 
@@ -605,7 +593,7 @@ getList()
 
         &:hover {
           color: var(--osr-primary);
-          background: var(--osr-primary-light-9);
+          background: var(--osr-primary-subtle);
         }
       }
     }
@@ -633,7 +621,7 @@ getList()
     margin-top: 10px;
     padding: 8px 10px;
     background: var(--osr-bg-page);
-    border-radius: 8px;
+    border-radius: var(--osr-radius-base);
 
     .value-text {
       flex: 1;
@@ -661,7 +649,7 @@ getList()
 
       &:hover {
         color: var(--osr-primary);
-        background: var(--osr-primary-light-9);
+        background: var(--osr-primary-subtle);
       }
     }
   }
@@ -700,10 +688,6 @@ getList()
     Mobile Responsive
     ============================================ */
 @media (max-width: 768px) {
-  .page-container {
-    gap: 20px;
-    padding: 0;
-  }
 
   .config-section {
     padding: 0 16px;

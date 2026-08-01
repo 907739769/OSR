@@ -42,7 +42,7 @@
     <!-- 列表 -->
     <div class="task-list">
       <v-progress-linear v-if="loading" indeterminate color="primary" class="list-loading" />
-      <div
+      <v-card
         v-for="item in taskList"
         :key="item.id"
         class="task-card"
@@ -58,13 +58,21 @@
         </div>
         <div class="card-content">
           <div class="card-top">
-            <span class="task-name">{{ item.title }}</span>
+            <span class="card-title">{{ item.title }}</span>
             <v-chip :color="stateTagType(item.state)" size="small" variant="tonal">
               {{ stateLabel(item.state) }}
             </v-chip>
           </div>
           <div class="card-sub">
-            {{ item.subTitle || '订阅已删除' }}
+            <router-link
+              v-if="item.subId"
+              :to="{ path: '/openlist/ptSubscription', query: { id: item.subId } }"
+              class="card-sub-link"
+              @click.stop
+            >
+              {{ item.subTitle || '订阅已删除' }}
+            </router-link>
+            <span v-else>{{ item.subTitle || '订阅已删除' }}</span>
             <span v-if="item.episodeLabel">· {{ item.episodeLabel }}</span>
           </div>
           <v-progress-linear
@@ -91,6 +99,10 @@
               <span class="label">推送时间</span>
               <span class="value">{{ item.pushedTime || '-' }}</span>
             </div>
+            <div class="detail-row" v-if="item.state === 'COMPLETED'">
+              <span class="label">完成时间</span>
+              <span class="value">{{ item.completedTime || '-' }}</span>
+            </div>
           </div>
           <div class="card-fail" v-if="item.state === 'FAILED'">
             <v-icon icon="mdi-alert-circle" size="16" />
@@ -99,20 +111,65 @@
             </v-chip>
             <span>{{ item.failReason || '未知原因' }}</span>
           </div>
-          <div class="card-actions" v-if="item.state === 'FAILED'">
-            <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-refresh" :loading="retryingIds.has(item.id)" @click="handleRetry(item)">
+          <div class="card-actions" @click.stop>
+            <v-btn
+              v-if="item.state === 'FAILED'"
+              variant="text"
+              color="primary"
+              size="small"
+              prepend-icon="mdi-refresh"
+              :loading="retryingIds.has(item.id)"
+              @click="handleRetry(item)"
+            >
               重试
             </v-btn>
+            <v-btn
+              class="action-more"
+              variant="text"
+              color="default"
+              size="small"
+              icon="mdi-dots-horizontal"
+              @click="openActionDrawer(item)"
+            />
           </div>
         </div>
-      </div>
+      </v-card>
 
       <v-empty-state v-if="!loading && taskList.length === 0" icon="mdi-inbox-outline" title="暂无下载记录" />
     </div>
 
+    <!-- 操作抽屉 -->
+    <v-bottom-sheet v-model="actionDrawerOpen">
+      <v-card v-if="actionDrawerTarget" title="更多操作">
+        <v-card-text>
+          <div class="drawer-actions">
+            <v-btn
+              color="warning"
+              block
+              prepend-icon="mdi-cancel"
+              :loading="blacklistingIds.has(actionDrawerTarget.id)"
+              @click="handleBlacklistGuid(actionDrawerTarget); actionDrawerOpen = false"
+            >
+              拉黑该种子
+            </v-btn>
+            <v-btn
+              color="error"
+              block
+              prepend-icon="mdi-account-cancel-outline"
+              :loading="blacklistingIds.has(actionDrawerTarget.id)"
+              @click="handleBlacklistReleaseGroup(actionDrawerTarget); actionDrawerOpen = false"
+            >
+              拉黑该发布组
+            </v-btn>
+          </div>
+        </v-card-text>
+      </v-card>
+    </v-bottom-sheet>
+
     <!-- 分页 -->
     <MobilePager
       v-model:page-size="queryParams.pageSize"
+      :page-sizes="[12, 24, 48]"
       :page-num="queryParams.pageNum"
       :total="total"
       :total-pages="totalPages"
@@ -124,6 +181,7 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import { usePtDownloadRecord } from '@/composables/usePtDownloadRecord'
@@ -134,8 +192,17 @@ const {
   retryingIds, handleRetry,
   selectionMode, selectedIds, toggleRecordSelect, handleBatchRetry,
   totalPages, prevPage, nextPage, handleSizeChange,
-  searchCollapsed
+  searchCollapsed,
+  blacklistingIds, handleBlacklistGuid, handleBlacklistReleaseGroup
 } = usePtDownloadRecord()
+
+/** 更多操作抽屉：拉黑动作不常用，收进抽屉避免卡片按钮过密 */
+const actionDrawerOpen = ref(false)
+const actionDrawerTarget = ref<any>(null)
+const openActionDrawer = (row: any) => {
+  actionDrawerTarget.value = row
+  actionDrawerOpen.value = true
+}
 
 const stateOptions = [
   { title: '已推送', value: 'PUSHED' },
@@ -185,111 +252,24 @@ const formatSize = (bytes: number): string => {
 </script>
 
 <style scoped lang="scss">
-.mobile-page {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: calc(100vh - 120px);
-  padding-bottom: 8px;
-}
-
 .list-toolbar {
   display: flex;
   justify-content: flex-end;
-}
-
-.batch-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 10px 14px;
-  background: var(--osr-primary-light-9);
-  border: 1px solid var(--osr-primary-light-7);
-  border-radius: var(--osr-radius-md);
-  font-size: 13px;
-
-  .selected-count {
-    font-weight: 600;
-    color: var(--osr-primary);
-    margin-right: 4px;
-    white-space: nowrap;
-  }
-
-  .v-btn {
-    font-size: 12px;
-  }
 }
 
 .list-loading {
   border-radius: var(--osr-radius-md);
 }
 
-.task-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 200px;
-  flex: 1;
-}
-
 .task-card {
-  .card-content {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .card-top {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 8px;
-
-    .task-name {
-      font-size: 13px;
-      font-weight: 600;
-      color: var(--osr-text-primary);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-      line-height: 1.4;
-    }
-  }
 
   .card-sub {
     font-size: 12px;
     color: var(--osr-text-secondary);
-  }
 
-  .card-detail {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .detail-row {
-    display: flex;
-    gap: 8px;
-    font-size: 12px;
-    line-height: 1.6;
-
-    .label {
-      flex-shrink: 0;
-      width: 68px;
-      color: var(--osr-text-secondary);
-    }
-
-    .value {
-      flex: 1;
-      min-width: 0;
-      color: var(--osr-text-primary);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
+    .card-sub-link {
+      color: var(--osr-primary);
+      text-decoration: none;
     }
   }
 
@@ -299,8 +279,8 @@ const formatSize = (bytes: number): string => {
     gap: 6px;
     padding: 6px 8px;
     border-radius: var(--osr-radius-sm);
-    background: var(--osr-danger-light);
-    color: var(--osr-danger);
+    background: var(--osr-error-light);
+    color: var(--osr-error);
     font-size: 11px;
     line-height: 1.5;
   }
