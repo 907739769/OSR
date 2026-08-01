@@ -1,6 +1,6 @@
 ## 平台简介
 
-OSR (OpenList STRM Relay)：影视 STRM 管理系统。技术栈：Java 25 (Spring Boot 4.0.6) + Vue 3 + Element Plus + MyBatis-Plus + JWT，Docker 双容器部署。
+OSR (OpenList STRM Relay)：影视 STRM 管理系统。技术栈：Java 25 (Spring Boot 4.0.6) + Vue 3 + Vuetify 3 + MyBatis-Plus + JWT，Docker 双容器部署。
 
 ## 内置功能
 
@@ -26,6 +26,12 @@ OSR (OpenList STRM Relay)：影视 STRM 管理系统。技术栈：Java 25 (Spri
 ### 🔄 影视文件重命名
 - 基于 TMDB 元数据自动识别并重命名电影/剧集文件
 - 支持重命名任务配置、执行记录查询与重新处理
+- 孤儿文件扫描与一致性检查，支持清理与忽略规则
+
+### 📥 PT 订阅管理
+- 支持多下载器（qBittorrent 等）、多索引器（Indexer）接入
+- 剧集/电影订阅、RSS 自动搜索、下载完成后自动同步入库
+- 订阅统计看板，PC 端与移动端均支持
 
 ### 📊 任务管理与监控
 - **任务配置**：前端页面可视化配置 STRM 任务、同步任务、重命名任务
@@ -44,7 +50,7 @@ OSR (OpenList STRM Relay)：影视 STRM 管理系统。技术栈：Java 25 (Spri
 | 类别 | 技术 |
 |------|------|
 | 后端框架 | Spring Boot 4.0.6 (Java 25, Preview Features) |
-| 前端框架 | Vue 3 + Vite + Pinia + Element Plus + PWA |
+| 前端框架 | Vue 3 + Vite + Pinia + Vuetify 3 + PWA |
 | 认证授权 | JWT |
 | 数据访问 | MyBatis-Plus 3.5.7 + MySQL 8.0 + Druid |
 | JSON | FastJSON2 |
@@ -61,6 +67,8 @@ OSR (OpenList STRM Relay)：影视 STRM 管理系统。技术栈：Java 25 (Spri
 - [X] 同步任务配置页面支持单个或多个任务执行
 - [X] strm任务配置页面支持单个或多个任务执行
 - [X] 影视文件重命名功能
+- [X] 重命名一致性检查（孤儿文件扫描与清理）
+- [X] PT 订阅管理（下载器/索引器接入、RSS 自动搜索）
 - [X] 实时日志监控（WebSocket）
 - [X] 数据看板（Dashboard）
 - [X] 移动端适配
