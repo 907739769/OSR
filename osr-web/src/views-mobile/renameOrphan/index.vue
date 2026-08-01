@@ -79,7 +79,7 @@
             <span class="mobile-card-value mobile-card-value-light">{{ item.foundTime }}</span>
           </div>
         </div>
-        <div class="mobile-card-actions" v-if="item.status === '0'">
+        <div class="card-actions" v-if="item.status === '0'">
           <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click.stop="handleCleanOne(item)">
             清理
           </v-btn>
@@ -219,7 +219,7 @@ getList()
     }
   }
 
-  .mobile-card-actions {
+  .card-actions {
     display: flex;
     justify-content: flex-end;
     gap: 2px;

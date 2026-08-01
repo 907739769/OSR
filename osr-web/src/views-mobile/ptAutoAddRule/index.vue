@@ -55,14 +55,25 @@
         </div>
         <div class="card-actions">
           <v-btn variant="text" color="primary" size="small" :loading="runningIds.has(item.id)" @click="handleRun(item)">执行</v-btn>
-          <v-btn variant="text" color="primary" size="small" @click="handleShowLogs(item)">日志</v-btn>
           <v-btn variant="text" color="primary" size="small" @click="handleUpdate(item, '编辑规则')">编辑</v-btn>
-          <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(item)">删除</v-btn>
+          <v-btn class="action-more" variant="text" color="default" size="small" icon="mdi-dots-horizontal" @click="openActionDrawer(item)" />
         </div>
       </div>
 
       <v-empty-state v-if="!loading && taskList.length === 0" icon="mdi-inbox-outline" title="暂无规则" />
     </div>
+
+    <!-- 操作抽屉 -->
+    <v-bottom-sheet v-model="actionDrawerOpen">
+      <v-card v-if="actionDrawerTarget" title="更多操作">
+        <v-card-text>
+          <div class="drawer-actions">
+            <v-btn block prepend-icon="mdi-text-box-outline" @click="handleShowLogs(actionDrawerTarget); actionDrawerOpen = false">日志</v-btn>
+            <v-btn color="error" block prepend-icon="mdi-delete-outline" @click="handleDelete(actionDrawerTarget); actionDrawerOpen = false">删除</v-btn>
+          </div>
+        </v-card-text>
+      </v-card>
+    </v-bottom-sheet>
 
     <MobilePager
       v-model:page-size="queryParams.pageSize"
@@ -203,9 +214,18 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import { usePtAutoAddRule, REGION_OPTIONS } from '@/composables/usePtAutoAddRule'
+
+/** 更多操作抽屉 */
+const actionDrawerOpen = ref(false)
+const actionDrawerTarget = ref<any>(null)
+const openActionDrawer = (row: any) => {
+  actionDrawerTarget.value = row
+  actionDrawerOpen.value = true
+}
 
 const {
   taskList, loading, total, queryParams, queryRef,
@@ -343,10 +363,14 @@ const resultTagType = (result: string): 'success' | 'info' | 'warning' | 'error'
 
   .card-actions {
     display: flex;
-    justify-content: flex-end;
+    align-items: center;
     gap: 4px;
     padding-top: 6px;
     border-top: 1px solid var(--osr-border-light);
+
+    .action-more {
+      margin-left: auto;
+    }
   }
 }
 

@@ -75,16 +75,27 @@
             <v-icon icon="mdi-clock-outline" size="14" />
             {{ task.createTime }}
           </div>
-        </div>
-        <div class="card-actions" @click.stop>
-          <v-btn variant="text" color="primary" size="small" icon="mdi-play-circle-outline" @click="handleExecuteOne(task, `是否确认执行STRM任务“${task.strmTaskPath}”？`)" />
-          <v-btn variant="text" color="primary" size="small" icon="mdi-pencil-outline" @click="handleUpdate(task, '修改STRM任务')" />
-          <v-btn variant="text" color="error" size="small" icon="mdi-delete-outline" @click="handleDelete(task)" />
+          <div class="card-actions" @click.stop>
+            <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-play-circle-outline" @click="handleExecuteOne(task, `是否确认执行STRM任务“${task.strmTaskPath}”？`)">执行</v-btn>
+            <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(task, '修改STRM任务')">修改</v-btn>
+            <v-btn class="action-more" variant="text" color="default" size="small" icon="mdi-dots-horizontal" @click="openActionDrawer(task)" />
+          </div>
         </div>
       </div>
 
       <v-empty-state v-if="!loading && taskList.length === 0" icon="mdi-inbox-outline" title="暂无STRM任务" />
     </div>
+
+    <!-- 操作抽屉 -->
+    <v-bottom-sheet v-model="actionDrawerOpen">
+      <v-card v-if="actionDrawerTarget" title="更多操作">
+        <v-card-text>
+          <div class="drawer-actions">
+            <v-btn color="error" block prepend-icon="mdi-delete-outline" @click="handleDelete(actionDrawerTarget); actionDrawerOpen = false">删除</v-btn>
+          </div>
+        </v-card-text>
+      </v-card>
+    </v-bottom-sheet>
 
     <!-- 分页 -->
     <MobilePager
@@ -152,6 +163,14 @@ const {
 
 const fullTextRef = ref<InstanceType<typeof FullTextDialog>>()
 const showFullText = (content: string, title: string) => fullTextRef.value?.show(content, title)
+
+/** 更多操作抽屉 */
+const actionDrawerOpen = ref(false)
+const actionDrawerTarget = ref<any>(null)
+const openActionDrawer = (row: any) => {
+  actionDrawerTarget.value = row
+  actionDrawerOpen.value = true
+}
 
 // DirectoryTreeSelect 不支持 v-form 的 :rules 校验，改为提交前手动校验必填项
 const handleSubmitClick = () => {
@@ -251,20 +270,6 @@ watch(
     color: var(--osr-text-disabled);
   }
 
-  .card-actions {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 2px;
-    flex-shrink: 0;
-    padding-left: 8px;
-    border-left: 1px solid var(--osr-border-light);
-
-    .v-btn {
-      min-width: 0;
-    }
-  }
 }
 
 /* ============================================

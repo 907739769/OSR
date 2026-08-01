@@ -55,6 +55,28 @@
   }
 }
 
+/* 卡片操作区：放在 .card-content 内部最后一个子元素，底部横排，
+   与 ptSubscription 的 .sub-actions 保持一致的视觉语言 */
+.card-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--osr-border-light);
+
+  .action-more {
+    margin-left: auto;
+  }
+}
+
+.drawer-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
 .batch-bar {
   display: flex;
   align-items: center;
