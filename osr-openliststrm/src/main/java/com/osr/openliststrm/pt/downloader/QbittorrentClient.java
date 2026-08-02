@@ -164,6 +164,7 @@ public class QbittorrentClient implements IDownloaderClient {
             return new Request.Builder()
                     .url(builder.build())
                     .header("Cookie", "SID=" + sid)
+                    .header("Referer", config.baseUrl())
                     .get()
                     .build();
         });
@@ -207,6 +208,7 @@ public class QbittorrentClient implements IDownloaderClient {
         return executeWithSession(config, sid -> new Request.Builder()
                 .url(config.baseUrl() + path)
                 .header("Cookie", "SID=" + sid)
+                .header("Referer", config.baseUrl())
                 .post(body)
                 .build());
     }
