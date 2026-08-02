@@ -75,7 +75,8 @@ public class MysqlDdl extends SimpleDdl {
                 "sql/20260750-pt-download-record-episode-end.sql",
                 "sql/20260751-pt-subscription-english-title.sql",
                 "sql/20260752-flatten-openliststrm-menu.sql",
-                "sql/20260753-remove-rename-template-config.sql"
+                "sql/20260753-remove-rename-template-config.sql",
+                "sql/20260754-pt-downloader-smart-classify.sql"
         );
     }
 }

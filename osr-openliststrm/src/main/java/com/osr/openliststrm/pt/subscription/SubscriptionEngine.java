@@ -13,6 +13,7 @@ import com.osr.openliststrm.mybatisplus.service.IPtFilterConfigPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtTorrentBlacklistPlusService;
+import com.osr.openliststrm.enums.PtSmartClassifyLevelEnum;
 import com.osr.openliststrm.pt.downloader.DownloaderClientFactory;
 import com.osr.openliststrm.pt.filter.FilterCriteria;
 import com.osr.openliststrm.pt.filter.FilterCriteriaFactory;
@@ -314,7 +315,7 @@ public class SubscriptionEngine {
         try {
             String tags = downloader.getTag() + "," + record.getTrackingTag();
             downloaderClientFactory.get(downloader)
-                    .addTorrent(downloader, best.getDownloadUrl(), downloader.getSavePath(), tags);
+                    .addTorrent(downloader, best.getDownloadUrl(), resolveSavePath(downloader, sub), tags);
         } catch (Exception e) {
             log.error("推送种子到下载器失败，已回滚：{}", best.getTitle(), e);
             searchLogService.recordSummary(sub.getId(), match.getEpisode(), source,
@@ -338,6 +339,42 @@ public class SubscriptionEngine {
         log.info("订阅[{}] {} 已推送种子：{}（占位 {} 集）",
                 sub.getId(), sub.getTitle(), best.getTitle(), claimed.size());
         return true;
+    }
+
+    private static final String CLASSIFY_CATEGORY_MOVIE = "电影";
+    private static final String CLASSIFY_CATEGORY_TV = "剧集";
+    private static final String CLASSIFY_YEAR_UNKNOWN = "未分类";
+
+    /**
+     * 按下载器的智能分类级别，在 save_path 后拼接分类子目录。
+     * 年份取 {@code sub.getYear()}——订阅创建时写入的首播年份，后续不再变化，
+     * 同一订阅的所有季会落在同一个年份目录下，不会因为当前抓取到哪一季而漂移。
+     */
+    private String resolveSavePath(PtDownloaderPlus downloader, PtSubscriptionPlus sub) {
+        String base = downloader.getSavePath();
+        PtSmartClassifyLevelEnum level = PtSmartClassifyLevelEnum.getByCode(downloader.getSmartClassifyLevel());
+        if (level == PtSmartClassifyLevelEnum.NONE) {
+            return base;
+        }
+        String category = SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType())
+                ? CLASSIFY_CATEGORY_MOVIE : CLASSIFY_CATEGORY_TV;
+        String path = stripTrailingSlash(base) + "/" + category;
+        if (level == PtSmartClassifyLevelEnum.CATEGORY_YEAR) {
+            String year = com.osr.common.utils.StringUtils.isNotBlank(sub.getYear()) ? sub.getYear() : CLASSIFY_YEAR_UNKNOWN;
+            path = path + "/" + year;
+        }
+        return path;
+    }
+
+    private static String stripTrailingSlash(String path) {
+        if (path == null) {
+            return "";
+        }
+        int end = path.length();
+        while (end > 0 && (path.charAt(end - 1) == '/' || path.charAt(end - 1) == '\\')) {
+            end--;
+        }
+        return path.substring(0, end);
     }
 
     /** 用本地解析结果填充种子的 parsedXxx 字段，不发任何网络请求 */
