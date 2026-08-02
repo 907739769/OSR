@@ -80,6 +80,10 @@
               <span class="label">最大并发</span>
               <span class="value">{{ item.maxConcurrent ? item.maxConcurrent : '不限' }}</span>
             </div>
+            <div class="detail-row">
+              <span class="label">智能分类</span>
+              <span class="value">{{ smartClassifyLabel(item.smartClassifyLevel) }}</span>
+            </div>
           </div>
           <div class="card-actions" @click.stop>
             <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(item, '修改下载器')">修改</v-btn>
@@ -181,10 +185,17 @@
                 :rules="toRules(rules.maxConcurrent)"
               />
             </FormField>
-            <v-radio-group v-model="form.enabled" inline label="状态" hide-details>
+            <v-radio-group v-model="form.enabled" inline label="状态" hide-details class="mb-2">
               <v-radio label="启用" value="1" />
               <v-radio label="停用" value="0" />
             </v-radio-group>
+            <FormField tip="推送种子时按分类在保存路径下自动建子目录，同步到网盘的目录结构会一并跟随">
+              <v-select
+                v-model="form.smartClassifyLevel"
+                label="智能分类"
+                :items="SMART_CLASSIFY_LEVEL_OPTIONS"
+              />
+            </FormField>
           </v-form>
         </v-card-text>
         <v-card-actions>
@@ -210,6 +221,14 @@ const DOWNLOADER_TYPE_LABELS: Record<string, string> = {
   TRANSMISSION: 'Transmission'
 }
 const downloaderTypeLabel = (type: string) => DOWNLOADER_TYPE_LABELS[type] || type
+
+const SMART_CLASSIFY_LEVEL_OPTIONS = [
+  { title: '不分类', value: 'NONE' },
+  { title: '按类型分类（电影/剧集）', value: 'CATEGORY' },
+  { title: '按类型+首播年份分类', value: 'CATEGORY_YEAR' }
+]
+const smartClassifyLabel = (value: string) =>
+  SMART_CLASSIFY_LEVEL_OPTIONS.find(o => o.value === value)?.title || '不分类'
 
 const {
   taskList, loading, total, queryParams,

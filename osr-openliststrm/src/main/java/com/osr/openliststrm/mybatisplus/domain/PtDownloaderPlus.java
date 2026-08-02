@@ -72,6 +72,10 @@ public class PtDownloaderPlus extends BaseEntity {
     @TableField("enabled")
     private String enabled;
 
+    /** 保存路径智能分类级别，见 {@link com.osr.openliststrm.enums.PtSmartClassifyLevelEnum}，默认 NONE */
+    @TableField("smart_classify_level")
+    private String smartClassifyLevel;
+
     /**
      * 拼装下载器 Web UI 基地址，如 http://192.168.1.10:8080。
      * 末尾不带斜杠。

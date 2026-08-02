@@ -38,7 +38,8 @@ export function usePtDownloader() {
       savePath: undefined,
       tag: 'osr-pt',
       maxConcurrent: 0,
-      enabled: '1'
+      enabled: '1',
+      smartClassifyLevel: 'NONE'
     }),
     rules: {
       name: [{ required: true, message: '名称不能为空', trigger: 'blur' }],
