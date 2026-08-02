@@ -14,6 +14,8 @@ import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusServic
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtTorrentBlacklistPlusService;
 import com.osr.openliststrm.enums.PtSmartClassifyLevelEnum;
+import com.osr.openliststrm.helper.TgHelper;
+import com.osr.openliststrm.notify.NotificationType;
 import com.osr.openliststrm.pt.downloader.DownloaderClientFactory;
 import com.osr.openliststrm.pt.filter.FilterCriteria;
 import com.osr.openliststrm.pt.filter.FilterCriteriaFactory;
@@ -338,7 +340,34 @@ public class SubscriptionEngine {
 
         log.info("订阅[{}] {} 已推送种子：{}（占位 {} 集）",
                 sub.getId(), sub.getTitle(), best.getTitle(), claimed.size());
+        notifySafely(NotificationType.SUBSCRIPTION_HIT, "📌 订阅命中：《" + sub.getTitle() + "》"
+                + describeEpisodes(match) + "\n" + best.getTitle()
+                + "\n已推送至下载器：" + downloader.getName());
         return true;
+    }
+
+    /** 电影不带季集号；季包整季提示；单集/区间正常拼 SxxEyy，episode/episodeEnd 已在上面按 best 重算过 */
+    private String describeEpisodes(MatchResult match) {
+        PtSubscriptionPlus sub = match.getSubscription();
+        if (SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType())) {
+            return "";
+        }
+        if (match.getEpisode() == SubscriptionMatcher.SEASON_PACK) {
+            return " S" + sub.getSeason() + " 全季";
+        }
+        Integer end = match.getEpisodeEnd();
+        return (end != null && end > match.getEpisode())
+                ? " S" + sub.getSeason() + "E" + match.getEpisode() + "-E" + end
+                : " S" + sub.getSeason() + "E" + match.getEpisode();
+    }
+
+    /** 发通知但绝不让通知失败影响主流程（单测环境下 SpringUtils.getBean 会抛异常，这里兜住） */
+    private void notifySafely(NotificationType type, String msg) {
+        try {
+            TgHelper.sendMsg(type, msg);
+        } catch (Exception e) {
+            log.debug("发送通知失败（不影响主流程）：{}", e.getMessage());
+        }
     }
 
     private static final String CLASSIFY_CATEGORY_MOVIE = "电影";

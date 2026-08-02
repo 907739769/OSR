@@ -138,7 +138,7 @@
               label="apikey"
               type="password"
               :placeholder="form.id ? '留空则不修改 apikey' : '请输入 Torznab apikey'"
-              :rules="toRules(rules.apiKey)"
+              :rules="apiKeyRules"
               class="mb-2"
             />
             <div class="category-field mb-2">
@@ -219,6 +219,10 @@ const toRules = (fieldRules?: any[]) => {
     return true
   })
 }
+
+// 编辑时后端出于安全考虑会把 apikey 脱敏为空（留空提交 = 沿用已保存值），
+// 只有新增时才要求必填，否则编辑弹窗永远校验不过
+const apiKeyRules = computed(() => (form.value.id ? [] : toRules(rules.apiKey)))
 
 // 原来的父子分类分组结构在 Vuetify v-select 中拍平为一层，父分类照常可选，
 // 子分类前缀全角空格保留原有的缩进视觉效果

@@ -2,12 +2,14 @@ package com.osr.openliststrm.pt.subscription;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.osr.common.utils.StringUtils;
+import com.osr.openliststrm.helper.TgHelper;
 import com.osr.openliststrm.mybatisplus.domain.PtMediaServerPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtMediaServerPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
+import com.osr.openliststrm.notify.NotificationType;
 import com.osr.openliststrm.pt.media.MediaServerClientFactory;
 import com.osr.openliststrm.pt.subscription.dto.BatchOperationResult;
 import com.osr.openliststrm.pt.subscription.dto.SubscribeRequest;
@@ -22,6 +24,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 订阅的建立、对账与状态维护。
@@ -171,6 +174,7 @@ public class SubscriptionService {
         }
         if (!upgraded.isEmpty()) {
             episodeService.updateBatchById(upgraded);
+            notifyLibrarySync(sub, movie, upgraded);
         }
 
         boolean allInLibrary = episodes.stream().allMatch(e -> STATE_IN_LIBRARY.equals(e.getState()));
@@ -181,6 +185,25 @@ public class SubscriptionService {
             sub.setStatus(STATUS_PAUSED.equals(sub.getStatus()) ? STATUS_PAUSED : newStatus);
             sub.setTotalEpisodes(totalEpisodes);
             subscriptionService.updateById(sub);
+        }
+    }
+
+    /** 对账检测到新入库集数时通知，电影不带集号列表，剧集列出本轮具体新入库的集号 */
+    private void notifyLibrarySync(PtSubscriptionPlus sub, boolean movie, List<PtSubscriptionEpisodePlus> upgraded) {
+        String detail = movie ? "" : " S" + sub.getSeason() + " 第 " + upgraded.stream()
+                .map(PtSubscriptionEpisodePlus::getEpisode)
+                .sorted()
+                .map(String::valueOf)
+                .collect(Collectors.joining("、")) + " 集";
+        notifySafely(NotificationType.EMBY_LIBRARY_SYNC, "📀 已入库：《" + sub.getTitle() + "》" + detail);
+    }
+
+    /** 发通知但绝不让通知失败影响主流程（单测环境下 SpringUtils.getBean 会抛异常，这里兜住） */
+    private void notifySafely(NotificationType type, String msg) {
+        try {
+            TgHelper.sendMsg(type, msg);
+        } catch (Exception e) {
+            log.debug("发送通知失败（不影响主流程）：{}", e.getMessage());
         }
     }
 

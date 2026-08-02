@@ -21,7 +21,7 @@ class TgNotifierTest {
         when(config.getOpenListTgUserId()).thenReturn("user-1");
         TgNotifier notifier = new TgNotifier(config);
 
-        assertDoesNotThrow(() -> notifier.send("hello"));
+        assertDoesNotThrow(() -> notifier.send(NotificationType.GENERAL, "hello"));
 
         assertNull(notifier.cachedBot);
     }
@@ -32,7 +32,7 @@ class TgNotifierTest {
         when(config.getOpenListTgUserId()).thenReturn("");
         TgNotifier notifier = new TgNotifier(config);
 
-        assertDoesNotThrow(() -> notifier.send("hello"));
+        assertDoesNotThrow(() -> notifier.send(NotificationType.GENERAL, "hello"));
 
         assertNull(notifier.cachedBot);
     }
@@ -43,7 +43,7 @@ class TgNotifierTest {
         when(config.getOpenListTgUserId()).thenReturn(null);
         TgNotifier notifier = new TgNotifier(config);
 
-        assertDoesNotThrow(() -> notifier.send("hello"));
+        assertDoesNotThrow(() -> notifier.send(NotificationType.GENERAL, "hello"));
 
         assertNull(notifier.cachedBot);
     }

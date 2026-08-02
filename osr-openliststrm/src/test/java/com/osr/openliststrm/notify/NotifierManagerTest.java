@@ -21,26 +21,26 @@ class NotifierManagerTest {
     void send_遍历所有渠道_全部收到相同消息() {
         NotifierManager manager = new NotifierManager(List.of(notifierA, notifierB));
 
-        manager.send("hello");
+        manager.send(NotificationType.GENERAL, "hello");
 
-        verify(notifierA).send("hello");
-        verify(notifierB).send("hello");
+        verify(notifierA).send(NotificationType.GENERAL, "hello");
+        verify(notifierB).send(NotificationType.GENERAL, "hello");
     }
 
     @Test
     void send_某个渠道抛异常_不影响其余渠道继续发送() {
-        doThrow(new RuntimeException("boom")).when(notifierA).send("hello");
+        doThrow(new RuntimeException("boom")).when(notifierA).send(NotificationType.GENERAL, "hello");
         NotifierManager manager = new NotifierManager(List.of(notifierA, notifierB));
 
-        manager.send("hello");
+        manager.send(NotificationType.GENERAL, "hello");
 
-        verify(notifierB).send("hello");
+        verify(notifierB).send(NotificationType.GENERAL, "hello");
     }
 
     @Test
     void send_空渠道列表_不抛异常() {
         NotifierManager manager = new NotifierManager(List.of());
 
-        assertDoesNotThrow(() -> manager.send("hello"));
+        assertDoesNotThrow(() -> manager.send(NotificationType.GENERAL, "hello"));
     }
 }

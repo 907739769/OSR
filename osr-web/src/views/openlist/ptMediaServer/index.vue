@@ -139,7 +139,7 @@
               label="API Key"
               type="password"
               :placeholder="form.id ? '留空则不修改 API Key' : '请输入 API Key'"
-              :rules="toRules(rules.apiKey)"
+              :rules="apiKeyRules"
               class="mb-2"
             />
             <v-text-field
@@ -168,7 +168,7 @@
 <script setup lang="ts">
 import StatusChip from '@/components/StatusChip.vue'
 import PageHeader from '@/components/PageHeader.vue'
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { usePtMediaServer } from '@/composables/usePtMediaServer'
 
 const showSearch = ref(window.innerWidth >= 768)
@@ -189,4 +189,8 @@ const toRules = (fieldRules?: any[]) => {
     return true
   })
 }
+
+// 编辑时后端出于安全考虑会把 apiKey 脱敏为空（留空提交 = 沿用已保存值），
+// 只有新增时才要求必填，否则编辑弹窗永远校验不过
+const apiKeyRules = computed(() => (form.value.id ? [] : toRules(rules.apiKey)))
 </script>

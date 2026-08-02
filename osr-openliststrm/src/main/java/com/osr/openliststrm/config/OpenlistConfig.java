@@ -53,6 +53,16 @@ public class OpenlistConfig {
         return sysConfigService.selectConfigByKey("openlist.notify.webhook.url");
     }
 
+    //Telegram通知类型过滤，逗号分隔的NotificationType名称，留空=不过滤，全部类型都发
+    public String getNotifyTgTypes() {
+        return sysConfigService.selectConfigByKey("openlist.notify.tg.types");
+    }
+
+    //Webhook通知类型过滤，逗号分隔的NotificationType名称，留空=不过滤，全部类型都发
+    public String getNotifyWebhookTypes() {
+        return sysConfigService.selectConfigByKey("openlist.notify.webhook.types");
+    }
+
     //Apikey
     public String getOpenListApiKey() {
         return sysConfigService.selectConfigByKey("openlist.api.apikey");
