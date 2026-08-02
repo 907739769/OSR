@@ -6,6 +6,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 
+import java.util.Arrays;
+
 /**
  * Telegram 通知渠道，承接原 {@code TgHelper} 的逻辑：token/userId 均已配置才发送，
  * {@link TgSendMsg} 实例按 token/userId 缓存，配置变化时重建。
@@ -33,10 +35,10 @@ public class TgNotifier implements INotifier {
     }
 
     @Override
-    public void send(String message) {
+    public void send(NotificationType type, String message) {
         String token = config.getOpenListTgToken();
         String userId = config.getOpenListTgUserId();
-        if (StringUtils.isAnyBlank(token, userId)) {
+        if (StringUtils.isAnyBlank(token, userId) || !isTypeEnabled(type)) {
             return;
         }
         try {
@@ -44,6 +46,15 @@ public class TgNotifier implements INotifier {
         } catch (Exception e) {
             log.warn("Telegram 通知发送失败：{}", e.getMessage());
         }
+    }
+
+    /** {@code openlist.notify.tg.types} 留空＝不过滤，所有类型都发（向后兼容原始行为） */
+    private boolean isTypeEnabled(NotificationType type) {
+        String types = config.getNotifyTgTypes();
+        if (StringUtils.isBlank(types)) {
+            return true;
+        }
+        return Arrays.stream(types.split(",")).map(String::trim).anyMatch(t -> t.equalsIgnoreCase(type.name()));
     }
 
     /** token/userId 在后台配置变更后会重建实例，其余情况复用缓存 */

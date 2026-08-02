@@ -43,7 +43,7 @@ class WebhookNotifierTest {
     void send_url未配置_不发起任何请求() {
         when(config.getNotifyWebhookUrl()).thenReturn("");
 
-        notifier.send("hello");
+        notifier.send(NotificationType.GENERAL, "hello");
 
         assertEquals(0, server.getRequestCount());
     }
@@ -53,7 +53,7 @@ class WebhookNotifierTest {
         when(config.getNotifyWebhookUrl()).thenReturn(server.url("/hook").toString());
         server.enqueue(new MockResponse().setResponseCode(200));
 
-        notifier.send("hello world");
+        notifier.send(NotificationType.GENERAL, "hello world");
 
         RecordedRequest request = server.takeRequest();
         assertEquals("POST", request.getMethod());
@@ -66,7 +66,7 @@ class WebhookNotifierTest {
         when(config.getNotifyWebhookUrl()).thenReturn(server.url("/hook").toString());
         server.enqueue(new MockResponse().setResponseCode(500));
 
-        assertDoesNotThrow(() -> notifier.send("hello"));
+        assertDoesNotThrow(() -> notifier.send(NotificationType.GENERAL, "hello"));
     }
 
     @Test
@@ -77,6 +77,6 @@ class WebhookNotifierTest {
         deadServer.shutdown();
         when(config.getNotifyWebhookUrl()).thenReturn(url);
 
-        assertDoesNotThrow(() -> notifier.send("hello"));
+        assertDoesNotThrow(() -> notifier.send(NotificationType.GENERAL, "hello"));
     }
 }
