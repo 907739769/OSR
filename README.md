@@ -82,14 +82,13 @@ OSR (OpenList STRM Relay)：影视 STRM 管理系统。技术栈：Java 25 (Spri
 ### PC端
 
 
+
 <table>
     <tr>
-        <td><img src="https://github.com/user-attachments/assets/cc623bda-d4fe-4415-a4e0-cd5c72f12b17"/></td>
-        <td><img src="https://github.com/user-attachments/assets/e83bd9ca-ad39-4500-87b1-ec1b7663fda7"/></td>
+        <td><img src="https://github.com/user-attachments/assets/b349904a-054e-48f4-9133-fe77f0dac5f8"/></td>
     </tr>
     <tr>
         <td><img src="https://github.com/user-attachments/assets/80956447-f498-40b6-9098-b35855f1be14"/></td>
-        <td><img src="https://github.com/user-attachments/assets/9ad7e11d-8bd9-4f08-8200-cef5bb0929ac"/></td>
     </tr>
 
 </table>
