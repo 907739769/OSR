@@ -66,7 +66,8 @@ export function usePtIndexer() {
   const testLoading = ref(false)
 
   const handleTest = async () => {
-    if (!base.form.value.url || !base.form.value.apiKey) {
+    // 编辑已有记录时 apikey 被后端脱敏为空属正常现象，留空提交交给后端按 id 回填已保存的值
+    if (!base.form.value.url || (!base.form.value.apiKey && !base.form.value.id)) {
       message.warning('请先填写接口地址与 apikey')
       return
     }
@@ -89,7 +90,8 @@ export function usePtIndexer() {
   const categoryOptions = ref<CategoryOption[]>([])
 
   const fetchCategories = async () => {
-    if (!base.form.value.url || !base.form.value.apiKey) {
+    // 编辑已有记录时 apikey 被后端脱敏为空属正常现象，留空提交交给后端按 id 回填已保存的值
+    if (!base.form.value.url || (!base.form.value.apiKey && !base.form.value.id)) {
       message.warning('请先填写接口地址与 apikey')
       return
     }

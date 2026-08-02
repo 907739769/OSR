@@ -238,7 +238,9 @@ const toRuleFns = (ruleList: any[]) =>
 
 const nameRules = toRuleFns(rules.name)
 const urlRules = toRuleFns(rules.url)
-const apiKeyRules = toRuleFns(rules.apiKey)
+// 编辑时后端出于安全考虑会把 apikey 脱敏为空（留空提交 = 沿用已保存值），
+// 只有新增时才要求必填，否则编辑弹窗永远校验不过
+const apiKeyRules = computed(() => (form.value.id ? [] : toRuleFns(rules.apiKey)))
 const pollIntervalRules = toRuleFns(rules.pollInterval)
 
 const handleSubmitClick = async () => {

@@ -55,7 +55,8 @@ export function usePtMediaServer() {
   const testLoading = ref(false)
 
   const handleTest = async () => {
-    if (!base.form.value.url || !base.form.value.apiKey) {
+    // 编辑已有记录时 apiKey 被后端脱敏为空属正常现象，留空提交交给后端按 id 回填已保存的值
+    if (!base.form.value.url || (!base.form.value.apiKey && !base.form.value.id)) {
       message.warning('请先填写服务器地址与 API Key')
       return
     }
