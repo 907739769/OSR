@@ -38,7 +38,17 @@ export interface PtStatusSocketHandlers {
 export function usePtStatusSocket(handlers: PtStatusSocketHandlers) {
   let ws: WebSocket | null = null
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null
-  let unauthorized = false
+  // access token 过期属正常现象（2 小时），此时应先尝试用 refreshToken 静默换新再重连；
+  // 只有换新本身失败（refreshToken 也过期/无效）才是真正需要重新登录的场景。
+  // 用这个标记避免"刷新成功但服务端仍拒绝"时无限重试；跨连接共享，换新成功后重置。
+  let refreshedOnce = false
+
+  function forceLogout() {
+    const userStore = useUserStore()
+    userStore.clearToken()
+    message.error('登录已过期，请重新登录')
+    window.location.href = '/login'
+  }
 
   function connect() {
     if (typeof WebSocket === 'undefined') return
@@ -47,15 +57,22 @@ export function usePtStatusSocket(handlers: PtStatusSocketHandlers) {
     const token = Cookies.get('token') || ''
     const url = `${protocol}${host}/websocket/pt/status${token ? `?token=${token}` : ''}`
 
+    // unauthorized 是这一条连接自己的状态，不与其他连接共享：换新 token 重连后
+    // 会立刻替换掉外层 ws 变量并产生一条新连接（有它自己独立的 unauthorized），
+    // 旧连接稍后姗姗来迟的 onclose 只应看它自己的 unauthorized，不能被新连接影响，
+    // 否则旧连接的 onclose 会在新连接已经连上之后又多起一次不必要的重连。
+    let unauthorized = false
+
     ws = new WebSocket(url)
+
+    ws.onopen = () => {
+      refreshedOnce = false
+    }
 
     ws.onmessage = (event: MessageEvent) => {
       if (event.data === 'unauthorized') {
         unauthorized = true
-        const userStore = useUserStore()
-        userStore.clearToken()
-        message.error('登录已过期，请重新登录')
-        window.location.href = '/login'
+        handleUnauthorized()
         return
       }
       let data: any
@@ -73,10 +90,32 @@ export function usePtStatusSocket(handlers: PtStatusSocketHandlers) {
     }
 
     ws.onclose = () => {
+      // 鉴权失败导致的关闭由 handleUnauthorized 自行决定重连（换新 token 后）或登出，
+      // 不能走下面的定时重连，否则会带着同一个过期 token 无限重连。
       if (unauthorized) return
       reconnectTimer = setTimeout(() => {
         connect()
       }, 3000)
+    }
+
+    /**
+     * WebSocket 鉴权失败时，先尝试用 refreshToken 静默换新 access token 再重连，
+     * 而不是直接清 token 跳登录页——避免 access token 只是正常到了 2 小时期限，
+     * 就把还在有效期内（7 天）的登录会话强制打断。
+     */
+    async function handleUnauthorized() {
+      if (refreshedOnce) {
+        forceLogout()
+        return
+      }
+      refreshedOnce = true
+      try {
+        const userStore = useUserStore()
+        await userStore.refreshTokenFn()
+        connect()
+      } catch (e) {
+        forceLogout()
+      }
     }
   }
 
