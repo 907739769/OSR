@@ -1,5 +1,6 @@
 package com.osr.openliststrm.pt.task;
 
+import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.helper.TgHelper;
 import com.osr.openliststrm.mybatisplus.domain.PtFilterConfigPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
@@ -87,7 +88,7 @@ public class AutoSearchService {
             return;
         }
         if (!previouslyNoResult) {
-            notifySafely("🔍 订阅[" + sub.getTitle() + "] 自动补搜连续未找到可用资源，"
+            notifySafely("🔍 订阅[" + StringUtils.escapeHtml(sub.getTitle()) + "] 自动补搜连续未找到可用资源，"
                     + "可等待 RSS 命中，或检查索引器配置（本提醒在下次搜到资源前只发一次）");
             sub.setLastAutoSearchNoResult(NO_RESULT);
             subscriptionService.updateById(sub);

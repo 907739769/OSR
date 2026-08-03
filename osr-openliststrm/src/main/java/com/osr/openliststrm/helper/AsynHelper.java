@@ -121,9 +121,9 @@ public class AsynHelper {
                     if (state == 7) {
                         // 失败不重试了
                         updateCopyStatus(copy, "2");
-                        TgHelper.sendMsg("*复制任务失败*\n" +
-                                "源目录：" + StringUtils.escapeMarkdownV2(copy.getCopySrcPath()) + "\n" +
-                                "源文件名：" + StringUtils.escapeMarkdownV2(copy.getCopySrcFileName()));
+                        TgHelper.sendMsg("<b>复制任务失败</b>\n" +
+                                "源目录：" + StringUtils.escapeHtml(copy.getCopySrcPath()) + "\n" +
+                                "源文件名：" + StringUtils.escapeHtml(copy.getCopySrcFileName()));
                         iterator.remove(); // 移除失败任务
                     }
                     // 其他状态（如1运行中）则保留在列表中继续监控
@@ -155,9 +155,9 @@ public class AsynHelper {
                 log.warn("复制任务监控超时（超过 {}），已标记为异常并停止监控: taskId={}, path={}",
                         duration, copy.getCopyTaskId(), copy.getCopySrcPath());
             }
-            TgHelper.sendMsg("*复制任务监控超时*\n" +
+            TgHelper.sendMsg("<b>复制任务监控超时</b>\n" +
                     "以下批量复制任务超过 " + duration.toMinutes() + " 分钟未结束，已停止监控，请人工核查：\n" +
-                    "目标目录：" + StringUtils.escapeMarkdownV2(dstDir));
+                    "目标目录：" + StringUtils.escapeHtml(dstDir));
             finishStrmDir(dstDir, strmDir);
         } else {
             // 列表不为空，说明还有任务在运行，按退避间隔再次调用自己
@@ -251,9 +251,9 @@ public class AsynHelper {
             } else if (state == 7) {
                 // 失败状态
                 updateCopyStatus(copy, "2");
-                TgHelper.sendMsg("*复制任务失败*\n" +
-                        "源目录：" + StringUtils.escapeMarkdownV2(copy.getCopySrcPath()) + "\n" +
-                        "源文件名：" + StringUtils.escapeMarkdownV2(copy.getCopySrcFileName()));
+                TgHelper.sendMsg("<b>复制任务失败</b>\n" +
+                        "源目录：" + StringUtils.escapeHtml(copy.getCopySrcPath()) + "\n" +
+                        "源文件名：" + StringUtils.escapeHtml(copy.getCopySrcFileName()));
                 return; // 任务失败，退出递归
             }
 
@@ -263,8 +263,8 @@ public class AsynHelper {
                 Duration duration = monitorDuration();
                 log.warn("单文件复制监控超时（超过 {}），已标记为异常并停止监控: taskId={}, path={}",
                         duration, copy.getCopyTaskId(), path);
-                TgHelper.sendMsg("*复制任务监控超时*\n" +
-                        "文件：" + StringUtils.escapeMarkdownV2(path) + "\n" +
+                TgHelper.sendMsg("<b>复制任务监控超时</b>\n" +
+                        "文件：" + StringUtils.escapeHtml(path) + "\n" +
                         "超过 " + duration.toMinutes() + " 分钟未结束，已停止监控，请人工核查");
                 return;
             }

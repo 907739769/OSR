@@ -712,11 +712,16 @@ public class StringUtils extends org.apache.commons.lang3.StringUtils
         return sb.toString();
     }
 
-    public static String escapeMarkdownV2(String text) {
-        if (text == null) {
+    /**
+     * 转义 Telegram HTML 解析模式下的保留字符（仅 &amp; &lt; &gt; 三个，需在拼接富文本标签前对动态内容调用）
+     */
+    public static String escapeHtml(String text)
+    {
+        if (text == null)
+        {
             return "";
         }
-        return text.replaceAll("([_\\*\\[\\]\\(\\)~`>#+=|{}.!-])", "\\\\$1");
+        return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
     }
 
 }

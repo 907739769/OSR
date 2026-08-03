@@ -462,7 +462,7 @@ public class SearchSupplementService {
     }
 
     private void notifyNoResult(PtSubscriptionPlus sub) {
-        notifySafely("🔍 订阅[" + sub.getTitle() + "] 建订阅补搜未找到可用资源，"
+        notifySafely("🔍 订阅[" + StringUtils.escapeHtml(sub.getTitle()) + "] 建订阅补搜未找到可用资源，"
                 + "可等待自动补搜/RSS 命中，或检查索引器配置");
     }
 

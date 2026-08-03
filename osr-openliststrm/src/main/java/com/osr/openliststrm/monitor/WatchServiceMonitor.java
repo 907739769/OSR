@@ -63,8 +63,8 @@ public class WatchServiceMonitor implements FileMonitor {
                         handleDelete(fullPath);
                     } else if (kind == OVERFLOW) {
                         log.warn("文件系统事件溢出，可能丢失了部分文件变更: {}！建议手动触发全量扫描。", root.toString());
-                        TgHelper.sendMsg("*监控任务丢失文件事件*\n" +
-                                "文件系统事件溢出，可能丢失了部分文件变更: " + StringUtils.escapeMarkdownV2(root.toString()) + "！建议手动触发全量扫描。");
+                        TgHelper.sendMsg("<b>监控任务丢失文件事件</b>\n" +
+                                "文件系统事件溢出，可能丢失了部分文件变更: " + StringUtils.escapeHtml(root.toString()) + "！建议手动触发全量扫描。");
                     }
                 }
                 key.reset();

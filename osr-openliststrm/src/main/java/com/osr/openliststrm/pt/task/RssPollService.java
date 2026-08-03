@@ -206,10 +206,11 @@ public class RssPollService {
             indexer.setEnabled(DISABLED);
             indexer.setDisabledAt(new Date());
             log.warn("索引器[{}]连续失败 {} 次，已自动停用", indexer.getName(), fails);
-            notifySafely("🛑 索引器[" + indexer.getName() + "]已连续失败 " + fails + " 次，已自动停用，"
+            notifySafely("🛑 索引器[" + StringUtils.escapeHtml(indexer.getName()) + "]已连续失败 " + fails + " 次，已自动停用，"
                     + "冷却 " + selfHealCooldownHours + " 小时后将自动尝试恢复");
         } else if (fails == ALERT_FAIL_THRESHOLD) {
-            notifySafely("⚠️ 索引器[" + indexer.getName() + "]已连续失败 " + fails + " 次：" + e.getMessage());
+            notifySafely("⚠️ 索引器[" + StringUtils.escapeHtml(indexer.getName()) + "]已连续失败 " + fails
+                    + " 次：" + StringUtils.escapeHtml(e.getMessage()));
         }
     }
 
@@ -233,7 +234,7 @@ public class RssPollService {
                 indexer.setLastStatus("OK");
                 indexerService.updateById(indexer);
                 log.info("索引器[{}]自愈探测成功，已自动重新启用", indexer.getName());
-                notifySafely("✅ 索引器[" + indexer.getName() + "]自愈探测成功，已自动重新启用");
+                notifySafely("✅ 索引器[" + StringUtils.escapeHtml(indexer.getName()) + "]自愈探测成功，已自动重新启用");
             } else {
                 indexer.setDisabledAt(new Date());
                 indexerService.updateById(indexer);
@@ -276,7 +277,7 @@ public class RssPollService {
                     .anyMatch(previousCursor::equals);
             if (!covered) {
                 log.warn("索引器[{}]本轮拉取窗口未覆盖上次记录点，期间可能有种子被跳过", indexer.getName());
-                notifySafely("⚠️ 索引器[" + indexer.getName() + "]拉取窗口覆盖不全，可能有种子被漏拉，"
+                notifySafely("⚠️ 索引器[" + StringUtils.escapeHtml(indexer.getName()) + "]拉取窗口覆盖不全，可能有种子被漏拉，"
                         + "建议缩短轮询间隔或联系索引器提高单页返回数");
             }
         }

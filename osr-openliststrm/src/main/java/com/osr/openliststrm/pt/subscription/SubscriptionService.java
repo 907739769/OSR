@@ -195,7 +195,7 @@ public class SubscriptionService {
                 .sorted()
                 .map(String::valueOf)
                 .collect(Collectors.joining("、")) + " 集";
-        notifySafely(NotificationType.EMBY_LIBRARY_SYNC, "📀 已入库：《" + sub.getTitle() + "》" + detail);
+        notifySafely(NotificationType.EMBY_LIBRARY_SYNC, "📀 已入库：《" + StringUtils.escapeHtml(sub.getTitle()) + "》" + detail);
     }
 
     /** 发通知但绝不让通知失败影响主流程（单测环境下 SpringUtils.getBean 会抛异常，这里兜住） */

@@ -292,7 +292,7 @@ public class DownloadTrackService {
             return; // 并发/重叠轮询已处理过，避免重复通知
         }
         PtStatusWebSocket.pushDownloadEvent(record, STATE_COMPLETED, 1.0, null);
-        notifySafely(NotificationType.DOWNLOAD_COMPLETE, "✅ 下载完成：" + record.getTitle());
+        notifySafely(NotificationType.DOWNLOAD_COMPLETE, "✅ 下载完成：" + StringUtils.escapeHtml(record.getTitle()));
         log.info("下载记录[{}] 已完成：{}", record.getId(), record.getTitle());
         // 集状态不动，仍是 IN_FLIGHT；下载器关联了 STRM 任务时异步触发一次增量生成+提前对账，
         // 没关联时纯靠 LibrarySyncTask 下一轮批量对账兜底
@@ -341,10 +341,10 @@ public class DownloadTrackService {
             return; // 已被并发轮次置为终态，避免重复通知
         }
         PtStatusWebSocket.pushDownloadEvent(record, STATE_FAILED, null, reason);
-        notifySafely(NotificationType.DOWNLOAD_FAILED, "❌ 下载失败：" + record.getTitle() + "，已释放待下轮重新匹配");
+        notifySafely(NotificationType.DOWNLOAD_FAILED, "❌ 下载失败：" + StringUtils.escapeHtml(record.getTitle()) + "，已释放待下轮重新匹配");
         log.warn("下载记录[{}] 失败，{} 个集回退缺失：{}", record.getId(), episodes.size(), record.getTitle());
         if (blockedCount > 0) {
-            notifySafely("🚫 " + record.getTitle() + " 连续失败达 " + maxConsecutiveFailures
+            notifySafely("🚫 " + StringUtils.escapeHtml(record.getTitle()) + " 连续失败达 " + maxConsecutiveFailures
                     + " 次，已停止自动重试，需到下载记录管理页人工重试");
         }
     }

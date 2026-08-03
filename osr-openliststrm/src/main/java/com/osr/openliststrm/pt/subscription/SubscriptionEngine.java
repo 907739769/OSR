@@ -2,6 +2,7 @@ package com.osr.openliststrm.pt.subscription;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
+import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloadRecordPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloaderPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtFilterConfigPlus;
@@ -340,9 +341,9 @@ public class SubscriptionEngine {
 
         log.info("订阅[{}] {} 已推送种子：{}（占位 {} 集）",
                 sub.getId(), sub.getTitle(), best.getTitle(), claimed.size());
-        notifySafely(NotificationType.SUBSCRIPTION_HIT, "📌 订阅命中：《" + sub.getTitle() + "》"
-                + describeEpisodes(match) + "\n" + best.getTitle()
-                + "\n已推送至下载器：" + downloader.getName());
+        notifySafely(NotificationType.SUBSCRIPTION_HIT, "📌 订阅命中：《" + StringUtils.escapeHtml(sub.getTitle()) + "》"
+                + describeEpisodes(match) + "\n" + StringUtils.escapeHtml(best.getTitle())
+                + "\n已推送至下载器：" + StringUtils.escapeHtml(downloader.getName()));
         return true;
     }
 
