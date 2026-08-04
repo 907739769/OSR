@@ -30,7 +30,9 @@ const iconMap: Record<string, string> = {
   'fa fa-sliders': 'mdi-filter-outline',
   'fa fa-bar-chart': 'mdi-chart-line',
   'fa fa-ban': 'mdi-close-circle-outline',
-  'fa fa-fire': 'mdi-star'
+  'fa fa-fire': 'mdi-star',
+  'fa fa-arrow-circle-o-up': 'mdi-arrow-up-bold-circle-outline',
+  'fa fa-heart': 'mdi-heart-outline'
 }
 
 export function getIconComponent(icon?: string): string | undefined {
