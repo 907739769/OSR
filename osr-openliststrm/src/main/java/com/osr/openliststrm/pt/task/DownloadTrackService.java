@@ -19,6 +19,7 @@ import com.osr.openliststrm.pt.downloader.DownloaderClientFactory;
 import com.osr.openliststrm.pt.downloader.model.DownloaderTorrent;
 import com.osr.openliststrm.pt.downloader.model.DownloaderTorrentFile;
 import com.osr.openliststrm.pt.subscription.SubscriptionEpisodeState;
+import com.osr.openliststrm.pt.subscription.SubscriptionService;
 import com.osr.openliststrm.pt.upgrade.QualityProfile;
 import com.osr.openliststrm.pt.upgrade.UpgradeState;
 import com.osr.openliststrm.pt.ws.PtStatusWebSocket;
@@ -54,6 +55,9 @@ public class DownloadTrackService {
     private static final String EP_IN_LIBRARY = SubscriptionEpisodeState.IN_LIBRARY.value();
     private static final String EP_UPGRADING = SubscriptionEpisodeState.UPGRADING.value();
     private static final String EP_BLOCKED = SubscriptionEpisodeState.BLOCKED.value();
+
+    /** 媒体类型：电影。判定只看 media_type，口径与 {@link SubscriptionService} 同源，不用 season==0（特别篇也是第0季） */
+    private static final String TYPE_MOVIE = SubscriptionService.TYPE_MOVIE;
 
     /** 推送后找不到对应种子的宽限期：超过它才判失败（qB 解析磁力元数据需要时间） */
     private static final long GRACE_MILLIS = 10 * 60 * 1000L;
@@ -136,7 +140,7 @@ public class DownloadTrackService {
             } else {
                 // 种子还在下载器但未完成：先尝试按目标集数过滤文件（幂等，仅第一次成功后才标记跳过）
                 if (!Boolean.TRUE.equals(record.getFilesSelected())) {
-                    trySelectFiles(downloader, record, matched);
+                    trySelectFiles(downloader, record, matched, subCache.get(record.getSubId()));
                 }
                 // H&R 限额越早下发越好：种子刚加进来时下载器就可能按全局限额安排它的命运
                 applyShareLimitsIfNeeded(downloader, record, matched);
@@ -333,7 +337,8 @@ public class DownloadTrackService {
      * 种子刚加入下载器、元数据还没解析完成时 {@code listFiles} 会返回空列表，同样等下一轮重试。
      * </p>
      */
-    private void trySelectFiles(PtDownloaderPlus downloader, PtDownloadRecordPlus record, DownloaderTorrent matched) {
+    private void trySelectFiles(PtDownloaderPlus downloader, PtDownloadRecordPlus record, DownloaderTorrent matched,
+                                PtSubscriptionPlus sub) {
         try {
             List<PtSubscriptionEpisodePlus> targets = episodeService.list(
                     new QueryWrapper<PtSubscriptionEpisodePlus>().eq("download_id", record.getId()));
@@ -354,21 +359,98 @@ public class DownloadTrackService {
             }
 
             Set<Integer> excludeIndexes = new HashSet<>();
+            Set<Integer> actualEpisodes = new HashSet<>();
             for (DownloaderTorrentFile file : files) {
                 MediaInfo info = mediaParser.parseLocal(file.getName());
                 Integer episode = toInt(info.getEpisode());
-                // 解析不出集号的文件（NFO、字幕、样片等）默认保留，不做排除
-                if (episode != null && !targetEpisodes.contains(episode)) {
+                if (episode == null) {
+                    // 解析不出集号的文件（NFO、字幕、样片等）默认保留，不做排除
+                    continue;
+                }
+                actualEpisodes.add(episode);
+                if (!targetEpisodes.contains(episode)) {
                     excludeIndexes.add(file.getIndex());
                 }
             }
             if (!excludeIndexes.isEmpty()) {
                 downloaderClientFactory.get(downloader).excludeFiles(downloader, matched.getHash(), excludeIndexes);
             }
+            reconcileClaims(record, sub, targets, actualEpisodes);
             markFilesSelected(record);
         } catch (Exception e) {
             log.warn("下载记录[{}] 按目标集数过滤文件失败，下一轮重试：{}", record.getId(), e.getMessage());
         }
+    }
+
+    /**
+     * 认领对账：把这条记录占位的集与种子里<b>实际存在</b>的集比对，多占的退回缺失。
+     * <p>
+     * 这是修正季包过度占位的<b>精确判据</b>。{@code SubscriptionEngine} 给整季包占位的是订阅
+     * 当时全部缺失集，而种子里究竟有哪些集，在推送那一刻是不知道的——番剧分成上/中/下、
+     * 跨年续播时，一个"S01 季包"很可能只含 50 集里的前 26 集。多占的那些集下载完也不会入库，
+     * Emby 对账只升不降（见 {@code SubscriptionService#refresh}）不会退它们，而补搜与 RSS
+     * 只认 MISSING，于是它们永久停在在途：既下不到，也不再被搜索，还看不出原因。
+     * </p>
+     * <p>
+     * 这里是全流程中<b>唯一</b>能确切知道包内含哪些集的时刻——下载器已经解析完元数据、
+     * 给出了完整文件列表。判据既然精确，就该在这里一次性把账做平。
+     * </p>
+     * <p>
+     * 三条保守约束，宁可少退也不能错退：
+     * <ul>
+     *   <li>{@code actualEpisodes} 为空时什么都不做——那说明文件名一个集号都没解析出来
+     *       （整季打包成单文件、命名奇特），不是"包里没有这些集"的证据。</li>
+     *   <li>电影订阅整体跳过：电影的集号是哨兵值 0，而文件名里随便一个数字都可能被解析成集号，
+     *       比对必然假阳性，会把刚推送的电影退回缺失。</li>
+     *   <li>只退 IN_FLIGHT 的集（条件更新兜住）：洗版占位的是 UPGRADING，它的旧文件一直在库里，
+     *       退成 MISSING 会让这一集显示成缺失并被从头重下，比不洗版还糟。</li>
+     * </ul>
+     * 也<b>不累加 {@code fail_count}</b>：这不是"这一集补不到货"，是占位范围估错了，
+     * 累加会让几次季包误占把一个正常的集熔断成 BLOCKED。
+     * </p>
+     */
+    private void reconcileClaims(PtDownloadRecordPlus record, PtSubscriptionPlus sub,
+                                 List<PtSubscriptionEpisodePlus> targets, Set<Integer> actualEpisodes) {
+        if (actualEpisodes.isEmpty() || sub == null || TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType())) {
+            return;
+        }
+        List<PtSubscriptionEpisodePlus> orphans = targets.stream()
+                .filter(ep -> EP_IN_FLIGHT.equals(ep.getState()))
+                .filter(ep -> ep.getEpisode() != null && !actualEpisodes.contains(ep.getEpisode()))
+                .toList();
+        if (orphans.isEmpty()) {
+            return;
+        }
+        int released = 0;
+        for (PtSubscriptionEpisodePlus episode : orphans) {
+            PtSubscriptionEpisodePlus set = new PtSubscriptionEpisodePlus();
+            set.setState(EP_MISSING);
+            set.setDownloadId(null);
+            boolean changed = episodeService.update(set, new UpdateWrapper<PtSubscriptionEpisodePlus>()
+                    .eq("id", episode.getId())
+                    .eq("state", EP_IN_FLIGHT)
+                    // 实体里的 null 会被 MyBatis-Plus 跳过，download_id 必须显式置空，
+                    // 否则退回缺失的集仍指着这条记录，下次追踪又会把它当成本记录的目标
+                    .set("download_id", null));
+            if (changed) {
+                released++;
+            }
+        }
+        if (released == 0) {
+            return;
+        }
+        String episodeList = orphans.stream()
+                .map(PtSubscriptionEpisodePlus::getEpisode)
+                .sorted()
+                .map(String::valueOf)
+                .collect(Collectors.joining("、"));
+        log.info("下载记录[{}] 实际只含 {} 集，多占的 {} 个集已退回缺失（第 {} 集）：{}",
+                record.getId(), actualEpisodes.size(), released, episodeList, record.getTitle());
+        notifySafely(NotificationType.SUBSCRIPTION_HIT, "📦 季包实际不含全季：《"
+                + StringUtils.escapeHtml(sub.getTitle()) + "》\n"
+                + StringUtils.escapeHtml(record.getTitle())
+                + "\n包内实际 " + actualEpisodes.size() + " 集，多占的第 " + episodeList
+                + " 集已退回缺失，将继续自动搜索补齐");
     }
 
     private void markFilesSelected(PtDownloadRecordPlus record) {

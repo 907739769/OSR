@@ -386,6 +386,29 @@ class SubscriptionEngineTest {
     }
 
     @Test
+    void 季包标题带集数区间_只占位区间内的缺失集() throws Exception {
+        // 用户实测场景：50 集的番分成上/中/下发布，先来的包标题写着 [01-03]，实际只含前 3 集。
+        // 不解析这个区间就会判成整季包，把 5 集全占位成在途——包外的集下不到、不会退回缺失、
+        // 补搜与 RSS 又只认 MISSING，等于永久卡死
+        when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Some Show", 1, 5)));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(
+                episode(101, 1, "MISSING"), episode(102, 2, "MISSING"), episode(103, 3, "MISSING"),
+                episode(104, 4, "MISSING"), episode(105, 5, "MISSING")));
+
+        int pushed = engine.process(List.of(
+                torrent("Some.Show.S01.1080p.WEB-DL [01-03]", "g-part", 10, "1080p")));
+
+        assertEquals(1, pushed);
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService).save(captor.capture());
+        // 落库的是区间而不是季包哨兵值 -1
+        assertEquals(1, captor.getValue().getEpisode());
+        assertEquals(3, captor.getValue().getEpisodeEnd());
+        // 只占位第 1-3 集，第 4、5 集仍是缺失，继续参与后续搜索
+        verify(episodeService, times(3)).update(any(), any(Wrapper.class));
+    }
+
+    @Test
     void 季包_无缺失集_跳过() throws Exception {
         when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Some Show", 1, 2)));
         when(episodeService.listBySubscription(10)).thenReturn(List.of(

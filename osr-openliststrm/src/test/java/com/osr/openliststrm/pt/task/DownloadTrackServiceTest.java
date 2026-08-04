@@ -644,6 +644,107 @@ class DownloadTrackServiceTest {
         verify(episodeService, never()).list(any(Wrapper.class));
     }
 
+    // ---------- 季包认领对账（多占的集退回缺失） ----------
+
+    private PtSubscriptionPlus tvSub(int id) {
+        PtSubscriptionPlus sub = new PtSubscriptionPlus();
+        sub.setId(id);
+        sub.setMediaType("TV");
+        sub.setTitle("Some Show");
+        sub.setSeason(1);
+        sub.setTotalEpisodes(50);
+        return sub;
+    }
+
+    @Test
+    void 季包实际只含部分集_多占的集退回缺失且不累加失败次数() throws Exception {
+        // 用户实测场景：50 集的番分成上/中/下发布，先来的"S01 季包"只含前 3 集，
+        // 但推送时占位了当时全部缺失集。多占的那些集下完也不会入库，Emby 对账只升不降，
+        // 补搜与 RSS 又只认 MISSING —— 不在这里退回去就永久卡在在途
+        PtDownloadRecordPlus r = record(100, -1, "osr-pt-pack", "PUSHED", 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of(
+                episodeRow(501, 0, 1), episodeRow(502, 0, 2), episodeRow(503, 0, 3),
+                episodeRow(504, 0, 4), episodeRow(505, 0, 5)));
+        when(downloaderClientFactory.get(any())).thenReturn(downloaderClient);
+        when(downloaderClient.listFiles(any(), eq("h"))).thenReturn(List.of(
+                file(0, "Show.Name.S01E01.1080p.mkv"),
+                file(1, "Show.Name.S01E02.1080p.mkv"),
+                file(2, "Show.Name.S01E03.1080p.mkv")));
+        when(episodeService.update(any(PtSubscriptionEpisodePlus.class), any(Wrapper.class))).thenReturn(true);
+
+        DownloadTrackService svc = service();
+        when(subscriptionService.listByIds(any())).thenReturn(List.of(tvSub(10)));
+        svc.track(downloader(), List.of(torrent("osr-pt,osr-pt-pack", 0.1)));
+
+        ArgumentCaptor<PtSubscriptionEpisodePlus> captor = ArgumentCaptor.forClass(PtSubscriptionEpisodePlus.class);
+        verify(episodeService, times(2)).update(captor.capture(), any(Wrapper.class));
+        // 包里没有的第 4、5 集退回缺失；1-3 集是真在下载，不动
+        assertTrue(captor.getAllValues().stream().allMatch(ep -> "MISSING".equals(ep.getState())));
+        // 不是"补不到货"而是占位范围估错了，累加 fail_count 会把正常的集熔断成 BLOCKED
+        assertTrue(captor.getAllValues().stream().allMatch(ep -> ep.getFailCount() == null));
+    }
+
+    @Test
+    void 种子文件一个集号都解析不出_不做认领对账() throws Exception {
+        // 整季压成单文件、或命名奇特时 actualEpisodes 为空。那不是"包里没有这些集"的证据，
+        // 顺着走会把刚推送的整批集全退回缺失
+        PtDownloadRecordPlus r = record(100, -1, "osr-pt-pack", "PUSHED", 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of(
+                episodeRow(501, 0, 1), episodeRow(502, 0, 2)));
+        when(downloaderClientFactory.get(any())).thenReturn(downloaderClient);
+        when(downloaderClient.listFiles(any(), eq("h"))).thenReturn(List.of(
+                file(0, "Some.Show.Complete.Season.mkv")));
+
+        DownloadTrackService svc = service();
+        when(subscriptionService.listByIds(any())).thenReturn(List.of(tvSub(10)));
+        svc.track(downloader(), List.of(torrent("osr-pt,osr-pt-pack", 0.1)));
+
+        verify(episodeService, never()).update(any(PtSubscriptionEpisodePlus.class), any(Wrapper.class));
+    }
+
+    @Test
+    void 电影订阅_不做认领对账() throws Exception {
+        // 电影的集号是哨兵值 0，而文件名里随便一个数字都可能被解析成集号，
+        // 比对必然假阳性，会把刚推送的电影退回缺失
+        PtDownloadRecordPlus r = record(100, 0, "osr-pt-movie", "PUSHED", 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of(episodeRow(501, 0, 0)));
+        when(downloaderClientFactory.get(any())).thenReturn(downloaderClient);
+        when(downloaderClient.listFiles(any(), eq("h"))).thenReturn(List.of(
+                file(0, "Some.Movie.2019.Part2.1080p.mkv")));
+
+        PtSubscriptionPlus movie = tvSub(10);
+        movie.setMediaType("MOVIE");
+        DownloadTrackService svc = service();
+        when(subscriptionService.listByIds(any())).thenReturn(List.of(movie));
+        svc.track(downloader(), List.of(torrent("osr-pt,osr-pt-movie", 0.1)));
+
+        verify(episodeService, never()).update(any(PtSubscriptionEpisodePlus.class), any(Wrapper.class));
+    }
+
+    @Test
+    void 洗版占位的集_不会被认领对账退成缺失() throws Exception {
+        // 洗版占位的是 UPGRADING，旧文件一直在库里。退成 MISSING 会让这一集显示成缺失
+        // 并被从头重下，比不洗版还糟
+        PtDownloadRecordPlus r = record(100, 7, "osr-pt-up", "PUSHED", 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        PtSubscriptionEpisodePlus upgrading = episodeRow(501, 0, 7);
+        upgrading.setState("UPGRADING");
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of(upgrading));
+        when(downloaderClientFactory.get(any())).thenReturn(downloaderClient);
+        // 文件解析出的是第 8 集，与目标第 7 集对不上
+        when(downloaderClient.listFiles(any(), eq("h"))).thenReturn(List.of(
+                file(0, "Show.Name.S01E08.2160p.mkv")));
+
+        DownloadTrackService svc = service();
+        when(subscriptionService.listByIds(any())).thenReturn(List.of(tvSub(10)));
+        svc.track(downloader(), List.of(torrent("osr-pt,osr-pt-up", 0.1)));
+
+        verify(episodeService, never()).update(any(PtSubscriptionEpisodePlus.class), any(Wrapper.class));
+    }
+
     // ---------- 失败重试熔断 ----------
 
     @Test

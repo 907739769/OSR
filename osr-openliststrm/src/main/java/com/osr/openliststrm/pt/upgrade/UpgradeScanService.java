@@ -10,6 +10,7 @@ import com.osr.openliststrm.mybatisplus.service.IPtFilterConfigPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtUpgradeConfigPlusService;
+import com.osr.openliststrm.pt.filter.EpisodeCountResolver;
 import com.osr.openliststrm.pt.filter.FilterCriteria;
 import com.osr.openliststrm.pt.filter.FilterCriteriaFactory;
 import com.osr.openliststrm.pt.filter.TorrentBlacklist;
@@ -192,6 +193,11 @@ public class UpgradeScanService {
         PtFilterConfigPlus globalConfig = filterConfigService.getConfig();
         FilterCriteria filterCriteria = FilterCriteriaFactory.build(globalConfig, sub.getFilterOverride());
         TorrentBlacklist blacklist = TorrentBlacklist.from(blacklistService.list());
+        // 体积阈值按每集判定时要先知道候选覆盖多少集。洗版候选虽然被 matchesEpisode 收窄成
+        // 单集资源（区间包与季包都会被它挡掉），仍照样跑一遍：口径与另外两条链路保持一致，
+        // 将来 matchesEpisode 放宽时这里不必再补一次
+        EpisodeCountResolver.apply(sameEpisode, sub.getTotalEpisodes(),
+                SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType()));
         List<TorrentInfo> survivors = filterEngine.filter(sameEpisode, filterCriteria, blacklist, null);
 
         List<TorrentInfo> better = new ArrayList<>();

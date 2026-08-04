@@ -116,9 +116,33 @@ public class TorrentInfo {
     private Date parsedPubTime;
 
     /**
+     * 这个种子覆盖多少集，供体积判定归一化用。默认 1（单集资源/电影）。
+     * <p>
+     * 不是解析出来的原始字段，而是由调用方结合<b>目标订阅</b>算出来的——区间包看
+     * parsedEpisode/parsedEpisodeEnd 就够，但整季包的标题里没有任何集数信息，
+     * 只能取订阅的总集数。计算口径统一在
+     * {@code com.osr.openliststrm.pt.filter.EpisodeCountResolver}。
+     * </p>
+     */
+    private int episodeCount = 1;
+
+    /**
      * 是否为免费种。用容差比较而非直接 == 0，避免浮点解析误差。
      */
     public boolean isFree() {
         return downloadVolumeFactor < 0.0001;
+    }
+
+    /**
+     * 折算到每一集的体积。
+     * <p>
+     * 体积阈值（下限/上限/偏好值）天然是按<b>单集</b>设定的，而 {@link #size} 是整个种子的：
+     * 一个 26 集的季包体积是单集的二十几倍，拿它直接跟单集阈值比，上限会把所有季包一刀切光，
+     * 下限会把所有单集资源放行。归一到每集才能让同一份阈值对单集、区间包、季包都成立。
+     * </p>
+     * <p>{@link #episodeCount} 恒 &gt;= 1 由本方法兜底，调用方不必自己防 0 除。</p>
+     */
+    public long getSizePerEpisode() {
+        return episodeCount <= 1 ? size : size / episodeCount;
     }
 }

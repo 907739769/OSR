@@ -27,6 +27,8 @@ export interface PtFilterConfig {
   /** 排序维度顺序，逗号分隔 */
   sortPriority?: string
   preferredSize?: number
+  /** 体积上下限与偏好体积是否按每集判定 0-否 1-是。剧集种子常是区间包/季包，整包体积是单集的数倍 */
+  sizePerEpisode?: string
   /** 外语电影是否需要中文字幕 0-否 1-是 */
   requireChineseSubtitle?: string
   /** 是否直接淘汰 H&R 考核站点的种子 0-否 1-是 */

@@ -95,6 +95,17 @@ public class PtFilterConfigPlus extends BaseEntity {
     @TableField("preferred_size")
     private Long preferredSize;
 
+    /**
+     * 体积上下限与偏好体积是否按<b>每集</b>判定 0-否 1-是，默认 1。
+     * <p>
+     * 剧集的种子常是区间包或季包，整包体积是单集的几倍到几十倍。关掉这个开关后，
+     * 同一份体积阈值对单集和多集包不可能同时成立——上限会把所有包切光，下限会放行所有单集。
+     * 单集资源折算前后取值相同，因此这个开关只影响多集包。
+     * </p>
+     */
+    @TableField("size_per_episode")
+    private String sizePerEpisode;
+
     /** 外语电影是否需要中文字幕 0-否 1-是 */
     @TableField("require_chinese_subtitle")
     private String requireChineseSubtitle;

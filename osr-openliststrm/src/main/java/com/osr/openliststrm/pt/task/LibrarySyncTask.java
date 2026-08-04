@@ -33,6 +33,8 @@ public class LibrarySyncTask {
     private IPtSubscriptionPlusService subscriptionService;
     @Autowired
     private SubscriptionService subscriptionBiz;
+    @Autowired
+    private StuckEpisodeSweepService stuckEpisodeSweepService;
 
     private final TaskScheduler scheduler = SpringUtils.getBean("virtualScheduledExecutor");
 
@@ -66,6 +68,13 @@ public class LibrarySyncTask {
                 } catch (Exception e) {
                     log.warn("对账订阅[{}]失败：{}", sub.getId(), e.getMessage());
                 }
+            }
+            // 对账之后再清扫：这一轮刚被推进 IN_LIBRARY 的集不该再被当成卡死。
+            // 清扫失败不能影响对账结果，单独兜一层异常
+            try {
+                stuckEpisodeSweepService.sweep();
+            } catch (Exception e) {
+                log.warn("清扫卡死在途集失败：{}", e.getMessage());
             }
         } catch (Exception e) {
             log.error("LibrarySyncTask poll error", e);

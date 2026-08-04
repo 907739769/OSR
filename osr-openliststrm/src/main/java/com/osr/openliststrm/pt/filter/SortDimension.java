@@ -101,7 +101,15 @@ public enum SortDimension {
         }
     },
 
-    /** 体积接近偏好值的程度，越接近越优先；未配置偏好值时不参与比较 */
+    /**
+     * 体积接近偏好值的程度，越接近越优先；未配置偏好值时不参与比较。
+     * <p>
+     * 取值走 {@link FilterCriteria#effectiveSize}，与硬性过滤的上下限完全同一个口径：
+     * 开了「按每集判定」时比的是折算到单集的体积。不这么做的话，同一批候选里
+     * 一个单集资源和一个 26 集季包会被放在同一根数轴上比"离偏好体积多远"，
+     * 季包必然被判成离谱地远，这一维实际上变成了"排除所有多集包"。
+     * </p>
+     */
     SIZE {
         @Override
         public Comparator<TorrentInfo> comparator(FilterCriteria criteria) {
@@ -110,7 +118,7 @@ public enum SortDimension {
                 // 不能退化成「越小越好」：用户没配偏好体积时那样会总是下到最小的那个
                 return NO_PREFERENCE;
             }
-            return Comparator.comparingLong(t -> Math.abs(t.getSize() - preferred));
+            return Comparator.comparingLong(t -> Math.abs(criteria.effectiveSize(t) - preferred));
         }
     };
 

@@ -27,6 +27,19 @@
             </template>
           </FormField>
 
+          <FormField label="体积按每集判定">
+            <v-radio-group v-model="form.sizePerEpisode" inline hide-details density="comfortable">
+              <v-radio label="否" value="0" />
+              <v-radio label="是" value="1" />
+            </v-radio-group>
+            <template #tip>
+              开启后，下方三个体积阈值都按<strong>单集</strong>比较：区间包与季包的整包体积会先除以它覆盖的集数。
+              剧集的种子常常是多集打包，整包体积是单集的几倍到几十倍——关掉的话，按单集设的上限会把所有多集包一刀切光，
+              按季包设的下限又会放行所有单集垃圾资源，同一份阈值不可能对两者同时成立。
+              单集资源折算前后完全一致，因此这个开关只影响多集包
+            </template>
+          </FormField>
+
           <FormField>
             <v-text-field
               v-model.number="form.minSize"
@@ -39,7 +52,7 @@
               class="field-num"
             />
             <template #tip>
-              GB，0 表示不限
+              GB，0 表示不限{{ form.sizePerEpisode === '1' ? '；当前按每集判定' : '' }}
             </template>
           </FormField>
 
@@ -55,7 +68,7 @@
               class="field-num"
             />
             <template #tip>
-              GB，0 表示不限
+              GB，0 表示不限{{ form.sizePerEpisode === '1' ? '；当前按每集判定' : '' }}
             </template>
           </FormField>
 
@@ -213,7 +226,7 @@
               class="field-num"
             />
             <template #tip>
-              GB，0 表示体积不参与择优比较
+              GB，0 表示体积不参与择优比较{{ form.sizePerEpisode === '1' ? '；当前按每集判定' : '' }}
             </template>
           </FormField>
 

@@ -20,6 +20,7 @@ import com.osr.openliststrm.enums.PtSmartClassifyLevelEnum;
 import com.osr.openliststrm.helper.TgHelper;
 import com.osr.openliststrm.notify.NotificationType;
 import com.osr.openliststrm.pt.downloader.DownloaderClientFactory;
+import com.osr.openliststrm.pt.filter.EpisodeCountResolver;
 import com.osr.openliststrm.pt.filter.FilterCriteria;
 import com.osr.openliststrm.pt.filter.FilterCriteriaFactory;
 import com.osr.openliststrm.pt.filter.TorrentBlacklist;
@@ -278,6 +279,9 @@ public class SubscriptionEngine {
         }
 
         FilterCriteria criteria = FilterCriteriaFactory.build(globalConfig, sub.getFilterOverride());
+        // 体积阈值按每集判定时要知道候选覆盖多少集，必须赶在 evaluate/pickBest 之前算好
+        EpisodeCountResolver.apply(fresh, sub.getTotalEpisodes(),
+                SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType()));
         String originalLanguage = tmdbSearchService.getOriginalLanguage(sub.getMediaType(), sub.getTmdbId());
         List<TorrentFilterEngine.Verdict> verdicts = filterEngine.evaluate(fresh, criteria, blacklist, originalLanguage);
         searchLogService.recordVerdicts(sub.getId(), match.getEpisode(), source, verdicts);
@@ -510,10 +514,37 @@ public class SubscriptionEngine {
         torrent.setParsedSeason(toInt(info.getSeason()));
         torrent.setParsedEpisode(toInt(info.getEpisode()));
         torrent.setParsedEpisodeEnd(toInt(info.getEpisodeEnd()));
+        applySeasonPackRange(torrent);
         torrent.setParsedResolution(info.getResolution());
         torrent.setParsedSource(info.getSource());
         torrent.setParsedReleaseGroup(info.getReleaseGroup());
         torrent.setParsedTags(collectTags(info));
+    }
+
+    /**
+     * 「有季无集」的种子若在标题里写明了集数区间（{@code [01-26]}、{@code 第01-26话}），
+     * 把它补进 parsedEpisode/parsedEpisodeEnd，让下游按<b>区间</b>而不是<b>整季包</b>处理。
+     * <p>
+     * 不补的话 {@link SubscriptionMatcher} 会判成季包，而季包会占位该订阅的全部缺失集：
+     * 一部 50 集的番分成上下两部分发布时，先来的那半个包会把 50 集全标成在途，
+     * 后 24 集既下不到也不会退回缺失（补搜与 RSS 只认 MISSING），永久卡死。
+     * </p>
+     * <p>
+     * 只对判不出集号的种子生效，绝不覆盖已解析出的集号——{@code S01E05} 这类标题里
+     * 若碰巧还有个 {@code [01-26]} 的合集标注，集号必须以 E05 为准。
+     * </p>
+     */
+    private void applySeasonPackRange(TorrentInfo torrent) {
+        if (torrent.getParsedSeason() == null || torrent.getParsedEpisode() != null) {
+            return;
+        }
+        SeasonPackRange.Range range = SeasonPackRange.parse(torrent.getTitle());
+        if (range == null) {
+            return;
+        }
+        torrent.setParsedEpisode(range.start());
+        torrent.setParsedEpisodeEnd(range.end());
+        log.debug("季包标题带集数区间，按 E{}-E{} 处理而非整季：{}", range.start(), range.end(), torrent.getTitle());
     }
 
     /**

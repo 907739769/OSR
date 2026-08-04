@@ -12,6 +12,7 @@ import com.osr.openliststrm.mybatisplus.service.IPtIndexerPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtTorrentBlacklistPlusService;
+import com.osr.openliststrm.pt.filter.EpisodeCountResolver;
 import com.osr.openliststrm.pt.filter.FilterCriteria;
 import com.osr.openliststrm.pt.filter.FilterCriteriaFactory;
 import com.osr.openliststrm.pt.filter.SortDimension;
@@ -181,6 +182,11 @@ public class SearchSupplementService {
             TorrentBlacklist blacklist = TorrentBlacklist.from(blacklistService.list());
             String originalLanguage = tmdbSearchService.getOriginalLanguage(
                     sub.getMediaType(), sub.getTmdbId());
+            // 与自动推送链路同理：体积阈值按每集判定时要先知道候选覆盖多少集。
+            // 手动搜索列表尤其需要——它是单集、区间包、季包混排的，不折算的话
+            // 季包会被体积上限成片淘汰，用户看到的候选列表与实际可选资源对不上
+            EpisodeCountResolver.apply(allMatched, sub.getTotalEpisodes(),
+                    SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType()));
             List<TorrentFilterEngine.Verdict> verdicts =
                     filterEngine.evaluate(allMatched, criteria, blacklist, originalLanguage);
             List<TorrentInfo> survivors = verdicts.stream()

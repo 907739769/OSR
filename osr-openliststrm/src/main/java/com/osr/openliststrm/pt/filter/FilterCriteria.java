@@ -1,6 +1,7 @@
 package com.osr.openliststrm.pt.filter;
 
 import com.osr.common.utils.StringUtils;
+import com.osr.openliststrm.pt.model.TorrentInfo;
 import lombok.Builder;
 
 import java.util.Arrays;
@@ -32,6 +33,12 @@ import java.util.List;
  * @param releaseGroupPriority 发布组优先级，越靠前越优先，只影响排序；不在列表内的排最后
  * @param sortPriority      排序维度顺序；传空列表时回退到 {@link #DEFAULT_SORT_PRIORITY}
  * @param preferredSize     体积接近度的目标值(字节)，0 表示该维度不参与比较
+ * @param sizePerEpisode    体积三项阈值(minSize/maxSize/preferredSize)是否按<b>每集</b>而非整个种子判定。
+ *                          剧集的种子常常是区间包或季包，体积是单集的几倍到几十倍，直接拿整包体积去比
+ *                          单集阈值：上限会把所有多集包一刀切光，下限会把所有单集资源放行，
+ *                          SIZE 排序维度在单集与包混排的候选里也纯粹是噪声。开启后一律折算成
+ *                          {@link com.osr.openliststrm.pt.model.TorrentInfo#getSizePerEpisode()} 再比较；
+ *                          单集资源折算前后完全一致，因此这个开关只影响多集包
  * @param requireChineseSubtitle 外语电影(originalLanguage 不以 zh 开头)是否需要中文字幕标识
  * @param avoidHitAndRun    是否直接淘汰来自 H&R 考核站点的种子。默认关闭——H&R 站点往往正是资源最好的站点，
  *                          多数用户要的是"优先用没有考核的"而不是"完全不用"，那个诉求由
@@ -55,8 +62,21 @@ public record FilterCriteria(
         List<String> releaseGroupPriority,
         List<SortDimension> sortPriority,
         long preferredSize,
+        boolean sizePerEpisode,
         boolean requireChineseSubtitle,
         boolean avoidHitAndRun) {
+
+    /**
+     * 按当前条件，这条种子参与体积判定的取值：开了每集折算就取每集体积，否则取整包体积。
+     * <p>
+     * 硬性过滤（{@link TorrentFilterEngine}）与 SIZE 排序维度（{@link SortDimension}）
+     * 必须用同一个口径，否则会出现"能通过上限、排序却按整包体积算"这种自相矛盾的行为，
+     * 所以取值逻辑收在条件对象自己身上，而不是各处各写一遍。
+     * </p>
+     */
+    public long effectiveSize(TorrentInfo torrent) {
+        return sizePerEpisode ? torrent.getSizePerEpisode() : torrent.getSize();
+    }
 
     /** 未配置排序维度时的兜底顺序，与建表脚本的默认值一致 */
     public static final List<SortDimension> DEFAULT_SORT_PRIORITY =

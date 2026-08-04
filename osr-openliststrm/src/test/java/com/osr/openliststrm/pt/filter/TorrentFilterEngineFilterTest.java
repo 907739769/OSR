@@ -223,6 +223,73 @@ class TorrentFilterEngineFilterTest {
         assertEquals(1, result.size());
     }
 
+    // ---------- 体积按每集判定 ----------
+
+    private FilterCriteria sizeCriteria(long minSize, long maxSize, boolean perEpisode) {
+        return FilterCriteria.builder()
+                .minSize(minSize)
+                .maxSize(maxSize)
+                .sizePerEpisode(perEpisode)
+                .sortPriority(List.of(SortDimension.SEEDERS))
+                .build();
+    }
+
+    private TorrentInfo pack(long totalSize, int episodeCount) {
+        TorrentInfo t = torrent("Some.Show.S01.1080p", 10, totalSize, false);
+        t.setEpisodeCount(episodeCount);
+        return t;
+    }
+
+    @Test
+    void 开启每集判定_26集季包按单集体积过上限() {
+        // 整包 52GB / 26 集 = 单集 2GB，上限 5GB。关掉开关的话这个季包必被"体积超上限"切掉——
+        // 用户按单集设的阈值会把所有多集包一刀切光，这正是要修的
+        TorrentInfo seasonPack = pack(52_000_000_000L, 26);
+
+        List<TorrentFilterEngine.Verdict> verdicts = engine.evaluate(List.of(seasonPack),
+                sizeCriteria(0L, 5_000_000_000L, true), TorrentBlacklist.EMPTY, null);
+
+        assertTrue(verdicts.get(0).accepted());
+    }
+
+    @Test
+    void 关闭每集判定_同一个季包被整包体积切掉() {
+        TorrentInfo seasonPack = pack(52_000_000_000L, 26);
+
+        List<TorrentFilterEngine.Verdict> verdicts = engine.evaluate(List.of(seasonPack),
+                sizeCriteria(0L, 5_000_000_000L, false), TorrentBlacklist.EMPTY, null);
+
+        assertFalse(verdicts.get(0).accepted());
+        assertTrue(verdicts.get(0).rejectReason().contains("超过上限"));
+    }
+
+    @Test
+    void 开启每集判定_单集资源折算前后行为完全一致() {
+        // episodeCount 默认 1，折算是恒等变换。这个开关只影响多集包，
+        // 默认打开对既有单集配置不会有任何行为变化
+        TorrentInfo single = torrent("Some.Show.S01E01.1080p", 10, 8_000_000_000L, false);
+
+        assertFalse(engine.evaluate(List.of(single), sizeCriteria(0L, 5_000_000_000L, true),
+                TorrentBlacklist.EMPTY, null).get(0).accepted());
+        assertFalse(engine.evaluate(List.of(single), sizeCriteria(0L, 5_000_000_000L, false),
+                TorrentBlacklist.EMPTY, null).get(0).accepted());
+    }
+
+    @Test
+    void 开启每集判定_单集体积太小的季包仍被下限淘汰() {
+        // 26 集只有 5.2GB，折算下来单集 200MB，是明显的压缩垃圾资源。
+        // 不折算的话整包 5.2GB 反而能过 1GB 的下限，垃圾资源被放行
+        TorrentInfo junkPack = pack(5_200_000_000L, 26);
+
+        List<TorrentFilterEngine.Verdict> verdicts = engine.evaluate(List.of(junkPack),
+                sizeCriteria(1_000_000_000L, 0L, true), TorrentBlacklist.EMPTY, null);
+
+        assertFalse(verdicts.get(0).accepted());
+        // 淘汰原因必须说清是折算过的，否则用户对着 5.2GB 的包看到"小于下限 1GB"会以为系统算错了
+        assertTrue(verdicts.get(0).rejectReason().contains("每集体积"));
+        assertTrue(verdicts.get(0).rejectReason().contains("26 集"));
+    }
+
     private TorrentInfo torrent(String title, int seeders, long size, boolean free) {
         TorrentInfo t = new TorrentInfo();
         t.setTitle(title);

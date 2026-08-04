@@ -47,6 +47,7 @@ export function usePtFilterConfig() {
     releaseGroupPriority: '',
     sortPriority: '',
     preferredSize: 0,
+    sizePerEpisode: '1',
     requireChineseSubtitle: '0',
     avoidHitAndRun: '0'
   })

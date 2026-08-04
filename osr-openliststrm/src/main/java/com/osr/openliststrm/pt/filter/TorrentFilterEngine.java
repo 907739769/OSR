@@ -181,11 +181,14 @@ public class TorrentFilterEngine {
         if (torrent.getSeeders() < criteria.minSeeders()) {
             return "做种数 " + torrent.getSeeders() + " 低于下限 " + criteria.minSeeders();
         }
-        if (criteria.minSize() > 0 && torrent.getSize() < criteria.minSize()) {
-            return "体积 " + torrent.getSize() + " 小于下限 " + criteria.minSize();
+        // 体积一律走 criteria.effectiveSize()：开了「按每集判定」时它是折算到单集的体积，
+        // 否则就是整包体积。SIZE 排序维度用的是同一个方法，两处口径不会分叉
+        long size = criteria.effectiveSize(torrent);
+        if (criteria.minSize() > 0 && size < criteria.minSize()) {
+            return describeSize(torrent, criteria) + size + " 小于下限 " + criteria.minSize();
         }
-        if (criteria.maxSize() > 0 && torrent.getSize() > criteria.maxSize()) {
-            return "体积 " + torrent.getSize() + " 超过上限 " + criteria.maxSize();
+        if (criteria.maxSize() > 0 && size > criteria.maxSize()) {
+            return describeSize(torrent, criteria) + size + " 超过上限 " + criteria.maxSize();
         }
         if (criteria.freeOnly() && !torrent.isFree()) {
             return "非免费种(下载量系数 " + torrent.getDownloadVolumeFactor() + ")，而配置为仅要免费";
@@ -321,6 +324,17 @@ public class TorrentFilterEngine {
             }
         }
         return false;
+    }
+
+    /**
+     * 淘汰原因里体积那一项的前缀。多集包被按每集折算时必须说清楚，
+     * 否则用户对着一个 40GB 的季包看到"体积 1500000000 超过上限"只会以为系统算错了。
+     */
+    private String describeSize(TorrentInfo torrent, FilterCriteria criteria) {
+        if (criteria.sizePerEpisode() && torrent.getEpisodeCount() > 1) {
+            return "每集体积（整包 " + torrent.getSize() + " ÷ " + torrent.getEpisodeCount() + " 集）";
+        }
+        return "体积 ";
     }
 
     /** 淘汰原因里展示已解析到的标签，空集合时给个明确说法而不是空的方括号 */

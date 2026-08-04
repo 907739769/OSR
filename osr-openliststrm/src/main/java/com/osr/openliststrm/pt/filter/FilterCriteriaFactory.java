@@ -50,6 +50,7 @@ public final class FilterCriteriaFactory {
                 .releaseGroupPriority(csvOf(patch, "releaseGroupPriority", global.getReleaseGroupPriority()))
                 .sortPriority(SortDimension.parseCsv(strOf(patch, "sortPriority", global.getSortPriority())))
                 .preferredSize(longOf(patch, "preferredSize", global.getPreferredSize()))
+                .sizePerEpisode(isTruthy(strOf(patch, "sizePerEpisode", global.getSizePerEpisode())))
                 .requireChineseSubtitle(
                         isTruthy(strOf(patch, "requireChineseSubtitle", global.getRequireChineseSubtitle())))
                 .avoidHitAndRun(isTruthy(strOf(patch, "avoidHitAndRun", global.getAvoidHitAndRun())))
