@@ -6,11 +6,13 @@ import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloadRecordPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloaderPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtFilterConfigPlus;
+import com.osr.openliststrm.mybatisplus.domain.PtIndexerPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtDownloadRecordPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtDownloaderPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtFilterConfigPlusService;
+import com.osr.openliststrm.mybatisplus.service.IPtIndexerPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtTorrentBlacklistPlusService;
@@ -27,6 +29,7 @@ import com.osr.openliststrm.pt.model.TorrentInfo;
 import com.osr.openliststrm.pt.subscription.TmdbSearchService;
 import com.osr.openliststrm.pt.subscription.dto.MatchResult;
 import com.osr.openliststrm.pt.task.DownloadRecordState;
+import com.osr.openliststrm.pt.task.FailReasonCode;
 import com.osr.openliststrm.pt.ws.PtStatusWebSocket;
 import com.osr.openliststrm.rename.MediaParser;
 import com.osr.openliststrm.rename.model.MediaInfo;
@@ -40,6 +43,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -67,6 +71,7 @@ public class SubscriptionEngine {
     private static final String STATE_IN_FLIGHT = SubscriptionEpisodeState.IN_FLIGHT.value();
     private static final String RECORD_PUSHED = DownloadRecordState.PUSHED.value();
     private static final String RECORD_DOWNLOADING = DownloadRecordState.DOWNLOADING.value();
+    private static final String RECORD_FAILED = DownloadRecordState.FAILED.value();
 
     /** 唯一标签前缀，用于把下载记录回映到下载器里的种子 */
     private static final String TAG_PREFIX = "osr-pt-";
@@ -82,6 +87,7 @@ public class SubscriptionEngine {
     private final SearchLogService searchLogService;
     private final IPtTorrentBlacklistPlusService blacklistService;
     private final TmdbSearchService tmdbSearchService;
+    private final IPtIndexerPlusService indexerService;
 
     /**
      * 本地标题解析器。parseLocal 只做本地正则抽取，不查 TMDb、不调 AI，所以传 null 客户端即可；
@@ -100,7 +106,8 @@ public class SubscriptionEngine {
                               SubscriptionMatcher matcher,
                               SearchLogService searchLogService,
                               IPtTorrentBlacklistPlusService blacklistService,
-                              TmdbSearchService tmdbSearchService) {
+                              TmdbSearchService tmdbSearchService,
+                              IPtIndexerPlusService indexerService) {
         this.subscriptionService = subscriptionService;
         this.episodeService = episodeService;
         this.recordService = recordService;
@@ -112,6 +119,7 @@ public class SubscriptionEngine {
         this.searchLogService = searchLogService;
         this.blacklistService = blacklistService;
         this.tmdbSearchService = tmdbSearchService;
+        this.indexerService = indexerService;
     }
 
     /**
@@ -130,6 +138,8 @@ public class SubscriptionEngine {
         }
         PtFilterConfigPlus globalConfig = filterConfigService.getConfig();
         TorrentBlacklist blacklist = TorrentBlacklist.from(blacklistService.list());
+
+        markHitAndRun(torrents);
 
         // 匹配+分组：纯内存计算，保持串行
         Map<String, List<TorrentInfo>> groups = new LinkedHashMap<>();
@@ -189,6 +199,9 @@ public class SubscriptionEngine {
         for (TorrentInfo candidate : candidates) {
             fillParsed(candidate);
         }
+        // 搜索补集/手动推送同样要打 H&R 标记，否则 avoidHitAndRun 只在 RSS 路径生效，
+        // 用户会看到"自动下载避开了 H&R 站，手动搜索却照样推了一个"这种前后不一致
+        markHitAndRun(candidates);
         MatchResult match = new MatchResult(sub, episode);
         Map<Integer, List<PtSubscriptionEpisodePlus>> episodeCache = new LinkedHashMap<>();
         List<PtDownloaderPlus> enabledDownloaders = loadEnabledDownloaders();
@@ -301,7 +314,11 @@ public class SubscriptionEngine {
         PtDownloadRecordPlus record = buildRecord(sub, match, best, guidHash, downloader);
         boolean saved;
         try {
-            saved = recordService.save(record);
+            // excludeAlreadyRecorded 放行了可重试的 FAILED 记录，此时表里已有同 (indexer_id, guid_hash)
+            // 的那一行，插新行必撞 uk_indexer_guid。复用原行而不是先删后插：下载记录页保留同一个 id，
+            // tracking_tag 本就由 guidHash 派生、复用后仍与下载器里的种子标签对得上。
+            PtDownloadRecordPlus reusable = reusableFailedRecord(best.getIndexerId(), guidHash);
+            saved = (reusable == null) ? recordService.save(record) : reuse(reusable, record);
         } catch (Exception e) {
             // 并发轮询下同一 guid 可能同时通过 excludeAlreadyRecorded 检查，
             // 落库时撞到 uk_indexer_guid 唯一索引会抛异常而非返回 false，需和 false 分支一样回滚，
@@ -407,6 +424,27 @@ public class SubscriptionEngine {
         return path.substring(0, end);
     }
 
+    /**
+     * 按来源索引器给候选打上 H&R 站点标记，供过滤引擎规避/降权。
+     * <p>
+     * 一次查全部索引器建成 Map 再逐条打标，而不是逐个候选查库——一轮 RSS 有几十上百条候选，
+     * 逐条查等于把 30 秒的轮询拖成分钟级。索引器查不到（已删除）时保持 false：
+     * 判不出来就按"不考核"处理，宁可少规避一次，也不能凭空把一批正常候选当成 H&R 淘汰掉。
+     * </p>
+     */
+    private void markHitAndRun(List<TorrentInfo> torrents) {
+        Set<Integer> hrIndexerIds = indexerService.list().stream()
+                .filter(PtIndexerPlus::hitAndRunEnabled)
+                .map(PtIndexerPlus::getId)
+                .collect(java.util.stream.Collectors.toSet());
+        if (hrIndexerIds.isEmpty()) {
+            return;
+        }
+        for (TorrentInfo torrent : torrents) {
+            torrent.setHitAndRun(torrent.getIndexerId() != null && hrIndexerIds.contains(torrent.getIndexerId()));
+        }
+    }
+
     /** 用本地解析结果填充种子的 parsedXxx 字段，不发任何网络请求 */
     void fillParsed(TorrentInfo torrent) {
         MediaInfo info = mediaParser.parseLocal(torrent.getTitle());
@@ -422,6 +460,40 @@ public class SubscriptionEngine {
         torrent.setParsedResolution(info.getResolution());
         torrent.setParsedSource(info.getSource());
         torrent.setParsedReleaseGroup(info.getReleaseGroup());
+        torrent.setParsedTags(collectTags(info));
+    }
+
+    /**
+     * 汇总一条种子的质量标签，供过滤引擎的 requiredTags/excludeTags 使用。
+     * <p>
+     * 取 {@code MediaInfo.tags}（REMUX/HDR10/10BIT/Dolby Vision…）<b>加上</b>视频编码与音频编码。
+     * 后两者必须并进来：extractor 是按 Resolution → Codec → SourceAndGroup 顺序跑的，
+     * {@code CodecExtractor} 的 AUDIO 正则先一步匹掉了 "Atmos" 并把它记进 {@code audioCodec}、
+     * 同时从标题里抹掉，等 {@code SourceAndGroupExtractor} 再扫 TAGS 时已经找不到它了。
+     * 只读 tags 的话，「必须带 Atmos」这种最常见的配置会一条候选都匹配不上，
+     * 而用户完全看不出是解析顺序把标签吞了。H265/DTS-HD 同理。
+     * </p>
+     * <p>
+     * 按大写去重：tags 里多为大写、编码归一化后是 "H265"/"Atmos"/"DTS-HD" 这类混合大小写，
+     * 同一个标签可能两边都出现。保留首次出现的原始写法，淘汰原因里展示时更贴近种子标题。
+     * </p>
+     */
+    private List<String> collectTags(MediaInfo info) {
+        Map<String, String> byUpper = new LinkedHashMap<>();
+        List<String> parsed = info.getTags();
+        if (parsed != null) {
+            for (String tag : parsed) {
+                if (StringUtils.isNotBlank(tag)) {
+                    byUpper.putIfAbsent(tag.toUpperCase(Locale.ROOT), tag);
+                }
+            }
+        }
+        for (String codec : new String[]{info.getVideoCodec(), info.getAudioCodec()}) {
+            if (StringUtils.isNotBlank(codec)) {
+                byUpper.putIfAbsent(codec.toUpperCase(Locale.ROOT), codec);
+            }
+        }
+        return new ArrayList<>(byUpper.values());
     }
 
     private Integer toInt(String value) {
@@ -475,6 +547,15 @@ public class SubscriptionEngine {
      * 严格匹配唯一约束语义，避免不同索引器的同 hash 种子互相误杀
      * （索引器降级使用 downloadUrl 作为 guid 时可能因 apikey 等参数模式不同而碰撞）。
      * </p>
+     * <p>
+     * <b>可重试的 FAILED 记录不算"已记录"</b>（判定见 {@link FailReasonCode#isRetryable}）。
+     * 本方法原先不看 state，于是一条 FAILED 记录会把对应种子对该索引器永久封死：
+     * 失败原因哪怕只是下载器重启把任务弄丢了（{@code TORRENT_NOT_FOUND}），该集当前最优的
+     * 那个种子也再无机会被选中，若该集只有这一个资源，{@code DownloadRecordAdminService#retry}
+     * 重搜多少次都补不回来——集会一直卡在缺失，且没有任何地方说得出为什么。
+     * 放行后由 {@link #reusableFailedRecord} 复用原行落库，不会撞唯一索引；
+     * 同一集的无限重试则由 {@code pt_subscription_episode.fail_count} 的熔断阈值兜住。
+     * </p>
      */
     private List<TorrentInfo> excludeAlreadyRecorded(List<TorrentInfo> candidates) {
         if (candidates.isEmpty()) {
@@ -497,6 +578,9 @@ public class SubscriptionEngine {
                             .eq("indexer_id", entry.getKey())
                             .in("guid_hash", entry.getValue()));
             for (PtDownloadRecordPlus record : existing) {
+                if (isRetryableFailure(record)) {
+                    continue;
+                }
                 taken.add(entry.getKey() + ":" + record.getGuidHash());
             }
         }
@@ -507,6 +591,54 @@ public class SubscriptionEngine {
             }
         }
         return fresh;
+    }
+
+    /** 这条记录是不是"失败了但还允许该种子被重新选中"的那种 */
+    private boolean isRetryableFailure(PtDownloadRecordPlus record) {
+        return RECORD_FAILED.equals(record.getState())
+                && FailReasonCode.isRetryable(record.getFailReasonCode());
+    }
+
+    /**
+     * 查该 {@code (indexer_id, guid_hash)} 上是否躺着一条可重试的 FAILED 记录。
+     * 只对择优选中的那一个种子查一次，不是对全部候选逐条查。
+     */
+    private PtDownloadRecordPlus reusableFailedRecord(Integer indexerId, String guidHash) {
+        PtDownloadRecordPlus existing = recordService.getOne(new QueryWrapper<PtDownloadRecordPlus>()
+                .eq("indexer_id", indexerId)
+                .eq("guid_hash", guidHash)
+                .eq("state", RECORD_FAILED), false);
+        return (existing != null && isRetryableFailure(existing)) ? existing : null;
+    }
+
+    /**
+     * 把可重试的失败行改写成一条新的推送记录。
+     * <p>
+     * 用 {@code UpdateWrapper} 显式把上一次的失败痕迹置空——MyBatis-Plus 默认跳过实体里的 null 字段，
+     * 只靠实体更新的话 {@code fail_reason}/{@code fail_reason_code}/{@code completed_time} 会原样留着，
+     * 前端下载记录页会显示成"正在下载，但带着上次的失败原因"。{@code files_selected} 必须回到 false，
+     * 否则 {@link com.osr.openliststrm.pt.task.DownloadTrackService} 会以为文件已经筛过，跳过按集过滤。
+     * </p>
+     * <p>
+     * {@code state = FAILED} 是更新条件而非仅仅是查询条件：并发轮询下两个分组可能同时查到同一行，
+     * 影响行数为 0 说明已被别人抢先复用，本次按落库失败处理并回滚，与 save 返回 false 的路径一致。
+     * </p>
+     */
+    private boolean reuse(PtDownloadRecordPlus reusable, PtDownloadRecordPlus record) {
+        boolean updated = recordService.update(record, new UpdateWrapper<PtDownloadRecordPlus>()
+                .eq("id", reusable.getId())
+                .eq("state", RECORD_FAILED)
+                .set("fail_reason", null)
+                .set("fail_reason_code", null)
+                .set("completed_time", null)
+                .set("progress", null)
+                .set("files_selected", false));
+        if (updated) {
+            // 下游要靠它写 pt_subscription_episode.download_id、以及推送失败时删记录回滚
+            record.setId(reusable.getId());
+            log.info("复用可重试的失败下载记录[{}] 重新推送：{}", reusable.getId(), record.getTitle());
+        }
+        return updated;
     }
 
     /** 条件更新占位：只有仍是 MISSING 才能占位成功 */

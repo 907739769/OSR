@@ -105,6 +105,15 @@ public class DownloadRecordAdminService {
         view.setFailReasonCode(r.getFailReasonCode());
         view.setPushedTime(r.getPushedTime());
         view.setCompletedTime(r.getCompletedTime());
+        view.setHrState(r.getHrState());
+        view.setHrSeedSeconds(r.getHrSeedSeconds());
+        view.setHrRatio(r.getHrRatio());
+        // 把站点要求一并带出去，前端才算得出"还差多久"；索引器已被删除时留空，
+        // 前端只显示当前进度不显示目标，与 indexerName 为 null 时的处理一致
+        if (indexer != null) {
+            view.setHrSeedHoursRequired(indexer.getHrSeedHours());
+            view.setHrRatioRequired(indexer.getHrRatio());
+        }
         return view;
     }
 

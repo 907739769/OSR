@@ -39,7 +39,11 @@ export function usePtIndexer() {
       apiKey: undefined,
       categories: undefined,
       pollInterval: 600,
-      enabled: '1'
+      enabled: '1',
+      // H&R 默认关闭：开了却不填阈值等于没配，后端会按未启用处理
+      hrEnabled: '0',
+      hrSeedHours: 0,
+      hrRatio: 0
     }),
     rules: {
       name: [{ required: true, message: '名称不能为空', trigger: 'blur' }],

@@ -10,8 +10,11 @@ import {
 /** 各排序维度的中文说明，键必须与后端 SortDimension 枚举名一致 */
 const DIMENSION_LABELS: Record<string, string> = {
   RESOLUTION: '分辨率优先级',
+  SOURCE: '媒介来源优先级（Remux/BluRay/WEB-DL…）',
   FREE: '促销优先（计量系数越低越优）',
   SEEDERS: '做种数（多者优先）',
+  HR: 'H&R 规避（无保种考核的站点优先）',
+  RELEASE_GROUP: '发布组优先级',
   SIZE: '体积接近偏好值'
 }
 
@@ -37,9 +40,15 @@ export function usePtFilterConfig() {
     excludeKeywords: '',
     resolutionPriority: '',
     resolutionWhitelist: '',
+    sourceWhitelist: '',
+    sourcePriority: '',
+    requiredTags: '',
+    excludeTags: '',
+    releaseGroupPriority: '',
     sortPriority: '',
     preferredSize: 0,
-    requireChineseSubtitle: '0'
+    requireChineseSubtitle: '0',
+    avoidHitAndRun: '0'
   })
 
   /** 排序维度的当前顺序，用有序数组承载，提交时拼成逗号分隔串 */

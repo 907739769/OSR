@@ -125,6 +125,13 @@
             <span class="label">完成时间</span>
             <span class="value">{{ item.completedTime || '-' }}</span>
           </div>
+          <div class="card-row" v-if="item.hrState">
+            <span class="label">H&amp;R 保种</span>
+            <span class="value hr-value">
+              <StatusChip :type="hrTagType(item.hrState)" :text="hrStateLabel(item.hrState)" />
+              <span class="hr-progress">{{ hrProgress(item) }}</span>
+            </span>
+          </div>
           <div class="record-fail" v-if="item.state === 'FAILED'">
             <v-icon icon="mdi-alert-circle" size="16" />
             <StatusChip v-if="item.failReasonCode" :type="failReasonTagType(item.failReasonCode)" :text="failReasonCodeLabel(item.failReasonCode)" />
@@ -246,6 +253,35 @@ const stateTagType = (state: string): 'success' | 'warning' | 'error' | 'info' =
   }
 }
 
+const hrStateLabel = (state: string) => {
+  switch (state) {
+    case 'PENDING': return '保种中'
+    case 'SATISFIED': return '已达标'
+    case 'VIOLATED': return '可能已 H&R'
+    default: return state
+  }
+}
+const hrTagType = (state: string): 'success' | 'warning' | 'error' => {
+  switch (state) {
+    case 'SATISFIED': return 'success'
+    case 'VIOLATED': return 'error'
+    default: return 'warning'
+  }
+}
+
+/**
+ * 保种进度摘要。要求是「做满 N 小时 或 分享率达到 R」的或关系，两项都展示，
+ * 让用户自己看哪一项先够；站点没配的那一项（阈值 0）不显示目标值。
+ */
+const hrProgress = (item: any) => {
+  const hours = ((item.hrSeedSeconds ?? 0) / 3600).toFixed(1)
+  const ratio = (item.hrRatio ?? 0).toFixed(2)
+  const parts: string[] = []
+  parts.push(item.hrSeedHoursRequired > 0 ? `做种 ${hours}/${item.hrSeedHoursRequired}h` : `做种 ${hours}h`)
+  parts.push(item.hrRatioRequired > 0 ? `分享率 ${ratio}/${item.hrRatioRequired}` : `分享率 ${ratio}`)
+  return parts.join('，')
+}
+
 const failReasonCodeLabel = (code: string) => {
   switch (code) {
     case 'TORRENT_NOT_FOUND': return '种子丢失'
@@ -304,6 +340,20 @@ const formatSize = (bytes: number): string => {
 }
 
 /* 失败原因块 */
+/* 保种状态徽章与进度文字同行，窄屏时进度换到下一行而不是把徽章挤变形 */
+.hr-value {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.hr-progress {
+  font-size: 12px;
+  color: var(--osr-text-secondary);
+}
+
 .record-fail {
   display: flex;
   align-items: center;

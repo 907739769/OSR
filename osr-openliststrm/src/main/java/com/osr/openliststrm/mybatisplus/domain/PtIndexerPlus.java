@@ -73,4 +73,35 @@ public class PtIndexerPlus extends BaseEntity {
     /** 上一轮拉取到的最新种子 guid 的 SHA-256 哈希，用于校验下一轮拉取窗口是否覆盖完整 */
     @TableField("last_seen_guid_hash")
     private String lastSeenGuidHash;
+
+    /**
+     * 该站点是否有 H&R（Hit and Run）考核 0-否 1-是。
+     * <p>
+     * H&R 是站点属性而不是种子属性：Torznab 协议里没有标准的 H&R 字段，
+     * 索引器也不会逐条告诉你哪个种子要考核，只能按站点整体判定。
+     * </p>
+     */
+    @TableField("hr_enabled")
+    private String hrEnabled;
+
+    /** H&R 要求的最短做种时长（小时），0 表示该站点不按时长考核 */
+    @TableField("hr_seed_hours")
+    private Integer hrSeedHours;
+
+    /** H&R 要求的最低分享率，0 表示该站点不按分享率考核 */
+    @TableField("hr_ratio")
+    private Double hrRatio;
+
+    /**
+     * 该站点是否启用 H&R 考核。{@code hr_enabled} 为 1、且至少配了一个有效阈值才算数——
+     * 只开开关不填阈值是一份不完整的配置，此时无从判断"做到什么程度才算达标"，
+     * 按未启用处理，避免每个种子都永远停在"保种中"并反复提醒。
+     */
+    public boolean hitAndRunEnabled() {
+        return "1".equals(hrEnabled) && (positive(hrSeedHours) || positive(hrRatio));
+    }
+
+    private static boolean positive(Number value) {
+        return value != null && value.doubleValue() > 0;
+    }
 }

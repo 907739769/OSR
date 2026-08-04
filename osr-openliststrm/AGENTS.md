@@ -54,6 +54,13 @@ com/osr/openliststrm/
 - **孤儿判定**: `orphan/OrphanReconciler` 纯逻辑无 I/O，方便单测覆盖；`RenameOrphanScanServiceImpl` 负责实际 I/O
 - **重命名流程**: `MediaParser.parse()` → 本地正则抽取 → TMDb 增强 → AI 补充 (如需) → Pebble 模板渲染
 - **PT 订阅**: RSS 轮询使用 `MediaParser.parseLocal()` 仅本地正则，不查 TMDb 避免配额耗尽
+- **`MediaParser.parseLocal()` 不剥扩展名**（`stripExtension=false`），种子标题本来就没有扩展名。**测试夹具不要给种子标题补 `.mkv`**：补了之后标题以 " mkv" 结尾，`SourceAndGroupExtractor` 的 `GROUP_END` 正则（要求结尾是 `-xxx`）匹配不到发布组，`parsedReleaseGroup` 恒为 null，一切依赖发布组的逻辑（发布组黑名单、发布组优先级）都会静默失效。这个错误前提曾同时写进 `SubscriptionEngineTest` 与 `PtTorrentBlacklistPlusServiceImplTest` 并让两条用例长期红着
+- **H&R 是站点属性，不是种子属性**：Torznab 协议没有标准的 H&R 字段，索引器不会逐条告知哪个种子要考核，只能按 `pt_indexer.hr_enabled` 整站判定。`hr_enabled=1` 但两个阈值都为 0 属于不完整配置，`PtIndexerPlus#hitAndRunEnabled()` 会按未启用处理——否则种子会永远停在"保种中"并反复提醒。达标判定是**或**关系（做满 N 小时 **或** 分享率达到 R），与站点通行表述一致
+- **`DownloadTrackService.track()` 现在跑两批记录**：`trackActive` 管 PUSHED/DOWNLOADING，`trackSeeding` 管 COMPLETED 且 `hr_state=PENDING`。后者用 `IPtDownloadRecordPlusService#listSeedingPending` 而不是内联 QueryWrapper——两者是语义完全不同的集合，混在同一个泛化 `list()` 调用里读不出意图，测试里 27 个 `list(any(Wrapper))` 通用桩也无从区分
+- **OSR 从不删种**。`hr_state=VIOLATED` 是"已经发生"的事实（用户手删或下载器自动管理清掉了），只发告警，系统不会也无法自动补救。主动防线只有推送后按站点规则下发 `setShareLimits`——**Transmission 的 RPC 没有"最短做种时长"概念**（`seedIdleLimit` 是"空闲多久后停"，语义不同，不能拿来充数），该维度对 Transmission 只能靠 OSR 侧追踪告警兜底
+- **`FilterCriteria` 一律用 `FilterCriteria.builder()` 构造**，不要用位置参数：16 个分量里有 9 个是 `List<String>`，顺序写反编译器发现不了；新增维度时 builder 调用方也不必补占位参数
+- **`TorrentFilterEngine` 只有 2 参与 4 参两种签名，不要再加三参重载**。历史上 `(…, TorrentBlacklist)` 与 `(…, String originalLanguage)` 两个三参重载只靠第三参类型区分，`SearchSupplementService` 调错了版本，导致手动搜索候选列表不受黑名单约束，用户选中后推送侧再拦下，只回一个没有原因的失败
+- **种子的 `parsedTags` 是 `MediaInfo.tags` + 视频编码 + 音频编码的并集**（见 `SubscriptionEngine#collectTags`）。extractor 按 Resolution → Codec → SourceAndGroup 顺序跑，`CodecExtractor` 会先把 `Atmos`/`H265`/`DTS-HD` 匹进 `audioCodec`/`videoCodec` 并从标题里抹掉，只读 `tags` 的话「必须带 Atmos」这类配置会一条都匹配不上
 
 ## ANTI-PATTERNS
 - 不要在 Controller 中写业务逻辑

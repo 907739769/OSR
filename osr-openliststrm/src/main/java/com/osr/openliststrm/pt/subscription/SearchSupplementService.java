@@ -11,9 +11,11 @@ import com.osr.openliststrm.mybatisplus.service.IPtFilterConfigPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtIndexerPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
+import com.osr.openliststrm.mybatisplus.service.IPtTorrentBlacklistPlusService;
 import com.osr.openliststrm.pt.filter.FilterCriteria;
 import com.osr.openliststrm.pt.filter.FilterCriteriaFactory;
 import com.osr.openliststrm.pt.filter.SortDimension;
+import com.osr.openliststrm.pt.filter.TorrentBlacklist;
 import com.osr.openliststrm.pt.filter.TorrentFilterEngine;
 import com.osr.openliststrm.pt.indexer.IndexerCapability;
 import com.osr.openliststrm.pt.indexer.IndexerCapabilityCache;
@@ -62,6 +64,7 @@ public class SearchSupplementService {
     private final IPtFilterConfigPlusService filterConfigService;
     private final TorrentFilterEngine filterEngine;
     private final TmdbSearchService tmdbSearchService;
+    private final IPtTorrentBlacklistPlusService blacklistService;
 
     /**
      * 单次搜索调用内部的并发上限。
@@ -84,6 +87,7 @@ public class SearchSupplementService {
                                    IPtFilterConfigPlusService filterConfigService,
                                    TorrentFilterEngine filterEngine,
                                    TmdbSearchService tmdbSearchService,
+                                   IPtTorrentBlacklistPlusService blacklistService,
                                    @Value("${pt.search.max-concurrency:3}") int maxConcurrency) {
         this.indexerService = indexerService;
         this.torznabClient = torznabClient;
@@ -95,6 +99,7 @@ public class SearchSupplementService {
         this.filterConfigService = filterConfigService;
         this.filterEngine = filterEngine;
         this.tmdbSearchService = tmdbSearchService;
+        this.blacklistService = blacklistService;
         this.maxConcurrency = Math.max(1, maxConcurrency);
     }
 
@@ -167,12 +172,17 @@ public class SearchSupplementService {
                 }
             }
 
-            // 应用 PT 过滤规则：淘汰不满足条件的候选，按配置维度排序
+            // 应用 PT 过滤规则：淘汰不满足条件的候选，按配置维度排序。
+            // 黑名单必须与自动推送链路（SubscriptionEngine#handleGroup）用同一份：漏传会让已拉黑的
+            // 发布组/种子照常出现在候选列表里，而用户真去选中它时，推送侧的黑名单又会把它拦下，
+            // 最终只回一个没有原因的 false，用户完全看不出是被自己配的黑名单挡了。
             PtFilterConfigPlus globalConfig = filterConfigService.getConfig();
             FilterCriteria criteria = FilterCriteriaFactory.build(globalConfig, sub.getFilterOverride());
+            TorrentBlacklist blacklist = TorrentBlacklist.from(blacklistService.list());
             String originalLanguage = tmdbSearchService.getOriginalLanguage(
                     sub.getMediaType(), sub.getTmdbId());
-            List<TorrentFilterEngine.Verdict> verdicts = filterEngine.evaluate(allMatched, criteria, originalLanguage);
+            List<TorrentFilterEngine.Verdict> verdicts =
+                    filterEngine.evaluate(allMatched, criteria, blacklist, originalLanguage);
             List<TorrentInfo> survivors = verdicts.stream()
                     .filter(TorrentFilterEngine.Verdict::accepted)
                     .map(TorrentFilterEngine.Verdict::torrent)

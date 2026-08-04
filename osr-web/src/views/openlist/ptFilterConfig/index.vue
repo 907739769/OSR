@@ -92,6 +92,54 @@
             </template>
           </FormField>
 
+          <FormField label="规避 H&R 站点">
+            <v-radio-group v-model="form.avoidHitAndRun" inline hide-details density="comfortable">
+              <v-radio label="否" value="0" />
+              <v-radio label="是" value="1" />
+            </v-radio-group>
+            <template #tip>
+              开启后<strong>直接淘汰</strong>来自有 H&amp;R 考核站点的所有种子。H&amp;R 站点往往正是资源质量最好的站点，
+              多数情况你要的其实是「同等条件下优先用没有考核的」——那个请把下方的「H&amp;R 规避」排序维度往前调，
+              而不是打开这个开关。站点是否有 H&amp;R 在索引器管理页配置
+            </template>
+          </FormField>
+
+          <FormField>
+            <v-text-field
+              v-model="form.sourceWhitelist"
+              label="媒介来源白名单"
+              placeholder="如 REMUX,BluRay,WEBDL；留空表示不限"
+              density="comfortable"
+              variant="outlined"
+            />
+            <template #tip>
+              <strong>硬性过滤</strong>：不在白名单内的来源直接淘汰。与分辨率白名单同理，解析不出来源的种子在白名单非空时也会被淘汰。可用值为解析后的归一化形式：REMUX、BluRay、WEBDL、WEBRip、HDTV、BDRip、DVDRip
+            </template>
+          </FormField>
+
+          <FormField>
+            <v-text-field
+              v-model="form.requiredTags"
+              label="必需质量标签"
+              placeholder="如 HDR10,Atmos；留空表示不限"
+              density="comfortable"
+              variant="outlined"
+            />
+            <template #tip>
+              逗号分隔，种子须<strong>全部具备</strong>（AND 语义）才放行。整词匹配，配 HDR 不会命中 HDR10。可用值：HDR10、HDR10+、HDR、Dolby Vision、Atmos、TrueHD、DTS-HD、10bit、60fps、IMAX、H265、H264 等。要表达「任选其一」请改用下面的标题包含词
+            </template>
+          </FormField>
+
+          <FormField>
+            <v-text-field
+              v-model="form.excludeTags"
+              label="排除质量标签"
+              placeholder="逗号分隔，命中任一即淘汰"
+              density="comfortable"
+              variant="outlined"
+            />
+          </FormField>
+
           <FormField>
             <v-text-field
               v-model="form.includeKeywords"
@@ -124,6 +172,32 @@
             />
             <template #tip>
               <strong>只影响排序</strong>，不做过滤——不在此列表内的分辨率只是排在最后，仍可能被下载。要过滤请用上面的白名单
+            </template>
+          </FormField>
+
+          <FormField>
+            <v-text-field
+              v-model="form.sourcePriority"
+              label="媒介来源优先级"
+              placeholder="如 REMUX,BluRay,WEBDL,HDTV"
+              density="comfortable"
+              variant="outlined"
+            />
+            <template #tip>
+              <strong>只影响排序</strong>，不做过滤。同分辨率下 Remux 与 HDTV 的观感差距远大于做种数差距，通常应把下方的「媒介来源优先级」维度排在「做种数」之前
+            </template>
+          </FormField>
+
+          <FormField>
+            <v-text-field
+              v-model="form.releaseGroupPriority"
+              label="发布组优先级"
+              placeholder="如 CHDBits,FRDS,CMCT"
+              density="comfortable"
+              variant="outlined"
+            />
+            <template #tip>
+              <strong>只影响排序</strong>：不在列表内的发布组只是排最后，仍可能被下载。要彻底排除某个发布组请用「种子黑名单」
             </template>
           </FormField>
 

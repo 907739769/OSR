@@ -12,8 +12,106 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class SortDimensionTest {
 
     private FilterCriteria criteria(List<String> resolutions, long preferredSize) {
-        return new FilterCriteria(0, 0L, 0L, false, List.of(), List.of(),
-                resolutions, List.of(), List.of(SortDimension.SEEDERS), preferredSize, false);
+        return FilterCriteria.builder()
+                .resolutionPriority(resolutions)
+                .sortPriority(List.of(SortDimension.SEEDERS))
+                .preferredSize(preferredSize)
+                .build();
+    }
+
+    // ---------- SOURCE / RELEASE_GROUP ----------
+
+    private TorrentInfo torrentWithSource(String source) {
+        TorrentInfo t = new TorrentInfo();
+        t.setTitle("t-source-" + source);
+        t.setParsedSource(source);
+        return t;
+    }
+
+    private TorrentInfo torrentWithGroup(String group) {
+        TorrentInfo t = new TorrentInfo();
+        t.setTitle("t-group-" + group);
+        t.setParsedReleaseGroup(group);
+        return t;
+    }
+
+    @Test
+    void SOURCE_按优先级列表排序_越靠前越优() {
+        FilterCriteria c = FilterCriteria.builder()
+                .sourcePriority(List.of("REMUX", "BluRay", "WEBDL"))
+                .build();
+        Comparator<TorrentInfo> comparator = SortDimension.SOURCE.comparator(c);
+
+        assertTrue(comparator.compare(torrentWithSource("REMUX"), torrentWithSource("WEBDL")) < 0);
+        assertTrue(comparator.compare(torrentWithSource("BluRay"), torrentWithSource("REMUX")) > 0);
+    }
+
+    @Test
+    void SOURCE_不在列表中的排最后_解析不出的也一样() {
+        FilterCriteria c = FilterCriteria.builder().sourcePriority(List.of("REMUX", "BluRay")).build();
+        Comparator<TorrentInfo> comparator = SortDimension.SOURCE.comparator(c);
+
+        assertTrue(comparator.compare(torrentWithSource("BluRay"), torrentWithSource("HDTV")) < 0);
+        assertTrue(comparator.compare(torrentWithSource("BluRay"), torrentWithSource(null)) < 0);
+        // 都排最后时判同级，不能凭空造出偏好
+        assertEquals(0, comparator.compare(torrentWithSource("HDTV"), torrentWithSource(null)));
+    }
+
+    @Test
+    void SOURCE_大小写不敏感() {
+        FilterCriteria c = FilterCriteria.builder().sourcePriority(List.of("WEBDL")).build();
+
+        assertTrue(SortDimension.SOURCE.comparator(c)
+                .compare(torrentWithSource("webdl"), torrentWithSource("HDTV")) < 0);
+    }
+
+    @Test
+    void SOURCE_未配置优先级_该维度不参与比较() {
+        // 不能退化成任意顺序：没配就是没偏好，交给后面的维度决定
+        FilterCriteria c = FilterCriteria.builder().sourcePriority(List.of()).build();
+
+        assertEquals(0, SortDimension.SOURCE.comparator(c)
+                .compare(torrentWithSource("REMUX"), torrentWithSource("HDTV")));
+    }
+
+    @Test
+    void RELEASE_GROUP_按优先级列表排序() {
+        FilterCriteria c = FilterCriteria.builder()
+                .releaseGroupPriority(List.of("CHDBits", "FRDS"))
+                .build();
+        Comparator<TorrentInfo> comparator = SortDimension.RELEASE_GROUP.comparator(c);
+
+        assertTrue(comparator.compare(torrentWithGroup("CHDBits"), torrentWithGroup("FRDS")) < 0);
+        // 不在优先列表里的发布组只是排最后，不会被淘汰——淘汰是黑名单的职责
+        assertTrue(comparator.compare(torrentWithGroup("FRDS"), torrentWithGroup("SomeUnknownGroup")) < 0);
+    }
+
+    @Test
+    void RELEASE_GROUP_未配置优先级_该维度不参与比较() {
+        FilterCriteria c = FilterCriteria.builder().releaseGroupPriority(List.of()).build();
+
+        assertEquals(0, SortDimension.RELEASE_GROUP.comparator(c)
+                .compare(torrentWithGroup("CHDBits"), torrentWithGroup("Unknown")));
+    }
+
+    @Test
+    void HR_无考核的站点优先() {
+        TorrentInfo clean = new TorrentInfo();
+        clean.setTitle("clean");
+        TorrentInfo hr = new TorrentInfo();
+        hr.setTitle("hr");
+        hr.setHitAndRun(true);
+        Comparator<TorrentInfo> comparator = SortDimension.HR.comparator(FilterCriteria.builder().build());
+
+        assertTrue(comparator.compare(clean, hr) < 0);
+        // 同为 H&R（或同为非 H&R）时判同级，交给后面的维度决定
+        assertEquals(0, comparator.compare(hr, hr));
+    }
+
+    @Test
+    void 新增维度可被parseCsv识别() {
+        assertEquals(List.of(SortDimension.SOURCE, SortDimension.RELEASE_GROUP, SortDimension.HR),
+                SortDimension.parseCsv("SOURCE,RELEASE_GROUP,HR"));
     }
 
     private TorrentInfo torrent(String resolution, boolean free, int seeders, long size) {

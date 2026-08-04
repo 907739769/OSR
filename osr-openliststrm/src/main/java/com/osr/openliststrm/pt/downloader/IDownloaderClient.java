@@ -59,4 +59,19 @@ public interface IDownloaderClient {
      * @throws IOException 网络异常
      */
     void excludeFiles(PtDownloaderPlus config, String hash, Set<Integer> fileIndexes) throws IOException;
+
+    /**
+     * 给指定种子设置分享限额，用于 H&R 保种防护。
+     * <p>
+     * 下载器的自动管理/全局做种限额会在达到限额后自动停止甚至删除种子。若全局限额比站点的
+     * H&R 要求宽松，种子会在考核达标前就被下载器自己清掉——这是 OSR 无法事后补救的一类
+     * H&R，因此把站点要求下发成种子级限额是唯一的主动防线。
+     * </p>
+     *
+     * @param ratioLimit          分享率上限，&lt;=0 表示该维度不限
+     * @param seedingTimeMinutes  做种时长上限（分钟），&lt;=0 表示该维度不限
+     * @throws IOException 网络异常或下载器拒绝
+     */
+    void setShareLimits(PtDownloaderPlus config, String hash, double ratioLimit, long seedingTimeMinutes)
+            throws IOException;
 }

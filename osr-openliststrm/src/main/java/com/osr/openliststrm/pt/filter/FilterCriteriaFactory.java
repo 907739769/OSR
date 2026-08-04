@@ -5,6 +5,8 @@ import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.mybatisplus.domain.PtFilterConfigPlus;
 import lombok.extern.slf4j.Slf4j;
 
+import java.util.List;
+
 /**
  * 把全局过滤配置与订阅级覆盖合并成一份生效的 {@link FilterCriteria}。
  * <p>
@@ -32,26 +34,39 @@ public final class FilterCriteriaFactory {
         }
         JSONObject patch = parseOverride(override);
 
-        return new FilterCriteria(
-                intOf(patch, "minSeeders", global.getMinSeeders()),
-                longOf(patch, "minSize", global.getMinSize()),
-                longOf(patch, "maxSize", global.getMaxSize()),
-                isFreeOnly(strOf(patch, "freeOnly", global.getFreeOnly())),
-                FilterCriteria.splitCsv(strOf(patch, "includeKeywords", global.getIncludeKeywords())),
-                FilterCriteria.splitCsv(strOf(patch, "excludeKeywords", global.getExcludeKeywords())),
-                FilterCriteria.splitCsv(strOf(patch, "resolutionPriority", global.getResolutionPriority())),
-                FilterCriteria.splitCsv(strOf(patch, "resolutionWhitelist", global.getResolutionWhitelist())),
-                SortDimension.parseCsv(strOf(patch, "sortPriority", global.getSortPriority())),
-                longOf(patch, "preferredSize", global.getPreferredSize()),
-                isFreeOnly(strOf(patch, "requireChineseSubtitle", global.getRequireChineseSubtitle())));
+        return FilterCriteria.builder()
+                .minSeeders(intOf(patch, "minSeeders", global.getMinSeeders()))
+                .minSize(longOf(patch, "minSize", global.getMinSize()))
+                .maxSize(longOf(patch, "maxSize", global.getMaxSize()))
+                .freeOnly(isTruthy(strOf(patch, "freeOnly", global.getFreeOnly())))
+                .includeKeywords(csvOf(patch, "includeKeywords", global.getIncludeKeywords()))
+                .excludeKeywords(csvOf(patch, "excludeKeywords", global.getExcludeKeywords()))
+                .resolutionPriority(csvOf(patch, "resolutionPriority", global.getResolutionPriority()))
+                .resolutionWhitelist(csvOf(patch, "resolutionWhitelist", global.getResolutionWhitelist()))
+                .sourceWhitelist(csvOf(patch, "sourceWhitelist", global.getSourceWhitelist()))
+                .sourcePriority(csvOf(patch, "sourcePriority", global.getSourcePriority()))
+                .requiredTags(csvOf(patch, "requiredTags", global.getRequiredTags()))
+                .excludeTags(csvOf(patch, "excludeTags", global.getExcludeTags()))
+                .releaseGroupPriority(csvOf(patch, "releaseGroupPriority", global.getReleaseGroupPriority()))
+                .sortPriority(SortDimension.parseCsv(strOf(patch, "sortPriority", global.getSortPriority())))
+                .preferredSize(longOf(patch, "preferredSize", global.getPreferredSize()))
+                .requireChineseSubtitle(
+                        isTruthy(strOf(patch, "requireChineseSubtitle", global.getRequireChineseSubtitle())))
+                .avoidHitAndRun(isTruthy(strOf(patch, "avoidHitAndRun", global.getAvoidHitAndRun())))
+                .build();
+    }
+
+    /** 取值 + 切分的组合，逗号分隔的列表型字段全部走这里，省掉一层嵌套读起来更整齐 */
+    private static List<String> csvOf(JSONObject patch, String key, String fallback) {
+        return FilterCriteria.splitCsv(strOf(patch, key, fallback));
     }
 
     /**
-     * freeOnly 的真值判定。数据库里存的是 "0"/"1"，但订阅级覆盖是用户手填的 JSON，
+     * 开关类字段的真值判定。数据库里存的是 "0"/"1"，但订阅级覆盖是用户手填的 JSON，
      * 前端表单很可能提交原生布尔值 true/false —— 那种情况下必须也认作「是」，
-     * 否则「只要免费种」会被静默关掉，结果下到收费种。
+     * 否则「只要免费种」「外语电影需中字」这类开关会被静默关掉，结果下到不想要的种。
      */
-    private static boolean isFreeOnly(String value) {
+    private static boolean isTruthy(String value) {
         return "1".equals(value) || "true".equalsIgnoreCase(value);
     }
 

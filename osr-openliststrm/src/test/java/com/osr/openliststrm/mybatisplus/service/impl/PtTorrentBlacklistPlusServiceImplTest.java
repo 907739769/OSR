@@ -97,15 +97,14 @@ class PtTorrentBlacklistPlusServiceImplTest {
     @Test
     void blockRecordReleaseGroup_标题能解析出发布组_新增一行value为大写发布组() {
         // 注：标题末尾补了 ".mkv"，区别于简报原文里的 "...H264-chdweb"（无扩展名）。
-        // MediaParser.extractBase() 对入参统一按"取最后一个'.'之后的部分当扩展名"处理，
-        // parseLocal 的 Javadoc 虽然声明"允许没有扩展名"，但一旦标题里还有其它的点号
-        // （PT 场景幾乎总是如此，如 WEB-DL.H264-GROUP 这种惯用连字），最后一段就会被当成
-        // 伪扩展名整段丢弃，连带把发布组吃掉——MediaParserLocalTest.java 里能通过的
-        // "H264-GROUP" 用例同样是靠末尾真实扩展名 ".mkv" 才躲开这个坑。
-        // 这是 MediaParser 既有行为，不属于本任务(黑名单三件套)能改动的范围，故照抄该写法，
-        // 而不放宽/更改断言。这个坑已经在报告里作为独立疑虑记录。
+        // 种子标题不带扩展名，就是 PT 站上的原样。此前这里补过一个占位的 ".mkv"，理由写的是
+        // "MediaParser.extractBase 会把最后一段当扩展名剥离"——那是 parse() 的行为，
+        // blockRecordReleaseGroup 走的 parseLocal() 传的是 stripExtension=false，本来就不剥扩展名。
+        // 补上 ".mkv" 反而让标题以 " mkv" 结尾，SourceAndGroupExtractor 的 GROUP_END
+        // （要求结尾是 "-xxx"）匹配不到发布组，服务方法直接抛"无法从标题解析出发布组"，
+        // 本用例因此长期报错。SubscriptionEngineTest 里有同源的一处，已一并修正。
         when(recordService.getById(1)).thenReturn(
-                record(1, "Show.Name.S01E01.1080p.WEB-DL.H264-chdweb.mkv", "hash1"));
+                record(1, "Show.Name.S01E01.1080p.WEB-DL.H264-chdweb", "hash1"));
         when(baseMapper.selectCount(any())).thenReturn(0L);
         when(baseMapper.insert(any(PtTorrentBlacklistPlus.class))).thenReturn(1);
 

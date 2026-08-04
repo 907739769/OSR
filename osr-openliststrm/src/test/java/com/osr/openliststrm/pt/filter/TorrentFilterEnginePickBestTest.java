@@ -14,8 +14,11 @@ class TorrentFilterEnginePickBestTest {
     private final TorrentFilterEngine engine = new TorrentFilterEngine();
 
     private FilterCriteria criteria(List<SortDimension> sortPriority, long preferredSize) {
-        return new FilterCriteria(0, 0L, 0L, false, List.of(), List.of(),
-                List.of("2160p", "1080p", "720p"), List.of(), sortPriority, preferredSize, false);
+        return FilterCriteria.builder()
+                .resolutionPriority(List.of("2160p", "1080p", "720p"))
+                .sortPriority(sortPriority)
+                .preferredSize(preferredSize)
+                .build();
     }
 
     private TorrentInfo torrent(String title, String resolution, boolean free, int seeders, long size) {
@@ -152,13 +155,15 @@ class TorrentFilterEnginePickBestTest {
         TorrentInfo survivorLowerResolution = torrent("存活但分辨率较低", "720p", false, 15, 1_000_000_000L);
         TorrentInfo survivorHigherResolution = torrent("存活且分辨率较高", "1080p", false, 50, 3_000_000_000L);
 
-        FilterCriteria criteria = new FilterCriteria(10, 0L, 0L, false, List.of(), List.of(),
-                List.of("2160p", "1080p", "720p"), List.of(),
-                List.of(SortDimension.RESOLUTION), 0L, false);
+        FilterCriteria criteria = FilterCriteria.builder()
+                .minSeeders(10)
+                .resolutionPriority(List.of("2160p", "1080p", "720p"))
+                .sortPriority(List.of(SortDimension.RESOLUTION))
+                .build();
 
         List<TorrentInfo> survivors = engine.filter(
                 List.of(eliminatedButOtherwisePerfect, survivorLowerResolution, survivorHigherResolution),
-                criteria, (String) null);
+                criteria, TorrentBlacklist.EMPTY, null);
         TorrentInfo best = engine.pickBest(survivors, criteria);
 
         assertEquals(2, survivors.size(), "做种数 2 低于下限 10，应在 filter 阶段被淘汰");

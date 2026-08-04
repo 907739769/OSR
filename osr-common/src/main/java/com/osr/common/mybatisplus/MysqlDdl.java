@@ -77,7 +77,10 @@ public class MysqlDdl extends SimpleDdl {
                 "sql/20260752-flatten-openliststrm-menu.sql",
                 "sql/20260753-remove-rename-template-config.sql",
                 "sql/20260754-pt-downloader-smart-classify.sql",
-                "sql/20260755-notify-type-channel-config.sql"
+                "sql/20260755-notify-type-channel-config.sql",
+                "sql/20260756-pt-filter-quality-dimensions.sql",
+                "sql/20260757-pt-hit-and-run.sql",
+                "sql/20260758-pt-filter-avoid-hit-and-run.sql"
         );
     }
 }

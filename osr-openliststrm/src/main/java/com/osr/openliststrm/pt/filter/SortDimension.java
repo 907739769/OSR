@@ -36,6 +36,38 @@ public enum SortDimension {
     },
 
     /**
+     * 媒介来源匹配度，按 sourcePriority 的先后顺序（典型配置 REMUX,BluRay,WEBDL,HDTV），
+     * 不在列表中的排最后。同分辨率下 Remux 与 HDTV 的观感差距远大于做种数差距，
+     * 这一维通常应排在 SEEDERS 之前。
+     */
+    SOURCE {
+        @Override
+        public Comparator<TorrentInfo> comparator(FilterCriteria criteria) {
+            List<String> priority = criteria.sourcePriority();
+            if (priority.isEmpty()) {
+                return NO_PREFERENCE;
+            }
+            return Comparator.comparingInt(t -> rankOf(t.getParsedSource(), priority));
+        }
+    },
+
+    /**
+     * 发布组匹配度，按 releaseGroupPriority 的先后顺序，不在列表中的排最后。
+     * 与发布组黑名单（{@link TorrentBlacklist}）是互补关系：黑名单是"绝不要"，
+     * 这一维是"优先要"，不在优先列表里的发布组只是排后面，不会被淘汰。
+     */
+    RELEASE_GROUP {
+        @Override
+        public Comparator<TorrentInfo> comparator(FilterCriteria criteria) {
+            List<String> priority = criteria.releaseGroupPriority();
+            if (priority.isEmpty()) {
+                return NO_PREFERENCE;
+            }
+            return Comparator.comparingInt(t -> rankOf(t.getParsedReleaseGroup(), priority));
+        }
+    },
+
+    /**
      * 下载量计量系数，越小越优——免费(0.0)排最前，同时正确处理 PT 站常见的半价促销(0.5)。
      * 用连续比较而非二值判断，否则 0.5 与 1.0 会被判同级，择优可能随机落到全价种上。
      */
@@ -43,6 +75,21 @@ public enum SortDimension {
         @Override
         public Comparator<TorrentInfo> comparator(FilterCriteria criteria) {
             return Comparator.comparingDouble(TorrentInfo::getDownloadVolumeFactor);
+        }
+    },
+
+    /**
+     * H&R 考核，无考核的站点优先。
+     * <p>
+     * 与 {@link FilterCriteria#avoidHitAndRun()} 是软硬两手：这一维只是让没有保种义务的候选
+     * 排在前面，同等条件下自然避开 H&R；真要一个都不碰才用那个硬开关。
+     * H&R 站点常常正是资源质量最好的站点，默认不该把它们直接排除。
+     * </p>
+     */
+    HR {
+        @Override
+        public Comparator<TorrentInfo> comparator(FilterCriteria criteria) {
+            return Comparator.comparingInt(t -> t.isHitAndRun() ? 1 : 0);
         }
     },
 
@@ -95,15 +142,16 @@ public enum SortDimension {
     }
 
     /**
-     * 分辨率在优先级列表中的名次，越小越优；不在列表中返回列表长度（排最后）。
-     * 大小写不敏感——索引器标题里 1080P 与 1080p 都出现过。
+     * 取值在优先级列表中的名次，越小越优；解析不出（空）或不在列表中一律返回列表长度（排最后）。
+     * 大小写不敏感——索引器标题里 1080P 与 1080p、WEB-DL 与 web-dl 都出现过。
+     * <p>分辨率/来源/发布组三个维度共用本方法：它们的比较语义完全一致，只是取值来源不同。</p>
      */
-    private static int rankOf(String resolution, List<String> priority) {
-        if (StringUtils.isBlank(resolution)) {
+    private static int rankOf(String value, List<String> priority) {
+        if (StringUtils.isBlank(value)) {
             return priority.size();
         }
         for (int i = 0; i < priority.size(); i++) {
-            if (priority.get(i).equalsIgnoreCase(resolution.trim())) {
+            if (priority.get(i).equalsIgnoreCase(value.trim())) {
                 return i;
             }
         }

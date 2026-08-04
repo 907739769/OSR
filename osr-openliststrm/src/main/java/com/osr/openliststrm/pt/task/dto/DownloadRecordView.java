@@ -35,4 +35,15 @@ public class DownloadRecordView {
     private String failReasonCode;
     private Date pushedTime;
     private Date completedTime;
+
+    /** H&R 保种状态 PENDING/SATISFIED/VIOLATED；null 表示来源站点没有 H&R 考核，前端不展示该列 */
+    private String hrState;
+    /** 最近一次采样到的累计做种秒数 */
+    private Long hrSeedSeconds;
+    /** 最近一次采样到的分享率 */
+    private Double hrRatio;
+    /** 来源站点要求的最短做种时长(小时)，供前端算"还差多久"；站点不按时长考核时为 0 */
+    private Integer hrSeedHoursRequired;
+    /** 来源站点要求的最低分享率；站点不按分享率考核时为 0 */
+    private Double hrRatioRequired;
 }

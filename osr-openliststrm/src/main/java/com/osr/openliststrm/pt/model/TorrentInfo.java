@@ -2,7 +2,9 @@ package com.osr.openliststrm.pt.model;
 
 import lombok.Data;
 
+import java.util.ArrayList;
 import java.util.Date;
+import java.util.List;
 
 /**
  * 统一种子模型，贯穿 indexer → filter → subscription 全流程。
@@ -57,6 +59,16 @@ public class TorrentInfo {
     /** 来源索引器 ID */
     private Integer indexerId;
 
+    /**
+     * 来源站点是否有 H&R 考核，由调用方按 {@link #indexerId} 填充。
+     * <p>
+     * 是<b>站点</b>属性而非种子属性：Torznab 协议没有标准的 H&R 字段，索引器也不会逐条告知
+     * 哪个种子要考核，只能按站点整体判定。默认 false——判不出来时按"不考核"处理，
+     * 宁可少规避一次，也不能凭空把一批正常候选当成 H&R 淘汰掉。
+     * </p>
+     */
+    private boolean hitAndRun;
+
     // ---------- 以下字段由标题解析阶段填充（计划3） ----------
 
     /** 解析出的作品标题 */
@@ -85,6 +97,17 @@ public class TorrentInfo {
 
     /** 解析出的发布组，如 CHDWEB；未解析出时为 null */
     private String parsedReleaseGroup;
+
+    /**
+     * 解析出的质量标签，如 REMUX / HDR10 / ATMOS / 10BIT / Dolby Vision。
+     * <p>
+     * 来源是 {@code SourceAndGroupExtractor} 抽出的 {@code MediaInfo.tags}——这些信息一直
+     * 都被解析出来了，只是此前没有字段承接，在 {@code SubscriptionEngine#fillParsed} 就被丢掉。
+     * 取值大小写不统一（枚举里多为大写，Dolby Vision 是混合大小写），下游比较一律大小写不敏感。
+     * </p>
+     * <p>恒不为 null：解析不出任何标签时是空列表，调用方不必判空。</p>
+     */
+    private List<String> parsedTags = new ArrayList<>();
 
     /** 种子描述（RSS &lt;description&gt;），部分 PT 站会在描述中标注字幕信息 */
     private String description;

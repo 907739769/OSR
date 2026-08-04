@@ -14,11 +14,23 @@ export interface PtFilterConfig {
   resolutionPriority?: string
   /** 分辨率白名单，逗号分隔，硬性过滤；空表示不限 */
   resolutionWhitelist?: string
+  /** 媒介来源白名单（REMUX/BluRay/WEBDL 等），逗号分隔，硬性过滤；空表示不限 */
+  sourceWhitelist?: string
+  /** 媒介来源优先级，逗号分隔，只影响排序 */
+  sourcePriority?: string
+  /** 必需的质量标签，逗号分隔，须全部具备；空表示不限 */
+  requiredTags?: string
+  /** 命中任一则淘汰的质量标签，逗号分隔 */
+  excludeTags?: string
+  /** 发布组优先级，逗号分隔，只影响排序 */
+  releaseGroupPriority?: string
   /** 排序维度顺序，逗号分隔 */
   sortPriority?: string
   preferredSize?: number
   /** 外语电影是否需要中文字幕 0-否 1-是 */
   requireChineseSubtitle?: string
+  /** 是否直接淘汰 H&R 考核站点的种子 0-否 1-是 */
+  avoidHitAndRun?: string
 }
 
 export function getPtFilterConfigApi() {

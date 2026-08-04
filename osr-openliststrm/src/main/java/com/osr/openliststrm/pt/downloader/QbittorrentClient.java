@@ -115,6 +115,11 @@ public class QbittorrentClient implements IDownloaderClient {
             torrent.setRawState(item.getString("state"));
             torrent.setSavePath(item.getString("save_path"));
             torrent.setTags(item.getString("tags"));
+            // H&R 保种考核用：qB 在种子未产生上传时 ratio 可能是 -1，归一到 0，
+            // 否则"分享率 >= 阈值"在阈值为 0 时会被负数意外满足
+            torrent.setRatio(Math.max(0.0, item.getDoubleValue("ratio")));
+            torrent.setSeedingSeconds(Math.max(0L, item.getLongValue("seeding_time")));
+            torrent.setUploaded(Math.max(0L, item.getLongValue("uploaded")));
             result.add(torrent);
         }
         return result;
@@ -153,6 +158,30 @@ public class QbittorrentClient implements IDownloaderClient {
                 .build();
         post(config, "/api/v2/torrents/filePrio", body);
         log.info("下载器[{}] 种子[{}] 已排除 {} 个文件（非目标集数）", config.getName(), hash, fileIndexes.size());
+    }
+
+    /**
+     * qBittorrent 的分享限额约定：{@code -1} = 不限，{@code -2} = 跟随全局设置。
+     * 这里对"该维度不考核"一律用 -1 而不是 -2——站点没有这一项要求，不代表用户的全局限额
+     * 就该接管；跟随全局恰恰是种子在 H&R 达标前被自动清掉的那条路径。
+     */
+    private static final String QB_NO_LIMIT = "-1";
+
+    @Override
+    public void setShareLimits(PtDownloaderPlus config, String hash, double ratioLimit, long seedingTimeMinutes)
+            throws IOException {
+        FormBody body = new FormBody.Builder()
+                .add("hashes", hash)
+                .add("ratioLimit", ratioLimit > 0 ? String.valueOf(ratioLimit) : QB_NO_LIMIT)
+                .add("seedingTimeLimit", seedingTimeMinutes > 0 ? String.valueOf(seedingTimeMinutes) : QB_NO_LIMIT)
+                // qB 5.x 新增的"空闲做种时长上限"。不传的话该版本会按缺省值处理，
+                // 种子长时间没有上传就被判定到期，等于绕开上面两个限额把种子清掉
+                .add("inactiveSeedingTimeLimit", QB_NO_LIMIT)
+                .build();
+        post(config, "/api/v2/torrents/setShareLimits", body);
+        log.info("下载器[{}] 种子[{}] 已按 H&R 规则设限：分享率 {}，做种 {} 分钟",
+                config.getName(), hash, ratioLimit > 0 ? ratioLimit : "不限",
+                seedingTimeMinutes > 0 ? seedingTimeMinutes : "不限");
     }
 
     // ---------- 内部：带会话管理的请求执行 ----------

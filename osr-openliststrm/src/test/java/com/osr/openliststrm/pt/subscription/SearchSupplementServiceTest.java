@@ -8,6 +8,9 @@ import com.osr.openliststrm.mybatisplus.service.IPtFilterConfigPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtIndexerPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
+import com.osr.openliststrm.mybatisplus.domain.PtTorrentBlacklistPlus;
+import com.osr.openliststrm.mybatisplus.service.IPtTorrentBlacklistPlusService;
+import com.osr.openliststrm.pt.filter.TorrentBlacklist;
 import com.osr.openliststrm.pt.filter.TorrentFilterEngine;
 import com.osr.openliststrm.pt.indexer.IndexerCapability;
 import com.osr.openliststrm.pt.indexer.IndexerCapabilityCache;
@@ -28,6 +31,7 @@ import org.mockito.quality.Strictness;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -67,6 +71,8 @@ class SearchSupplementServiceTest {
     private TorrentFilterEngine filterEngine;
     @Mock
     private TmdbSearchService tmdbSearchService;
+    @Mock
+    private IPtTorrentBlacklistPlusService blacklistService;
 
     private IndexerCapabilityCache capabilityCache;
 
@@ -75,7 +81,7 @@ class SearchSupplementServiceTest {
     @BeforeEach
     void setUp() {
         capabilityCache = new IndexerCapabilityCache(torznabClient);
-        service = new SearchSupplementService(indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, 10);
+        service = new SearchSupplementService(indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, blacklistService, 10);
     }
 
     private PtIndexerPlus indexer(int id) {
@@ -167,7 +173,7 @@ class SearchSupplementServiceTest {
     void searchAcrossIndexers_并发数不超过配置上限() throws Exception {
         int limit = 2;
         SearchSupplementService limited = new SearchSupplementService(
-                indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, limit);
+                indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, blacklistService, limit);
         when(indexerService.listEnabled()).thenReturn(
                 List.of(indexer(1), indexer(2), indexer(3), indexer(4), indexer(5)));
 
@@ -202,7 +208,7 @@ class SearchSupplementServiceTest {
     void searchAcrossIndexers_并发受限但最终仍处理完所有索引器() throws Exception {
         int limit = 2;
         SearchSupplementService limited = new SearchSupplementService(
-                indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, limit);
+                indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, blacklistService, limit);
         when(indexerService.listEnabled()).thenReturn(
                 List.of(indexer(1), indexer(2), indexer(3), indexer(4), indexer(5)));
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(torrent("t")));
@@ -215,7 +221,7 @@ class SearchSupplementServiceTest {
     @Test
     void 配置并发数小于1_至少允许1个() throws Exception {
         SearchSupplementService limited = new SearchSupplementService(
-                indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, 0);
+                indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, blacklistService, 0);
         when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(torrent("t")));
 
@@ -258,6 +264,34 @@ class SearchSupplementServiceTest {
     }
 
     @Test
+    void supplement_手动模式_把真实黑名单传给过滤引擎而不是空黑名单() throws Exception {
+        // 手动搜索若漏传黑名单，已拉黑的发布组/种子会照常出现在候选列表里，而用户真去选中它时，
+        // pushSelected → SubscriptionEngine#pushBest 侧的黑名单又会把它拦下，只回一个没有原因的
+        // false。两条链路必须看到同一份黑名单，这里锁死"传进引擎的黑名单来自 blacklistService"。
+        PtSubscriptionPlus sub = tvSub(10, 1, 3);
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+        TorrentInfo candidate = torrent("Some.Show.S01E01.1080p");
+        candidate.setIndexerId(1);
+        when(torznabClient.search(any(), anyString())).thenReturn(List.of(candidate));
+        when(filterConfigService.getConfig()).thenReturn(null);
+
+        PtTorrentBlacklistPlus rule = new PtTorrentBlacklistPlus();
+        rule.setType(PtTorrentBlacklistPlus.TYPE_RELEASE_GROUP);
+        rule.setValue("CHDWEB");
+        when(blacklistService.list()).thenReturn(List.of(rule));
+        when(filterEngine.evaluate(anyList(), any(), any(), org.mockito.ArgumentMatchers.nullable(String.class)))
+                .thenReturn(List.of());
+
+        service.supplement(10, 1, "Some Show S01E01", true);
+
+        ArgumentCaptor<TorrentBlacklist> captor = ArgumentCaptor.forClass(TorrentBlacklist.class);
+        verify(filterEngine).evaluate(anyList(), any(), captor.capture(),
+                org.mockito.ArgumentMatchers.nullable(String.class));
+        assertEquals(Set.of("CHDWEB"), captor.getValue().releaseGroupsUpper());
+    }
+
+    @Test
     void supplement_手动模式_候选DTO带上区间结尾集号供前端展示区间而非单集() throws Exception {
         // 种子实际覆盖 S01E01-E02（区间），若 DTO 丢了 parsedEpisodeEnd，前端只能显示成"第1集"
         PtSubscriptionPlus sub = tvSub(10, 1, 4);
@@ -271,7 +305,7 @@ class SearchSupplementServiceTest {
         range.setGuid("g-range");
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(range));
         when(filterConfigService.getConfig()).thenReturn(null);
-        when(filterEngine.evaluate(anyList(), any(), org.mockito.ArgumentMatchers.nullable(String.class)))
+        when(filterEngine.evaluate(anyList(), any(), any(), org.mockito.ArgumentMatchers.nullable(String.class)))
                 .thenAnswer(inv -> List.of(new TorrentFilterEngine.Verdict(range, null)));
 
         SupplementResult result = service.supplement(10, 1, "Some Show S01E01", true);

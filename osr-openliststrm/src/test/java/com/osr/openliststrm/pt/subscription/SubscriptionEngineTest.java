@@ -4,12 +4,14 @@ import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloadRecordPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloaderPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtFilterConfigPlus;
+import com.osr.openliststrm.mybatisplus.domain.PtIndexerPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtTorrentBlacklistPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtDownloadRecordPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtDownloaderPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtFilterConfigPlusService;
+import com.osr.openliststrm.mybatisplus.service.IPtIndexerPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtTorrentBlacklistPlusService;
@@ -65,6 +67,7 @@ class SubscriptionEngineTest {
     @Mock private SearchLogService searchLogService;
     @Mock private IPtTorrentBlacklistPlusService blacklistService;
     @Mock private TmdbSearchService tmdbSearchService;
+    @Mock private IPtIndexerPlusService indexerService;
 
     private SubscriptionEngine engine;
 
@@ -74,7 +77,7 @@ class SubscriptionEngineTest {
                 subscriptionService, episodeService, recordService, downloaderService,
                 filterConfigService, downloaderClientFactory,
                 new TorrentFilterEngine(), new SubscriptionMatcher(), searchLogService,
-                blacklistService, tmdbSearchService);
+                blacklistService, tmdbSearchService, indexerService);
         when(blacklistService.list()).thenReturn(new ArrayList<>());
 
         PtFilterConfigPlus config = new PtFilterConfigPlus();
@@ -218,6 +221,96 @@ class SubscriptionEngineTest {
         existing.setDownloaderId(1);
         existing.setIndexerId(1);
         when(recordService.list(any(Wrapper.class))).thenReturn(List.of(existing));
+
+        assertEquals(0, engine.process(List.of(torrent("Some.Show.S01E02.1080p", "g1", 10, "1080p"))));
+        verify(downloaderClient, never()).addTorrent(any(), anyString(), anyString(), anyString());
+    }
+
+    /** 构造一条落在同一 (indexer_id, guid_hash) 上的历史失败记录 */
+    private PtDownloadRecordPlus failedRecord(int id, String guid, String failReasonCode) {
+        PtDownloadRecordPlus r = new PtDownloadRecordPlus();
+        r.setId(id);
+        r.setGuidHash(com.osr.openliststrm.pt.indexer.GuidHasher.hash(guid));
+        r.setIndexerId(1);
+        r.setDownloaderId(1);
+        r.setState("FAILED");
+        r.setFailReasonCode(failReasonCode);
+        return r;
+    }
+
+    @Test
+    void 可重试的失败记录_不排除该候选_复用原行重新推送() throws Exception {
+        // TORRENT_NOT_FOUND 说的是"下载器那边出了状况"，种子本身可能完好。旧实现不看 state，
+        // 这条记录会把该种子对该索引器永久封死，该集只有这一个资源时就再也补不回来了。
+        when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Some Show", 1, 2)));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(102, 2, "MISSING")));
+        PtDownloadRecordPlus failed = failedRecord(777, "g1", "TORRENT_NOT_FOUND");
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(failed));
+        when(recordService.getOne(any(Wrapper.class), eq(false))).thenReturn(failed);
+        when(recordService.update(any(), any(Wrapper.class))).thenReturn(true);
+
+        assertEquals(1, engine.process(List.of(torrent("Some.Show.S01E02.1080p", "g1", 10, "1080p"))));
+
+        // 复用原行而不是插新行：uk_indexer_guid 是唯一索引，插新行必撞约束
+        verify(recordService, never()).save(any());
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService).update(captor.capture(), any(Wrapper.class));
+        assertEquals("PUSHED", captor.getValue().getState());
+        verify(downloaderClient).addTorrent(any(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void 复用失败记录后_集关联到原记录id() throws Exception {
+        // record.setId 若漏了，pt_subscription_episode.download_id 会写成 null，
+        // 该集之后既追踪不到下载进度，失败时也回退不回 MISSING
+        when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Some Show", 1, 2)));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(102, 2, "MISSING")));
+        PtDownloadRecordPlus failed = failedRecord(777, "g1", "TORRENT_NOT_FOUND");
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(failed));
+        when(recordService.getOne(any(Wrapper.class), eq(false))).thenReturn(failed);
+        when(recordService.update(any(), any(Wrapper.class))).thenReturn(true);
+
+        engine.process(List.of(torrent("Some.Show.S01E02.1080p", "g1", 10, "1080p")));
+
+        ArgumentCaptor<List> captor = ArgumentCaptor.forClass(List.class);
+        verify(episodeService).updateBatchById(captor.capture());
+        PtSubscriptionEpisodePlus claimed = (PtSubscriptionEpisodePlus) captor.getValue().get(0);
+        assertEquals(777, claimed.getDownloadId());
+    }
+
+    @Test
+    void 不可重试的失败记录_仍然排除该候选() throws Exception {
+        // 僵尸超时基本等于死种，再选它就是重复踩同一个坑
+        when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Some Show", 1, 2)));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(102, 2, "MISSING")));
+        when(recordService.list(any(Wrapper.class)))
+                .thenReturn(List.of(failedRecord(777, "g1", "ZOMBIE_TIMEOUT")));
+
+        assertEquals(0, engine.process(List.of(torrent("Some.Show.S01E02.1080p", "g1", 10, "1080p"))));
+        verify(downloaderClient, never()).addTorrent(any(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void 失败原因码为空的历史记录_按不可重试处理() throws Exception {
+        // fail_reason_code 是 20260738 迁移才加的列，更早的失败记录该列为空。
+        // 把它们当成可重试，会让一批陈年失败种子在升级后突然重新涌入候选池。
+        when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Some Show", 1, 2)));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(102, 2, "MISSING")));
+        when(recordService.list(any(Wrapper.class)))
+                .thenReturn(List.of(failedRecord(777, "g1", null)));
+
+        assertEquals(0, engine.process(List.of(torrent("Some.Show.S01E02.1080p", "g1", 10, "1080p"))));
+    }
+
+    @Test
+    void 复用时被并发抢先_影响行数为0_回滚占位不推送() throws Exception {
+        // 两个分组同时查到同一行可重试失败记录，条件更新只有一个能成功
+        when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Some Show", 1, 2)));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(102, 2, "MISSING")));
+        PtDownloadRecordPlus failed = failedRecord(777, "g1", "TORRENT_NOT_FOUND");
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(failed));
+        when(recordService.getOne(any(Wrapper.class), eq(false))).thenReturn(failed);
+        when(recordService.update(any(), any(Wrapper.class))).thenReturn(false);
 
         assertEquals(0, engine.process(List.of(torrent("Some.Show.S01E02.1080p", "g1", 10, "1080p"))));
         verify(downloaderClient, never()).addTorrent(any(), anyString(), anyString(), anyString());
@@ -844,14 +937,120 @@ class SubscriptionEngineTest {
         when(blacklistService.list()).thenReturn(List.of(rule));
         PtSubscriptionPlus sub = tvSub(10, "Some Show", 1, 1);
 
-        // 末尾补 .mkv：MediaParser.extractBase 把最后一个 "." 之后的内容当成文件扩展名剥离，
-        // 真种子标题没有扩展名时最后一段（这里是发布组）会被误当扩展名吞掉，导致 parsedReleaseGroup 解析不出来。
-        // 这是 MediaParser 既有的行为（服务于真实文件重命名场景），不属于本任务改动范围，
-        // 这里用一个占位扩展名规避，让本用例真实覆盖“发布组黑名单命中”这条路径。
-        TorrentInfo candidate = torrent("Show.Name.S01E01.1080p.WEB-DL.H264-CHDWEB.mkv", "g1", 10, "1080p");
+        // 种子标题不带扩展名，就是 PT 站上的原样。此前这里补过一个占位的 ".mkv"，理由写的是
+        // "MediaParser.extractBase 会把最后一段当扩展名剥离"——但那是 parse() 的行为，
+        // fillParsed 走的 parseLocal() 传的是 stripExtension=false，本来就不剥扩展名。
+        // 补上 ".mkv" 反而让标题以 " mkv" 结尾，SourceAndGroupExtractor 的 GROUP_END
+        // （要求结尾是 "-xxx"）匹配不到发布组，parsedReleaseGroup 恒为 null，
+        // 发布组黑名单永远命不中，本用例因此长期失败。
+        TorrentInfo candidate = torrent("Show.Name.S01E01.1080p.WEB-DL.H264-CHDWEB", "g1", 10, "1080p");
         boolean pushed = engine.pushBest(sub, 1, List.of(candidate));
 
         assertFalse(pushed);
         verify(searchLogService).recordVerdicts(eq(10), eq(1), eq(SearchLogService.SOURCE_SUPPLEMENT), any(List.class));
+    }
+
+    // ---------- H&R 站点标记 ----------
+
+    private PtIndexerPlus hrIndexer(int id) {
+        PtIndexerPlus i = new PtIndexerPlus();
+        i.setId(id);
+        i.setHrEnabled("1");
+        i.setHrSeedHours(72);
+        return i;
+    }
+
+    @Test
+    void 开启规避HR_来自HR站点的候选被淘汰不推送() throws Exception {
+        PtFilterConfigPlus config = new PtFilterConfigPlus();
+        config.setMinSeeders(0);
+        config.setMinSize(0L);
+        config.setMaxSize(0L);
+        config.setFreeOnly("0");
+        config.setSortPriority("SEEDERS");
+        config.setPreferredSize(0L);
+        config.setAvoidHitAndRun("1");
+        when(filterConfigService.getConfig()).thenReturn(config);
+        when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Some Show", 1, 1)));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "MISSING")));
+        when(indexerService.list()).thenReturn(List.of(hrIndexer(1)));
+
+        assertEquals(0, engine.process(List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p"))));
+        verify(downloaderClient, never()).addTorrent(any(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void 索引器未开HR考核_候选不被标记为HR() {
+        // 判不出来就按"不考核"处理，宁可少规避一次，也不能凭空把正常候选当成 H&R 淘汰
+        PtFilterConfigPlus config = new PtFilterConfigPlus();
+        config.setMinSeeders(0);
+        config.setMinSize(0L);
+        config.setMaxSize(0L);
+        config.setFreeOnly("0");
+        config.setSortPriority("SEEDERS");
+        config.setPreferredSize(0L);
+        config.setAvoidHitAndRun("1");
+        when(filterConfigService.getConfig()).thenReturn(config);
+        when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Some Show", 1, 1)));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "MISSING")));
+        PtIndexerPlus noHr = hrIndexer(1);
+        noHr.setHrEnabled("0");
+        when(indexerService.list()).thenReturn(List.of(noHr));
+
+        assertEquals(1, engine.process(List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p"))));
+    }
+
+    // ---------- fillParsed 承接质量标签 ----------
+
+    @Test
+    void fillParsed_把解析出的质量标签填进种子() {
+        // 这些标签一直被 SourceAndGroupExtractor 解析着，只是此前没有字段承接、在 fillParsed 就被丢掉，
+        // 过滤引擎因此拿不到任何画质信息。本用例走真实的 MediaParser，锁死整条链路而不是只测 setter。
+        TorrentInfo t = new TorrentInfo();
+        t.setTitle("Show.Name.S01E01.2160p.WEB-DL.HDR10.Atmos.10bit-CHDWEB");
+
+        engine.fillParsed(t);
+
+        assertTrue(t.getParsedTags().contains("HDR10"));
+        assertTrue(t.getParsedTags().contains("10BIT"));
+        assertEquals("WEBDL", t.getParsedSource());
+        assertEquals("CHDWEB", t.getParsedReleaseGroup());
+    }
+
+    @Test
+    void fillParsed_音视频编码也并进标签_否则Atmos这类配置永远匹配不上() {
+        // CodecExtractor 跑在 SourceAndGroupExtractor 之前，会先把 "Atmos" 匹进 audioCodec
+        // 并从标题里抹掉，SourceAndGroupExtractor 的 TAGS 正则再扫时已经找不到它。
+        // 只读 MediaInfo.tags 的话，「必须带 Atmos」会一条候选都匹配不上。
+        TorrentInfo t = new TorrentInfo();
+        t.setTitle("Show.Name.S01E01.2160p.WEB-DL.HDR10.Atmos.H265-CHDWEB");
+
+        engine.fillParsed(t);
+
+        assertTrue(t.getParsedTags().stream().anyMatch("ATMOS"::equalsIgnoreCase));
+        assertTrue(t.getParsedTags().stream().anyMatch("H265"::equalsIgnoreCase));
+        assertTrue(t.getParsedTags().contains("HDR10"));
+    }
+
+    @Test
+    void fillParsed_标签按大写去重_同一标签不重复出现() {
+        TorrentInfo t = new TorrentInfo();
+        t.setTitle("Show.Name.S01E01.1080p.WEB-DL.Atmos-CHDWEB");
+
+        engine.fillParsed(t);
+
+        long atmosCount = t.getParsedTags().stream().filter("ATMOS"::equalsIgnoreCase).count();
+        assertEquals(1, atmosCount);
+    }
+
+    @Test
+    void fillParsed_没有质量标签的标题_得到空列表而非null() {
+        // 引擎侧会直接遍历 parsedTags，null 会在过滤时炸出 NPE
+        TorrentInfo t = new TorrentInfo();
+        t.setTitle("Show.Name.S01E01.1080p");
+
+        engine.fillParsed(t);
+
+        assertTrue(t.getParsedTags().isEmpty());
     }
 }

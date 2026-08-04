@@ -4,9 +4,11 @@ import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.osr.openliststrm.helper.TgHelper;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloadRecordPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloaderPlus;
+import com.osr.openliststrm.mybatisplus.domain.PtIndexerPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtDownloadRecordPlusService;
+import com.osr.openliststrm.mybatisplus.service.IPtIndexerPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.osr.openliststrm.pt.downloader.DownloaderClientFactory;
@@ -30,12 +32,17 @@ import java.util.Set;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.same;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -52,13 +59,14 @@ class DownloadTrackServiceTest {
     @Mock private IPtSubscriptionPlusService subscriptionService;
     @Mock private DownloaderClientFactory downloaderClientFactory;
     @Mock private IDownloaderClient downloaderClient;
+    @Mock private IPtIndexerPlusService indexerService;
 
     private DownloadTrackService service() {
         // 默认桩：查不到任何订阅（对应"订阅已删除"分支），使全部现有用例回退全局默认值 24 小时，
         // 与改造前的行为保持一致，不用逐个用例改断言。
         when(subscriptionService.listByIds(any())).thenReturn(List.of());
         return new DownloadTrackService(recordService, episodeService, completionSyncTrigger, subscriptionService,
-                downloaderClientFactory, 3, 24);
+                downloaderClientFactory, indexerService, 3, 24);
     }
 
     private PtDownloaderPlus downloader() {
@@ -87,6 +95,225 @@ class DownloadTrackServiceTest {
         t.setProgress(progress);
         t.setTags(tags);
         return t;
+    }
+
+    // ---------- H&R 保种防护 ----------
+
+    private PtIndexerPlus hrIndexer(int id, Integer seedHours, Double ratio) {
+        PtIndexerPlus i = new PtIndexerPlus();
+        i.setId(id);
+        i.setName("hr-site-" + id);
+        i.setHrEnabled("1");
+        i.setHrSeedHours(seedHours);
+        i.setHrRatio(ratio);
+        return i;
+    }
+
+    /** 保种中的记录：已 COMPLETED，hr_state=PENDING */
+    private PtDownloadRecordPlus seedingRecord(int id, String tag, long sampledSeedSeconds) {
+        PtDownloadRecordPlus r = record(id, 1, tag, "COMPLETED", 60_000);
+        r.setIndexerId(7);
+        r.setHrState("PENDING");
+        r.setHrSeedSeconds(sampledSeedSeconds);
+        return r;
+    }
+
+    private DownloaderTorrent seedingTorrent(String tags, long seedingSeconds, double ratio) {
+        DownloaderTorrent t = torrent(tags, 1.0);
+        t.setSeedingSeconds(seedingSeconds);
+        t.setRatio(ratio);
+        return t;
+    }
+
+    @Test
+    void 完成时来源站点有HR考核_进入保种追踪并提示勿删() {
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+        PtDownloadRecordPlus r = record(100, 2, "osr-pt-aaa", "DOWNLOADING", 60_000);
+        r.setIndexerId(7);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(indexerService.getById(7)).thenReturn(hrIndexer(7, 72, 1.0));
+
+        service().track(downloader(), List.of(seedingTorrent("osr-pt,osr-pt-aaa", 0, 0.0)));
+
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService, atLeastOnce()).update(captor.capture(), any(Wrapper.class));
+        PtDownloadRecordPlus completed = captor.getAllValues().stream()
+                .filter(v -> "COMPLETED".equals(v.getState())).findFirst().orElseThrow();
+        assertEquals("PENDING", completed.getHrState());
+    }
+
+    @Test
+    void 完成时来源站点无HR考核_保种状态保持为空() {
+        // hr_state 为 null 表示"不适用"，这批记录不该被 trackSeeding 捞起来空转
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+        PtDownloadRecordPlus r = record(100, 2, "osr-pt-aaa", "DOWNLOADING", 60_000);
+        r.setIndexerId(7);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        PtIndexerPlus noHr = hrIndexer(7, 72, 1.0);
+        noHr.setHrEnabled("0");
+        when(indexerService.getById(7)).thenReturn(noHr);
+
+        service().track(downloader(), List.of(seedingTorrent("osr-pt,osr-pt-aaa", 0, 0.0)));
+
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService, atLeastOnce()).update(captor.capture(), any(Wrapper.class));
+        PtDownloadRecordPlus completed = captor.getAllValues().stream()
+                .filter(v -> "COMPLETED".equals(v.getState())).findFirst().orElseThrow();
+        assertNull(completed.getHrState());
+    }
+
+    @Test
+    void 只开HR开关不填阈值_按未启用处理() {
+        // 无从判断"做到什么程度才算达标"，若按启用处理会让种子永远停在保种中并反复提醒
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+        PtDownloadRecordPlus r = record(100, 2, "osr-pt-aaa", "DOWNLOADING", 60_000);
+        r.setIndexerId(7);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(indexerService.getById(7)).thenReturn(hrIndexer(7, 0, 0.0));
+
+        service().track(downloader(), List.of(seedingTorrent("osr-pt,osr-pt-aaa", 0, 0.0)));
+
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService, atLeastOnce()).update(captor.capture(), any(Wrapper.class));
+        PtDownloadRecordPlus completed = captor.getAllValues().stream()
+                .filter(v -> "COMPLETED".equals(v.getState())).findFirst().orElseThrow();
+        assertNull(completed.getHrState());
+    }
+
+    @Test
+    void 保种达到时长要求_转达标() {
+        when(recordService.listSeedingPending(1)).thenReturn(List.of(seedingRecord(200, "osr-pt-bbb", 100_000)));
+        when(indexerService.listByIds(any())).thenReturn(List.of(hrIndexer(7, 72, 0.0)));
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+
+        // 72 小时 = 259200 秒
+        service().track(downloader(), List.of(seedingTorrent("osr-pt,osr-pt-bbb", 260_000, 0.1)));
+
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService).update(captor.capture(), any(Wrapper.class));
+        assertEquals("SATISFIED", captor.getValue().getHrState());
+        assertNotNull(captor.getValue().getHrSatisfiedTime());
+    }
+
+    @Test
+    void 保种达到分享率要求_转达标_时长未满也算() {
+        // 站点的通行表述是"做满 N 小时 或 分享率达到 R"，任一满足即解除考核
+        when(recordService.listSeedingPending(1)).thenReturn(List.of(seedingRecord(200, "osr-pt-bbb", 100)));
+        when(indexerService.listByIds(any())).thenReturn(List.of(hrIndexer(7, 72, 1.0)));
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+
+        service().track(downloader(), List.of(seedingTorrent("osr-pt,osr-pt-bbb", 100, 1.5)));
+
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService).update(captor.capture(), any(Wrapper.class));
+        assertEquals("SATISFIED", captor.getValue().getHrState());
+    }
+
+    @Test
+    void 保种未达标_只落采样值不改状态() {
+        when(recordService.listSeedingPending(1)).thenReturn(List.of(seedingRecord(200, "osr-pt-bbb", 100)));
+        when(indexerService.listByIds(any())).thenReturn(List.of(hrIndexer(7, 72, 2.0)));
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+
+        service().track(downloader(), List.of(seedingTorrent("osr-pt,osr-pt-bbb", 3_600, 0.3)));
+
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService).update(captor.capture(), any(Wrapper.class));
+        assertNull(captor.getValue().getHrState());
+        assertEquals(3_600L, captor.getValue().getHrSeedSeconds());
+        assertEquals(0.3, captor.getValue().getHrRatio());
+    }
+
+    @Test
+    void 保种中的种子从下载器消失_转违规() {
+        // OSR 自己从不删种，走到这里说明是用户手删或下载器的自动管理清掉了
+        when(recordService.listSeedingPending(1)).thenReturn(List.of(seedingRecord(200, "osr-pt-bbb", 100)));
+        when(indexerService.listByIds(any())).thenReturn(List.of(hrIndexer(7, 72, 0.0)));
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+
+        service().track(downloader(), List.of(seedingTorrent("osr-pt,osr-pt-其它", 999_999, 9.9)));
+
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService).update(captor.capture(), any(Wrapper.class));
+        assertEquals("VIOLATED", captor.getValue().getHrState());
+    }
+
+    @Test
+    void 保种记录的索引器已被删除_按达标收尾而不是永远空转() {
+        when(recordService.listSeedingPending(1)).thenReturn(List.of(seedingRecord(200, "osr-pt-bbb", 100)));
+        when(indexerService.listByIds(any())).thenReturn(List.of());
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+
+        service().track(downloader(), List.of(seedingTorrent("osr-pt,osr-pt-bbb", 100, 0.1)));
+
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService).update(captor.capture(), any(Wrapper.class));
+        assertEquals("SATISFIED", captor.getValue().getHrState());
+    }
+
+    @Test
+    void HR站点的种子被追踪到时_按站点规则下发分享限额() throws Exception {
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+        PtDownloadRecordPlus r = record(100, 2, "osr-pt-aaa", "DOWNLOADING", 60_000);
+        r.setIndexerId(7);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(indexerService.getById(7)).thenReturn(hrIndexer(7, 72, 1.5));
+        when(downloaderClientFactory.get(any())).thenReturn(downloaderClient);
+
+        service().track(downloader(), List.of(seedingTorrent("osr-pt,osr-pt-aaa", 0, 0.0)));
+
+        // 72 小时 = 4320 分钟
+        verify(downloaderClient).setShareLimits(any(), eq("h"), eq(1.5), eq(4320L));
+    }
+
+    @Test
+    void 非HR站点_不擅自改动下载器里的种子设置() throws Exception {
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+        PtDownloadRecordPlus r = record(100, 2, "osr-pt-aaa", "DOWNLOADING", 60_000);
+        r.setIndexerId(7);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        PtIndexerPlus noHr = hrIndexer(7, 72, 1.0);
+        noHr.setHrEnabled("0");
+        when(indexerService.getById(7)).thenReturn(noHr);
+        when(downloaderClientFactory.get(any())).thenReturn(downloaderClient);
+
+        service().track(downloader(), List.of(seedingTorrent("osr-pt,osr-pt-aaa", 0, 0.0)));
+
+        verify(downloaderClient, never()).setShareLimits(any(), anyString(), anyDouble(), anyLong());
+    }
+
+    @Test
+    void 已下发过限额的记录_不重复下发() throws Exception {
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+        PtDownloadRecordPlus r = record(100, 2, "osr-pt-aaa", "DOWNLOADING", 60_000);
+        r.setIndexerId(7);
+        r.setHrLimitsApplied(true);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(indexerService.getById(7)).thenReturn(hrIndexer(7, 72, 1.0));
+        when(downloaderClientFactory.get(any())).thenReturn(downloaderClient);
+
+        service().track(downloader(), List.of(seedingTorrent("osr-pt,osr-pt-aaa", 0, 0.0)));
+
+        verify(downloaderClient, never()).setShareLimits(any(), anyString(), anyDouble(), anyLong());
+    }
+
+    @Test
+    void 下发限额失败_不标记已下发_留待下轮重试() throws Exception {
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+        PtDownloadRecordPlus r = record(100, 2, "osr-pt-aaa", "DOWNLOADING", 60_000);
+        r.setIndexerId(7);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(indexerService.getById(7)).thenReturn(hrIndexer(7, 72, 1.0));
+        when(downloaderClientFactory.get(any())).thenReturn(downloaderClient);
+        doThrow(new java.io.IOException("boom")).when(downloaderClient)
+                .setShareLimits(any(), anyString(), anyDouble(), anyLong());
+
+        // 异常不该冒出来打断整轮追踪
+        service().track(downloader(), List.of(seedingTorrent("osr-pt,osr-pt-aaa", 0, 0.0)));
+
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService, atLeastOnce()).update(captor.capture(), any(Wrapper.class));
+        assertTrue(captor.getAllValues().stream().noneMatch(v -> Boolean.TRUE.equals(v.getHrLimitsApplied())));
     }
 
     @Test

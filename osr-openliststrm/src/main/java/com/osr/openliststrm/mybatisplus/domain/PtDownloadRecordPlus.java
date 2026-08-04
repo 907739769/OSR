@@ -103,4 +103,33 @@ public class PtDownloadRecordPlus extends BaseEntity {
     /** 完成时间 */
     @TableField("completed_time")
     private Date completedTime;
+
+    /**
+     * H&R 保种状态，取值见 {@link com.osr.openliststrm.pt.task.HitAndRunState}。
+     * {@code null} 表示不适用——来源站点没开 H&R 考核，或还没下载完成
+     */
+    @TableField("hr_state")
+    private String hrState;
+
+    /** 最近一次采样到的累计做种秒数，供前端展示"还差多久"，也是判定 VIOLATED 时的依据 */
+    @TableField("hr_seed_seconds")
+    private Long hrSeedSeconds;
+
+    /** 最近一次采样到的分享率 */
+    @TableField("hr_ratio")
+    private Double hrRatio;
+
+    /** 达标时间，hr_state 转为 SATISFIED 时写入 */
+    @TableField("hr_satisfied_time")
+    private Date hrSatisfiedTime;
+
+    /**
+     * 是否已按站点 H&R 规则给下载器里的这个种子下发过分享限额。
+     * <p>
+     * 独立于 {@code filesSelected}：两者时机相近但语义无关，共用一个标记会让
+     * 任意一边失败时另一边被误判为已完成。
+     * </p>
+     */
+    @TableField("hr_limits_applied")
+    private Boolean hrLimitsApplied;
 }

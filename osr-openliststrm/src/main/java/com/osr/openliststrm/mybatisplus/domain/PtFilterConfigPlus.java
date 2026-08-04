@@ -64,6 +64,29 @@ public class PtFilterConfigPlus extends BaseEntity {
     @TableField("resolution_whitelist")
     private String resolutionWhitelist;
 
+    /**
+     * 媒介来源白名单(WEB-DL/BluRay/REMUX 等)，逗号分隔，空表示不限。
+     * 语义与 resolutionWhitelist 完全一致：硬性过滤，解析不出来源的种子在白名单非空时也淘汰
+     */
+    @TableField("source_whitelist")
+    private String sourceWhitelist;
+
+    /** 媒介来源优先级，逗号分隔，越靠前越优先，只影响排序 */
+    @TableField("source_priority")
+    private String sourcePriority;
+
+    /** 必需的质量标签(HDR/ATMOS/REMUX 等)，逗号分隔，种子须全部具备；空表示不限 */
+    @TableField("required_tags")
+    private String requiredTags;
+
+    /** 命中任一则淘汰的质量标签，逗号分隔 */
+    @TableField("exclude_tags")
+    private String excludeTags;
+
+    /** 发布组优先级，逗号分隔，越靠前越优先，只影响排序；不在列表内的排最后，不淘汰 */
+    @TableField("release_group_priority")
+    private String releaseGroupPriority;
+
     /** 排序维度顺序，逗号分隔，取值见 SortDimension 枚举 */
     @TableField("sort_priority")
     private String sortPriority;
@@ -75,6 +98,10 @@ public class PtFilterConfigPlus extends BaseEntity {
     /** 外语电影是否需要中文字幕 0-否 1-是 */
     @TableField("require_chinese_subtitle")
     private String requireChineseSubtitle;
+
+    /** 是否直接淘汰来自 H&R 考核站点的种子 0-否 1-是。软性规避请改用 SortDimension.HR 降权维度 */
+    @TableField("avoid_hit_and_run")
+    private String avoidHitAndRun;
 
     /** 自动补搜的全局周期(小时) */
     @TableField("auto_search_interval_hours")

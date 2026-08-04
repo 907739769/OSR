@@ -121,7 +121,8 @@ public class TransmissionClient implements IDownloaderClient {
     @Override
     public List<DownloaderTorrent> listByTag(PtDownloaderPlus config, String tag) throws IOException {
         JSONObject args = new JSONObject();
-        args.put("fields", List.of("id", "name", "percentDone", "status", "downloadDir", "labels", "hashString"));
+        args.put("fields", List.of("id", "name", "percentDone", "status", "downloadDir", "labels", "hashString",
+                "uploadRatio", "secondsSeeding", "uploadedEver"));
         JSONObject result = call(config, "torrent-get", args);
 
         List<DownloaderTorrent> list = new ArrayList<>();
@@ -145,6 +146,11 @@ public class TransmissionClient implements IDownloaderClient {
             torrent.setRawState(String.valueOf(item.getIntValue("status")));
             torrent.setSavePath(item.getString("downloadDir"));
             torrent.setTags(joinLabels(labels));
+            // H&R 保种考核用：Transmission 无法计算分享率时返回 -1，必须归一到 0，
+            // 否则"分享率 >= 阈值"在阈值为 0 时会被 -1 意外满足
+            torrent.setRatio(Math.max(0.0, item.getDoubleValue("uploadRatio")));
+            torrent.setSeedingSeconds(Math.max(0L, item.getLongValue("secondsSeeding")));
+            torrent.setUploaded(Math.max(0L, item.getLongValue("uploadedEver")));
             list.add(torrent);
         }
         return list;
@@ -206,6 +212,40 @@ public class TransmissionClient implements IDownloaderClient {
         args.put("files-unwanted", List.copyOf(fileIndexes));
         call(config, "torrent-set", args);
         log.info("下载器[{}] 种子[{}] 已排除 {} 个文件（非目标集数）", config.getName(), hash, fileIndexes.size());
+    }
+
+    /**
+     * Transmission 的分享限额只能表达"分享率"这一维。
+     * <p>
+     * RPC 里与做种时长沾边的只有 {@code seedIdleLimit}，它的语义是"空闲多久后停止做种"，
+     * 而不是 H&R 要求的"至少做满多久"——一个热门种子持续有上传就永远不会空闲，
+     * 拿它当最短做种时长用是错的。因此 {@code seedingTimeMinutes} 在这里被<b>刻意忽略</b>，
+     * 只记一条 debug 说明。Transmission 用户的时长维度只能靠 OSR 侧的追踪与告警兜住，
+     * 拿不到下载器层面的主动防护。
+     * </p>
+     * <p>
+     * {@code seedRatioMode=1} 表示"用种子自己的 seedRatioLimit"，{@code 2} 表示"永不按分享率停止"。
+     * 不用 {@code 0}（跟随全局）——跟随全局恰恰是种子在 H&R 达标前被自动清掉的那条路径。
+     * </p>
+     */
+    @Override
+    public void setShareLimits(PtDownloaderPlus config, String hash, double ratioLimit, long seedingTimeMinutes)
+            throws IOException {
+        JSONObject args = new JSONObject();
+        args.put("ids", List.of(hash));
+        if (ratioLimit > 0) {
+            args.put("seedRatioLimit", ratioLimit);
+            args.put("seedRatioMode", 1);
+        } else {
+            args.put("seedRatioMode", 2);
+        }
+        call(config, "torrent-set", args);
+        if (seedingTimeMinutes > 0) {
+            log.debug("下载器[{}] 种子[{}] 的最短做种时长 {} 分钟无法下发：Transmission RPC 没有对应字段，"
+                    + "该维度仅由 OSR 侧追踪告警兜底", config.getName(), hash, seedingTimeMinutes);
+        }
+        log.info("下载器[{}] 种子[{}] 已按 H&R 规则设限：分享率 {}",
+                config.getName(), hash, ratioLimit > 0 ? ratioLimit : "不限");
     }
 
     // ---------- 内部：JSON-RPC 调用 + 会话管理 ----------

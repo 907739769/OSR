@@ -8,9 +8,11 @@ import com.osr.openliststrm.helper.TgHelper;
 import com.osr.openliststrm.notify.NotificationType;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloadRecordPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloaderPlus;
+import com.osr.openliststrm.mybatisplus.domain.PtIndexerPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtDownloadRecordPlusService;
+import com.osr.openliststrm.mybatisplus.service.IPtIndexerPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.osr.openliststrm.pt.downloader.DownloaderClientFactory;
@@ -66,6 +68,7 @@ public class DownloadTrackService {
     private final DownloadCompletionSyncTrigger completionSyncTrigger;
     private final IPtSubscriptionPlusService subscriptionService;
     private final DownloaderClientFactory downloaderClientFactory;
+    private final IPtIndexerPlusService indexerService;
 
     /**
      * MediaParser 不是 Spring bean（一直靠 new 管理，见 SubscriptionEngine 同名字段注释），
@@ -79,6 +82,7 @@ public class DownloadTrackService {
                                 DownloadCompletionSyncTrigger completionSyncTrigger,
                                 IPtSubscriptionPlusService subscriptionService,
                                 DownloaderClientFactory downloaderClientFactory,
+                                IPtIndexerPlusService indexerService,
                                 @Value("${pt.download.max-consecutive-failures:3}") int maxConsecutiveFailures,
                                 @Value("${pt.download.zombie-timeout-hours:24}") int zombieTimeoutHoursDefault) {
         this.recordService = recordService;
@@ -86,6 +90,7 @@ public class DownloadTrackService {
         this.completionSyncTrigger = completionSyncTrigger;
         this.subscriptionService = subscriptionService;
         this.downloaderClientFactory = downloaderClientFactory;
+        this.indexerService = indexerService;
         this.maxConsecutiveFailures = maxConsecutiveFailures;
         this.zombieTimeoutMillisDefault = zombieTimeoutHoursDefault * 3600_000L;
     }
@@ -98,9 +103,15 @@ public class DownloadTrackService {
                 new QueryWrapper<PtDownloadRecordPlus>()
                         .eq("downloader_id", downloader.getId())
                         .in("state", STATE_PUSHED, STATE_DOWNLOADING));
-        if (active.isEmpty()) {
-            return;
+        if (!active.isEmpty()) {
+            trackActive(downloader, torrents, active);
         }
+        trackSeeding(downloader, torrents);
+    }
+
+    /** 在途记录（PUSHED/DOWNLOADING）的状态推进 */
+    private void trackActive(PtDownloaderPlus downloader, List<DownloaderTorrent> torrents,
+                             List<PtDownloadRecordPlus> active) {
         Map<Integer, PtSubscriptionPlus> subCache = loadSubscriptions(active);
         long now = System.currentTimeMillis();
         for (PtDownloadRecordPlus record : active) {
@@ -109,7 +120,10 @@ public class DownloadTrackService {
                     ? Long.MAX_VALUE : now - record.getPushedTime().getTime();
             long zombieTimeoutMillis = resolveZombieTimeoutMillis(subCache.get(record.getSubId()));
             if (matched != null && matched.isCompleted()) {
-                complete(record, downloader);
+                // 设限要赶在判完成之前：complete() 会把记录移出本查询的范围，
+                // 而下载器的自动管理恰恰是在"下载完成"这一刻开始按限额清算的
+                applyShareLimitsIfNeeded(downloader, record, matched);
+                complete(record, downloader, matched);
             } else if (matched == null) {
                 if (age >= GRACE_MILLIS) {
                     fail(record, FailReasonCode.TORRENT_NOT_FOUND, "下载器中已找不到该种子（可能被删除或元数据解析失败）");
@@ -120,6 +134,8 @@ public class DownloadTrackService {
                 if (!Boolean.TRUE.equals(record.getFilesSelected())) {
                     trySelectFiles(downloader, record, matched);
                 }
+                // H&R 限额越早下发越好：种子刚加进来时下载器就可能按全局限额安排它的命运
+                applyShareLimitsIfNeeded(downloader, record, matched);
                 if (age >= zombieTimeoutMillis) {
                     fail(record, FailReasonCode.ZOMBIE_TIMEOUT,
                             "下载超过 " + (zombieTimeoutMillis / 3600000) + " 小时仍未完成，判定为僵尸种子");
@@ -128,6 +144,177 @@ public class DownloadTrackService {
                 }
             }
         }
+    }
+
+    /**
+     * 保种中记录（COMPLETED 且 hr_state=PENDING）的 H&R 考核推进。
+     * <p>
+     * 这批记录不在 {@link #trackActive} 的查询范围内——它们已经是 COMPLETED 终态了。
+     * 原先的实现到此为止就不再看这个种子，于是做种时长和分享率无人过问：用户既不知道
+     * 哪些种子还不能删，也不知道自己什么时候已经踩了雷。
+     * </p>
+     */
+    private void trackSeeding(PtDownloaderPlus downloader, List<DownloaderTorrent> torrents) {
+        List<PtDownloadRecordPlus> seeding = recordService.listSeedingPending(downloader.getId());
+        if (seeding == null || seeding.isEmpty()) {
+            return;
+        }
+        Map<Integer, PtIndexerPlus> indexerCache = loadIndexers(seeding);
+        for (PtDownloadRecordPlus record : seeding) {
+            PtIndexerPlus indexer = indexerCache.get(record.getIndexerId());
+            DownloaderTorrent matched = findByTag(torrents, record.getTrackingTag());
+            if (matched == null) {
+                // OSR 自己从不删种，走到这里说明是用户手动删了、或下载器的自动管理把它清掉了。
+                // 无法补救，只能如实告知，让用户去站点申诉或重新做种。
+                violate(record);
+                continue;
+            }
+            if (indexer == null) {
+                // 索引器被删了，考核标准无从谈起。保持 PENDING 只会每轮空转，
+                // 直接收尾并说明原因，比让用户对着一个永远不动的"保种中"发懵好
+                log.warn("下载记录[{}] 的来源索引器已不存在，H&R 考核无从判定，按已达标收尾", record.getId());
+                satisfy(record, matched, "来源索引器已删除，无法继续考核");
+                continue;
+            }
+            if (isHitAndRunSatisfied(indexer, matched)) {
+                satisfy(record, matched, describeRequirement(indexer));
+            } else {
+                sampleSeedingProgress(record, matched);
+            }
+        }
+    }
+
+    /**
+     * 是否已满足站点的 H&R 要求。
+     * <p>
+     * 时长与分享率是<b>或</b>的关系——PT 站的通行表述是"做满 N 小时<b>或</b>分享率达到 R"，
+     * 任一条满足即解除考核。站点只配了其中一项时，另一项的阈值为 0，
+     * {@link PtIndexerPlus#hitAndRunEnabled()} 已经保证至少有一项是有效阈值。
+     * </p>
+     */
+    private boolean isHitAndRunSatisfied(PtIndexerPlus indexer, DownloaderTorrent torrent) {
+        Integer seedHours = indexer.getHrSeedHours();
+        if (seedHours != null && seedHours > 0 && torrent.getSeedingSeconds() >= seedHours * 3600L) {
+            return true;
+        }
+        Double ratio = indexer.getHrRatio();
+        return ratio != null && ratio > 0 && torrent.getRatio() >= ratio;
+    }
+
+    private String describeRequirement(PtIndexerPlus indexer) {
+        StringBuilder sb = new StringBuilder();
+        if (indexer.getHrSeedHours() != null && indexer.getHrSeedHours() > 0) {
+            sb.append("做满 ").append(indexer.getHrSeedHours()).append(" 小时");
+        }
+        if (indexer.getHrRatio() != null && indexer.getHrRatio() > 0) {
+            if (sb.length() > 0) {
+                sb.append(" 或 ");
+            }
+            sb.append("分享率 ").append(indexer.getHrRatio());
+        }
+        return sb.toString();
+    }
+
+    /** 尚未达标：只把采样值落库供前端展示"还差多少"，不改状态、不发通知 */
+    private void sampleSeedingProgress(PtDownloadRecordPlus record, DownloaderTorrent torrent) {
+        PtDownloadRecordPlus set = new PtDownloadRecordPlus();
+        set.setHrSeedSeconds(torrent.getSeedingSeconds());
+        set.setHrRatio(torrent.getRatio());
+        recordService.update(set, new UpdateWrapper<PtDownloadRecordPlus>()
+                .eq("id", record.getId())
+                .eq("hr_state", HitAndRunState.PENDING.value()));
+    }
+
+    /** 达标：条件更新门控通知，避免重叠轮询重复发 */
+    private void satisfy(PtDownloadRecordPlus record, DownloaderTorrent torrent, String requirement) {
+        PtDownloadRecordPlus set = new PtDownloadRecordPlus();
+        set.setHrState(HitAndRunState.SATISFIED.value());
+        set.setHrSeedSeconds(torrent.getSeedingSeconds());
+        set.setHrRatio(torrent.getRatio());
+        set.setHrSatisfiedTime(new Date());
+        boolean changed = recordService.update(set, new UpdateWrapper<PtDownloadRecordPlus>()
+                .eq("id", record.getId())
+                .eq("hr_state", HitAndRunState.PENDING.value()));
+        if (!changed) {
+            return;
+        }
+        log.info("下载记录[{}] H&R 已达标（{}）：{}", record.getId(), requirement, record.getTitle());
+        notifySafely(NotificationType.DOWNLOAD_COMPLETE, "🌱 H&R 已达标，可安全删除："
+                + StringUtils.escapeHtml(record.getTitle())
+                + "\n满足条件：" + StringUtils.escapeHtml(requirement)
+                + "\n当前做种 " + formatHours(torrent.getSeedingSeconds())
+                + "，分享率 " + String.format("%.2f", torrent.getRatio()));
+    }
+
+    /** 达标前种子就消失了：H&R 已经产生，只能如实告知 */
+    private void violate(PtDownloadRecordPlus record) {
+        PtDownloadRecordPlus set = new PtDownloadRecordPlus();
+        set.setHrState(HitAndRunState.VIOLATED.value());
+        boolean changed = recordService.update(set, new UpdateWrapper<PtDownloadRecordPlus>()
+                .eq("id", record.getId())
+                .eq("hr_state", HitAndRunState.PENDING.value()));
+        if (!changed) {
+            return;
+        }
+        long seeded = record.getHrSeedSeconds() == null ? 0L : record.getHrSeedSeconds();
+        log.warn("下载记录[{}] 在 H&R 达标前从下载器消失，可能已产生 H&R：{}", record.getId(), record.getTitle());
+        notifySafely(NotificationType.DOWNLOAD_FAILED, "⚠️ 可能已产生 H&R："
+                + StringUtils.escapeHtml(record.getTitle())
+                + "\n该种子在满足站点保种要求前就从下载器中消失了（最后一次采样：做种 "
+                + formatHours(seeded) + "）。OSR 不会删除种子，请检查是否被手动删除或被下载器的做种限额清理，"
+                + "并尽快到站点确认是否需要补种或申诉");
+    }
+
+    /** 把秒数说成人能读的小时，通知里用 */
+    private String formatHours(long seconds) {
+        if (seconds < 3600) {
+            return seconds / 60 + " 分钟";
+        }
+        return String.format("%.1f 小时", seconds / 3600.0);
+    }
+
+    /**
+     * 按来源站点的 H&R 规则给下载器里的这个种子下发分享限额，幂等。
+     * <p>
+     * 只在站点确实开了 H&R 考核时下发——没有考核的站点不该被 OSR 擅自改动种子设置。
+     * 任何异常只记 warn、不置标记，留给下一轮 30 秒轮询重试，与 {@link #trySelectFiles} 同样的容错取向。
+     * </p>
+     */
+    private void applyShareLimitsIfNeeded(PtDownloaderPlus downloader, PtDownloadRecordPlus record,
+                                          DownloaderTorrent matched) {
+        if (Boolean.TRUE.equals(record.getHrLimitsApplied()) || StringUtils.isBlank(matched.getHash())) {
+            return;
+        }
+        PtIndexerPlus indexer = indexerService.getById(record.getIndexerId());
+        if (indexer == null || !indexer.hitAndRunEnabled()) {
+            return;
+        }
+        try {
+            long seedingMinutes = indexer.getHrSeedHours() == null ? 0L : indexer.getHrSeedHours() * 60L;
+            double ratio = indexer.getHrRatio() == null ? 0.0 : indexer.getHrRatio();
+            downloaderClientFactory.get(downloader)
+                    .setShareLimits(downloader, matched.getHash(), ratio, seedingMinutes);
+            PtDownloadRecordPlus set = new PtDownloadRecordPlus();
+            set.setHrLimitsApplied(true);
+            recordService.update(set, new UpdateWrapper<PtDownloadRecordPlus>().eq("id", record.getId()));
+            record.setHrLimitsApplied(true);
+        } catch (Exception e) {
+            log.warn("下载记录[{}] 下发 H&R 分享限额失败，下一轮重试：{}", record.getId(), e.getMessage());
+        }
+    }
+
+    /** 批量加载本次要处理的记录涉及的索引器，避免循环内逐条查询 */
+    private Map<Integer, PtIndexerPlus> loadIndexers(List<PtDownloadRecordPlus> records) {
+        List<Integer> ids = records.stream()
+                .map(PtDownloadRecordPlus::getIndexerId)
+                .filter(java.util.Objects::nonNull)
+                .distinct()
+                .toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return indexerService.listByIds(ids).stream()
+                .collect(Collectors.toMap(PtIndexerPlus::getId, i -> i));
     }
 
     /**
@@ -280,11 +467,21 @@ public class DownloadTrackService {
         }
     }
 
-    private void complete(PtDownloadRecordPlus record, PtDownloaderPlus downloader) {
+    private void complete(PtDownloadRecordPlus record, PtDownloaderPlus downloader, DownloaderTorrent matched) {
+        // 来源站点开了 H&R 考核就进入保种追踪，否则 hr_state 保持 null（不适用）。
+        // 完成这一刻是唯一能决定它的时机：之后记录就不再经过 trackActive 了。
+        PtIndexerPlus indexer = indexerService.getById(record.getIndexerId());
+        boolean hitAndRun = indexer != null && indexer.hitAndRunEnabled();
+
         PtDownloadRecordPlus set = new PtDownloadRecordPlus();
         set.setState(STATE_COMPLETED);
         set.setProgress(1.0);
         set.setCompletedTime(new Date());
+        if (hitAndRun) {
+            set.setHrState(HitAndRunState.PENDING.value());
+            set.setHrSeedSeconds(matched.getSeedingSeconds());
+            set.setHrRatio(matched.getRatio());
+        }
         boolean changed = recordService.update(set, new UpdateWrapper<PtDownloadRecordPlus>()
                 .eq("id", record.getId())
                 .in("state", STATE_PUSHED, STATE_DOWNLOADING));
@@ -292,8 +489,11 @@ public class DownloadTrackService {
             return; // 并发/重叠轮询已处理过，避免重复通知
         }
         PtStatusWebSocket.pushDownloadEvent(record, STATE_COMPLETED, 1.0, null);
-        notifySafely(NotificationType.DOWNLOAD_COMPLETE, "✅ 下载完成：" + StringUtils.escapeHtml(record.getTitle()));
-        log.info("下载记录[{}] 已完成：{}", record.getId(), record.getTitle());
+        notifySafely(NotificationType.DOWNLOAD_COMPLETE, "✅ 下载完成：" + StringUtils.escapeHtml(record.getTitle())
+                + (hitAndRun ? "\n🌱 该站点有 H&R 考核，需保种至「" + StringUtils.escapeHtml(describeRequirement(indexer))
+                        + "」，达标前请勿删除" : ""));
+        log.info("下载记录[{}] 已完成：{}{}", record.getId(), record.getTitle(),
+                hitAndRun ? "（进入 H&R 保种考核）" : "");
         // 集状态不动，仍是 IN_FLIGHT；下载器关联了 STRM 任务时异步触发一次增量生成+提前对账，
         // 没关联时纯靠 LibrarySyncTask 下一轮批量对账兜底
         completionSyncTrigger.triggerAsync(record, downloader);

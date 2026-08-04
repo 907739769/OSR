@@ -27,6 +27,52 @@ class FilterCriteriaFactoryTest {
         return c;
     }
 
+    // ---------- 画质维度 ----------
+
+    @Test
+    void 画质维度_沿用全局配置() {
+        PtFilterConfigPlus global = globalConfig();
+        global.setSourceWhitelist("REMUX,BluRay");
+        global.setSourcePriority("REMUX,BluRay,WEBDL");
+        global.setRequiredTags("HDR10");
+        global.setExcludeTags("CAM");
+        global.setReleaseGroupPriority("CHDBits,FRDS");
+
+        FilterCriteria c = FilterCriteriaFactory.build(global, null);
+
+        assertEquals(List.of("REMUX", "BluRay"), c.sourceWhitelist());
+        assertEquals(List.of("REMUX", "BluRay", "WEBDL"), c.sourcePriority());
+        assertEquals(List.of("HDR10"), c.requiredTags());
+        assertEquals(List.of("CAM"), c.excludeTags());
+        assertEquals(List.of("CHDBits", "FRDS"), c.releaseGroupPriority());
+    }
+
+    @Test
+    void 画质维度_订阅级覆盖生效() {
+        PtFilterConfigPlus global = globalConfig();
+        global.setSourceWhitelist("REMUX");
+        global.setRequiredTags("HDR10");
+
+        FilterCriteria c = FilterCriteriaFactory.build(global,
+                "{\"sourceWhitelist\":\"WEBDL,HDTV\",\"requiredTags\":\"\"}");
+
+        assertEquals(List.of("WEBDL", "HDTV"), c.sourceWhitelist());
+        // 显式传空串意味着"这部剧不设该项"，是有效覆盖而非"未覆盖"
+        assertTrue(c.requiredTags().isEmpty());
+    }
+
+    @Test
+    void 画质维度_全局未配置_归一为空列表表示不限() {
+        // 新列对既有部署是 NULL，必须落到"不限"而不是把所有候选都淘汰掉
+        FilterCriteria c = FilterCriteriaFactory.build(globalConfig(), null);
+
+        assertTrue(c.sourceWhitelist().isEmpty());
+        assertTrue(c.sourcePriority().isEmpty());
+        assertTrue(c.requiredTags().isEmpty());
+        assertTrue(c.excludeTags().isEmpty());
+        assertTrue(c.releaseGroupPriority().isEmpty());
+    }
+
     @Test
     void 无覆盖_全部沿用全局配置() {
         FilterCriteria c = FilterCriteriaFactory.build(globalConfig(), null);

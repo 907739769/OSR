@@ -85,6 +85,12 @@
               <span class="label">轮询周期</span>
               <span class="value">{{ item.pollInterval }} 秒</span>
             </div>
+            <div class="card-row" v-if="item.hrEnabled === '1'">
+              <span class="label">H&amp;R</span>
+              <span class="value">
+                <StatusChip type="warning" :text="hrLabel(item)" />
+              </span>
+            </div>
             <div class="card-row">
               <span class="label">上次轮询</span>
               <span class="value">{{ item.lastPollTime || '-' }}</span>
@@ -199,6 +205,46 @@
                 <v-radio label="停用" value="0" />
               </v-radio-group>
             </FormField>
+
+            <FormField label="H&R 考核">
+              <v-radio-group v-model="form.hrEnabled" inline hide-details density="comfortable">
+                <v-radio label="无" value="0" />
+                <v-radio label="有" value="1" />
+              </v-radio-group>
+              <template #tip>
+                该站点是否有 Hit&nbsp;and&nbsp;Run 考核。开启后，来自本站的种子下载完成会进入保种追踪：
+                达标前从下载器消失会立刻告警，达标后通知可安全删除；推送时还会把下面的要求写成种子的分享限额，
+                防止下载器的自动管理提前把种子清掉
+              </template>
+            </FormField>
+
+            <template v-if="form.hrEnabled === '1'">
+              <v-text-field
+                v-model.number="form.hrSeedHours"
+                label="最短做种时长"
+                type="number"
+                min="0"
+                density="comfortable"
+                variant="outlined"
+                suffix="小时"
+              />
+              <FormField>
+                <v-text-field
+                  v-model.number="form.hrRatio"
+                  label="最低分享率"
+                  type="number"
+                  min="0"
+                  step="0.1"
+                  density="comfortable"
+                  variant="outlined"
+                />
+                <template #tip>
+                  两项是<strong>或</strong>的关系，满足任一即视为达标（站点通行表述就是「做满 N 小时或分享率达到 R」）。
+                  不考核的那一项填 0。<strong>两项都填 0 等于没配</strong>，后端会按未开启 H&amp;R 处理。
+                  另外 Transmission 的 RPC 没有「最短做种时长」这个概念，该项对 Transmission 只能靠 OSR 侧追踪告警兜底
+                </template>
+              </FormField>
+            </template>
           </v-form>
         </v-card-text>
         <v-card-actions>
@@ -220,6 +266,14 @@ import FormField from '@/components/FormField.vue'
 import { usePtIndexer } from '@/composables/usePtIndexer'
 
 const showSearch = ref(window.innerWidth >= 768)
+
+/** 列表卡片上的 H&R 要求摘要。两项是「或」的关系，只填了一项就只显示那一项 */
+const hrLabel = (item: any) => {
+  const parts: string[] = []
+  if (item.hrSeedHours > 0) parts.push(`做满 ${item.hrSeedHours}h`)
+  if (item.hrRatio > 0) parts.push(`分享率 ${item.hrRatio}`)
+  return parts.length ? parts.join(' 或 ') : '未配置阈值'
+}
 
 const {
   taskList, loading, total, queryParams, getList, handleQuery, resetQuery, queryRef,
