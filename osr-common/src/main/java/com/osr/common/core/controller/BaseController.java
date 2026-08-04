@@ -98,12 +98,10 @@ public class BaseController
         Integer pageSize = pageDomain.getPageSize();
         if (pageNum == null || pageNum < 1) pageNum = 1;
 
-        // pageSize = -1 表示不分页返回全部（前端 Vuetify 表格 footer 的「全部」选项）
-        if (pageSize != null && pageSize == -1)
-        {
-            List<T> records = baseMapper.selectList(wrapper);
-            return PageResult.of(records, records.size(), pageNum, records.size());
-        }
+        // pageSize = -1 表示「全部」（前端 Vuetify 表格 footer 的「全部」选项）。
+        // 记录表数据量可达数万条，全部返回会让前端渲染卡死，因此限制为最多 1000 条，
+        // 超出部分仍可翻页查看（total 返回真实总数）。
+        if (pageSize != null && pageSize == -1) pageSize = 1000;
         if (pageSize == null || pageSize < 1) pageSize = 10;
 
         // 先查总数
