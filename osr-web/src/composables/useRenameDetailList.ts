@@ -81,14 +81,39 @@ export function useRenameDetailList() {
     }
   }
 
-  // --- 批量执行 / 刮削 ---
-  const handleBatchExecute = async () => {
+  // --- 批量执行（改名重试）弹窗 ---
+  // 与单条重试同一套后端逻辑（executeRenameDetails 支持 title/year 覆盖），
+  // 但只需填标题和年份，便于批量修正刮削识别失败的记录
+  const batchDialogVisible = ref(false)
+  const batchLoading = ref(false)
+  const batchFormRef = ref<InstanceType<typeof VForm>>()
+  const batchForm = reactive({ title: '', year: '' })
+
+  const handleBatchExecute = () => {
+    if (!selectedIds.value.length) return
+    batchForm.title = ''
+    batchForm.year = ''
+    batchDialogVisible.value = true
+  }
+
+  const handleBatchClose = () => {
+    batchFormRef.value?.reset()
+  }
+
+  const handleBatchSubmit = async () => {
+    const result = await batchFormRef.value?.validate()
+    if (result && !result.valid) return
+    batchLoading.value = true
     try {
-      await confirm({ message: `是否确认批量执行选中的 ${selectedIds.value.length} 条记录？`, title: '提示', type: 'warning' })
-      await executeRenameDetailApi(selectedIds.value)
+      await executeRenameDetailApi(selectedIds.value, batchForm.title || undefined, batchForm.year || undefined)
       message.success('批量执行成功')
+      batchDialogVisible.value = false
       getList()
-    } catch (e) { if (e !== 'cancel') console.error(e) }
+    } catch (error: any) {
+      message.error(error.message || '操作失败')
+    } finally {
+      batchLoading.value = false
+    }
   }
 
   const handleScrapeOne = async (row: any) => {
@@ -135,7 +160,9 @@ export function useRenameDetailList() {
     handleDeleteOne, handleBatchDelete,
     retryDialogVisible, retryLoading, retryFormRef, retryForm,
     handleRetryOne, handleRetryClose, handleRetrySubmit,
-    handleBatchExecute, handleScrapeOne, handleBatchScrape,
+    batchDialogVisible, batchLoading, batchFormRef, batchForm,
+    handleBatchExecute, handleBatchClose, handleBatchSubmit,
+    handleScrapeOne, handleBatchScrape,
     handleDeleteScrapeOne, handleBatchDeleteScrape
   }
 }

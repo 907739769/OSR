@@ -243,6 +243,41 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- Batch Execute Dialog -->
+    <v-dialog v-model="batchDialogVisible" max-width="480" @update:model-value="onBatchDialogUpdate">
+      <v-card title="批量重试重命名">
+        <v-card-text>
+          <div class="batch-tip">
+            将按填写的标题与年份重新执行选中的 {{ selectedIds.length }} 条记录（留空则使用原值）
+          </div>
+          <v-form ref="batchFormRef">
+            <v-text-field
+              v-model="batchForm.title"
+              label="标题"
+              placeholder="留空则使用原值"
+              maxlength="100"
+              clearable
+              :rules="[titleRule]"
+              class="mb-2"
+            />
+            <v-text-field
+              v-model="batchForm.year"
+              label="年份"
+              placeholder="留空则使用原值"
+              maxlength="4"
+              clearable
+              :rules="[yearRule]"
+            />
+          </v-form>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="outlined" @click="batchDialogVisible = false">取消</v-btn>
+          <v-btn color="primary" variant="flat" :loading="batchLoading" @click="handleBatchSubmit">确定</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
@@ -257,11 +292,13 @@ const showSearch = ref(window.innerWidth >= 768)
 const {
   recordList, loading, total, queryParams,
   getList, queryRef, dateRange, handleQuery, resetQuery,
-  multiple, handleSelectionChange,
+  selectedIds, multiple, handleSelectionChange,
   handleDeleteOne, handleBatchDelete,
   retryDialogVisible, retryLoading, retryFormRef, retryForm,
   handleRetryOne, handleRetryClose, handleRetrySubmit,
-  handleBatchExecute, handleScrapeOne, handleBatchScrape,
+  batchDialogVisible, batchLoading, batchFormRef, batchForm,
+  handleBatchExecute, handleBatchClose, handleBatchSubmit,
+  handleScrapeOne, handleBatchScrape,
   handleDeleteScrapeOne, handleBatchDeleteScrape
 } = useRenameDetailList()
 
@@ -313,6 +350,10 @@ const onSizeChange = (size: number) => {
 
 const onRetryDialogUpdate = (val: boolean) => {
   if (!val) handleRetryClose()
+}
+
+const onBatchDialogUpdate = (val: boolean) => {
+  if (!val) handleBatchClose()
 }
 
 // 重试弹窗字段校验，规则与原 retryRules 保持一致
@@ -416,6 +457,12 @@ const episodeRule = (v: string) => !v || /^\d{1,4}$/.test(v) || '集为 1-4 位�
 /* ============================================
    Scrape Status
    ============================================ */
+.batch-tip {
+  font-size: 13px;
+  color: var(--osr-text-secondary);
+  margin-bottom: 12px;
+}
+
 .scrape-none {
   color: var(--osr-text-placeholder);
   font-size: 13px;
