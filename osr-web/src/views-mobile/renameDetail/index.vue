@@ -142,12 +142,6 @@
               </span>
             </div>
           </div>
-          <div class="mobile-status-row">
-            <StatusChip :type="record.status === '1' ? 'success' : 'error'" :text="record.status === '1' ? '成功' : '失败'" class="status-tag" />
-            <StatusChip v-if="record.scrapeStatus === '1'" type="success" text="NFO" class="scrape-tag" />
-            <StatusChip v-else-if="record.scrapeStatus === '2'" type="error" text="刮削失败" class="scrape-tag" />
-            <StatusChip v-else-if="record.scrapeStatus === '0'" type="info" text="未刮削" class="scrape-tag" />
-          </div>
           <!-- Path comparison -->
           <div class="rename-paths">
             <div class="rename-path-item rename-path-original" @click.stop="showFullText(record.originalPath, '原路径')">
@@ -159,6 +153,12 @@
               <v-icon class="card-path-icon" icon="mdi-map-marker-outline" size="12" />
               <span class="card-path-text">{{ record.newPath }}</span>
             </div>
+          </div>
+          <div class="mobile-status-row">
+            <StatusChip :type="record.status === '1' ? 'success' : 'error'" :text="record.status === '1' ? '成功' : '失败'" class="status-tag" />
+            <StatusChip v-if="record.scrapeStatus === '1'" type="success" text="NFO" class="scrape-tag" />
+            <StatusChip v-else-if="record.scrapeStatus === '2'" type="error" text="刮削失败" class="scrape-tag" />
+            <StatusChip v-else-if="record.scrapeStatus === '0'" type="info" text="未刮削" class="scrape-tag" />
           </div>
           <div class="card-time">
             <v-icon icon="mdi-clock-outline" size="12" />
@@ -323,4 +323,94 @@ const episodeRule = (v: string) => !v || /^\d{1,4}$/.test(v) || '集为 1-4 位�
 </script>
 
 <style scoped lang="scss">
+.rename-compare-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  .rename-side {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .rename-label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+
+    &.rename-label-original {
+      background: var(--osr-error-light);
+      color: var(--osr-error);
+      border: 1px solid color-mix(in srgb, var(--osr-error) 30%, transparent);
+    }
+
+    &.rename-label-new {
+      background: var(--osr-success-light);
+      color: var(--osr-success);
+      border: 1px solid color-mix(in srgb, var(--osr-success) 30%, transparent);
+    }
+  }
+
+  .rename-filename {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--osr-text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .rename-arrow-icon {
+    flex-shrink: 0;
+    color: var(--osr-text-disabled);
+  }
+}
+
+.rename-paths {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+
+  .rename-path-item {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+    min-width: 0;
+    flex: 1;
+    cursor: pointer;
+
+    .card-path-icon {
+      flex-shrink: 0;
+    }
+
+    .card-path-text {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      display: block;
+      -webkit-line-clamp: unset;
+    }
+
+    &:hover .card-path-text {
+      color: var(--osr-primary);
+    }
+  }
+
+  .rename-path-arrow {
+    flex-shrink: 0;
+    color: var(--osr-text-disabled);
+  }
+}
 </style>
