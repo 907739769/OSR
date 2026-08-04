@@ -59,7 +59,8 @@ export function usePtIndexer() {
     },
     defaultQuery: {
       name: undefined,
-      enabled: undefined
+      enabled: undefined,
+      pageSize: 12
     }
   })
 

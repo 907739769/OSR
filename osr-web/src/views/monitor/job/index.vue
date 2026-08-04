@@ -120,7 +120,7 @@
       </div>
 
       <!-- Pagination -->
-      <div class="pagination-wrapper">
+      <div v-if="appStore.device === 'desktop'" class="pagination-wrapper">
         <v-pagination
           v-model="queryParams.pageNum"
           :length="Math.ceil(total / queryParams.pageSize) || 1"
@@ -128,6 +128,16 @@
           @update:model-value="getList"
         />
       </div>
+      <MobilePager
+        v-if="appStore.device === 'mobile'"
+        v-model:page-size="queryParams.pageSize"
+        :page-num="queryParams.pageNum"
+        :total="total"
+        :total-pages="totalPages"
+        @prev="prevPage"
+        @next="nextPage"
+        @size-change="handleSizeChange"
+      />
     </v-card>
 
     <!-- Add/Edit Dialog -->
@@ -399,13 +409,14 @@
 <script setup lang="ts">
 import PageHeader from '@/components/PageHeader.vue'
 import StatusChip from '@/components/StatusChip.vue'
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { message } from '@/composables/useMessage'
 import { confirm } from '@/composables/useConfirm'
 import { getJobListApi, addJobApi, updateJobApi, deleteJobApi, changeJobStatusApi, runJobApi } from '@/api/monitor/job'
 import { getJobLogListApi, getJobLogDetailApi } from '@/api/monitor/jobLog'
 import { useAppStore } from '@/stores/app'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
+import MobilePager from '@/components/mobile/MobilePager.vue'
 import { useTaskList } from '@/composables/useTaskList'
 import type { SearchParams, PageResult } from '@/types'
 
@@ -462,6 +473,28 @@ const {
   },
   defaultQuery: { jobName: undefined, jobGroup: undefined, status: undefined }
 })
+
+// ---------- 移动端 - 分页辅助 ----------
+const totalPages = computed(() => Math.ceil(total.value / queryParams.pageSize) || 1)
+
+const prevPage = () => {
+  if (queryParams.pageNum > 1) {
+    queryParams.pageNum--
+    getList()
+  }
+}
+
+const nextPage = () => {
+  if (queryParams.pageNum < totalPages.value) {
+    queryParams.pageNum++
+    getList()
+  }
+}
+
+const handleSizeChange = () => {
+  queryParams.pageNum = 1
+  getList()
+}
 
 const showCronDialog = ref(false)
 

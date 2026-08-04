@@ -915,18 +915,6 @@ const searchLogHeaders = [
   border-top: 1px solid var(--osr-border-light);
 }
 
-.pagination-wrapper {
-  .total-text {
-    font-size: 13px;
-    color: var(--osr-text-secondary);
-    white-space: nowrap;
-  }
-
-  .page-size-select {
-    width: 90px;
-    flex: none;
-  }
-}
 
 .sort-label {
   font-size: 13px;

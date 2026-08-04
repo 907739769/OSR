@@ -119,6 +119,16 @@
       </div>
 
       <div class="pagination-wrapper">
+        <span class="total-text">共 {{ total }} 条</span>
+        <v-select
+          :model-value="queryParams.pageSize"
+          :items="[12, 24, 48]"
+          density="compact"
+          variant="outlined"
+          hide-details
+          class="page-size-select"
+          @update:model-value="(v: number) => { queryParams.pageSize = v; queryParams.pageNum = 1; getList() }"
+        />
         <v-pagination
           v-model="queryParams.pageNum"
           :length="Math.ceil(total / queryParams.pageSize) || 1"

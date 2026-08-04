@@ -167,21 +167,21 @@
       </div>
 
       <div class="pagination-wrapper">
-        <v-pagination
-          v-model="queryParams.pageNum"
-          :length="Math.ceil(total / queryParams.pageSize) || 1"
-          density="comfortable"
-          @update:model-value="getList"
-        />
+        <span class="total-text">共 {{ total }} 条</span>
         <v-select
           :model-value="queryParams.pageSize"
           :items="[12, 24, 48]"
-          label="每页条数"
           density="compact"
           variant="outlined"
           hide-details
           class="page-size-select"
           @update:model-value="onSizeChange"
+        />
+        <v-pagination
+          v-model="queryParams.pageNum"
+          :length="Math.ceil(total / queryParams.pageSize) || 1"
+          density="comfortable"
+          @update:model-value="getList"
         />
       </div>
     </v-card>
@@ -267,11 +267,6 @@ const formatSize = (bytes: number): string => {
 </script>
 
 <style scoped lang="scss">
-.pagination-wrapper .page-size-select {
-  width: 110px;
-  flex: none;
-}
-
 .list-loading {
   grid-column: 1 / -1;
 }

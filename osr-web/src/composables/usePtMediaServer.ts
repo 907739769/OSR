@@ -48,7 +48,8 @@ export function usePtMediaServer() {
     },
     defaultQuery: {
       name: undefined,
-      enabled: undefined
+      enabled: undefined,
+      pageSize: 12
     }
   })
 

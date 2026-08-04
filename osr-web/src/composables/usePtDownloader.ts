@@ -56,7 +56,8 @@ export function usePtDownloader() {
     },
     defaultQuery: {
       name: undefined,
-      enabled: undefined
+      enabled: undefined,
+      pageSize: 12
     }
   })
 

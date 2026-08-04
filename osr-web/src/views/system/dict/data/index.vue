@@ -75,14 +75,16 @@
       </div>
 
       <!-- Pagination (mobile; desktop paginates via v-data-table-server) -->
-      <div v-if="appStore.device === 'mobile'" class="pagination-wrapper">
-        <v-pagination
-          v-model="queryParams.pageNum"
-          :length="Math.ceil(total / queryParams.pageSize) || 1"
-          density="comfortable"
-          @update:model-value="getList"
-        />
-      </div>
+      <MobilePager
+        v-if="appStore.device === 'mobile'"
+        v-model:page-size="queryParams.pageSize"
+        :page-num="queryParams.pageNum"
+        :total="total"
+        :total-pages="totalPages"
+        @prev="prevPage"
+        @next="nextPage"
+        @size-change="handleSizeChange"
+      />
     </v-card>
 
     <!-- Dialog -->
@@ -146,6 +148,7 @@ import PageHeader from '@/components/PageHeader.vue'
 import { getRoutePathForComponent } from '@/router'
 import { useTaskList } from '@/composables/useTaskList'
 import StatusChip from '@/components/StatusChip.vue'
+import MobilePager from '@/components/mobile/MobilePager.vue'
 import type { SearchParams } from '@/types'
 
 const appStore = useAppStore()
@@ -209,6 +212,28 @@ const onPageChange = (page: number) => {
 
 const onSizeChange = (size: number) => {
   queryParams.pageSize = size
+  queryParams.pageNum = 1
+  getList()
+}
+
+// ---------- 移动端 - 分页辅助 ----------
+const totalPages = computed(() => Math.ceil(total.value / queryParams.pageSize) || 1)
+
+const prevPage = () => {
+  if (queryParams.pageNum > 1) {
+    queryParams.pageNum--
+    getList()
+  }
+}
+
+const nextPage = () => {
+  if (queryParams.pageNum < totalPages.value) {
+    queryParams.pageNum++
+    getList()
+  }
+}
+
+const handleSizeChange = () => {
   queryParams.pageNum = 1
   getList()
 }

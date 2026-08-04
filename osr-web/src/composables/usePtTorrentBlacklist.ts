@@ -31,7 +31,8 @@ export function usePtTorrentBlacklist() {
     },
     defaultQuery: {
       type: undefined,
-      displayValue: undefined
+      displayValue: undefined,
+      pageSize: 12
     }
   })
 

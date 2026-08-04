@@ -119,6 +119,17 @@
   gap: 12px;
   margin-top: auto;
   padding-top: 12px;
+
+  .total-text {
+    font-size: 13px;
+    color: var(--osr-text-secondary);
+    white-space: nowrap;
+  }
+
+  .page-size-select {
+    width: 100px;
+    flex: none;
+  }
 }
 
 /* ============================================
