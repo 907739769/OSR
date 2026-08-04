@@ -78,10 +78,18 @@ public class TMDbApiService {
      * 获取详情
      */
     public String getDetails(String apiKey, String type, int id) {
+        return getDetails(apiKey, type, id, language());
+    }
+
+    /**
+     * 获取详情，可指定 language（不受 {@link #language()} 配置的元数据语言影响）。
+     * 用于需要拿到 TMDb 英文规范名的场景，而不是受配置语言/众包 alternative_titles 数据影响。
+     */
+    public String getDetails(String apiKey, String type, int id, String language) {
         HttpUrl url = Objects.requireNonNull(HttpUrl.parse(BASE + "/" + type + "/" + id))
                 .newBuilder()
                 .addQueryParameter("api_key", apiKey)
-                .addQueryParameter("language", language())
+                .addQueryParameter("language", language)
                 .addQueryParameter("append_to_response", "credits,videos")
                 .build();
         Request req = new Request.Builder().url(url).get().build();

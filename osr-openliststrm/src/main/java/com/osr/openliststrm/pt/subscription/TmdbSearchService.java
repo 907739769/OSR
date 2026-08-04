@@ -79,16 +79,47 @@ public class TmdbSearchService {
 
     /**
      * 解析真正的英文标题：原始语言本就是英文时直接取 original_title/name（省一次请求）；
-     * 否则（日剧/韩剧等）查 alternative_titles，取 US 别名，US 缺失时退而求其次取 GB。
+     * 否则（日剧/韩剧/动画等）用 language=en-US 重新查一次详情取 TMDb 的英文规范名。
      * PT 站种子标题绝大多数是英文/罗马字，用真正的英文标题而非 original_title 匹配才不会漏判日韩剧。
+     * <p>
+     * 之前直接查 /alternative_titles 取第一条 iso_3166_1=US 的别名，但该接口是众包数据，
+     * 长篇动画常年被粉丝登记了大量"篇章别名"（如 One Piece 被登记成
+     * "One Piece Log: Fish-Man Island Saga" 这类分篇标题也标了 US），
+     * 取到的根本不是剧集本身的英文名，导致标题归一化后与种子标题（"One Piece"）无交集，
+     * 所有候选都被 {@code SearchSupplementService#titleMatches} 误判为标题不匹配。
+     * 改用 en-US 详情的 name/title 字段更可靠，alternative_titles 只作最后兜底。
+     * </p>
      */
     private String resolveEnglishTitle(String mediaType, String tmdbId, JSONObject detail) {
         String originalLanguage = detail.getString("original_language");
+        boolean tv = !TYPE_MOVIE.equalsIgnoreCase(mediaType);
         if ("en".equalsIgnoreCase(originalLanguage)) {
-            boolean tv = !TYPE_MOVIE.equalsIgnoreCase(mediaType);
             return detail.getString(tv ? "name" : "title");
         }
+        String enUsTitle = fetchEnUsTitle(mediaType, tmdbId, tv);
+        if (StringUtils.isNotBlank(enUsTitle)) {
+            return enUsTitle;
+        }
         return fetchEnglishAlias(mediaType, tmdbId);
+    }
+
+    /**
+     * 用 language=en-US 重新查一次详情，取 TMDb 的英文规范名（不受 alternative_titles 众包数据干扰）。
+     * 网络异常等情况静默返回 null，交由调用方走 alternative_titles 兜底。
+     */
+    private String fetchEnUsTitle(String mediaType, String tmdbId, boolean tv) {
+        try {
+            String raw = tmDbApiService.getDetails(
+                    openlistConfig.getTmdbApiKey(), tmdbType(mediaType), Integer.parseInt(tmdbId), "en-US");
+            JSONObject detail = readObject(raw);
+            if (detail == null) {
+                return null;
+            }
+            return detail.getString(tv ? "name" : "title");
+        } catch (Exception e) {
+            log.warn("获取 TMDb 英文详情异常（tmdbId={}）：{}", tmdbId, e.getMessage());
+            return null;
+        }
     }
 
     /**
