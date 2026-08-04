@@ -35,7 +35,7 @@ public class PtSubscriptionEpisodePlus extends BaseEntity {
     @TableField("episode")
     private Integer episode;
 
-    /** 状态 MISSING/IN_FLIGHT/IN_LIBRARY/BLOCKED */
+    /** 状态 MISSING/IN_FLIGHT/IN_LIBRARY/UPGRADING/BLOCKED */
     @TableField("state")
     private String state;
 
@@ -43,9 +43,20 @@ public class PtSubscriptionEpisodePlus extends BaseEntity {
     @TableField("fail_count")
     private Integer failCount;
 
-    /** 已下载质量，为洗版预留 */
+    /**
+     * 已入库版本的质量画像快照（JSON），洗版判定的基线。
+     * 见 {@link com.osr.openliststrm.pt.upgrade.QualityProfile}。
+     * <p>
+     * 存快照而不是每次靠 {@link #downloadId} 反查下载记录：下载记录可能被清理，
+     * 而且前端集列表要展示当前质量，反查等于 N+1 次查询。
+     * </p>
+     */
     @TableField("quality")
     private String quality;
+
+    /** 洗版状态，取值见 {@link com.osr.openliststrm.pt.upgrade.UpgradeState}；null 表示尚未评估 */
+    @TableField("upgrade_state")
+    private String upgradeState;
 
     /** 关联的下载记录ID */
     @TableField("download_id")

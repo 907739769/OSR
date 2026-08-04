@@ -97,6 +97,87 @@ class DownloadTrackServiceTest {
         return t;
     }
 
+    // ---------- 洗版 ----------
+
+    private PtSubscriptionEpisodePlus upgradingEpisode(int id) {
+        PtSubscriptionEpisodePlus ep = new PtSubscriptionEpisodePlus();
+        ep.setId(id);
+        ep.setState("UPGRADING");
+        ep.setQuality("{\"resolution\":\"1080p\",\"source\":\"WEBDL\"}");
+        return ep;
+    }
+
+    @Test
+    void 洗版下载完成_集转回入库并刷新质量基线() {
+        // 这个转换只能由下载完成驱动：Emby 分不出同一集的新旧版本，对账那边恒命中
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+        PtDownloadRecordPlus r = record(100, 1, "osr-pt-aaa", "DOWNLOADING", 60_000);
+        r.setTitle("Show.Name.S01E01.2160p.WEB-DL.HDR10-CHDWEB");
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of(upgradingEpisode(501)));
+
+        service().track(downloader(), List.of(torrent("osr-pt,osr-pt-aaa", 1.0)));
+
+        ArgumentCaptor<PtSubscriptionEpisodePlus> captor =
+                ArgumentCaptor.forClass(PtSubscriptionEpisodePlus.class);
+        verify(episodeService, atLeastOnce()).update(captor.capture(), any(Wrapper.class));
+        PtSubscriptionEpisodePlus updated = captor.getAllValues().stream()
+                .filter(e -> "IN_LIBRARY".equals(e.getState())).findFirst().orElseThrow();
+        // 基线不刷新的话，下一轮扫描仍按旧画像判断，会把刚下好的版本再当成"可升级"，反复洗同一集
+        assertTrue(updated.getQuality().contains("2160p"));
+        assertEquals("PENDING", updated.getUpgradeState());
+    }
+
+    @Test
+    void 洗版下载失败_集退回入库而不是缺失() {
+        // 退成 MISSING 会让这一集显示成缺失并被 RSS 从头重下一遍，比不洗版还糟
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+        PtDownloadRecordPlus r = record(100, 1, "osr-pt-aaa", "DOWNLOADING", 20 * 60 * 1000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of(upgradingEpisode(501)));
+
+        // 种子在下载器里找不到且已过宽限期 → fail
+        service().track(downloader(), List.of());
+
+        ArgumentCaptor<PtSubscriptionEpisodePlus> captor =
+                ArgumentCaptor.forClass(PtSubscriptionEpisodePlus.class);
+        verify(episodeService, atLeastOnce()).update(captor.capture(), any(Wrapper.class));
+        assertTrue(captor.getAllValues().stream().anyMatch(e -> "IN_LIBRARY".equals(e.getState())));
+        assertTrue(captor.getAllValues().stream().noneMatch(e -> "MISSING".equals(e.getState())));
+        assertTrue(captor.getAllValues().stream().noneMatch(e -> "BLOCKED".equals(e.getState())));
+    }
+
+    @Test
+    void 洗版失败不累加失败计数_避免已入库的集被熔断() {
+        // fail_count 是"这一集补不到货"的熔断依据，洗版失败并不代表这一集有问题
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+        PtDownloadRecordPlus r = record(100, 1, "osr-pt-aaa", "DOWNLOADING", 20 * 60 * 1000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of(upgradingEpisode(501)));
+
+        service().track(downloader(), List.of());
+
+        ArgumentCaptor<PtSubscriptionEpisodePlus> captor =
+                ArgumentCaptor.forClass(PtSubscriptionEpisodePlus.class);
+        verify(episodeService, atLeastOnce()).update(captor.capture(), any(Wrapper.class));
+        PtSubscriptionEpisodePlus reverted = captor.getAllValues().stream()
+                .filter(e -> "IN_LIBRARY".equals(e.getState())).findFirst().orElseThrow();
+        assertNull(reverted.getFailCount());
+    }
+
+    @Test
+    void 补缺集下载完成_不走洗版收尾_集状态不动() {
+        // IN_FLIGHT 的集要等 Emby 对账确认入库，完成这一刻不该动它
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+        PtDownloadRecordPlus r = record(100, 1, "osr-pt-aaa", "DOWNLOADING", 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of(episodeRow(501)));
+
+        service().track(downloader(), List.of(torrent("osr-pt,osr-pt-aaa", 1.0)));
+
+        verify(episodeService, never()).update(any(), any(Wrapper.class));
+    }
+
     // ---------- H&R 保种防护 ----------
 
     private PtIndexerPlus hrIndexer(int id, Integer seedHours, Double ratio) {

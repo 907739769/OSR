@@ -68,6 +68,10 @@ public class PtSubscriptionPlus extends BaseEntity {
     @TableField("status")
     private String status;
 
+    /** 该订阅是否参与洗版 0-否 1-是。全局开关（pt_upgrade_config.enabled）关闭时本项无效 */
+    @TableField("upgrade_enabled")
+    private String upgradeEnabled;
+
     /** 订阅级过滤覆盖(JSON)，空表示全用全局配置 */
     @TableField("filter_override")
     private String filterOverride;

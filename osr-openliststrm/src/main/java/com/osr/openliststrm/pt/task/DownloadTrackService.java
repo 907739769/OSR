@@ -19,6 +19,8 @@ import com.osr.openliststrm.pt.downloader.DownloaderClientFactory;
 import com.osr.openliststrm.pt.downloader.model.DownloaderTorrent;
 import com.osr.openliststrm.pt.downloader.model.DownloaderTorrentFile;
 import com.osr.openliststrm.pt.subscription.SubscriptionEpisodeState;
+import com.osr.openliststrm.pt.upgrade.QualityProfile;
+import com.osr.openliststrm.pt.upgrade.UpgradeState;
 import com.osr.openliststrm.pt.ws.PtStatusWebSocket;
 import com.osr.openliststrm.rename.MediaParser;
 import com.osr.openliststrm.rename.model.MediaInfo;
@@ -49,6 +51,8 @@ public class DownloadTrackService {
     private static final String STATE_FAILED = DownloadRecordState.FAILED.value();
     private static final String EP_MISSING = SubscriptionEpisodeState.MISSING.value();
     private static final String EP_IN_FLIGHT = SubscriptionEpisodeState.IN_FLIGHT.value();
+    private static final String EP_IN_LIBRARY = SubscriptionEpisodeState.IN_LIBRARY.value();
+    private static final String EP_UPGRADING = SubscriptionEpisodeState.UPGRADING.value();
     private static final String EP_BLOCKED = SubscriptionEpisodeState.BLOCKED.value();
 
     /** 推送后找不到对应种子的宽限期：超过它才判失败（qB 解析磁力元数据需要时间） */
@@ -489,14 +493,71 @@ public class DownloadTrackService {
             return; // 并发/重叠轮询已处理过，避免重复通知
         }
         PtStatusWebSocket.pushDownloadEvent(record, STATE_COMPLETED, 1.0, null);
-        notifySafely(NotificationType.DOWNLOAD_COMPLETE, "✅ 下载完成：" + StringUtils.escapeHtml(record.getTitle())
+        boolean upgraded = finishUpgrade(record);
+        notifySafely(NotificationType.DOWNLOAD_COMPLETE, "✅ " + (upgraded ? "洗版" : "") + "下载完成："
+                + StringUtils.escapeHtml(record.getTitle())
+                + (upgraded ? "\n⚠️ 旧版本不会被自动删除，请自行清理，否则媒体库里会出现同一集的两个版本" : "")
                 + (hitAndRun ? "\n🌱 该站点有 H&R 考核，需保种至「" + StringUtils.escapeHtml(describeRequirement(indexer))
                         + "」，达标前请勿删除" : ""));
         log.info("下载记录[{}] 已完成：{}{}", record.getId(), record.getTitle(),
                 hitAndRun ? "（进入 H&R 保种考核）" : "");
-        // 集状态不动，仍是 IN_FLIGHT；下载器关联了 STRM 任务时异步触发一次增量生成+提前对账，
-        // 没关联时纯靠 LibrarySyncTask 下一轮批量对账兜底
+        // 补缺集时集状态不动，仍是 IN_FLIGHT，等 Emby 对账确认入库（洗版则已在 finishUpgrade 收尾）；
+        // 下载器关联了 STRM 任务时异步触发一次增量生成+提前对账，没关联时纯靠 LibrarySyncTask 下一轮兜底
         completionSyncTrigger.triggerAsync(record, downloader);
+    }
+
+    /**
+     * 洗版下载完成的收尾：把 UPGRADING 的集转回 IN_LIBRARY，并用新种子的标题刷新质量基线。
+     * <p>
+     * <b>这个转换只能由下载完成驱动，不能交给 Emby 对账。</b>
+     * {@code SubscriptionService#refresh} 判断"在不在库里"靠的是 Emby 查询，而旧版本本来就在库里，
+     * 查询恒命中——对账无从分辨同一集的新旧版本，顺着走会在洗版还没下完时就把状态改掉。
+     * 因此 refresh 那边刻意跳过 UPGRADING，收尾的责任落在这里。
+     * </p>
+     * <p>
+     * 质量基线必须同步刷新：不刷的话下一轮扫描仍按旧画像判断，会把刚下好的这个版本
+     * 再当成"可升级"，反复洗同一集。
+     * </p>
+     *
+     * @return 这次完成的是否是一个洗版下载
+     */
+    private boolean finishUpgrade(PtDownloadRecordPlus record) {
+        // 状态条件同时写在 SQL 与内存过滤里：SQL 那份是为了少捞行，内存这份是为了让
+        // "只处理 UPGRADING" 这个前提在代码里看得见，不必读 wrapper 才知道
+        List<PtSubscriptionEpisodePlus> upgrading = episodeService.list(
+                new QueryWrapper<PtSubscriptionEpisodePlus>()
+                        .eq("download_id", record.getId())
+                        .eq("state", EP_UPGRADING))
+                .stream()
+                .filter(e -> EP_UPGRADING.equals(e.getState()))
+                .toList();
+        if (upgrading.isEmpty()) {
+            return false;
+        }
+        String quality = null;
+        try {
+            quality = QualityProfile.from(mediaParser.parseLocal(record.getTitle())).toJson();
+        } catch (Exception e) {
+            // 画像解析失败不该阻断状态收尾，否则集会永久卡在 UPGRADING。
+            // 基线留空 → 下一轮扫描把它标成 NO_BASELINE，不再参与洗版，是安全的降级
+            log.warn("下载记录[{}] 洗版完成后解析质量画像失败，该集将按无基线处理：{}",
+                    record.getId(), e.getMessage());
+        }
+        for (PtSubscriptionEpisodePlus episode : upgrading) {
+            PtSubscriptionEpisodePlus set = new PtSubscriptionEpisodePlus();
+            set.setState(EP_IN_LIBRARY);
+            set.setQuality(quality);
+            // 置回 PENDING 而不是 REACHED：新版本是不是已经够好由扫描任务用 UpgradeCriteria 评估，
+            // 追踪这条路径不该为此再读一份洗版配置
+            set.setUpgradeState(quality == null
+                    ? UpgradeState.NO_BASELINE.value() : UpgradeState.PENDING.value());
+            episodeService.update(set, new UpdateWrapper<PtSubscriptionEpisodePlus>()
+                    .eq("id", episode.getId())
+                    .eq("state", EP_UPGRADING));
+        }
+        log.info("下载记录[{}] 洗版完成，{} 个集已更新质量基线：{}",
+                record.getId(), upgrading.size(), record.getTitle());
+        return true;
     }
 
     /**
@@ -509,26 +570,16 @@ public class DownloadTrackService {
      * </p>
      */
     private void fail(PtDownloadRecordPlus record, FailReasonCode code, String reason) {
-        // 1) 先回退关联集（幂等：只动 IN_FLIGHT 的；普通集1条、季包多条统一处理）
-        List<PtSubscriptionEpisodePlus> episodes = episodeService.list(
+        // 1) 先回退关联集（幂等：只动 IN_FLIGHT / UPGRADING 的；普通集1条、季包多条统一处理）。
+        // 一次查出两类在途集再按状态分流，而不是分两条查询：补缺集与洗版的回退目标不同，
+        // 但"这条下载记录关联着哪些还没落定的集"是同一个问题，查两次既多一次往返，
+        // 也让"同一集同时出现在两个结果里"这种不可能的状态在代码里变得可表达。
+        List<PtSubscriptionEpisodePlus> pending = episodeService.list(
                 new QueryWrapper<PtSubscriptionEpisodePlus>()
                         .eq("download_id", record.getId())
-                        .eq("state", EP_IN_FLIGHT));
-        int blockedCount = 0;
-        for (PtSubscriptionEpisodePlus episode : episodes) {
-            int fails = (episode.getFailCount() == null ? 0 : episode.getFailCount()) + 1;
-            boolean blocked = fails >= maxConsecutiveFailures;
-            PtSubscriptionEpisodePlus set = new PtSubscriptionEpisodePlus();
-            set.setState(blocked ? EP_BLOCKED : EP_MISSING);
-            set.setDownloadId(null);
-            set.setFailCount(fails);
-            episodeService.update(set, new UpdateWrapper<PtSubscriptionEpisodePlus>()
-                    .eq("id", episode.getId())
-                    .eq("state", EP_IN_FLIGHT));
-            if (blocked) {
-                blockedCount++;
-            }
-        }
+                        .in("state", EP_IN_FLIGHT, EP_UPGRADING));
+        Rollback rollback = releaseInFlightEpisodes(pending);
+        int upgradeReverted = revertUpgradingEpisodes(pending);
         // 2) 再置记录 FAILED（条件更新门控通知，避免重叠轮询重复发）
         PtDownloadRecordPlus set = new PtDownloadRecordPlus();
         set.setState(STATE_FAILED);
@@ -541,11 +592,73 @@ public class DownloadTrackService {
             return; // 已被并发轮次置为终态，避免重复通知
         }
         PtStatusWebSocket.pushDownloadEvent(record, STATE_FAILED, null, reason);
-        notifySafely(NotificationType.DOWNLOAD_FAILED, "❌ 下载失败：" + StringUtils.escapeHtml(record.getTitle()) + "，已释放待下轮重新匹配");
-        log.warn("下载记录[{}] 失败，{} 个集回退缺失：{}", record.getId(), episodes.size(), record.getTitle());
-        if (blockedCount > 0) {
+        notifySafely(NotificationType.DOWNLOAD_FAILED, upgradeReverted > 0
+                ? "❌ 洗版下载失败：" + StringUtils.escapeHtml(record.getTitle()) + "，原有版本保持不变"
+                : "❌ 下载失败：" + StringUtils.escapeHtml(record.getTitle()) + "，已释放待下轮重新匹配");
+        log.warn("下载记录[{}] 失败（{} 个集回退缺失，{} 个集回退入库）：{}",
+                record.getId(), rollback.released(), upgradeReverted, record.getTitle());
+        if (rollback.blocked() > 0) {
             notifySafely("🚫 " + StringUtils.escapeHtml(record.getTitle()) + " 连续失败达 " + maxConsecutiveFailures
                     + " 次，已停止自动重试，需到下载记录管理页人工重试");
         }
+    }
+
+    /** 回退结果：released=回退的集数，blocked=其中因连续失败达阈值而熔断的集数 */
+    private record Rollback(int released, int blocked) {
+    }
+
+    /**
+     * 回退补缺集下载关联的集：达到熔断阈值前退回 MISSING（RSS/补搜会重新捡回），
+     * 达到阈值后转 BLOCKED 停止自动重试，避免已下架/失效的资源被无限次静默重试。
+     */
+    private Rollback releaseInFlightEpisodes(List<PtSubscriptionEpisodePlus> pending) {
+        List<PtSubscriptionEpisodePlus> episodes = pending.stream()
+                .filter(e -> EP_IN_FLIGHT.equals(e.getState()))
+                .toList();
+        int blocked = 0;
+        for (PtSubscriptionEpisodePlus episode : episodes) {
+            int fails = (episode.getFailCount() == null ? 0 : episode.getFailCount()) + 1;
+            boolean cut = fails >= maxConsecutiveFailures;
+            PtSubscriptionEpisodePlus set = new PtSubscriptionEpisodePlus();
+            set.setState(cut ? EP_BLOCKED : EP_MISSING);
+            set.setDownloadId(null);
+            set.setFailCount(fails);
+            episodeService.update(set, new UpdateWrapper<PtSubscriptionEpisodePlus>()
+                    .eq("id", episode.getId())
+                    .eq("state", EP_IN_FLIGHT));
+            if (cut) {
+                blocked++;
+            }
+        }
+        return new Rollback(episodes.size(), blocked);
+    }
+
+    /**
+     * 回退洗版下载关联的集：UPGRADING → IN_LIBRARY。
+     * <p>
+     * <b>不能退成 MISSING</b>：旧版本的文件一直好端端在库里，退成 MISSING 会让这一集
+     * 显示成缺失并被 RSS 从头重下一遍，比不洗版还糟。
+     * </p>
+     * <p>
+     * <b>也不累加 fail_count</b>：那个计数是"这一集补不到货"的熔断依据，
+     * 累加它会让几次洗版失败把一个明明已入库的集熔断成 BLOCKED。
+     * 质量基线保持不变，下一轮扫描会重新评估、换个候选再试。
+     * </p>
+     *
+     * @return 回退的集数
+     */
+    private int revertUpgradingEpisodes(List<PtSubscriptionEpisodePlus> pending) {
+        List<PtSubscriptionEpisodePlus> episodes = pending.stream()
+                .filter(e -> EP_UPGRADING.equals(e.getState()))
+                .toList();
+        for (PtSubscriptionEpisodePlus episode : episodes) {
+            PtSubscriptionEpisodePlus set = new PtSubscriptionEpisodePlus();
+            set.setState(EP_IN_LIBRARY);
+            set.setDownloadId(null);
+            episodeService.update(set, new UpdateWrapper<PtSubscriptionEpisodePlus>()
+                    .eq("id", episode.getId())
+                    .eq("state", EP_UPGRADING));
+        }
+        return episodes.size();
     }
 }

@@ -124,6 +124,19 @@
               @update:model-value="() => toggleAutoSearch(item)"
             />
           </div>
+          <div class="detail-row">
+            <span class="label">洗版</span>
+            <v-switch
+              v-model="item.upgradeEnabled"
+              true-value="1"
+              false-value="0"
+              color="primary"
+              density="compact"
+              hide-details
+              @click.stop
+              @update:model-value="() => toggleUpgrade(item)"
+            />
+          </div>
           <div class="card-actions" @click.stop>
             <v-btn variant="text" color="primary" size="small" @click="showProgress(item)">进度</v-btn>
             <v-btn variant="text" color="primary" size="small" @click="goDownloadRecords(item)">下载记录</v-btn>
@@ -311,6 +324,9 @@
               <div v-for="ep in episodeDetail" :key="ep.episode" class="episode-detail-row">
                 <span class="ep-num">第{{ ep.episode }}集</span>
                 <StatusChip :type="episodeStateColor(ep.state)" :text="episodeStateLabel(ep.state)" />
+                <span v-if="qualityLabel(ep)" class="ep-quality" :title="upgradeStateHint(ep)">
+                  {{ qualityLabel(ep) }}
+                </span>
                 <v-btn
                   v-if="ep.state === 'IN_LIBRARY' || ep.state === 'BLOCKED'"
                   variant="text"
@@ -605,11 +621,12 @@ const {
   progressOpen, progressLoading, progress, currentSubscription, showProgress, showProgressById,
   episodeDetailOpen, episodeDetailLoading, episodeDetail, resettingEpisode,
   loadEpisodeDetail, handleResetEpisode, episodeStateLabel, episodeStateColor,
+  qualityLabel, upgradeStateHint,
   searchLogOpen, searchLogLoading, searchLogs, showSearchLogs,
   filterOverrideOpen, filterOverrideSaving, filterOverrideForm,
   openFilterOverride, saveFilterOverride,
   searchDialogOpen, searchDialogLoading, searchDialogKeyword, searchManualSelect,
-  openSeasonSearch, openEpisodeSearch, confirmSearch, toggleAutoSearch,
+  openSeasonSearch, openEpisodeSearch, confirmSearch, toggleAutoSearch, toggleUpgrade,
   candidateDialogOpen, candidates, pushingSelected, pushSelectedCandidate, formatSize,
   searchAllMissingLoading, handleSearchAllMissing,
   handleRefresh, handlePause, handleResume, handleRemove,
@@ -709,7 +726,17 @@ onMounted(() => {
   font-size: 13px;
   border-bottom: 1px solid var(--osr-border-light);
 
-  .ep-num {
+  .ep-quality {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: var(--osr-text-secondary);
+}
+
+.ep-num {
     width: 60px;
     flex-shrink: 0;
     color: var(--osr-text-primary);

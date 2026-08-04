@@ -3,9 +3,11 @@ package com.osr.openliststrm.pt.subscription;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.helper.TgHelper;
+import com.osr.openliststrm.mybatisplus.domain.PtDownloadRecordPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtMediaServerPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
+import com.osr.openliststrm.mybatisplus.service.IPtDownloadRecordPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtMediaServerPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
@@ -15,6 +17,10 @@ import com.osr.openliststrm.pt.subscription.dto.BatchOperationResult;
 import com.osr.openliststrm.pt.subscription.dto.SubscribeRequest;
 import com.osr.openliststrm.pt.subscription.dto.SubscriptionProgress;
 import com.osr.openliststrm.pt.subscription.dto.TmdbSearchItem;
+import com.osr.openliststrm.pt.upgrade.QualityProfile;
+import com.osr.openliststrm.pt.upgrade.UpgradeState;
+import com.osr.openliststrm.rename.MediaParser;
+import com.osr.openliststrm.rename.model.MediaInfo;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -41,6 +47,7 @@ public class SubscriptionService {
     public static final String STATE_MISSING = SubscriptionEpisodeState.MISSING.value();
     public static final String STATE_IN_FLIGHT = SubscriptionEpisodeState.IN_FLIGHT.value();
     public static final String STATE_IN_LIBRARY = SubscriptionEpisodeState.IN_LIBRARY.value();
+    public static final String STATE_UPGRADING = SubscriptionEpisodeState.UPGRADING.value();
 
     public static final String STATUS_ACTIVE = "ACTIVE";
     public static final String STATUS_COMPLETED = "COMPLETED";
@@ -49,6 +56,14 @@ public class SubscriptionService {
     /** 电影的哨兵季号与集号 */
     private static final int MOVIE_SEASON = 0;
     private static final int MOVIE_EPISODE = 0;
+
+    /**
+     * 这一集的文件是否已经在库里。UPGRADING 也算——洗版期间旧版本一直在库里可正常观看，
+     * 把它算成"未入库"会让订阅从 COMPLETED 退回 ACTIVE、进度条倒退，而实际什么都没少。
+     */
+    private static boolean hasFileInLibrary(PtSubscriptionEpisodePlus episode) {
+        return STATE_IN_LIBRARY.equals(episode.getState()) || STATE_UPGRADING.equals(episode.getState());
+    }
 
     @Autowired
     private IPtSubscriptionPlusService subscriptionService;
@@ -60,6 +75,15 @@ public class SubscriptionService {
     private MediaServerClientFactory mediaServerClientFactory;
     @Autowired
     private TmdbSearchService tmdbSearchService;
+    @Autowired
+    private IPtDownloadRecordPlusService downloadRecordService;
+
+    /**
+     * 本地标题解析器。只做正则抽取，不查 TMDb、不调 AI，所以传 null 客户端即可；
+     * 而且 MediaParser 不是 Spring bean（一直靠 new 管理），走注入会导致本类装配失败。
+     * 用法与 {@code SubscriptionEngine} / {@code DownloadTrackService} 的同名字段一致。
+     */
+    private final MediaParser mediaParser = new MediaParser(null, null);
 
     /**
      * 建订阅：查 TMDb 拿元信息与总集数 → 落库 → 生成每集行 → 立即查一次 Emby 初始化状态。
@@ -167,8 +191,14 @@ public class SubscriptionService {
         Set<Integer> inLibrary = queryLibrary(sub.getMediaType(), sub.getTmdbId(), sub.getSeason());
         List<PtSubscriptionEpisodePlus> upgraded = new ArrayList<>();
         for (PtSubscriptionEpisodePlus ep : episodes) {
-            if (inLibrary.contains(ep.getEpisode()) && !STATE_IN_LIBRARY.equals(ep.getState())) {
+            // UPGRADING 的集必须跳过：它的旧版本本来就在 Emby 里，inLibrary 恒命中，
+            // 顺着走会在洗版下载还没完成时就把状态改成 IN_LIBRARY、丢掉在途标记。
+            // Emby 分不出同一集的新旧版本，UPGRADING → IN_LIBRARY 只能由下载完成驱动
+            // （见 DownloadTrackService#complete），不能由对账驱动。
+            if (inLibrary.contains(ep.getEpisode()) && !STATE_IN_LIBRARY.equals(ep.getState())
+                    && !STATE_UPGRADING.equals(ep.getState())) {
                 ep.setState(STATE_IN_LIBRARY);
+                applyQualityBaseline(ep);
                 upgraded.add(ep);
             }
         }
@@ -177,7 +207,7 @@ public class SubscriptionService {
             notifyLibrarySync(sub, movie, upgraded);
         }
 
-        boolean allInLibrary = episodes.stream().allMatch(e -> STATE_IN_LIBRARY.equals(e.getState()));
+        boolean allInLibrary = episodes.stream().allMatch(SubscriptionService::hasFileInLibrary);
         String newStatus = allInLibrary ? STATUS_COMPLETED : STATUS_ACTIVE;
         boolean statusChanged = !newStatus.equals(sub.getStatus()) && !STATUS_PAUSED.equals(sub.getStatus());
         boolean totalChanged = totalEpisodes != sub.getTotalEpisodes();
@@ -185,6 +215,39 @@ public class SubscriptionService {
             sub.setStatus(STATUS_PAUSED.equals(sub.getStatus()) ? STATUS_PAUSED : newStatus);
             sub.setTotalEpisodes(totalEpisodes);
             subscriptionService.updateById(sub);
+        }
+    }
+
+    /**
+     * 给刚入库的集写下质量基线快照，这是洗版判定的唯一依据。
+     * <p>
+     * 质量信息只存在于当初那个种子的标题里，靠 {@code download_id} 反查下载记录后本地解析获得。
+     * {@code download_id} 为空（订阅创建时这一集就已经在 Emby 里了）或记录已被清理时，
+     * OSR 不知道库里躺的是什么货色，标成 {@link UpgradeState#NO_BASELINE} 不参与洗版——
+     * 盲目升级可能把好版本换成差版本，宁可不动。
+     * </p>
+     * <p>不抛异常：一集的画像写失败不该让整轮对账回滚，大不了这一集不参与洗版。</p>
+     */
+    private void applyQualityBaseline(PtSubscriptionEpisodePlus episode) {
+        try {
+            if (episode.getDownloadId() == null) {
+                episode.setUpgradeState(UpgradeState.NO_BASELINE.value());
+                return;
+            }
+            PtDownloadRecordPlus record = downloadRecordService.getById(episode.getDownloadId());
+            if (record == null || StringUtils.isBlank(record.getTitle())) {
+                episode.setUpgradeState(UpgradeState.NO_BASELINE.value());
+                return;
+            }
+            MediaInfo info = mediaParser.parseLocal(record.getTitle());
+            episode.setQuality(QualityProfile.from(info).toJson());
+            // 是否已达目标质量交给洗版扫描去评估——那需要 UpgradeCriteria，
+            // 对账这条路径不该为此再多读一份配置
+            episode.setUpgradeState(UpgradeState.PENDING.value());
+        } catch (Exception e) {
+            log.warn("订阅[{}] 第{}集写质量基线失败，该集不参与洗版：{}",
+                    episode.getSubId(), episode.getEpisode(), e.getMessage());
+            episode.setUpgradeState(UpgradeState.NO_BASELINE.value());
         }
     }
 
@@ -221,7 +284,7 @@ public class SubscriptionService {
         progress.setTitle(sub.getTitle());
         progress.setStatus(sub.getStatus());
         progress.setTotalEpisodes(sub.getTotalEpisodes() == null ? episodes.size() : sub.getTotalEpisodes());
-        progress.setInLibraryCount((int) episodes.stream().filter(e -> STATE_IN_LIBRARY.equals(e.getState())).count());
+        progress.setInLibraryCount((int) episodes.stream().filter(SubscriptionService::hasFileInLibrary).count());
         progress.setInFlightCount((int) episodes.stream().filter(e -> STATE_IN_FLIGHT.equals(e.getState())).count());
         progress.setMissingEpisodes(episodes.stream()
                 .filter(e -> STATE_MISSING.equals(e.getState()))

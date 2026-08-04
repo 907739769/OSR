@@ -142,19 +142,11 @@ public enum SortDimension {
     }
 
     /**
-     * 取值在优先级列表中的名次，越小越优；解析不出（空）或不在列表中一律返回列表长度（排最后）。
-     * 大小写不敏感——索引器标题里 1080P 与 1080p、WEB-DL 与 web-dl 都出现过。
-     * <p>分辨率/来源/发布组三个维度共用本方法：它们的比较语义完全一致，只是取值来源不同。</p>
+     * 取值在优先级列表中的名次，越小越优。分辨率/来源/发布组三个维度共用：
+     * 它们的比较语义完全一致，只是取值来源不同。
+     * <p>实现在 {@link PriorityRanker}，与洗版判定共用同一套口径。</p>
      */
     private static int rankOf(String value, List<String> priority) {
-        if (StringUtils.isBlank(value)) {
-            return priority.size();
-        }
-        for (int i = 0; i < priority.size(); i++) {
-            if (priority.get(i).equalsIgnoreCase(value.trim())) {
-                return i;
-            }
-        }
-        return priority.size();
+        return PriorityRanker.rankOf(value, priority);
     }
 }

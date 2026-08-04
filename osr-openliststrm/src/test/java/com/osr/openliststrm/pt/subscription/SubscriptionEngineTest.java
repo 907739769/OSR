@@ -47,6 +47,8 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.same;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -699,7 +701,7 @@ class SubscriptionEngineTest {
                 List.of(downloader),
                 new LinkedHashMap<>(),
                 SearchLogService.SOURCE_RSS,
-                TorrentBlacklist.EMPTY);
+                TorrentBlacklist.EMPTY, PushMode.FILL_MISSING);
 
         assertTrue(pushed);
         // 只占位第 2、3、4 集，第 1 集不动
@@ -867,7 +869,7 @@ class SubscriptionEngineTest {
                     List.of(downloader),
                     new LinkedHashMap<>(),
                     SearchLogService.SOURCE_RSS,
-                    TorrentBlacklist.EMPTY);
+                    TorrentBlacklist.EMPTY, PushMode.FILL_MISSING);
 
             assertTrue(pushed);
             ws.verify(() -> PtStatusWebSocket.pushSubscriptionEvent(same(sub)));
@@ -948,6 +950,94 @@ class SubscriptionEngineTest {
 
         assertFalse(pushed);
         verify(searchLogService).recordVerdicts(eq(10), eq(1), eq(SearchLogService.SOURCE_SUPPLEMENT), any(List.class));
+    }
+
+    // ---------- 洗版推送模式 ----------
+
+    @Test
+    void 洗版_占位从入库转为洗版中() throws Exception {
+        PtSubscriptionPlus sub = tvSub(10, "Some Show", 1, 1);
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "IN_LIBRARY")));
+
+        boolean pushed = engine.pushUpgrade(sub, 1,
+                List.of(torrent("Some.Show.S01E01.2160p", "g-up", 10, "2160p")));
+
+        assertTrue(pushed);
+        ArgumentCaptor<List> captor = ArgumentCaptor.forClass(List.class);
+        verify(episodeService).updateBatchById(captor.capture());
+        PtSubscriptionEpisodePlus claimed = (PtSubscriptionEpisodePlus) captor.getValue().get(0);
+        assertEquals("UPGRADING", claimed.getState());
+    }
+
+    @Test
+    void 洗版_目标集不在入库状态_不推送() throws Exception {
+        // 已经在洗（UPGRADING）或已退回缺失的集都不该被再占一次
+        PtSubscriptionPlus sub = tvSub(10, "Some Show", 1, 1);
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "UPGRADING")));
+
+        assertFalse(engine.pushUpgrade(sub, 1,
+                List.of(torrent("Some.Show.S01E01.2160p", "g-up", 10, "2160p"))));
+        verify(downloaderClient, never()).addTorrent(any(), anyString(), anyString(), anyString());
+    }
+
+    @Test
+    void 洗版_缺失集不会被洗版占走() throws Exception {
+        // 缺集要走补缺集链路，洗版只认 IN_LIBRARY
+        PtSubscriptionPlus sub = tvSub(10, "Some Show", 1, 1);
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "MISSING")));
+
+        assertFalse(engine.pushUpgrade(sub, 1,
+                List.of(torrent("Some.Show.S01E01.2160p", "g-up", 10, "2160p"))));
+    }
+
+    @Test
+    void 洗版_推送失败回滚到入库而不是缺失() throws Exception {
+        // 退成 MISSING 会让这一集显示成缺失并被 RSS 从头重下一遍，比不洗版还糟
+        PtSubscriptionPlus sub = tvSub(10, "Some Show", 1, 1);
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "IN_LIBRARY")));
+        doThrow(new IOException("下载器挂了")).when(downloaderClient)
+                .addTorrent(any(), anyString(), anyString(), anyString());
+
+        assertFalse(engine.pushUpgrade(sub, 1,
+                List.of(torrent("Some.Show.S01E01.2160p", "g-up", 10, "2160p"))));
+
+        ArgumentCaptor<PtSubscriptionEpisodePlus> captor =
+                ArgumentCaptor.forClass(PtSubscriptionEpisodePlus.class);
+        verify(episodeService, atLeastOnce()).update(captor.capture(), any(Wrapper.class));
+        assertTrue(captor.getAllValues().stream().anyMatch(e -> "IN_LIBRARY".equals(e.getState())),
+                "洗版推送失败必须把集退回 IN_LIBRARY");
+        assertFalse(captor.getAllValues().stream().anyMatch(e -> "MISSING".equals(e.getState())),
+                "洗版推送失败绝不能把集退成 MISSING");
+    }
+
+    @Test
+    void 洗版_区间包不做展开_只动目标那一集() throws Exception {
+        // 区间内其它集的质量基线没被比较过，连带替换很可能把它们换成更差的版本
+        PtSubscriptionPlus sub = tvSub(10, "Some Show", 1, 4);
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(
+                episode(101, 1, "IN_LIBRARY"), episode(102, 2, "IN_LIBRARY"),
+                episode(103, 3, "IN_LIBRARY"), episode(104, 4, "IN_LIBRARY")));
+
+        boolean pushed = engine.pushUpgrade(sub, 2,
+                List.of(torrent("Some.Show.S01E02-04.2160p", "g-range", 10, "2160p")));
+
+        assertTrue(pushed);
+        ArgumentCaptor<List> captor = ArgumentCaptor.forClass(List.class);
+        verify(episodeService).updateBatchById(captor.capture());
+        assertEquals(1, captor.getValue().size(), "洗版只该占位目标那一集");
+    }
+
+    @Test
+    void 洗版_下载记录落的集号是目标集且不带区间() throws Exception {
+        PtSubscriptionPlus sub = tvSub(10, "Some Show", 1, 4);
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(102, 2, "IN_LIBRARY")));
+
+        engine.pushUpgrade(sub, 2, List.of(torrent("Some.Show.S01E02-04.2160p", "g-range", 10, "2160p")));
+
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService).save(captor.capture());
+        assertEquals(2, captor.getValue().getEpisode());
+        assertEquals(null, captor.getValue().getEpisodeEnd());
     }
 
     // ---------- H&R 站点标记 ----------

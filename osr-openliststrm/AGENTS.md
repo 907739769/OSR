@@ -58,6 +58,11 @@ com/osr/openliststrm/
 - **H&R 是站点属性，不是种子属性**：Torznab 协议没有标准的 H&R 字段，索引器不会逐条告知哪个种子要考核，只能按 `pt_indexer.hr_enabled` 整站判定。`hr_enabled=1` 但两个阈值都为 0 属于不完整配置，`PtIndexerPlus#hitAndRunEnabled()` 会按未启用处理——否则种子会永远停在"保种中"并反复提醒。达标判定是**或**关系（做满 N 小时 **或** 分享率达到 R），与站点通行表述一致
 - **`DownloadTrackService.track()` 现在跑两批记录**：`trackActive` 管 PUSHED/DOWNLOADING，`trackSeeding` 管 COMPLETED 且 `hr_state=PENDING`。后者用 `IPtDownloadRecordPlusService#listSeedingPending` 而不是内联 QueryWrapper——两者是语义完全不同的集合，混在同一个泛化 `list()` 调用里读不出意图，测试里 27 个 `list(any(Wrapper))` 通用桩也无从区分
 - **OSR 从不删种**。`hr_state=VIOLATED` 是"已经发生"的事实（用户手删或下载器自动管理清掉了），只发告警，系统不会也无法自动补救。主动防线只有推送后按站点规则下发 `setShareLimits`——**Transmission 的 RPC 没有"最短做种时长"概念**（`seedIdleLimit` 是"空闲多久后停"，语义不同，不能拿来充数），该维度对 Transmission 只能靠 OSR 侧追踪告警兜底
+- **洗版判定绝不能引入 SEEDERS / SIZE / FREE 维度**（`UpgradeDimension` 只有 RESOLUTION/SOURCE/TAG/RELEASE_GROUP）。那些取值随时间连续变化：同分辨率但做种更多的种子会被判成"更优"，下完之后下一轮又冒出别的做种更多的，于是无限洗版。现有四个维度取值都来自有限集合，字典序比较构成全预序，数学上不存在 A 优于 B 且 B 优于 A 的环——这是"不会来回洗"的唯一保证，`UpgradeEvaluatorTest.比较关系无环_任意两个画像至多一个方向成立` 守着它
+- **cutoff（`pt_upgrade_config.target_*`）不是可选优化**：没有终止条件的话，每一集都会永远搜下去把索引器配额烧干。三项全空时 `hasTarget()` 为 false、洗版不激活，这是刻意的安全默认
+- **`UPGRADING → IN_LIBRARY` 只能由下载完成驱动，不能交给 Emby 对账**。`SubscriptionService#refresh` 判"在不在库里"靠 Emby 查询，而旧版本本来就在库里、查询恒命中，对账分不出同一集的新旧版本——所以 refresh 刻意跳过 UPGRADING，收尾在 `DownloadTrackService#finishUpgrade`，并在那里同步刷新 `quality` 基线（不刷的话下一轮扫描仍按旧画像判断，会反复洗同一集）
+- **洗版失败退回 IN_LIBRARY 而不是 MISSING，且不累加 `fail_count`**。旧文件一直在库里，退成 MISSING 会让这一集显示成缺失并被 RSS 从头重下；累加 fail_count 会让几次洗版失败把一个明明已入库的集熔断成 BLOCKED
+- **第一期洗版不碰旧文件**：OSR 从不删种，新旧版本同时存在，清理由用户手动完成。自动清理（第二期）必须先检查旧种子 `hr_state ∈ {SATISFIED, null}`——删掉还在 H&R 考核期内的种子的文件，等于亲手制造一次记过
 - **`FilterCriteria` 一律用 `FilterCriteria.builder()` 构造**，不要用位置参数：16 个分量里有 9 个是 `List<String>`，顺序写反编译器发现不了；新增维度时 builder 调用方也不必补占位参数
 - **`TorrentFilterEngine` 只有 2 参与 4 参两种签名，不要再加三参重载**。历史上 `(…, TorrentBlacklist)` 与 `(…, String originalLanguage)` 两个三参重载只靠第三参类型区分，`SearchSupplementService` 调错了版本，导致手动搜索候选列表不受黑名单约束，用户选中后推送侧再拦下，只回一个没有原因的失败
 - **种子的 `parsedTags` 是 `MediaInfo.tags` + 视频编码 + 音频编码的并集**（见 `SubscriptionEngine#collectTags`）。extractor 按 Resolution → Codec → SourceAndGroup 顺序跑，`CodecExtractor` 会先把 `Atmos`/`H265`/`DTS-HD` 匹进 `audioCodec`/`videoCodec` 并从标题里抹掉，只读 `tags` 的话「必须带 Atmos」这类配置会一条都匹配不上

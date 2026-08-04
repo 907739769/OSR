@@ -80,7 +80,9 @@ public class MysqlDdl extends SimpleDdl {
                 "sql/20260755-notify-type-channel-config.sql",
                 "sql/20260756-pt-filter-quality-dimensions.sql",
                 "sql/20260757-pt-hit-and-run.sql",
-                "sql/20260758-pt-filter-avoid-hit-and-run.sql"
+                "sql/20260758-pt-filter-avoid-hit-and-run.sql",
+                "sql/20260759-pt-quality-upgrade.sql",
+                "sql/20260760-pt-upgrade-menu.sql"
         );
     }
 }

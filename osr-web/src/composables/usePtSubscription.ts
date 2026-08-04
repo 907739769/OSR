@@ -190,7 +190,8 @@ export function usePtSubscription() {
 
   /** 每集状态文案。PC 与移动端共用，避免两端文案漂移 */
   const EPISODE_STATE_LABELS: Record<string, string> = {
-    MISSING: '缺失', IN_FLIGHT: '在途', IN_LIBRARY: '已入库', BLOCKED: '已熔断'
+    MISSING: '缺失', IN_FLIGHT: '在途', IN_LIBRARY: '已入库',
+    UPGRADING: '洗版中', BLOCKED: '已熔断'
   }
   const episodeStateLabel = (state: string) => EPISODE_STATE_LABELS[state] || state
 
@@ -199,6 +200,8 @@ export function usePtSubscription() {
     switch (state) {
       case 'IN_LIBRARY': return 'success'
       case 'IN_FLIGHT': return 'primary'
+      // 洗版中：旧版本一直在库里可正常观看，不该用告警色吓人
+      case 'UPGRADING': return 'primary'
       case 'BLOCKED': return 'error'
       default: return 'info'
     }
@@ -474,6 +477,45 @@ export function usePtSubscription() {
     searchAllMissingLoading.value = false
   }
 
+  /**
+   * 集当前的质量画像摘要，如 {@code 2160p / REMUX / HDR10 / CHDBits}。
+   * quality 列存的是后端 QualityProfile 序列化出来的 JSON，脏数据不该让整个列表炸掉。
+   */
+  const qualityLabel = (ep: any): string => {
+    if (!ep?.quality) return ''
+    try {
+      const p = JSON.parse(ep.quality)
+      const parts = [p.resolution, p.source]
+      if (Array.isArray(p.tags) && p.tags.length) parts.push(p.tags.join('+'))
+      parts.push(p.group)
+      return parts.filter(Boolean).join(' / ')
+    } catch {
+      return ''
+    }
+  }
+
+  /** 洗版状态的说明文字，挂在质量摘要的 title 上，不占列表宽度 */
+  const upgradeStateHint = (ep: any): string => {
+    switch (ep?.upgradeState) {
+      case 'REACHED': return '已达目标质量，不再洗版'
+      case 'NO_BASELINE': return '无质量基线（订阅创建时该集就已在库中），不参与洗版'
+      case 'PENDING': return '未达目标质量，会在洗版扫描中尝试升级'
+      default: return '尚未评估洗版状态'
+    }
+  }
+
+  /** 订阅级洗版开关。全局开关（PT洗版规则页）关闭时本项不生效 */
+  const toggleUpgrade = async (row: any) => {
+    try {
+      await updatePtSubscriptionApi({ id: row.id, upgradeEnabled: row.upgradeEnabled })
+      message.success(row.upgradeEnabled === '1' ? '已开启洗版' : '已关闭洗版')
+    } catch (e) {
+      // 请求失败时把开关状态还原（v-model 已经乐观更新过了）
+      row.upgradeEnabled = row.upgradeEnabled === '1' ? '0' : '1'
+      console.error(e)
+    }
+  }
+
   const toggleAutoSearch = async (row: any) => {
     try {
       await updatePtSubscriptionApi({ id: row.id, autoSearch: row.autoSearch })
@@ -638,6 +680,7 @@ export function usePtSubscription() {
     // 每集明细 + 手动重置
     episodeDetailOpen, episodeDetailLoading, episodeDetail, resettingEpisode,
     loadEpisodeDetail, handleResetEpisode, episodeStateLabel, episodeStateColor,
+    qualityLabel, upgradeStateHint,
     // 匹配日志
     searchLogOpen, searchLogLoading, searchLogs, showSearchLogs,
     // 过滤规则覆盖
@@ -649,7 +692,7 @@ export function usePtSubscription() {
     // 手动选择候选
     candidateDialogOpen, candidates, pushingSelected, pushSelectedCandidate, formatSize,
     // 一键补齐全部缺集
-    searchAllMissingLoading, handleSearchAllMissing, toggleAutoSearch,
+    searchAllMissingLoading, handleSearchAllMissing, toggleAutoSearch, toggleUpgrade,
     // 行操作
     handleRefresh, handlePause, handleResume, handleRemove,
     // 批量操作

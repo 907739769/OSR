@@ -69,6 +69,8 @@ public class SubscriptionEngine {
 
     private static final String STATE_MISSING = SubscriptionEpisodeState.MISSING.value();
     private static final String STATE_IN_FLIGHT = SubscriptionEpisodeState.IN_FLIGHT.value();
+    private static final String STATE_IN_LIBRARY = SubscriptionEpisodeState.IN_LIBRARY.value();
+    private static final String STATE_UPGRADING = SubscriptionEpisodeState.UPGRADING.value();
     private static final String RECORD_PUSHED = DownloadRecordState.PUSHED.value();
     private static final String RECORD_DOWNLOADING = DownloadRecordState.DOWNLOADING.value();
     private static final String RECORD_FAILED = DownloadRecordState.FAILED.value();
@@ -172,7 +174,7 @@ public class SubscriptionEngine {
                         MatchResult match = groupMatch.get(entry.getKey());
                         return handleGroup(match, entry.getValue(), globalConfig,
                                 episodeCache, enabledDownloaders, downloaderLoadCache,
-                                SearchLogService.SOURCE_RSS, blacklist);
+                                SearchLogService.SOURCE_RSS, blacklist, PushMode.FILL_MISSING);
                     }), executor))
                     .toList();
             int pushed = 0;
@@ -207,7 +209,35 @@ public class SubscriptionEngine {
         List<PtDownloaderPlus> enabledDownloaders = loadEnabledDownloaders();
         Map<Integer, Long> downloaderLoadCache = loadDownloaderLoadCounts(enabledDownloaders);
         return handleGroup(match, candidates, globalConfig, episodeCache,
-                enabledDownloaders, downloaderLoadCache, SearchLogService.SOURCE_SUPPLEMENT, blacklist);
+                enabledDownloaders, downloaderLoadCache, SearchLogService.SOURCE_SUPPLEMENT, blacklist,
+                PushMode.FILL_MISSING);
+    }
+
+    /**
+     * 供洗版复用：已知目标订阅与集号（该集必须处于 IN_LIBRARY），把一个质量更好的候选推给下载器。
+     * <p>
+     * 与 {@link #pushBest} 走同一条主干，只是模式不同——占位是 IN_LIBRARY → UPGRADING，
+     * 失败退回 IN_LIBRARY，且不做区间展开。候选是否<b>确实更优</b>由调用方
+     * （{@code UpgradeScanService}）用 {@code UpgradeEvaluator} 判过，本方法不重复判定：
+     * 引擎只负责"把选中的这个推下去并落好账"。
+     * </p>
+     *
+     * @return 是否成功推送了一个种子
+     */
+    public boolean pushUpgrade(PtSubscriptionPlus sub, int episode, List<TorrentInfo> candidates) {
+        PtFilterConfigPlus globalConfig = filterConfigService.getConfig();
+        TorrentBlacklist blacklist = TorrentBlacklist.from(blacklistService.list());
+        for (TorrentInfo candidate : candidates) {
+            fillParsed(candidate);
+        }
+        markHitAndRun(candidates);
+        MatchResult match = new MatchResult(sub, episode);
+        Map<Integer, List<PtSubscriptionEpisodePlus>> episodeCache = new LinkedHashMap<>();
+        List<PtDownloaderPlus> enabledDownloaders = loadEnabledDownloaders();
+        Map<Integer, Long> downloaderLoadCache = loadDownloaderLoadCounts(enabledDownloaders);
+        return handleGroup(match, candidates, globalConfig, episodeCache,
+                enabledDownloaders, downloaderLoadCache, SearchLogService.SOURCE_SUPPLEMENT, blacklist,
+                PushMode.UPGRADE);
     }
 
     /**
@@ -219,15 +249,19 @@ public class SubscriptionEngine {
                                 List<PtDownloaderPlus> enabledDownloaders,
                                 Map<Integer, Long> downloaderLoadCache,
                                 String source,
-                                TorrentBlacklist blacklist) {
+                                TorrentBlacklist blacklist,
+                                PushMode mode) {
         PtSubscriptionPlus sub = match.getSubscription();
         List<PtSubscriptionEpisodePlus> allEpisodes = episodeCache.computeIfAbsent(
                 sub.getId(), episodeService::listBySubscription);
 
-        List<PtSubscriptionEpisodePlus> targets = resolveTargets(match, allEpisodes);
+        List<PtSubscriptionEpisodePlus> targets = resolveTargets(match, allEpisodes, mode);
         if (targets.isEmpty()) {
-            log.debug("订阅[{}] 集{} 无可占位的缺失集，跳过", sub.getId(), match.getEpisode());
-            searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, "无可占位的缺失集（可能已入库或在途）");
+            String reason = mode.isUpgrade()
+                    ? "该集已不在可洗版状态（可能已被其它轮次占位或退回缺失）"
+                    : "无可占位的缺失集（可能已入库或在途）";
+            log.debug("订阅[{}] 集{} {}，跳过", sub.getId(), match.getEpisode(), reason);
+            searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, reason);
             return false;
         }
 
@@ -265,11 +299,15 @@ public class SubscriptionEngine {
         // targets 不改 match，buildRecord 落库的 episode/episodeEnd 仍是旧的单集范围，
         // DownloadRecordAdminService#resetBlockedEpisodes 之后按这个范围重置会漏掉那一集，
         // 下载失败/被拉黑后该集会永久卡在 IN_FLIGHT 且没有对应下载记录可追踪回退。
-        if (match.getEpisode() != SubscriptionMatcher.SEASON_PACK
+        // 洗版刻意跳过这段区间展开：洗版的语义是「把这一集换个更好的版本」，
+        // 用一个区间包去覆盖会连带动到区间内那些没打算升级的集——它们的质量基线没被比较过，
+        // 很可能被换成更差的版本，而且那些集根本没被 claim，状态与实际下载内容会对不上。
+        if (!mode.isUpgrade()
+                && match.getEpisode() != SubscriptionMatcher.SEASON_PACK
                 && best.getParsedEpisode() != null && best.getParsedEpisodeEnd() != null
                 && best.getParsedEpisodeEnd() > best.getParsedEpisode()) {
             match = new MatchResult(sub, best.getParsedEpisode(), best.getParsedEpisodeEnd());
-            targets = resolveTargets(match, allEpisodes);
+            targets = resolveTargets(match, allEpisodes, mode);
         }
 
         // 「选下载器 + 判容量 + 占位自增」必须在同一把锁内原子完成：process() 用虚拟线程并行处理
@@ -300,7 +338,7 @@ public class SubscriptionEngine {
         // 原子占位：条件更新按影响行数判断，防止并发轮询给同一集推两个种子
         List<PtSubscriptionEpisodePlus> claimed = new ArrayList<>();
         for (PtSubscriptionEpisodePlus target : targets) {
-            if (claim(target)) {
+            if (claim(target, mode)) {
                 claimed.add(target);
             }
         }
@@ -327,7 +365,7 @@ public class SubscriptionEngine {
             saved = false;
         }
         if (!saved) {
-            releaseAll(claimed);
+            releaseAll(claimed, mode);
             downloaderLoadCache.merge(downloader.getId(), -1L, Long::sum);
             return false;
         }
@@ -341,14 +379,14 @@ public class SubscriptionEngine {
             searchLogService.recordSummary(sub.getId(), match.getEpisode(), source,
                     "推送到下载器失败：" + e.getMessage());
             recordService.removeById(record.getId());
-            releaseAll(claimed);
+            releaseAll(claimed, mode);
             downloaderLoadCache.merge(downloader.getId(), -1L, Long::sum);
             return false;
         }
 
         for (PtSubscriptionEpisodePlus ep : claimed) {
             ep.setDownloadId(record.getId());
-            ep.setState(STATE_IN_FLIGHT);
+            ep.setState(mode.isUpgrade() ? STATE_UPGRADING : STATE_IN_FLIGHT);
         }
         episodeService.updateBatchById(claimed);
 
@@ -356,11 +394,20 @@ public class SubscriptionEngine {
         subscriptionService.updateById(sub);
         PtStatusWebSocket.pushSubscriptionEvent(sub);
 
-        log.info("订阅[{}] {} 已推送种子：{}（占位 {} 集）",
-                sub.getId(), sub.getTitle(), best.getTitle(), claimed.size());
-        notifySafely(NotificationType.SUBSCRIPTION_HIT, "📌 订阅命中：《" + StringUtils.escapeHtml(sub.getTitle()) + "》"
-                + describeEpisodes(match) + "\n" + StringUtils.escapeHtml(best.getTitle())
-                + "\n已推送至下载器：" + StringUtils.escapeHtml(downloader.getName()));
+        log.info("订阅[{}] {} 已推送{}种子：{}（占位 {} 集）",
+                sub.getId(), sub.getTitle(), mode.isUpgrade() ? "洗版" : "", best.getTitle(), claimed.size());
+        if (mode.isUpgrade()) {
+            // 第一期不碰旧文件：OSR 从不删种，新旧两个版本会同时存在，清理由用户手动完成。
+            // 通知里必须把这件事说清楚，否则用户会以为系统已经替换好了。
+            notifySafely(NotificationType.SUBSCRIPTION_HIT, "⬆️ 洗版已推送：《" + StringUtils.escapeHtml(sub.getTitle()) + "》"
+                    + describeEpisodes(match) + "\n" + StringUtils.escapeHtml(best.getTitle())
+                    + "\n已推送至下载器：" + StringUtils.escapeHtml(downloader.getName())
+                    + "\n⚠️ 旧版本不会被自动删除，新版本下载完成后请自行清理");
+        } else {
+            notifySafely(NotificationType.SUBSCRIPTION_HIT, "📌 订阅命中：《" + StringUtils.escapeHtml(sub.getTitle()) + "》"
+                    + describeEpisodes(match) + "\n" + StringUtils.escapeHtml(best.getTitle())
+                    + "\n已推送至下载器：" + StringUtils.escapeHtml(downloader.getName()));
+        }
         return true;
     }
 
@@ -445,8 +492,14 @@ public class SubscriptionEngine {
         }
     }
 
-    /** 用本地解析结果填充种子的 parsedXxx 字段，不发任何网络请求 */
-    void fillParsed(TorrentInfo torrent) {
+    /**
+     * 用本地解析结果填充种子的 parsedXxx 字段，不发任何网络请求。
+     * <p>
+     * 公开而非包内可见：洗版扫描（{@code pt.upgrade} 包）要先拿到解析结果才能判断
+     * "这个候选对不对应目标集"与"它是不是更好"，而那些判断必须发生在推送之前。
+     * </p>
+     */
+    public void fillParsed(TorrentInfo torrent) {
         MediaInfo info = mediaParser.parseLocal(torrent.getTitle());
         // 注意：parseLocal 不做 TMDb 富化，MediaInfo.title 恒为 null
         // （TitleProcessor.processTitle 只写 originalTitle/englishTitle，见该类第46-48行的注释代码）。
@@ -512,8 +565,19 @@ public class SubscriptionEngine {
      * 区间匹配（如 S01E01-03）则是区间内所有 MISSING 的集。
      */
     private List<PtSubscriptionEpisodePlus> resolveTargets(MatchResult match,
-                                                           List<PtSubscriptionEpisodePlus> allEpisodes) {
+                                                           List<PtSubscriptionEpisodePlus> allEpisodes,
+                                                           PushMode mode) {
         List<PtSubscriptionEpisodePlus> targets = new ArrayList<>();
+        if (mode.isUpgrade()) {
+            // 洗版只动调用方指定的那一集，且它必须仍处于 IN_LIBRARY：
+            // 已经在洗（UPGRADING）或已退回缺失的集都不该被再占一次
+            for (PtSubscriptionEpisodePlus ep : allEpisodes) {
+                if (ep.getEpisode() == match.getEpisode() && STATE_IN_LIBRARY.equals(ep.getState())) {
+                    targets.add(ep);
+                }
+            }
+            return targets;
+        }
         if (match.getEpisode() == SubscriptionMatcher.SEASON_PACK) {
             for (PtSubscriptionEpisodePlus ep : allEpisodes) {
                 if (STATE_MISSING.equals(ep.getState())) {
@@ -641,23 +705,36 @@ public class SubscriptionEngine {
         return updated;
     }
 
-    /** 条件更新占位：只有仍是 MISSING 才能占位成功 */
-    private boolean claim(PtSubscriptionEpisodePlus target) {
+    /**
+     * 条件更新占位，防止并发轮询给同一集推两个种子。
+     * 补缺集是 MISSING → IN_FLIGHT，洗版是 IN_LIBRARY → UPGRADING。
+     */
+    private boolean claim(PtSubscriptionEpisodePlus target, PushMode mode) {
+        String from = mode.isUpgrade() ? STATE_IN_LIBRARY : STATE_MISSING;
+        String to = mode.isUpgrade() ? STATE_UPGRADING : STATE_IN_FLIGHT;
         PtSubscriptionEpisodePlus set = new PtSubscriptionEpisodePlus();
-        set.setState(STATE_IN_FLIGHT);
+        set.setState(to);
         return episodeService.update(set, new UpdateWrapper<PtSubscriptionEpisodePlus>()
                 .eq("id", target.getId())
-                .eq("state", STATE_MISSING));
+                .eq("state", from));
     }
 
-    /** 回滚占位 */
-    private void releaseAll(List<PtSubscriptionEpisodePlus> claimed) {
+    /**
+     * 回滚占位，与 {@link #claim} 严格对称。
+     * <p>
+     * 洗版必须退回 IN_LIBRARY 而不是 MISSING：旧版本的文件一直好端端在库里，
+     * 退成 MISSING 会让这一集显示成缺失并被 RSS 从头重下一遍——比不洗版还糟。
+     * </p>
+     */
+    private void releaseAll(List<PtSubscriptionEpisodePlus> claimed, PushMode mode) {
+        String back = mode.isUpgrade() ? STATE_IN_LIBRARY : STATE_MISSING;
+        String claimedState = mode.isUpgrade() ? STATE_UPGRADING : STATE_IN_FLIGHT;
         for (PtSubscriptionEpisodePlus ep : claimed) {
             PtSubscriptionEpisodePlus set = new PtSubscriptionEpisodePlus();
-            set.setState(STATE_MISSING);
+            set.setState(back);
             episodeService.update(set, new UpdateWrapper<PtSubscriptionEpisodePlus>()
                     .eq("id", ep.getId())
-                    .eq("state", STATE_IN_FLIGHT));
+                    .eq("state", claimedState));
         }
     }
 
