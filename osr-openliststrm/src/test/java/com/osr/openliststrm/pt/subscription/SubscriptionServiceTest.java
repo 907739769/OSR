@@ -148,6 +148,8 @@ class SubscriptionServiceTest {
         assertEquals(7, sub.getTotalEpisodes());
         assertEquals("ACTIVE", sub.getStatus());
         assertEquals("/p.jpg", sub.getPosterPath());
+        // 洗版默认关闭，要洗版得用户在列表里手动打开
+        assertEquals("0", sub.getUpgradeEnabled());
     }
 
     @Test

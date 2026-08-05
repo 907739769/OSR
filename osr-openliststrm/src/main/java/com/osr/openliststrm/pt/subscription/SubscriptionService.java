@@ -54,6 +54,9 @@ public class SubscriptionService {
     public static final String STATUS_COMPLETED = "COMPLETED";
     public static final String STATUS_PAUSED = "PAUSED";
 
+    /** 订阅级洗版开关：新建订阅一律关闭，需要洗版的订阅由用户在列表里手动打开 */
+    public static final String UPGRADE_DISABLED = "0";
+
     /** 电影的哨兵季号与集号 */
     private static final int MOVIE_SEASON = 0;
     private static final int MOVIE_EPISODE = 0;
@@ -144,6 +147,9 @@ public class SubscriptionService {
         sub.setDownloaderId(request.getDownloaderId());
         sub.setFilterOverride(request.getFilterOverride());
         sub.setOwnerUserId(request.getOwnerUserId());
+        // 洗版默认关闭：洗版会额外占用索引器配额与下载器带宽，且新旧版本会同时留在库里（OSR 从不删种），
+        // 属于用户明确想要才该开的行为。这里显式写死，不依赖 DB 列默认值，Web/企微/TG 各入口口径一致。
+        sub.setUpgradeEnabled(UPGRADE_DISABLED);
         sub.setStatus(coversAll(inLibrary, movie, totalEpisodes) ? STATUS_COMPLETED : STATUS_ACTIVE);
         subscriptionService.save(sub);
 
