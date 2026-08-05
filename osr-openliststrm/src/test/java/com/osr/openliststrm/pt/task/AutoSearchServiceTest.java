@@ -168,7 +168,7 @@ class AutoSearchServiceTest {
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
             service().run();
 
-            tg.verify(() -> TgHelper.sendMsg(anyString()), never());
+            tg.verify(() -> TgHelper.sendMsg(any(), anyString(), any()), never());
         }
     }
 
@@ -185,7 +185,7 @@ class AutoSearchServiceTest {
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
             service().run();
 
-            tg.verify(() -> TgHelper.sendMsg(argThat(m -> m.contains("未找到可用资源"))));
+            tg.verify(() -> TgHelper.sendMsg(any(), argThat(m -> m.contains("未找到可用资源")), any()));
             ArgumentCaptor<PtSubscriptionPlus> captor = ArgumentCaptor.forClass(PtSubscriptionPlus.class);
             verify(subscriptionService).updateById(captor.capture());
             assertEquals("1", captor.getValue().getLastAutoSearchNoResult());
@@ -204,7 +204,7 @@ class AutoSearchServiceTest {
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
             service().run();
 
-            tg.verify(() -> TgHelper.sendMsg(anyString()), never());
+            tg.verify(() -> TgHelper.sendMsg(any(), anyString(), any()), never());
             verify(subscriptionService, never()).updateById(any(PtSubscriptionPlus.class));
         }
     }
@@ -221,7 +221,7 @@ class AutoSearchServiceTest {
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
             service().run();
 
-            tg.verify(() -> TgHelper.sendMsg(anyString()), never());
+            tg.verify(() -> TgHelper.sendMsg(any(), anyString(), any()), never());
             ArgumentCaptor<PtSubscriptionPlus> captor = ArgumentCaptor.forClass(PtSubscriptionPlus.class);
             verify(subscriptionService).updateById(captor.capture());
             assertEquals("0", captor.getValue().getLastAutoSearchNoResult());

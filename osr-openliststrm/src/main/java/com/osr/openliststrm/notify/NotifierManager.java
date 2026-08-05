@@ -27,9 +27,20 @@ public class NotifierManager {
     }
 
     public void send(NotificationType type, String message) {
+        send(type, message, NotifyTarget.BROADCAST);
+    }
+
+    /**
+     * 带投递目标的分发。支持分人投递的渠道会只发给 {@code target} 指向的人，
+     * 其余渠道按广播处理（见 {@link INotifier#send(NotificationType, String, NotifyTarget)} 的默认实现）。
+     *
+     * @param target 投递目标，null 按广播处理
+     */
+    public void send(NotificationType type, String message, NotifyTarget target) {
+        NotifyTarget effective = target == null ? NotifyTarget.BROADCAST : target;
         for (INotifier notifier : notifiers) {
             try {
-                notifier.send(type, message);
+                notifier.send(type, message, effective);
             } catch (Exception e) {
                 log.warn("通知渠道[{}]发送失败：{}", notifier.getClass().getSimpleName(), e.getMessage());
             }

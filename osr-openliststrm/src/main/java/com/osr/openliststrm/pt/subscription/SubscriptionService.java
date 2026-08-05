@@ -12,6 +12,7 @@ import com.osr.openliststrm.mybatisplus.service.IPtMediaServerPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.osr.openliststrm.notify.NotificationType;
+import com.osr.openliststrm.notify.NotifyTarget;
 import com.osr.openliststrm.pt.media.MediaServerClientFactory;
 import com.osr.openliststrm.pt.subscription.dto.BatchOperationResult;
 import com.osr.openliststrm.pt.subscription.dto.SubscribeRequest;
@@ -142,6 +143,7 @@ public class SubscriptionService {
         sub.setPosterPath(detail.getPosterPath());
         sub.setDownloaderId(request.getDownloaderId());
         sub.setFilterOverride(request.getFilterOverride());
+        sub.setOwnerUserId(request.getOwnerUserId());
         sub.setStatus(coversAll(inLibrary, movie, totalEpisodes) ? STATUS_COMPLETED : STATUS_ACTIVE);
         subscriptionService.save(sub);
 
@@ -258,13 +260,13 @@ public class SubscriptionService {
                 .sorted()
                 .map(String::valueOf)
                 .collect(Collectors.joining("、")) + " 集";
-        notifySafely(NotificationType.EMBY_LIBRARY_SYNC, "📀 已入库：《" + StringUtils.escapeHtml(sub.getTitle()) + "》" + detail);
+        notifySafely(NotificationType.EMBY_LIBRARY_SYNC, "📀 已入库：《" + StringUtils.escapeHtml(sub.getTitle()) + "》" + detail, sub);
     }
 
     /** 发通知但绝不让通知失败影响主流程（单测环境下 SpringUtils.getBean 会抛异常，这里兜住） */
-    private void notifySafely(NotificationType type, String msg) {
+    private void notifySafely(NotificationType type, String msg, PtSubscriptionPlus sub) {
         try {
-            TgHelper.sendMsg(type, msg);
+            TgHelper.sendMsg(type, msg, NotifyTarget.owner(sub == null ? null : sub.getOwnerUserId()));
         } catch (Exception e) {
             log.debug("发送通知失败（不影响主流程）：{}", e.getMessage());
         }

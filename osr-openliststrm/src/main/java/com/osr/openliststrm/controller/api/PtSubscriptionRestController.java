@@ -3,6 +3,7 @@ package com.osr.openliststrm.controller.api;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.osr.common.core.domain.Result;
+import com.osr.common.core.domain.entity.SysUser;
 import com.osr.common.core.text.Convert;
 import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.mybatisplus.domain.PtSearchLogPlus;
@@ -59,9 +60,56 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
     @Autowired
     private IPtSearchLogPlusService searchLogService;
 
+    /**
+     * 当前登录用户是否可以看到/操作所有订阅。管理员可以；其余用户只能碰自己的订阅
+     * 和无归属的公共订阅（{@code owner_user_id IS NULL}，即本列上线前建的历史订阅）。
+     */
+    private boolean canAccessAll() {
+        return SysUser.isAdmin(getUserId());
+    }
+
+    /** 当前登录用户能否操作这条订阅 */
+    private boolean canAccess(PtSubscriptionPlus sub) {
+        if (sub == null) {
+            return false;
+        }
+        return canAccessAll() || sub.getOwnerUserId() == null || sub.getOwnerUserId().equals(getUserId());
+    }
+
+    /**
+     * 单条操作前的归属校验。
+     * <p>
+     * 订阅不存在与无权访问返回<b>同一句</b>提示，不区分二者：区分开就等于给了一个
+     * 逐个 id 试探、枚举出别人订阅了什么的接口。
+     *
+     * @return 校验不通过时返回错误 Result，通过时返回 null
+     */
+    private <R> Result<R> denyIfInaccessible(Integer id) {
+        if (canAccessAll()) {
+            return null;
+        }
+        return canAccess(service.getById(id)) ? null : Result.error("订阅不存在或无权访问");
+    }
+
+    /** 过滤出当前用户有权操作的订阅 id，供批量接口使用 */
+    private List<Integer> filterAccessible(List<Integer> ids) {
+        if (canAccessAll() || ids.isEmpty()) {
+            return ids;
+        }
+        return service.listByIds(ids).stream()
+                .filter(this::canAccess)
+                .map(PtSubscriptionPlus::getId)
+                .toList();
+    }
+
     @Override
     protected Wrapper<PtSubscriptionPlus> buildQueryWrapper(PtSubscriptionPlus entity) {
         LambdaQueryWrapper<PtSubscriptionPlus> wrapper = new LambdaQueryWrapper<>();
+        if (!canAccessAll()) {
+            Long currentUserId = getUserId();
+            wrapper.and(w -> w.eq(PtSubscriptionPlus::getOwnerUserId, currentUserId)
+                    .or().isNull(PtSubscriptionPlus::getOwnerUserId));
+        }
         if (StringUtils.isNotBlank(entity.getTitle())) {
             wrapper.like(PtSubscriptionPlus::getTitle, entity.getTitle());
         }
@@ -77,6 +125,20 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
             wrapper.orderByDesc(PtSubscriptionPlus::getId);
         }
         return wrapper;
+    }
+
+    /**
+     * 查订阅详情。覆写基类实现只为补归属校验——基类按 id 直查，
+     * 不校验的话非管理员可以直接 GET 到别人的订阅明细。
+     */
+    @Override
+    @GetMapping("/{id}")
+    public Result<PtSubscriptionPlus> getById(@PathVariable("id") Integer id) {
+        Result<PtSubscriptionPlus> denied = denyIfInaccessible(id);
+        if (denied != null) {
+            return denied;
+        }
+        return super.getById(id);
     }
 
     /**
@@ -107,6 +169,9 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
     @PostMapping("/subscribe")
     public Result<Void> subscribe(@RequestBody SubscribeRequest request) {
         PtSubscriptionPlus sub;
+        // 归属人一律以当前登录用户为准，不采信请求体：否则谁都能把订阅挂到别人名下，
+        // 那个人就会收到一堆自己没订过的下载通知
+        request.setOwnerUserId(getUserId());
         try {
             sub = subscriptionBiz.subscribe(request);
         } catch (IllegalArgumentException e) {
@@ -134,6 +199,10 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
      */
     @GetMapping("/{id}/progress")
     public Result<SubscriptionProgress> progress(@PathVariable("id") Integer id) {
+        Result<SubscriptionProgress> denied = denyIfInaccessible(id);
+        if (denied != null) {
+            return denied;
+        }
         try {
             return Result.success(subscriptionBiz.getProgress(id));
         } catch (IllegalArgumentException e) {
@@ -146,6 +215,10 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
      */
     @GetMapping("/{id}/episodes")
     public Result<List<PtSubscriptionEpisodePlus>> episodes(@PathVariable("id") Integer id) {
+        Result<List<PtSubscriptionEpisodePlus>> denied = denyIfInaccessible(id);
+        if (denied != null) {
+            return denied;
+        }
         return Result.success(episodeService.listBySubscription(id));
     }
 
@@ -154,6 +227,10 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
      */
     @GetMapping("/{id}/search-logs")
     public Result<List<PtSearchLogPlus>> searchLogs(@PathVariable("id") Integer id) {
+        Result<List<PtSearchLogPlus>> denied = denyIfInaccessible(id);
+        if (denied != null) {
+            return denied;
+        }
         List<PtSearchLogPlus> logs = searchLogService.list(new LambdaQueryWrapper<PtSearchLogPlus>()
                 .eq(PtSearchLogPlus::getSubId, id)
                 .orderByDesc(PtSearchLogPlus::getId)
@@ -166,6 +243,10 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
      */
     @PostMapping("/{id}/refresh")
     public Result<Void> refresh(@PathVariable("id") Integer id) {
+        Result<Void> denied = denyIfInaccessible(id);
+        if (denied != null) {
+            return denied;
+        }
         try {
             subscriptionBiz.refresh(id);
             return Result.success();
@@ -183,6 +264,10 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
      */
     @PostMapping("/{id}/search")
     public Result<SupplementResult> search(@PathVariable("id") Integer id, @RequestBody SearchRequest request) {
+        Result<SupplementResult> denied = denyIfInaccessible(id);
+        if (denied != null) {
+            return denied;
+        }
         try {
             return Result.success(searchSupplementService.supplement(id, request.getEpisode(), request.getKeyword(), request.isManualSelect()));
         } catch (IllegalArgumentException e) {
@@ -195,6 +280,10 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
      */
     @PostMapping("/{id}/push-selected")
     public Result<Void> pushSelected(@PathVariable("id") Integer id, @RequestBody PushSelectedRequest request) {
+        Result<Void> denied = denyIfInaccessible(id);
+        if (denied != null) {
+            return denied;
+        }
         try {
             boolean pushed = searchSupplementService.pushSelected(id, request.getEpisode(), request);
             if (pushed) {
@@ -211,6 +300,10 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
      */
     @PostMapping("/{id}/episodes/{episode}/reset")
     public Result<Void> resetEpisode(@PathVariable("id") Integer id, @PathVariable("episode") Integer episode) {
+        Result<Void> denied = denyIfInaccessible(id);
+        if (denied != null) {
+            return denied;
+        }
         try {
             subscriptionBiz.resetEpisode(id, episode);
             return Result.success();
@@ -224,6 +317,10 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
      */
     @PostMapping("/{id}/pause")
     public Result<Void> pause(@PathVariable("id") Integer id) {
+        Result<Void> denied = denyIfInaccessible(id);
+        if (denied != null) {
+            return denied;
+        }
         try {
             subscriptionBiz.pause(id);
             return Result.success();
@@ -237,6 +334,10 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
      */
     @PostMapping("/{id}/resume")
     public Result<Void> resume(@PathVariable("id") Integer id) {
+        Result<Void> denied = denyIfInaccessible(id);
+        if (denied != null) {
+            return denied;
+        }
         try {
             subscriptionBiz.resume(id);
             return Result.success();
@@ -253,7 +354,10 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
         if (StringUtils.isBlank(ids)) {
             return Result.error("请选择要暂停的订阅");
         }
-        List<Integer> idList = Arrays.stream(Convert.toStrArray(ids)).map(Integer::valueOf).toList();
+        List<Integer> idList = filterAccessible(Arrays.stream(Convert.toStrArray(ids)).map(Integer::valueOf).toList());
+        if (idList.isEmpty()) {
+            return Result.error("没有可操作的订阅");
+        }
         return Result.success(subscriptionBiz.pauseBatch(idList));
     }
 
@@ -265,7 +369,10 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
         if (StringUtils.isBlank(ids)) {
             return Result.error("请选择要恢复的订阅");
         }
-        List<Integer> idList = Arrays.stream(Convert.toStrArray(ids)).map(Integer::valueOf).toList();
+        List<Integer> idList = filterAccessible(Arrays.stream(Convert.toStrArray(ids)).map(Integer::valueOf).toList());
+        if (idList.isEmpty()) {
+            return Result.error("没有可操作的订阅");
+        }
         return Result.success(subscriptionBiz.resumeBatch(idList));
     }
 
@@ -280,7 +387,10 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
         if (StringUtils.isBlank(ids)) {
             return Result.error("请选择要删除的订阅");
         }
-        List<Integer> idList = Arrays.stream(Convert.toStrArray(ids)).map(Integer::valueOf).toList();
+        List<Integer> idList = filterAccessible(Arrays.stream(Convert.toStrArray(ids)).map(Integer::valueOf).toList());
+        if (idList.isEmpty()) {
+            return Result.error("没有可删除的订阅");
+        }
         episodeService.remove(new QueryWrapper<PtSubscriptionEpisodePlus>().in("sub_id", idList));
         boolean removed = service.removeByIds(idList);
         return removed ? Result.success() : Result.error("删除失败");
@@ -295,6 +405,10 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
     @Override
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable("id") Integer id) {
+        Result<Void> denied = denyIfInaccessible(id);
+        if (denied != null) {
+            return denied;
+        }
         episodeService.remove(new QueryWrapper<PtSubscriptionEpisodePlus>().eq("sub_id", id));
         boolean removed = service.removeById(id);
         return removed ? Result.success() : Result.error("删除失败");

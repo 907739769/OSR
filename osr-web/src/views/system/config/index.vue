@@ -256,6 +256,15 @@ const CONFIG_META: Record<string, ConfigMeta> = {
   // Telegram
   'openlist.tg.token': { type: 'password', hint: 'Telegram 机器人 Token' },
   'openlist.tg.userid': { type: 'text', hint: '允许控制机器人的 Telegram 用户 ID' },
+  // 企业微信自建应用
+  'openlist.wecom.corpid': { type: 'text', hint: '企业 ID(corpid)，企微管理后台「我的企业」页面查看。留空则企微功能整体不启用' },
+  'openlist.wecom.agentid': { type: 'text', hint: '自建应用的 AgentId，「应用管理」→ 自建应用详情页查看' },
+  'openlist.wecom.secret': { type: 'password', hint: '自建应用的 Secret，与 corpid 一起换取 access_token' },
+  'openlist.wecom.token': { type: 'password', hint: '应用「接收消息」配置里的 Token。不配只能发通知、收不到指令' },
+  'openlist.wecom.aeskey': { type: 'password', hint: '应用「接收消息」配置里的 EncodingAESKey（43 位）' },
+  'openlist.wecom.touser': { type: 'text', hint: '无归属通知的接收人，多个用 | 分隔，@all 表示应用可见范围内全部成员' },
+  'openlist.wecom.autocreate': { type: 'switch', hint: '开启后企微成员首次发指令即自动建 OSR 账号并绑定（账号为停用状态，无法登录网页端），管理员无需逐个建号；关闭则必须先在「企业微信用户」页面建好绑定' },
+  'openlist.notify.wecom.types': { type: 'text', hint: '逗号分隔的通知类型，留空=全部发送。可选：GENERAL,SUBSCRIPTION_HIT,DOWNLOAD_COMPLETE,DOWNLOAD_FAILED,EMBY_LIBRARY_SYNC' },
   // OpenAI
   'openlist.openai.apikey': { type: 'password', hint: 'OpenAI API Key' },
   'openlist.openai.endpoint': { type: 'text', hint: 'OpenAI 接口地址，默认 https://api.openai.com' },
@@ -302,6 +311,15 @@ const configSections = computed<ConfigSection[]>(() => {
       return
     }
 
+    // 企业微信相关。必须排在 Telegram 判定之前：企微的类型过滤键是
+    // openlist.notify.wecom.types，配置名「企业微信通知类型过滤」不含 tg 字样虽不会误判，
+    // 但把两个通知渠道的判定放在一起、按渠道从具体到宽泛排列更不容易踩坑
+    if (key.includes('wecom') || name.includes('企业微信')) {
+      addSection('wecom', '企业微信', 'mdi-wechat')
+      sections['wecom'].items.push(config)
+      return
+    }
+
     // Telegram 相关
     if (key.includes('tg.') || name.includes('tg') || name.includes('TG') || name.includes('Telegram') || name.includes('telegram')) {
       addSection('tg', 'Telegram 机器人', 'mdi-telegram')
@@ -324,7 +342,7 @@ const configSections = computed<ConfigSection[]>(() => {
   configList.value.forEach(categorize)
 
   // Define display order
-  const order = ['openlist', 'copy', 'tg', 'openai', 'tmdb']
+  const order = ['openlist', 'copy', 'tg', 'wecom', 'openai', 'tmdb']
   return order
     .filter(k => sections[k])
     .map(k => sections[k])

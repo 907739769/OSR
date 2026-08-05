@@ -545,7 +545,7 @@ class DownloadTrackServiceTest {
 
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
             service().track(downloader(), List.of(torrent("osr-pt,osr-pt-aaa", 1.0)));
-            tg.verify(() -> TgHelper.sendMsg(anyString()), never());
+            tg.verify(() -> TgHelper.sendMsg(any(), anyString(), any()), never());
         }
         // 已被并发轮次处理过，不该重复触发 STRM 联动同步
         verify(completionSyncTrigger, never()).triggerAsync(any(), any());
@@ -560,7 +560,7 @@ class DownloadTrackServiceTest {
 
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
             service().track(downloader(), List.of(torrent("osr-pt,osr-pt-other", 0.5)));
-            tg.verify(() -> TgHelper.sendMsg(anyString()), never());
+            tg.verify(() -> TgHelper.sendMsg(any(), anyString(), any()), never());
         }
     }
 
@@ -777,7 +777,7 @@ class DownloadTrackServiceTest {
             verify(episodeService).update(captor.capture(), any(Wrapper.class));
             assertEquals("BLOCKED", captor.getValue().getState());
             assertEquals(3, captor.getValue().getFailCount());
-            tg.verify(() -> TgHelper.sendMsg(argThat(m -> m.contains("停止自动重试"))));
+            tg.verify(() -> TgHelper.sendMsg(any(), argThat(m -> m.contains("停止自动重试")), any()));
         }
     }
 

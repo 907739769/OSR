@@ -18,4 +18,17 @@ public interface INotifier {
      * 发送失败时内部吞掉异常，只记录 warn 日志。
      */
     void send(NotificationType type, String message);
+
+    /**
+     * 发送一条<b>带投递目标</b>的通知消息。默认实现忽略 {@code target} 退化为广播，
+     * 因为 Telegram / Webhook 都只有一个全局收件人，无从分人。
+     * 支持分人投递的渠道（企业微信）覆写本方法。
+     * <p>
+     * 契约与 {@link #send(NotificationType, String)} 相同：不得抛异常。
+     *
+     * @param target 投递目标，null 按 {@link NotifyTarget#BROADCAST} 处理
+     */
+    default void send(NotificationType type, String message, NotifyTarget target) {
+        send(type, message);
+    }
 }

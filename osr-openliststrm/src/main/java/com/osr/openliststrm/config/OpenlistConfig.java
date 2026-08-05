@@ -63,6 +63,56 @@ public class OpenlistConfig {
         return sysConfigService.selectConfigByKey("openlist.notify.webhook.types");
     }
 
+    //企业微信-企业ID(corpid)
+    public String getWeComCorpId() {
+        return sysConfigService.selectConfigByKey("openlist.wecom.corpid");
+    }
+
+    //企业微信-自建应用AgentId
+    public String getWeComAgentId() {
+        return sysConfigService.selectConfigByKey("openlist.wecom.agentid");
+    }
+
+    //企业微信-自建应用Secret
+    public String getWeComSecret() {
+        return sysConfigService.selectConfigByKey("openlist.wecom.secret");
+    }
+
+    //企业微信-回调Token(签名校验用)
+    public String getWeComToken() {
+        return sysConfigService.selectConfigByKey("openlist.wecom.token");
+    }
+
+    //企业微信-回调EncodingAESKey(报文加解密用，43位)
+    public String getWeComAesKey() {
+        return sysConfigService.selectConfigByKey("openlist.wecom.aeskey");
+    }
+
+    /**
+     * 企业微信-无归属通知的默认接收人，多个用 | 分隔。
+     * 未配置时返回 {@code @all}（应用可见范围内全部成员），与建表脚本的默认值保持一致：
+     * 配置项被人为清空后若返回空串，企微接口会直接报 40008，通知静默全丢。
+     */
+    public String getWeComToUser() {
+        String value = sysConfigService.selectConfigByKey("openlist.wecom.touser");
+        return (value != null && !value.isBlank()) ? value.trim() : "@all";
+    }
+
+    /**
+     * 企业微信-是否在成员首次发指令时自动建 OSR 账号并绑定。
+     * 未配置时默认<b>开启</b>：绝大多数使用者只在企微里用，不会登网页端，
+     * 要求管理员逐个预先建号本末倒置。关掉则回到「先建绑定才能用」的审批制。
+     */
+    public boolean isWeComAutoCreateUser() {
+        String value = sysConfigService.selectConfigByKey("openlist.wecom.autocreate");
+        return value == null || value.isBlank() || "1".equals(value.trim());
+    }
+
+    //企业微信通知类型过滤，逗号分隔的NotificationType名称，留空=不过滤，全部类型都发
+    public String getNotifyWeComTypes() {
+        return sysConfigService.selectConfigByKey("openlist.notify.wecom.types");
+    }
+
     //Apikey
     public String getOpenListApiKey() {
         return sysConfigService.selectConfigByKey("openlist.api.apikey");

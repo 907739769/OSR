@@ -2,6 +2,8 @@ package com.osr.openliststrm.pt.task;
 
 import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.helper.TgHelper;
+import com.osr.openliststrm.notify.NotificationType;
+import com.osr.openliststrm.notify.NotifyTarget;
 import com.osr.openliststrm.mybatisplus.domain.PtFilterConfigPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtFilterConfigPlusService;
@@ -89,7 +91,7 @@ public class AutoSearchService {
         }
         if (!previouslyNoResult) {
             notifySafely("🔍 订阅[" + StringUtils.escapeHtml(sub.getTitle()) + "] 自动补搜连续未找到可用资源，"
-                    + "可等待 RSS 命中，或检查索引器配置（本提醒在下次搜到资源前只发一次）");
+                    + "可等待 RSS 命中，或检查索引器配置（本提醒在下次搜到资源前只发一次）", sub);
             sub.setLastAutoSearchNoResult(NO_RESULT);
             subscriptionService.updateById(sub);
         }
@@ -108,9 +110,9 @@ public class AutoSearchService {
         return hours == null ? DEFAULT_INTERVAL_HOURS : hours;
     }
 
-    private void notifySafely(String msg) {
+    private void notifySafely(String msg, PtSubscriptionPlus sub) {
         try {
-            TgHelper.sendMsg(msg);
+            TgHelper.sendMsg(NotificationType.GENERAL, msg, NotifyTarget.owner(sub == null ? null : sub.getOwnerUserId()));
         } catch (Exception e) {
             log.debug("发送通知失败（不影响主流程）：{}", e.getMessage());
         }

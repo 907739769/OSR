@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.helper.TgHelper;
 import com.osr.openliststrm.notify.NotificationType;
+import com.osr.openliststrm.notify.NotifyTarget;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloadRecordPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloaderPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtIndexerPlus;
@@ -251,7 +252,7 @@ public class DownloadTrackService {
                 + StringUtils.escapeHtml(record.getTitle())
                 + "\n满足条件：" + StringUtils.escapeHtml(requirement)
                 + "\n当前做种 " + formatHours(torrent.getSeedingSeconds())
-                + "，分享率 " + String.format("%.2f", torrent.getRatio()));
+                + "，分享率 " + String.format("%.2f", torrent.getRatio()), ownerOf(record));
     }
 
     /** 达标前种子就消失了：H&R 已经产生，只能如实告知 */
@@ -270,7 +271,7 @@ public class DownloadTrackService {
                 + StringUtils.escapeHtml(record.getTitle())
                 + "\n该种子在满足站点保种要求前就从下载器中消失了（最后一次采样：做种 "
                 + formatHours(seeded) + "）。OSR 不会删除种子，请检查是否被手动删除或被下载器的做种限额清理，"
-                + "并尽快到站点确认是否需要补种或申诉");
+                + "并尽快到站点确认是否需要补种或申诉", ownerOf(record));
     }
 
     /** 把秒数说成人能读的小时，通知里用 */
@@ -450,7 +451,7 @@ public class DownloadTrackService {
                 + StringUtils.escapeHtml(sub.getTitle()) + "》\n"
                 + StringUtils.escapeHtml(record.getTitle())
                 + "\n包内实际 " + actualEpisodes.size() + " 集，多占的第 " + episodeList
-                + " 集已退回缺失，将继续自动搜索补齐");
+                + " 集已退回缺失，将继续自动搜索补齐", sub.getOwnerUserId());
     }
 
     private void markFilesSelected(PtDownloadRecordPlus record) {
@@ -537,20 +538,32 @@ public class DownloadTrackService {
      * 发通知但绝不让通知失败影响主流程。TgHelper 未配置时本就静默返回；
      * 单测环境下 SpringUtils.getBean 会抛异常，这里一并兜住。
      */
-    private void notifySafely(String msg) {
+    private void notifySafely(String msg, Long ownerUserId) {
+        notifySafely(NotificationType.GENERAL, msg, ownerUserId);
+    }
+
+    /**
+     * 发通知给订阅归属人。{@code ownerUserId} 为 null 时退化为广播（无归属的历史订阅、
+     * 或订阅已被删除），支持分人投递的渠道据此决定发给谁。
+     */
+    private void notifySafely(NotificationType type, String msg, Long ownerUserId) {
         try {
-            TgHelper.sendMsg(msg);
+            TgHelper.sendMsg(type, msg, NotifyTarget.owner(ownerUserId));
         } catch (Exception e) {
             log.debug("发送通知失败（不影响主流程）：{}", e.getMessage());
         }
     }
 
-    private void notifySafely(NotificationType type, String msg) {
-        try {
-            TgHelper.sendMsg(type, msg);
-        } catch (Exception e) {
-            log.debug("发送通知失败（不影响主流程）：{}", e.getMessage());
+    /**
+     * 从下载记录反查订阅归属人。订阅已被删除时返回 null（按广播处理）——
+     * 记录还在但订阅没了是可能的，不能因此让通知整条丢掉。
+     */
+    private Long ownerOf(PtDownloadRecordPlus record) {
+        if (record == null || record.getSubId() == null) {
+            return null;
         }
+        PtSubscriptionPlus sub = subscriptionService.getById(record.getSubId());
+        return sub == null ? null : sub.getOwnerUserId();
     }
 
     private void complete(PtDownloadRecordPlus record, PtDownloaderPlus downloader, DownloaderTorrent matched) {
@@ -580,7 +593,7 @@ public class DownloadTrackService {
                 + StringUtils.escapeHtml(record.getTitle())
                 + (upgraded ? "\n⚠️ 旧版本不会被自动删除，请自行清理，否则媒体库里会出现同一集的两个版本" : "")
                 + (hitAndRun ? "\n🌱 该站点有 H&R 考核，需保种至「" + StringUtils.escapeHtml(describeRequirement(indexer))
-                        + "」，达标前请勿删除" : ""));
+                        + "」，达标前请勿删除" : ""), ownerOf(record));
         log.info("下载记录[{}] 已完成：{}{}", record.getId(), record.getTitle(),
                 hitAndRun ? "（进入 H&R 保种考核）" : "");
         // 补缺集时集状态不动，仍是 IN_FLIGHT，等 Emby 对账确认入库（洗版则已在 finishUpgrade 收尾）；
@@ -676,12 +689,12 @@ public class DownloadTrackService {
         PtStatusWebSocket.pushDownloadEvent(record, STATE_FAILED, null, reason);
         notifySafely(NotificationType.DOWNLOAD_FAILED, upgradeReverted > 0
                 ? "❌ 洗版下载失败：" + StringUtils.escapeHtml(record.getTitle()) + "，原有版本保持不变"
-                : "❌ 下载失败：" + StringUtils.escapeHtml(record.getTitle()) + "，已释放待下轮重新匹配");
+                : "❌ 下载失败：" + StringUtils.escapeHtml(record.getTitle()) + "，已释放待下轮重新匹配", ownerOf(record));
         log.warn("下载记录[{}] 失败（{} 个集回退缺失，{} 个集回退入库）：{}",
                 record.getId(), rollback.released(), upgradeReverted, record.getTitle());
         if (rollback.blocked() > 0) {
             notifySafely("🚫 " + StringUtils.escapeHtml(record.getTitle()) + " 连续失败达 " + maxConsecutiveFailures
-                    + " 次，已停止自动重试，需到下载记录管理页人工重试");
+                    + " 次，已停止自动重试，需到下载记录管理页人工重试", ownerOf(record));
         }
     }
 

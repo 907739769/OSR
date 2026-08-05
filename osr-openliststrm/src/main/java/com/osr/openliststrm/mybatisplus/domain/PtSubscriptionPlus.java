@@ -104,6 +104,15 @@ public class PtSubscriptionPlus extends BaseEntity {
     @TableField("last_auto_search_no_result")
     private String lastAutoSearchNoResult;
 
+    /**
+     * 订阅归属人(sys_user.user_id)。NULL = 无归属的公共订阅，所有人可见——
+     * 本列是后加的，历史订阅全为 NULL，若把 NULL 当成"归属于某个不存在的人"，
+     * 升级后所有老订阅会从非管理员的列表里整批消失。
+     * 通知定向也读这个值（见 {@code NotifyTarget#owner}）。
+     */
+    @TableField("owner_user_id")
+    private Long ownerUserId;
+
     /** 排序方式：lastMatchTime=按上次命中时间倒序；其余/空=默认按 id 倒序。仅供列表查询用，不落库 */
     @TableField(exist = false)
     private String sortBy;

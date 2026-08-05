@@ -32,7 +32,8 @@ const iconMap: Record<string, string> = {
   'fa fa-ban': 'mdi-close-circle-outline',
   'fa fa-fire': 'mdi-star',
   'fa fa-arrow-circle-o-up': 'mdi-arrow-up-bold-circle-outline',
-  'fa fa-heart': 'mdi-heart-outline'
+  'fa fa-heart': 'mdi-heart-outline',
+  'fa fa-weixin': 'mdi-wechat'
 }
 
 export function getIconComponent(icon?: string): string | undefined {

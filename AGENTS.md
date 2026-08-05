@@ -12,7 +12,7 @@
 ├── osr-framework/      # 框架配置 (security, shiro, config, websocket)
 ├── osr-system/         # 标准系统管理模块 (user/role/menu/dict domain)
 ├── osr-quartz/         # 定时任务 (job scheduler)
-├── osr-openliststrm/   # ★ 核心业务，新功能几乎都写在这里 (17个子包，见下)
+├── osr-openliststrm/   # ★ 核心业务，新功能几乎都写在这里 (21个子包，见下)
 ├── osr-web/         # Vue 3 前端 (Vite + Pinia + Vuetify 3 + PWA)
 ├── Dockerfile.backend    # Java 25 JRE + --enable-preview
 ├── Dockerfile.frontend   # Node 20 build → Nginx Alpine
@@ -20,8 +20,8 @@
 └── nginx.conf            # SPA + API proxy + WebSocket proxy
 ```
 
-`osr-openliststrm` 按功能域分包（17 个）：
-`api/ config/ controller/ enums/ helper/ monitor/ mybatisplus/ openai/ orphan/ pt/ rename/ req/ scrape/ service/ task/ tg/ tmdb/ upload/`
+`osr-openliststrm` 按功能域分包（21 个）：
+`api/ config/ controller/ dashboard/ enums/ helper/ monitor/ mybatisplus/ notify/ openai/ orphan/ pt/ rename/ req/ scrape/ service/ task/ tg/ tmdb/ upload/ wecom/`
 
 ## WHERE TO LOOK
 | 任务 | 位置 | 备注 |
@@ -29,6 +29,8 @@
 | STRM 生成 | `osr-openliststrm/src/main/java/com/osr/openliststrm/` | task/, helper/, tmdb/, rename/ |
 | 文件夹同步 | `osr-openliststrm/src/main/java/com/osr/openliststrm/` | api/, upload/, service/ |
 | Telegram Bot | `osr-openliststrm/src/main/java/com/osr/openliststrm/tg/` | bot commands & handlers |
+| 企业微信 | `osr-openliststrm/src/main/java/com/osr/openliststrm/wecom/` | 自建应用 API、回调加解密、订阅指令交互 |
+| 通知渠道 | `osr-openliststrm/src/main/java/com/osr/openliststrm/notify/` | INotifier 抽象 + TG/Webhook/企微三个实现 |
 | 刮削 | `osr-openliststrm/src/main/java/com/osr/openliststrm/scrape/` + `tmdb/` | TMDb 刮削、文件删除 |
 | 定时任务 | `osr-openliststrm/src/main/java/com/osr/openliststrm/task/` + `osr-quartz/` | 自定义 task + job |
 | 重命名一致性检查 | `osr-openliststrm/src/main/java/com/osr/openliststrm/orphan/` | 孤儿扫描、清理、忽略 |

@@ -3,6 +3,8 @@ package com.osr.openliststrm.pt.subscription;
 import com.osr.common.utils.Threads;
 import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.helper.TgHelper;
+import com.osr.openliststrm.notify.NotificationType;
+import com.osr.openliststrm.notify.NotifyTarget;
 import com.osr.openliststrm.mybatisplus.domain.PtFilterConfigPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtIndexerPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
@@ -479,12 +481,12 @@ public class SearchSupplementService {
 
     private void notifyNoResult(PtSubscriptionPlus sub) {
         notifySafely("🔍 订阅[" + StringUtils.escapeHtml(sub.getTitle()) + "] 建订阅补搜未找到可用资源，"
-                + "可等待自动补搜/RSS 命中，或检查索引器配置");
+                + "可等待自动补搜/RSS 命中，或检查索引器配置", sub);
     }
 
-    private void notifySafely(String msg) {
+    private void notifySafely(String msg, PtSubscriptionPlus sub) {
         try {
-            TgHelper.sendMsg(msg);
+            TgHelper.sendMsg(NotificationType.GENERAL, msg, NotifyTarget.owner(sub == null ? null : sub.getOwnerUserId()));
         } catch (Exception e) {
             log.debug("发送通知失败（不影响主流程）：{}", e.getMessage());
         }

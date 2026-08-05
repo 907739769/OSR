@@ -3,6 +3,7 @@ package com.osr.openliststrm.pt.task;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.helper.TgHelper;
+import com.osr.openliststrm.notify.NotifyTarget;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtMediaServerPlusService;
@@ -156,7 +157,7 @@ public class StuckEpisodeSweepService {
                 msg.append("\n🚫 第 ").append(join(blocked)).append(" 集连续失败达 ").append(maxConsecutiveFailures)
                         .append(" 次，已停止自动重试，需到下载记录管理页人工处理");
             }
-            notifySafely(msg.toString());
+            notifySafely(msg.toString(), sub);
         }
     }
 
@@ -176,9 +177,10 @@ public class StuckEpisodeSweepService {
     }
 
     /** 发通知但绝不让通知失败影响主流程（单测环境下 SpringUtils.getBean 会抛异常，这里兜住） */
-    private void notifySafely(String msg) {
+    private void notifySafely(String msg, PtSubscriptionPlus sub) {
         try {
-            TgHelper.sendMsg(NotificationType.SUBSCRIPTION_HIT, msg);
+            TgHelper.sendMsg(NotificationType.SUBSCRIPTION_HIT, msg,
+                    NotifyTarget.owner(sub == null ? null : sub.getOwnerUserId()));
         } catch (Exception e) {
             log.debug("发送通知失败（不影响主流程）：{}", e.getMessage());
         }

@@ -1,7 +1,7 @@
 # OpenList-strm 核心业务模块知识库
 
 ## OVERVIEW
-OSR (OpenList STRM Relay) 核心业务层，负责 STRM 生成、文件夹同步、Telegram Bot、文件重命名、任务调度、第三方回调、PT 订阅管理、重命名一致性检查等业务逻辑。17 个子包按功能域划分。
+OSR (OpenList STRM Relay) 核心业务层，负责 STRM 生成、文件夹同步、Telegram Bot、企业微信、文件重命名、任务调度、第三方回调、PT 订阅管理、重命名一致性检查等业务逻辑。21 个子包按功能域划分。
 
 ## STRUCTURE
 ```
@@ -9,11 +9,13 @@ com/osr/openliststrm/
 ├── api/              # OpenList API 客户端 (网盘操作封装)
 ├── config/           # 业务配置类 (OpenlistConfig 等)
 ├── controller/       # REST API 端点 (STRM/同步/任务配置/回调)
-├── controller/api/   # 第三方开放 API (qb/callback 等)
+├── controller/api/   # 第三方开放 API (qb/callback、企微回调 等)
+├── dashboard/        # 首页概览统计
 ├── enums/            # 业务枚举 (任务状态、类型等)
 ├── helper/           # 辅助工具 (文件操作、路径处理)
 ├── monitor/          # 任务监控与状态追踪 (MediaRenameProcessor 等)
 ├── mybatisplus/      # ★ MP 风格数据层 (domain/mapper/service)
+├── notify/           # 通知渠道抽象 (INotifier + TG/Webhook/企微实现)
 ├── openai/           # AI 相关功能 (OpenAIClient)
 ├── orphan/           # 重命名一致性检查 (孤儿扫描/清理/忽略)
 ├── pt/               # PT 订阅管理 (downloader/indexer/subscription/media server)
@@ -24,7 +26,8 @@ com/osr/openliststrm/
 ├── task/             # 定时任务 + 手动任务执行 (OpenListStrmTask)
 ├── tg/               # Telegram Bot (StrmBot/TgBotRegister/ResponseHandler)
 ├── tmdb/             # TMDB 电影/剧集信息查询 (TMDbClient)
-└── upload/           # 文件上传处理
+├── upload/           # 文件上传处理
+└── wecom/            # 企业微信自建应用 (API客户端/回调加解密/指令交互)
 ```
 
 ## WHERE TO LOOK
@@ -33,6 +36,8 @@ com/osr/openliststrm/
 | STRM 生成逻辑 | `task/` + `service/` | OpenListStrmTask, IStrmService |
 | 文件夹同步 | `service/` | ICopyService, 增量/全量同步 |
 | Telegram Bot | `tg/` | StrmBot (7 个指令), TgBotRegister |
+| 企业微信 | `wecom/` + `controller/api/WeComCallbackController` | 收发消息、订阅指令、成员绑定 |
+| 通知渠道 | `notify/` | INotifier / NotifierManager / NotifyTarget |
 | TMDB 查询 | `tmdb/` | TMDbClient, 元数据获取/增强 |
 | 文件重命名 | `rename/` | MediaParser + OpenAI + Pebble 模板 |
 | 重命名一致性检查 | `orphan/` | RenameOrphanScanServiceImpl, OrphanReconciler |
@@ -66,6 +71,10 @@ com/osr/openliststrm/
 - **`FilterCriteria` 一律用 `FilterCriteria.builder()` 构造**，不要用位置参数：16 个分量里有 9 个是 `List<String>`，顺序写反编译器发现不了；新增维度时 builder 调用方也不必补占位参数
 - **`TorrentFilterEngine` 只有 2 参与 4 参两种签名，不要再加三参重载**。历史上 `(…, TorrentBlacklist)` 与 `(…, String originalLanguage)` 两个三参重载只靠第三参类型区分，`SearchSupplementService` 调错了版本，导致手动搜索候选列表不受黑名单约束，用户选中后推送侧再拦下，只回一个没有原因的失败
 - **种子的 `parsedTags` 是 `MediaInfo.tags` + 视频编码 + 音频编码的并集**（见 `SubscriptionEngine#collectTags`）。extractor 按 Resolution → Codec → SourceAndGroup 顺序跑，`CodecExtractor` 会先把 `Atmos`/`H265`/`DTS-HD` 匹进 `audioCodec`/`videoCodec` 并从标题里抹掉，只读 `tags` 的话「必须带 Atmos」这类配置会一条都匹配不上
+
+- **订阅相关通知必须带 `NotifyTarget`**：`TgHelper.sendMsg(type, msg)` 是广播，只适用于系统级告警（索引器失败、复制任务超时）。凡是「某条订阅」的动态（命中/完成/失败/入库/补搜落空），一律走 `TgHelper.sendMsg(type, msg, NotifyTarget.owner(sub.getOwnerUserId()))`，否则 A 的下载动态会推到 B 的企微上。各 Service 里的 `notifySafely` 私有方法已统一改成带归属参数的签名，新增通知点照抄相邻写法即可。`ownerUserId` 为 null 表示无归属（历史订阅），自动退化为广播
+- **`pt_subscription.owner_user_id` 允许为 NULL 且必须继续允许**：该列是后加的，历史订阅全为 NULL。NULL 语义是「无归属的公共订阅，所有人可见」；改成非空或把 NULL 当作「归属于某个不存在的人」，会让升级后所有老订阅从非管理员的列表里整批消失。可见性判定统一为「管理员看全部；其余人看 `owner_user_id = 自己 OR IS NULL`」，Web 端在 `PtSubscriptionRestController`、企微端在 `WeComCommandService#requireAccessible`，两处口径必须一致
+- **企微回调是 `@Anonymous` 端点**：请求来自企微服务器，不可能带 JWT。安全性靠签名校验 + AES 解密 + receiveid 比对三重保证，三者都依赖只有配置方知道的 Token/AESKey/corpid。回调<b>不做被动回复</b>而是立即返回空串、异步处理完再主动推送——企微要求 5 秒内响应，而建订阅要串行调 TMDb 搜索+详情+媒体库对账，被动回复必然超时并触发企微重试（同一条指令被执行多次）
 
 ## ANTI-PATTERNS
 - 不要在 Controller 中写业务逻辑

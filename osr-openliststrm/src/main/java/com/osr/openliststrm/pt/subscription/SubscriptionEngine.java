@@ -19,6 +19,7 @@ import com.osr.openliststrm.mybatisplus.service.IPtTorrentBlacklistPlusService;
 import com.osr.openliststrm.enums.PtSmartClassifyLevelEnum;
 import com.osr.openliststrm.helper.TgHelper;
 import com.osr.openliststrm.notify.NotificationType;
+import com.osr.openliststrm.notify.NotifyTarget;
 import com.osr.openliststrm.pt.downloader.DownloaderClientFactory;
 import com.osr.openliststrm.pt.filter.EpisodeCountResolver;
 import com.osr.openliststrm.pt.filter.FilterCriteria;
@@ -406,11 +407,11 @@ public class SubscriptionEngine {
             notifySafely(NotificationType.SUBSCRIPTION_HIT, "⬆️ 洗版已推送：《" + StringUtils.escapeHtml(sub.getTitle()) + "》"
                     + describeEpisodes(match) + "\n" + StringUtils.escapeHtml(best.getTitle())
                     + "\n已推送至下载器：" + StringUtils.escapeHtml(downloader.getName())
-                    + "\n⚠️ 旧版本不会被自动删除，新版本下载完成后请自行清理");
+                    + "\n⚠️ 旧版本不会被自动删除，新版本下载完成后请自行清理", sub);
         } else {
             notifySafely(NotificationType.SUBSCRIPTION_HIT, "📌 订阅命中：《" + StringUtils.escapeHtml(sub.getTitle()) + "》"
                     + describeEpisodes(match) + "\n" + StringUtils.escapeHtml(best.getTitle())
-                    + "\n已推送至下载器：" + StringUtils.escapeHtml(downloader.getName()));
+                    + "\n已推送至下载器：" + StringUtils.escapeHtml(downloader.getName()), sub);
         }
         return true;
     }
@@ -431,9 +432,9 @@ public class SubscriptionEngine {
     }
 
     /** 发通知但绝不让通知失败影响主流程（单测环境下 SpringUtils.getBean 会抛异常，这里兜住） */
-    private void notifySafely(NotificationType type, String msg) {
+    private void notifySafely(NotificationType type, String msg, PtSubscriptionPlus sub) {
         try {
-            TgHelper.sendMsg(type, msg);
+            TgHelper.sendMsg(type, msg, NotifyTarget.owner(sub == null ? null : sub.getOwnerUserId()));
         } catch (Exception e) {
             log.debug("发送通知失败（不影响主流程）：{}", e.getMessage());
         }
