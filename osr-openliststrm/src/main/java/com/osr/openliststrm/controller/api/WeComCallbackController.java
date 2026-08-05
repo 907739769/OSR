@@ -52,7 +52,15 @@ public class WeComCallbackController {
     @Autowired
     private WeComCommandService commandService;
 
-    private final TaskScheduler scheduler = SpringUtils.getBean("virtualScheduledExecutor");
+    /**
+     * 懒加载而不是字段初始化器：字段初始化在本 bean 构造时就执行，会隐式依赖
+     * virtualScheduledExecutor 先于本类完成初始化；同时也让本类无法脱离 Spring 上下文
+     * 构造（单测里 SpringUtils.beanFactory 为 null，连 new 都会失败）。
+     * 单例 bean 的 getBean 只是一次 map 查找，放在调用处开销可忽略。
+     */
+    private TaskScheduler scheduler() {
+        return SpringUtils.getBean("virtualScheduledExecutor");
+    }
 
     /**
      * URL 有效性验证。企微在后台保存回调配置时会 GET 一次，
@@ -111,7 +119,7 @@ public class WeComCallbackController {
             return "";
         }
         // Threads.wrap 保证 traceId 跨线程传播，否则指令处理的日志与本次请求对不上号
-        scheduler.schedule(Threads.wrap(() -> handleAsync(message)), Instant.now());
+        scheduler().schedule(Threads.wrap(() -> handleAsync(message)), Instant.now());
         return "";
     }
 
