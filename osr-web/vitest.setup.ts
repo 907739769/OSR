@@ -10,6 +10,22 @@ class ResizeObserverStub {
 }
 (globalThis as any).ResizeObserver = (globalThis as any).ResizeObserver || ResizeObserverStub
 
+// VOverlay 的定位策略（v-snackbar/v-menu/v-dialog 都走它）会直接读全局 visualViewport，
+// jsdom 没有这个对象，缺了它组件在挂载阶段就抛 ReferenceError。
+if (!(globalThis as any).visualViewport) {
+  const viewportStub = {
+    width: 1024,
+    height: 768,
+    offsetLeft: 0,
+    offsetTop: 0,
+    scale: 1,
+    addEventListener: () => {},
+    removeEventListener: () => {}
+  }
+  ;(globalThis as any).visualViewport = viewportStub
+  ;(window as any).visualViewport = viewportStub
+}
+
 if (!window.matchMedia) {
   window.matchMedia = (query: string) => ({
     matches: false,

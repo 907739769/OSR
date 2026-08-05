@@ -49,6 +49,9 @@ export const useFeedbackStore = defineStore('feedback', {
   },
   actions: {
     pushSnackbar(text: string, level: FeedbackLevel, timeout = 3000) {
+      // 同一条提示已经在队列里就不再排队。一次只显示队头一条，连点开关会瞬间压进十几条提示，
+      // 逐条播完要几十秒，而重复的那几条并不带来新信息。去重后队列长度收敛到"同时在飞的不同提示数"。
+      if (this.snackbars.some((s) => s.text === text && s.level === level)) return
       this.snackbars.push({ id: ++snackbarSeq, text, level, timeout })
     },
     dismissSnackbar(id: number) {
