@@ -85,7 +85,8 @@ public class MysqlDdl extends SimpleDdl {
                 "sql/20260760-pt-upgrade-menu.sql",
                 "sql/20260761-pt-filter-size-per-episode.sql",
                 "sql/20260762-wecom-integration.sql",
-                "sql/20260763-wecom-auto-provision.sql"
+                "sql/20260763-wecom-auto-provision.sql",
+                "sql/20260764-wecom-proxy.sql"
         );
     }
 }

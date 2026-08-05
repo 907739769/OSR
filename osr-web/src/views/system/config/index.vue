@@ -264,6 +264,7 @@ const CONFIG_META: Record<string, ConfigMeta> = {
   'openlist.wecom.aeskey': { type: 'password', hint: '应用「接收消息」配置里的 EncodingAESKey（43 位）' },
   'openlist.wecom.touser': { type: 'text', hint: '无归属通知的接收人，多个用 | 分隔，@all 表示应用可见范围内全部成员' },
   'openlist.wecom.autocreate': { type: 'switch', hint: '开启后企微成员首次发指令即自动建 OSR 账号并绑定（账号为停用状态，无法登录网页端），管理员无需逐个建号；关闭则必须先在「企业微信用户」页面建好绑定' },
+  'openlist.wecom.proxy': { type: 'text', hint: '企微 API 中转地址。仅 2022-06-20 之后创建的自建应用、且服务器无固定公网 IP 时需要（企微要求登记可信 IP），填反代 qyapi.weixin.qq.com 的地址。不使用代理请保留默认值 https://qyapi.weixin.qq.com' },
   'openlist.notify.wecom.types': { type: 'text', hint: '逗号分隔的通知类型，留空=全部发送。可选：GENERAL,SUBSCRIPTION_HIT,DOWNLOAD_COMPLETE,DOWNLOAD_FAILED,EMBY_LIBRARY_SYNC' },
   // OpenAI
   'openlist.openai.apikey': { type: 'password', hint: 'OpenAI API Key' },

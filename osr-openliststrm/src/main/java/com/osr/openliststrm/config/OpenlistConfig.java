@@ -99,6 +99,19 @@ public class OpenlistConfig {
     }
 
     /**
+     * 企业微信-API 代理地址（中转）。
+     * <p>
+     * 2022-06-20 之后创建的自建应用调用企微 API 必须登记「企业可信IP」，家宽/动态 IP
+     * 的部署登记不了，通行做法是反代 qyapi.weixin.qq.com 后把中转地址填在这里。
+     * 未配置时返回官方地址——不使用代理是绝大多数情况，不该让用户必须填点什么。
+     * 非法值的兜底在 {@code WeComApiClient#resolveApiBase}，那里还要负责拼 /cgi-bin/。
+     */
+    public String getWeComProxyUrl() {
+        String value = sysConfigService.selectConfigByKey("openlist.wecom.proxy");
+        return (value != null && !value.isBlank()) ? value.trim() : "https://qyapi.weixin.qq.com";
+    }
+
+    /**
      * 企业微信-是否在成员首次发指令时自动建 OSR 账号并绑定。
      * 未配置时默认<b>开启</b>：绝大多数使用者只在企微里用，不会登网页端，
      * 要求管理员逐个预先建号本末倒置。关掉则回到「先建绑定才能用」的审批制。
