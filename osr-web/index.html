@@ -14,9 +14,203 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="OpenList" />
     <title>OSR (OpenList STRM Relay)</title>
+
+    <!--
+      启动屏：随 HTML 一起到达，不依赖任何额外的 JS/CSS 请求。
+      外网慢速下 JS bundle 要下好几秒，这段时间 #app 是空的、页面纯白，看起来像卡死。
+      样式和配色必须内联写死（不能用 tokens.scss 的 --osr-* 变量），因为它要在样式表加载前就能显示——
+      这是全站「不写死十六进制颜色」约定的唯一例外，色值取自 plugins/vuetify.ts 的 osrLight/osrDark。
+    -->
+    <script>
+      // 在首屏绘制前定好明暗，避免深色用户先闪一下白底。
+      // 判定逻辑与 composables/useThemeMode.ts 一致（localStorage key: osr-theme）。
+      // 这里只提前挂上 data-theme，Vue 起来后 useThemeMode 会再算一次并纠正。
+      (function () {
+        try {
+          var mode = localStorage.getItem('osr-theme') || 'system'
+          var dark =
+            mode === 'dark' ||
+            (mode === 'system' &&
+              window.matchMedia &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches)
+          if (dark) document.documentElement.setAttribute('data-theme', 'dark')
+        } catch (e) {
+          /* 隐私模式下读 localStorage 可能抛异常，按浅色继续即可 */
+        }
+      })()
+    </script>
+
+    <style>
+      #osr-boot {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+        background: #f7f5f1;
+        color: #1a1a1a;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
+          'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+        transition: opacity 0.28s ease;
+      }
+      html[data-theme='dark'] #osr-boot {
+        background: #141821;
+        color: #e8eaed;
+      }
+
+      #osr-boot .osr-boot-logo {
+        width: 64px;
+        height: 64px;
+        color: #b4690e;
+      }
+      html[data-theme='dark'] #osr-boot .osr-boot-logo {
+        color: #e0a548;
+      }
+
+      #osr-boot .osr-boot-name {
+        font-size: 17px;
+        font-weight: 600;
+        letter-spacing: 0.08em;
+      }
+
+      #osr-boot .osr-boot-bar {
+        width: 168px;
+        height: 3px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: rgba(180, 105, 14, 0.16);
+      }
+      html[data-theme='dark'] #osr-boot .osr-boot-bar {
+        background: rgba(224, 165, 72, 0.18);
+      }
+      #osr-boot .osr-boot-bar::after {
+        content: '';
+        display: block;
+        width: 40%;
+        height: 100%;
+        border-radius: 999px;
+        background: #b4690e;
+        animation: osr-boot-slide 1.1s ease-in-out infinite;
+      }
+      html[data-theme='dark'] #osr-boot .osr-boot-bar::after {
+        background: #e0a548;
+      }
+
+      #osr-boot .osr-boot-tip {
+        min-height: 20px;
+        font-size: 13px;
+        line-height: 20px;
+        opacity: 0.62;
+      }
+
+      #osr-boot .osr-boot-retry {
+        display: none;
+        padding: 7px 20px;
+        font: inherit;
+        font-size: 13px;
+        color: #fff;
+        cursor: pointer;
+        background: #b4690e;
+        border: 0;
+        border-radius: 8px;
+      }
+      html[data-theme='dark'] #osr-boot .osr-boot-retry {
+        color: #1a1305;
+        background: #e0a548;
+      }
+
+      /* 超时后停掉进度条，换成可点的重试按钮——否则永远转圈，用户不知道该刷新 */
+      #osr-boot.is-stalled .osr-boot-bar {
+        display: none;
+      }
+      #osr-boot.is-stalled .osr-boot-retry {
+        display: block;
+      }
+
+      #osr-boot.is-done {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      @keyframes osr-boot-slide {
+        0% {
+          transform: translateX(-100%);
+        }
+        100% {
+          transform: translateX(350%);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #osr-boot .osr-boot-bar::after {
+          animation-duration: 2.4s;
+        }
+      }
+    </style>
   </head>
   <body>
     <div id="app"></div>
+
+    <!--
+      放在 #app 外面是必须的：app.mount() 会先清空容器（runtime-dom 的 "clear content before
+      mounting"），放在里面的话 mount 那一刻就被抹掉，而此时路由还没 resolve、router-view 仍是空的，
+      用户会再看到一段白屏。撤除时机见 src/main.ts。
+    -->
+    <div id="osr-boot">
+      <svg class="osr-boot-logo" viewBox="0 0 100 100" aria-hidden="true">
+        <circle cx="50" cy="50" r="30" fill="none" stroke="currentColor" stroke-width="7" opacity="0.28" />
+        <circle
+          cx="50"
+          cy="50"
+          r="30"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="7"
+          stroke-linecap="round"
+          stroke-dasharray="47 141"
+        >
+          <animateTransform
+            attributeName="transform"
+            type="rotate"
+            from="0 50 50"
+            to="360 50 50"
+            dur="1.1s"
+            repeatCount="indefinite"
+          />
+        </circle>
+        <path d="M43 39 L43 61 L62 50 Z" fill="currentColor" stroke="currentColor" stroke-width="3" stroke-linejoin="round" />
+      </svg>
+
+      <div class="osr-boot-name">OSR</div>
+      <div class="osr-boot-bar"></div>
+      <div class="osr-boot-tip" id="osr-boot-tip">正在加载…</div>
+      <button class="osr-boot-retry" type="button" onclick="location.reload()">重新加载</button>
+    </div>
+
+    <script>
+      // 兜底文案。必须内联：要兜的恰恰是「JS bundle 没下下来」的场景，那时 main.ts 根本不会执行。
+      (function () {
+        var boot = document.getElementById('osr-boot')
+        var tip = document.getElementById('osr-boot-tip')
+        if (!boot || !tip) return
+        var done = function () {
+          return !boot.isConnected || boot.classList.contains('is-done')
+        }
+        setTimeout(function () {
+          if (done()) return
+          tip.textContent = '网络较慢，仍在加载…'
+        }, 5000)
+        setTimeout(function () {
+          if (done()) return
+          tip.textContent = '加载超时，请检查网络后重试'
+          boot.classList.add('is-stalled')
+        }, 30000)
+      })()
+    </script>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
