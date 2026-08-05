@@ -560,6 +560,10 @@ getList()
   transition: all var(--osr-transition-base);
   display: flex;
   flex-direction: column;
+  /* grid item 的默认 min-width 是 auto，即"不会窄于内容的 min-content 宽度"。
+     配置值/说明里有 GENERAL,SUBSCRIPTION_HIT,DOWNLOAD_COMPLETE,... 这种不含空格的
+     长串时，卡片会被顶宽、把右侧的编辑按钮推出屏幕（移动端尤其明显）。 */
+  min-width: 0;
 
   &:hover:not(.config-item--editing) {
     border-color: var(--osr-primary-muted);
@@ -628,6 +632,9 @@ getList()
     font-size: 12px;
     line-height: 1.5;
     color: var(--osr-text-secondary);
+    /* 说明文字里常有逗号分隔的枚举/URL，整体是一个不含空格的长 token，
+       不允许其内部断行的话会把整张卡片顶宽（见 .config-item 的 min-width 注释） */
+    overflow-wrap: anywhere;
   }
 
   .config-item__value {
@@ -679,8 +686,10 @@ getList()
   margin-top: 12px;
 
   .edit-number { width: 180px; }
-  .edit-select { width: 100%; }
-  .edit-input { flex: 1; }
+  .edit-select { width: 100%; min-width: 0; }
+  /* min-width: 0 —— flex item 默认不会窄于 min-content，v-text-field 内部还套着
+     label/append 等结构，窄屏下不给这条会把编辑区连同下方按钮一起顶出屏幕 */
+  .edit-input { flex: 1; min-width: 0; }
   .edit-unit {
     font-size: 13px;
     color: var(--osr-text-secondary);
@@ -713,9 +722,10 @@ getList()
     padding-top: 12px;
   }
 
-  /* 移动端单列 */
+  /* 移动端单列。必须是 minmax(0, 1fr) 而不是 1fr —— 后者等价于 minmax(auto, 1fr)，
+     列宽会被最宽的内容顶开，长配置值直接把整页撑出横向滚动条 */
   .section-cards {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 10px;
   }
 
