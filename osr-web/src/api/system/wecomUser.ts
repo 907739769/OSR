@@ -34,3 +34,11 @@ export function deleteWecomUserApi(id: number) {
 export function getSelectableUsersApi() {
   return request.get<any, SelectableUser[]>('/openliststrm/wecom-users/selectable-users')
 }
+
+/**
+ * 把应用菜单写入企业微信。
+ * 企微后台没有菜单的可视化配置入口，只能调 API 写入，所以做成手动动作。
+ */
+export function syncWecomMenuApi() {
+  return request.post('/openliststrm/wecom-users/sync-menu')
+}

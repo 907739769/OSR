@@ -171,6 +171,57 @@ public class WeComApiClient {
     }
 
     /**
+     * 覆盖写入应用的自定义菜单（先删后建）。
+     * <p>
+     * 企微的 menu/create 是整体覆盖语义，但已有菜单时直接 create 会报 60020 之外的冲突，
+     * 所以先 delete 再 create；delete 在「本来就没有菜单」时会返回非 0 错误码，
+     * 那是预期内的，不当失败处理。
+     *
+     * @return 失败原因；成功返回 null
+     */
+    public String syncMenu(JSONObject menuBody) {
+        if (!isConfigured()) {
+            return "企业微信未配置完整（需要 corpid、Secret、AgentId）";
+        }
+        String agentId = config.getWeComAgentId();
+        // 删除失败大多是「当前没有菜单」，继续建即可
+        JSONObject deleted = getWithToken("menu/delete", "agentid", agentId);
+        if (deleted != null && deleted.getIntValue("errcode", -1) != 0) {
+            log.debug("删除企微旧菜单返回 errcode={}（通常表示本来就没有菜单，可忽略）",
+                    deleted.getIntValue("errcode", -1));
+        }
+        JSONObject result = postWithToken("menu/create", menuBody, true, "agentid", agentId);
+        if (result == null) {
+            return "调用企业微信接口失败，请检查网络与「API代理地址」配置";
+        }
+        int errcode = result.getIntValue("errcode", -1);
+        if (errcode != 0) {
+            String errmsg = result.getString("errmsg");
+            log.warn("同步企微应用菜单失败，errcode={} errmsg={}", errcode, errmsg);
+            return "企业微信返回错误 " + errcode + "：" + errmsg;
+        }
+        log.info("企微应用菜单同步成功");
+        return null;
+    }
+
+    /** 带 access_token 的 GET，附加一组查询参数 */
+    private JSONObject getWithToken(String path, String... queryParams) {
+        String token = getAccessToken();
+        if (token == null) {
+            return null;
+        }
+        HttpUrl.Builder builder = urlBuilder(path);
+        if (builder == null) {
+            return null;
+        }
+        builder.addQueryParameter("access_token", token);
+        for (int i = 0; i + 1 < queryParams.length; i += 2) {
+            builder.addQueryParameter(queryParams[i], queryParams[i + 1]);
+        }
+        return execute(new Request.Builder().url(builder.build()).get().build());
+    }
+
+    /**
      * POST /message/send，带一次 token 失效重试。
      */
     private boolean sendMessage(JSONObject body) {
@@ -196,7 +247,8 @@ public class WeComApiClient {
      * 带 access_token 的 POST。{@code retryOnTokenInvalid} 为 true 时，
      * 命中 token 失效错误码会清缓存并重试一次。
      */
-    private JSONObject postWithToken(String path, JSONObject body, boolean retryOnTokenInvalid) {
+    private JSONObject postWithToken(String path, JSONObject body, boolean retryOnTokenInvalid,
+                                     String... queryParams) {
         String token = getAccessToken();
         if (token == null) {
             return null;
@@ -205,11 +257,12 @@ public class WeComApiClient {
         if (builder == null) {
             return null;
         }
-        HttpUrl url = builder
-                .addQueryParameter("access_token", token)
-                .build();
+        builder.addQueryParameter("access_token", token);
+        for (int i = 0; i + 1 < queryParams.length; i += 2) {
+            builder.addQueryParameter(queryParams[i], queryParams[i + 1]);
+        }
         Request request = new Request.Builder()
-                .url(url)
+                .url(builder.build())
                 .post(RequestBody.create(JSON_MEDIA_TYPE, body.toJSONString()))
                 .build();
         JSONObject result = execute(request);
@@ -219,7 +272,7 @@ public class WeComApiClient {
         if (retryOnTokenInvalid && TOKEN_INVALID_CODES.contains(result.getIntValue("errcode", -1))) {
             log.info("企业微信 access_token 已失效，清缓存后重试一次");
             invalidateToken(token);
-            return postWithToken(path, body, false);
+            return postWithToken(path, body, false, queryParams);
         }
         return result;
     }

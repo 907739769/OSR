@@ -33,6 +33,20 @@
       </v-form>
     </MobileSearchPanel>
 
+    <!-- 同步菜单 -->
+    <div class="drawer-actions">
+      <v-btn
+        color="primary"
+        variant="outlined"
+        block
+        prepend-icon="mdi-menu"
+        :loading="syncingMenu"
+        @click="handleSyncMenu"
+      >
+        同步应用菜单
+      </v-btn>
+    </div>
+
     <!-- 新增 FAB -->
     <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="mdi-plus" @click="handleAdd('新增企微绑定')">
       新增
@@ -141,6 +155,7 @@ const {
   handleQuery, resetQuery,
   open, dialogTitle, submitLoading, formRef, form, rules, userOptions,
   handleAdd, handleUpdate, submitForm, handleDelete,
+  syncingMenu, handleSyncMenu,
   totalPages, prevPage, nextPage, handleSizeChange,
   searchCollapsed
 } = useWecomUser()

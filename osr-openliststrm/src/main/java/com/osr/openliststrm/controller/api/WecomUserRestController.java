@@ -7,6 +7,8 @@ import com.osr.common.core.domain.entity.SysUser;
 import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.mybatisplus.domain.WecomUserPlus;
 import com.osr.openliststrm.mybatisplus.service.IWecomUserPlusService;
+import com.osr.openliststrm.wecom.WeComApiClient;
+import com.osr.openliststrm.wecom.WeComMenuDefinition;
 import com.osr.system.service.ISysUserService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -37,6 +39,9 @@ public class WecomUserRestController extends BaseCrudRestController<IWecomUserPl
     @Autowired
     private ISysUserService sysUserService;
 
+    @Autowired
+    private WeComApiClient apiClient;
+
     @Override
     protected Wrapper<WecomUserPlus> buildQueryWrapper(WecomUserPlus entity) {
         LambdaQueryWrapper<WecomUserPlus> wrapper = new LambdaQueryWrapper<>();
@@ -50,6 +55,21 @@ public class WecomUserRestController extends BaseCrudRestController<IWecomUserPl
             wrapper.eq(WecomUserPlus::getStatus, entity.getStatus());
         }
         return wrapper.orderByDesc(WecomUserPlus::getId);
+    }
+
+    /**
+     * 把应用菜单写入企业微信。
+     * <p>
+     * 企微管理后台没有菜单的可视化配置入口，只能调 API 写入，所以做成一个手动动作：
+     * 配好企微参数后点一次即可，之后只有菜单结构变了才需要重点。
+     */
+    @PostMapping("/sync-menu")
+    public Result<Void> syncMenu() {
+        String error = apiClient.syncMenu(WeComMenuDefinition.build());
+        if (error != null) {
+            return Result.error(error);
+        }
+        return Result.success();
     }
 
     /**

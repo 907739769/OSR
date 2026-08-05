@@ -4,7 +4,19 @@
       icon="mdi-wechat"
       title="企业微信用户"
       desc="企业微信成员与 OSR 账号的绑定关系 — 绑定后该成员才能在企微里订阅，其订阅通知也只推给他"
-    />
+    >
+      <template #actions>
+        <v-btn
+          color="primary"
+          variant="outlined"
+          prepend-icon="mdi-menu"
+          :loading="syncingMenu"
+          @click="handleSyncMenu"
+        >
+          同步应用菜单
+        </v-btn>
+      </template>
+    </PageHeader>
 
     <v-card v-if="showSearch" class="search-card">
       <v-form ref="queryRef" @submit.prevent="handleQuery">
@@ -167,7 +179,8 @@ const showSearch = ref(window.innerWidth >= 768)
 const {
   taskList, loading, total, queryParams, getList, handleQuery, resetQuery, queryRef,
   open, dialogTitle, submitLoading, formRef, form, rules, userOptions,
-  handleAdd, handleUpdate, submitForm, handleDelete
+  handleAdd, handleUpdate, submitForm, handleDelete,
+  syncingMenu, handleSyncMenu
 } = useWecomUser()
 
 // 表单规则是 { required, message, trigger } 对象格式（composable 返回），

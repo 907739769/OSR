@@ -48,7 +48,8 @@ public final class WeComXmlParser {
                 readText(document, "FromUserName"),
                 readText(document, "MsgType"),
                 readText(document, "Content"),
-                readText(document, "Event"));
+                readText(document, "Event"),
+                readText(document, "EventKey"));
     }
 
     private static Document parse(String xml) {

@@ -114,8 +114,8 @@ public class WeComCallbackController {
             log.warn("企微回调报文处理失败：{}", e.getMessage());
             return "";
         }
-        if (!message.isText()) {
-            // 事件、图片、语音等一律忽略：本期只做文本指令
+        if (!message.isActionable()) {
+            // 图片、语音、以及 click 之外的事件（subscribe/view 等）一律忽略
             return "";
         }
         // Threads.wrap 保证 traceId 跨线程传播，否则指令处理的日志与本次请求对不上号

@@ -42,7 +42,7 @@ class WeComCommandServiceBindTest {
     }
 
     private static WeComInboundMessage help(String fromUser) {
-        return new WeComInboundMessage(fromUser, "text", "帮助", null);
+        return new WeComInboundMessage(fromUser, "text", "帮助", null, null);
     }
 
     private static WecomUserPlus bind(String wecomUserId, String status) {
@@ -129,7 +129,7 @@ class WeComCommandServiceBindTest {
     /** 非文本消息（事件、图片）不该触发开号 */
     @Test
     void 非文本消息_不开号也不回复() {
-        String reply = service.handle(new WeComInboundMessage("zhangsan", "event", null, "subscribe"));
+        String reply = service.handle(new WeComInboundMessage("zhangsan", "event", null, "subscribe", null));
 
         verify(provisioner, never()).provision(anyString());
         assertTrue(reply == null, "非文本消息不应回复，实际：" + reply);

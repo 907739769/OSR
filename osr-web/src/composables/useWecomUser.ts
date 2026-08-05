@@ -5,8 +5,10 @@ import {
   addWecomUserApi,
   updateWecomUserApi,
   deleteWecomUserApi,
-  getSelectableUsersApi
+  getSelectableUsersApi,
+  syncWecomMenuApi
 } from '@/api/system/wecomUser'
+import { message } from '@/composables/useMessage'
 import type { SelectableUser, WecomUserQuery } from '@/api/system/wecomUser'
 
 /**
@@ -63,6 +65,23 @@ export function useWecomUser() {
     }
   }
 
+  // ---------- 同步应用菜单 ----------
+  const syncingMenu = ref(false)
+
+  /**
+   * 把菜单写入企业微信。失败原因（未配置、可信IP、Secret 错等）由后端原样带出，
+   * 这里直接展示——企微的错误码信息量很大，包装成「同步失败」反而没法排查。
+   */
+  const handleSyncMenu = async () => {
+    syncingMenu.value = true
+    try {
+      await syncWecomMenuApi()
+      message.success('菜单已同步，在企微中重新进入应用即可看到')
+    } finally {
+      syncingMenu.value = false
+    }
+  }
+
   // ---------- 移动端 - 分页辅助 ----------
   const totalPages = computed(() => Math.ceil(base.total.value / base.queryParams.pageSize!) || 1)
 
@@ -94,6 +113,8 @@ export function useWecomUser() {
     selectableUsers,
     userOptions,
     loadSelectableUsers,
+    syncingMenu,
+    handleSyncMenu,
     totalPages,
     prevPage,
     nextPage,

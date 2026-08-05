@@ -3,8 +3,12 @@ package com.osr.openliststrm.wecom;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.osr.common.core.domain.entity.SysUser;
 import com.osr.openliststrm.config.OpenlistConfig;
+import com.osr.openliststrm.mybatisplus.domain.PtDownloadRecordPlus;
+import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.osr.openliststrm.mybatisplus.domain.WecomUserPlus;
+import com.osr.openliststrm.mybatisplus.service.IPtDownloadRecordPlusService;
+import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.osr.openliststrm.mybatisplus.service.IWecomUserPlusService;
 import com.osr.openliststrm.pt.subscription.SubscriptionSearchOnCreateTrigger;
@@ -18,7 +22,12 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 企业微信指令处理：把成员发来的文本翻译成订阅操作，并生成回复文案。
@@ -43,15 +52,37 @@ public class WeComCommandService {
     /** 「我的订阅」最多列几条，超出提示去网页端看 */
     private static final int MAX_LIST_SIZE = 15;
 
+    /** 「最近入库」最多列几条 */
+    private static final int MAX_RECENT_SIZE = 10;
+
+    /**
+     * 菜单 EventKey → 指令文本的白名单。key 必须与 {@link WeComMenuDefinition} 里建菜单用的
+     * key 一致，改动时两边同步，并在企微侧重新同步一次菜单。
+     * <p>
+     * 「订阅」「订阅电影」刻意映射成不带关键词的指令：走到 startSearch 后会回一句
+     * 「请带上要搜索的名字」，正好充当菜单点不了输入框时的引导语，不必为此单独写分支。
+     */
+    static final Map<String, String> MENU_COMMANDS = Map.of(
+            "cmd:mysubs", "我的订阅",
+            "cmd:downloading", "下载中",
+            "cmd:recent", "最近入库",
+            "cmd:sub_tv", "订阅",
+            "cmd:sub_movie", "订阅电影",
+            "cmd:help", "帮助",
+            "cmd:whoami", "我的账号");
+
     private static final String HELP_TEXT = """
             OSR 订阅助手，可用指令：
 
             订阅 <剧名>       搜索剧集并订阅，如：订阅 三体
             订阅电影 <片名>   搜索电影并订阅
             我的订阅          查看自己的订阅列表
+            下载中            查看正在下载的集
+            最近入库          查看最近入库的集
             进度 <编号>       查看某条订阅的进度
             暂停 <编号>       暂停订阅
             恢复 <编号>       恢复订阅
+            我的账号          查看绑定状态
             取消              中断当前的多轮选择
             帮助              显示本说明
 
@@ -70,6 +101,10 @@ public class WeComCommandService {
     @Autowired
     private IPtSubscriptionPlusService subscriptionService;
     @Autowired
+    private IPtSubscriptionEpisodePlusService episodeService;
+    @Autowired
+    private IPtDownloadRecordPlusService downloadRecordService;
+    @Autowired
     private SubscriptionSearchOnCreateTrigger searchOnCreateTrigger;
     @Autowired
     private WeComSessionStore sessionStore;
@@ -80,7 +115,7 @@ public class WeComCommandService {
      * @return 回复文案；返回 null 表示这条消息不需要回复（非文本消息、事件等）
      */
     public String handle(WeComInboundMessage message) {
-        if (message == null || !message.isText()) {
+        if (message == null || !message.isActionable()) {
             return null;
         }
         String wecomUserId = message.fromUser();
@@ -95,12 +130,34 @@ public class WeComCommandService {
             // 已停用是管理员的明确决定，绝不能被自动开号覆盖掉
             return "你的绑定已被管理员停用，无法使用订阅功能。";
         }
+        String command = toCommand(message);
+        if (command == null) {
+            // 菜单 key 不在白名单里：多半是企微侧菜单没重新同步，还挂着旧版本
+            log.warn("收到无法识别的企微菜单事件，EventKey={}", message.eventKey());
+            return "该菜单项已失效，请让管理员到「企业微信用户」页面重新同步应用菜单。";
+        }
         try {
-            return dispatch(bind, message.content().trim());
+            return dispatch(bind, command);
         } catch (Exception e) {
-            log.warn("处理企微指令失败，userId={} content={}", wecomUserId, message.content(), e);
+            log.warn("处理企微指令失败，userId={} command={}", wecomUserId, command, e);
             return "处理失败：" + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
         }
+    }
+
+    /**
+     * 把入站消息归一成一条指令文本：文本消息取其内容，菜单点击按 EventKey 查表。
+     * <p>
+     * 菜单走白名单映射而不是「EventKey 直接当指令文本用」，有两个原因：菜单是写死在
+     * 企微服务器上的，与代码里的指令文案解耦后，改文案不必重新同步菜单；同时白名单本身
+     * 限定了菜单能触发的动作范围，不会因为 EventKey 可控而变成任意指令入口。
+     *
+     * @return 指令文本；菜单 key 不认识时返回 null
+     */
+    private String toCommand(WeComInboundMessage message) {
+        if (message.isText()) {
+            return message.content().trim();
+        }
+        return MENU_COMMANDS.get(message.eventKey().trim());
     }
 
     /**
@@ -145,6 +202,18 @@ public class WeComCommandService {
         if (matches(text, "我的订阅", "订阅列表", "list")) {
             sessionStore.clear(wecomUserId);
             return listSubscriptions(bind);
+        }
+        if (matches(text, "下载中", "在下载", "downloading")) {
+            sessionStore.clear(wecomUserId);
+            return listDownloading(bind);
+        }
+        if (matches(text, "最近入库", "已入库", "recent")) {
+            sessionStore.clear(wecomUserId);
+            return listRecentInLibrary(bind);
+        }
+        if (matches(text, "我的账号", "我是谁", "whoami")) {
+            sessionStore.clear(wecomUserId);
+            return describeAccount(bind);
         }
 
         String movieKeyword = stripPrefix(text, "订阅电影", "订阅 电影", "电影订阅");
@@ -292,17 +361,29 @@ public class WeComCommandService {
 
     // ---------------- 查询与状态操作 ----------------
 
-    private String listSubscriptions(WecomUserPlus bind) {
+    /**
+     * 当前成员可见的订阅，倒序。可见性规则与网页端一致：
+     * 管理员看全部，其余人看「自己的 + 无归属的历史公共订阅」。
+     *
+     * @param limit 最多取几条
+     */
+    private List<PtSubscriptionPlus> listVisibleSubscriptions(WecomUserPlus bind, int limit) {
         LambdaQueryWrapper<PtSubscriptionPlus> wrapper = new LambdaQueryWrapper<>();
         if (!SysUser.isAdmin(bind.getSysUserId())) {
-            // 与网页端同一套可见性规则：自己的 + 无归属的历史公共订阅
             Long ownerId = bind.getSysUserId();
             wrapper.and(w -> w.eq(PtSubscriptionPlus::getOwnerUserId, ownerId)
                     .or().isNull(PtSubscriptionPlus::getOwnerUserId));
         }
+        wrapper.orderByDesc(PtSubscriptionPlus::getId);
+        if (limit != Integer.MAX_VALUE) {
+            wrapper.last("limit " + limit);
+        }
+        return subscriptionService.list(wrapper);
+    }
+
+    private String listSubscriptions(WecomUserPlus bind) {
         // 多查一条用来判断「还有更多」，不必再发一次 count 查询
-        wrapper.orderByDesc(PtSubscriptionPlus::getId).last("limit " + (MAX_LIST_SIZE + 1));
-        List<PtSubscriptionPlus> subs = subscriptionService.list(wrapper);
+        List<PtSubscriptionPlus> subs = listVisibleSubscriptions(bind, MAX_LIST_SIZE + 1);
         if (subs.isEmpty()) {
             return "你还没有订阅。发送「订阅 剧名」开始第一条。";
         }
@@ -316,6 +397,107 @@ public class WeComCommandService {
             sb.append("\n\n仅显示最近 ").append(MAX_LIST_SIZE).append(" 条，完整列表请到网页端查看。");
         }
         return sb.toString();
+    }
+
+    /**
+     * 正在下载的集，按订阅分组。
+     * <p>
+     * 先取用户可见的订阅、再按 subId 批量查集，而不是反过来从全部在途集里筛——
+     * 后者会把别人订阅的下载动态也捞出来。
+     */
+    private String listDownloading(WecomUserPlus bind) {
+        List<PtSubscriptionPlus> subs = listVisibleSubscriptions(bind, MAX_LIST_SIZE + 1);
+        if (subs.isEmpty()) {
+            return "你还没有订阅。发送「订阅 剧名」开始第一条。";
+        }
+        Map<Integer, PtSubscriptionPlus> subById = subs.stream()
+                .collect(Collectors.toMap(PtSubscriptionPlus::getId, s -> s, (a, b) -> a, LinkedHashMap::new));
+        List<PtSubscriptionEpisodePlus> inFlight = episodeService.list(
+                new LambdaQueryWrapper<PtSubscriptionEpisodePlus>()
+                        .in(PtSubscriptionEpisodePlus::getSubId, subById.keySet())
+                        .eq(PtSubscriptionEpisodePlus::getState, SubscriptionService.STATE_IN_FLIGHT)
+                        .orderByAsc(PtSubscriptionEpisodePlus::getSubId)
+                        .orderByAsc(PtSubscriptionEpisodePlus::getEpisode));
+        if (inFlight.isEmpty()) {
+            return "当前没有正在下载的集。";
+        }
+        // 一次把用到的下载记录查出来，避免逐集查库
+        Map<Integer, PtDownloadRecordPlus> recordById = loadRecords(inFlight);
+
+        StringBuilder sb = new StringBuilder("正在下载：\n");
+        Integer lastSubId = null;
+        for (PtSubscriptionEpisodePlus episode : inFlight) {
+            if (!episode.getSubId().equals(lastSubId)) {
+                sb.append('\n').append(describe(subById.get(episode.getSubId()))).append('\n');
+                lastSubId = episode.getSubId();
+            }
+            sb.append("  ").append(episodeLabel(subById.get(episode.getSubId()), episode.getEpisode()));
+            PtDownloadRecordPlus record = recordById.get(episode.getDownloadId());
+            if (record != null && record.getProgress() != null) {
+                sb.append("  ").append(Math.round(record.getProgress() * 100)).append('%');
+            }
+            sb.append('\n');
+        }
+        return sb.toString().stripTrailing();
+    }
+
+    /**
+     * 最近入库的集。按集行的更新时间倒序——入库是这张表最后一次状态变更，
+     * 没有单独的入库时间字段，update_time 就是最接近的信号。
+     */
+    private String listRecentInLibrary(WecomUserPlus bind) {
+        List<PtSubscriptionPlus> subs = listVisibleSubscriptions(bind, MAX_LIST_SIZE + 1);
+        if (subs.isEmpty()) {
+            return "你还没有订阅。发送「订阅 剧名」开始第一条。";
+        }
+        Map<Integer, PtSubscriptionPlus> subById = subs.stream()
+                .collect(Collectors.toMap(PtSubscriptionPlus::getId, s -> s, (a, b) -> a));
+        List<PtSubscriptionEpisodePlus> episodes = episodeService.list(
+                new LambdaQueryWrapper<PtSubscriptionEpisodePlus>()
+                        .in(PtSubscriptionEpisodePlus::getSubId, subById.keySet())
+                        .eq(PtSubscriptionEpisodePlus::getState, SubscriptionService.STATE_IN_LIBRARY)
+                        .orderByDesc(PtSubscriptionEpisodePlus::getUpdateTime)
+                        .last("limit " + MAX_RECENT_SIZE));
+        if (episodes.isEmpty()) {
+            return "还没有已入库的集。";
+        }
+        StringBuilder sb = new StringBuilder("最近入库：\n");
+        for (PtSubscriptionEpisodePlus episode : episodes) {
+            PtSubscriptionPlus sub = subById.get(episode.getSubId());
+            sb.append('\n').append(describe(sub)).append(' ').append(episodeLabel(sub, episode.getEpisode()));
+        }
+        return sb.toString();
+    }
+
+    /** 绑定状态。排查「为什么收不到通知/指令没反应」时第一个要看的就是这个 */
+    private String describeAccount(WecomUserPlus bind) {
+        long subCount = listVisibleSubscriptions(bind, Integer.MAX_VALUE).size();
+        return "企业微信 UserId：" + bind.getWecomUserid()
+                + "\nOSR 账号：" + (StringUtils.isNotBlank(bind.getSysUserName())
+                ? bind.getSysUserName() : ("#" + bind.getSysUserId()))
+                + "\n可见订阅：" + subCount + " 条"
+                + (SysUser.isAdmin(bind.getSysUserId()) ? "\n（管理员，可见全部订阅）" : "");
+    }
+
+    /** 批量取集关联的下载记录，避免在循环里逐条查库 */
+    private Map<Integer, PtDownloadRecordPlus> loadRecords(List<PtSubscriptionEpisodePlus> episodes) {
+        Set<Integer> ids = episodes.stream()
+                .map(PtSubscriptionEpisodePlus::getDownloadId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        return downloadRecordService.listByIds(ids).stream()
+                .collect(Collectors.toMap(PtDownloadRecordPlus::getId, r -> r, (a, b) -> a));
+    }
+
+    /** 电影不带集号 */
+    private static String episodeLabel(PtSubscriptionPlus sub, Integer episode) {
+        if (sub == null || SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType())) {
+            return "正片";
+        }
+        return "第 " + episode + " 集";
     }
 
     private String showProgress(WecomUserPlus bind, String arg) {
