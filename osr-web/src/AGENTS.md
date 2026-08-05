@@ -132,6 +132,13 @@ src/
 - 移动端页面不要使用 PC 端组件 (Vuetify PC 组件)
 - 每个页面都要考虑H5端的适配
 - 列表页不要各自实现分页/搜索逻辑，复用 `useTaskList`/`useRecordList`
+- **搜索区的「重置」不要靠 `queryRef.value?.reset?.()`**。Vuetify 的 `v-form.reset()` 是把注册在
+  表单里的输入框置为 `null`，不是还原默认值——`defaultQuery` 里的非空默认值（订阅页 `status: 'ACTIVE'`、
+  孤儿页 `status: '0'`）会被清成"全部"，没渲染成表单控件的条件（路由带进来的 `subId`、日期区间写出的
+  `params`）它也管不到；页面漏写 `ref="queryRef"` 时可选链直接吃掉调用，重置静默失效。
+  统一走 `useTaskList`/`useRecordList` 的 `resetQuery`，它用 `resetQueryParams()`
+  （`composables/queryParams.ts`）按默认值快照还原。新增查询条件请写进 `defaultQuery`，
+  不要直接往 `queryParams` 上挂字段。
 - **不要写死路由 path**。后端菜单 path 历史上有 `/openlist/xxx` 与 `/openliststrm/xxx` 两种前缀，
   写死会跳 404。用 `getRoutePathForComponent('openlist/xxx/index')` 按 `meta.componentKey` 反查
   （不要用组件对象引用比对，HMR 下会失效）。菜单快捷入口用 `useMenuLinks`。

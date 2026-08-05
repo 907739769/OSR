@@ -82,3 +82,53 @@ describe('useTaskList 的 executeApi 可选性', () => {
     expect(executeApi).toHaveBeenCalledWith([])
   })
 })
+
+describe('useTaskList 的 resetQuery', () => {
+  it('把查询条件还原成 defaultQuery 而不是一律清空', () => {
+    // status 有非空默认值（订阅页 'ACTIVE'、孤儿页 '0' 都是这种），
+    // 重置后必须回到这个默认值，而不是被清成"全部"
+    const base = build({ defaultQuery: { status: 'ACTIVE', title: undefined } })
+    const qp = base.queryParams as any
+
+    qp.status = 'PAUSED'
+    qp.title = '沙丘'
+    base.resetQuery()
+
+    expect(qp.status).toBe('ACTIVE')
+    expect(qp.title).toBeUndefined()
+    expect(qp.pageNum).toBe(1)
+  })
+
+  it('删掉默认值里没有的残留条件', () => {
+    // 日期区间写入的 params、页面自行挂上去的字段，只 Object.assign 会残留下来继续参与查询
+    const base = build({ defaultQuery: { status: undefined } })
+    const qp = base.queryParams as any
+
+    qp.params = { beginTime: '2026-01-01 00:00:00' }
+    base.resetQuery()
+
+    expect(qp.params).toBeUndefined()
+  })
+
+  it('不重置每页条数（分页偏好不属于筛选条件）', () => {
+    const base = build({ defaultQuery: { pageSize: 12 } })
+    const qp = base.queryParams as any
+
+    qp.pageSize = 50
+    base.resetQuery()
+
+    expect(qp.pageSize).toBe(50)
+  })
+
+  it('页面没绑 ref="queryRef" 时依然完成重置', () => {
+    // 老实现是 queryRef.value?.reset?.()，漏绑 ref 会被可选链吃掉，重置静默失效
+    const base = build({ defaultQuery: { status: 'ACTIVE' } })
+    const qp = base.queryParams as any
+
+    expect(base.queryRef.value).toBeUndefined()
+    qp.status = 'PAUSED'
+    base.resetQuery()
+
+    expect(qp.status).toBe('ACTIVE')
+  })
+})

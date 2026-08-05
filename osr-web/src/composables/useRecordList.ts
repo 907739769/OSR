@@ -1,6 +1,7 @@
 import { ref, reactive, computed, onActivated } from 'vue'
 import { message } from '@/composables/useMessage'
 import { confirm } from '@/composables/useConfirm'
+import { resetQueryParams } from '@/composables/queryParams'
 import type { SearchParams, PageResult } from '@/types'
 
 export interface RecordListConfig<TQuery extends SearchParams = SearchParams> {
@@ -41,11 +42,14 @@ export function useRecordList<TQuery extends SearchParams = SearchParams>(config
   const loading = ref(true)
   const total = ref(0)
 
-  const queryParams = reactive<SearchParams>({
+  // 默认查询条件快照，重置时按它还原（见 resetQuery）
+  const defaultQueryParams: SearchParams = {
     pageNum: 1,
     pageSize: 10,
     ...(defaultQuery || {})
-  }) as TQuery
+  }
+
+  const queryParams = reactive<SearchParams>({ ...defaultQueryParams }) as TQuery
 
   const totalPages = computed(() => Math.ceil(total.value / queryParams.pageSize) || 1)
 
@@ -135,7 +139,9 @@ export function useRecordList<TQuery extends SearchParams = SearchParams>(config
 
   const resetQuery = () => {
     dateRange.value = null
-    queryRef.value?.reset?.()
+    resetQueryParams(queryParams, defaultQueryParams)
+    // 值已由上面还原，这里只清校验态（v-form.reset() 会顺带把值清成 null，不能用）
+    queryRef.value?.resetValidation?.()
     handleQuery()
   }
 
