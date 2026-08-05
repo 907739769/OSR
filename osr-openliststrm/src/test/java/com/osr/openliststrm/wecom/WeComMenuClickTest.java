@@ -58,17 +58,23 @@ class WeComMenuClickTest {
      * 菜单点击没法输入剧名，这是刻意的设计，不是漏了分支。
      */
     @Test
-    void 点击订阅剧集菜单_返回输入引导语() {
+    void 点击订阅剧集菜单_引导语给的是剧集指令() {
         String reply = service.handle(click("cmd:sub_tv"));
 
-        assertTrue(reply != null && reply.contains("请带上要搜索的名字"), "实际：" + reply);
+        assertTrue(reply != null && reply.contains("剧名"), "实际：" + reply);
+        assertTrue(reply.contains("订阅 "), "引导语要给出剧集指令，实际：" + reply);
     }
 
+    /**
+     * 引导语必须与菜单项的媒体类型一致。曾经两处都回「例如：订阅 三体」，
+     * 用户点了「订阅电影」照着发，搜的却是剧集。
+     */
     @Test
-    void 点击订阅电影菜单_返回输入引导语() {
+    void 点击订阅电影菜单_引导语给的是电影指令() {
         String reply = service.handle(click("cmd:sub_movie"));
 
-        assertTrue(reply != null && reply.contains("请带上要搜索的名字"), "实际：" + reply);
+        assertTrue(reply != null && reply.contains("片名"), "实际：" + reply);
+        assertTrue(reply.contains("订阅电影 "), "引导语要给出电影指令，实际：" + reply);
     }
 
     /** 企微侧菜单没重新同步时会出现旧 key，提示要能指向解决办法 */

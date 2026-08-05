@@ -59,8 +59,9 @@ public class WeComCommandService {
      * 菜单 EventKey → 指令文本的白名单。key 必须与 {@link WeComMenuDefinition} 里建菜单用的
      * key 一致，改动时两边同步，并在企微侧重新同步一次菜单。
      * <p>
-     * 「订阅」「订阅电影」刻意映射成不带关键词的指令：走到 startSearch 后会回一句
-     * 「请带上要搜索的名字」，正好充当菜单点不了输入框时的引导语，不必为此单独写分支。
+     * 「订阅」「订阅电影」刻意映射成不带关键词的指令：走到 startSearch 后会按媒体类型
+     * 回一句「请带上剧名/片名，例如：…」，正好充当菜单点不了输入框时的引导语，
+     * 不必为此单独写分支。
      */
     static final Map<String, String> MENU_COMMANDS = Map.of(
             "cmd:mysubs", "我的订阅",
@@ -249,8 +250,13 @@ public class WeComCommandService {
     // ---------------- 建订阅：搜索 → 选片 → 选季 ----------------
 
     private String startSearch(String wecomUserId, String mediaType, String keyword) {
+        boolean movie = TmdbSearchService.TYPE_MOVIE.equalsIgnoreCase(mediaType);
         if (StringUtils.isBlank(keyword)) {
-            return "请带上要搜索的名字，例如：订阅 三体";
+            // 引导语必须给出与当前媒体类型一致的指令：点了「订阅电影」却提示「订阅 三体」，
+            // 照着发只会去搜剧集
+            return movie
+                    ? "请带上片名，例如：订阅电影 流浪地球"
+                    : "请带上剧名，例如：订阅 三体";
         }
         List<TmdbSearchItem> results;
         try {
