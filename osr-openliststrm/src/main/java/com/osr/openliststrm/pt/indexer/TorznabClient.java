@@ -39,11 +39,19 @@ public class TorznabClient {
     private final IndexerRateLimiter rateLimiter;
 
     public TorznabClient(OkHttpClient sharedOkHttpClient, IndexerRateLimiter rateLimiter) {
-        // 关掉 OkHttp 默认开启的 retryOnConnectionFailure：它会在连接层失败时静默重发，
-        // 对 PT 场景等于把每次请求悄悄变成两次，且上层的退避逻辑完全看不见这次重试。
-        // 读超时收到 60s——索引器代理到后端站点本就慢，30s 容易把正常响应误判成失败进而触发重试。
+        // retryOnConnectionFailure 必须保持开启，不要"为了不重复打站点"再关掉它。
+        // 它只覆盖<b>连接建立/复用阶段</b>的失败——那时请求还没被服务端处理过，换一条连接重发
+        // 不会产生重复搜索；对任何已经收到 HTTP 响应的请求（含 429/503）它一概不重试，
+        // 因此上层按状态码做的限流退避不受影响，两者管的不是同一件事。
+        // 关掉它的代价是 keep-alive 竞态直接变成可见失败：共享池保活 5 分钟
+        // （见 HttpClientConfig），而 Prowlarr(Kestrel) 默认 KeepAliveTimeout 只有 130 秒，
+        // 中间若有 nginx 反代更短。空闲落在这段窗口里的连接服务端已经关闭、本地还当它可用，
+        // 请求写进死 socket 读到 EOF，报 "unexpected end of stream on http://host:port/..."。
+        // 这种失败在索引器端查不到任何记录——请求压根没进对方的应用层——却会累加 fail_count
+        // 触发退避，多几次就把一个健康的索引器自动停用了。
+        // 读超时放到 60s——索引器代理到后端站点本就慢，30s 容易把正常响应误判成失败。
         this.httpClient = sharedOkHttpClient.newBuilder()
-                .retryOnConnectionFailure(false)
+                .retryOnConnectionFailure(true)
                 .readTimeout(60, TimeUnit.SECONDS)
                 .build();
         this.rateLimiter = rateLimiter;
