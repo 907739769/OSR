@@ -107,8 +107,15 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
         LambdaQueryWrapper<PtSubscriptionPlus> wrapper = new LambdaQueryWrapper<>();
         if (!canAccessAll()) {
             Long currentUserId = getUserId();
-            wrapper.and(w -> w.eq(PtSubscriptionPlus::getOwnerUserId, currentUserId)
-                    .or().isNull(PtSubscriptionPlus::getOwnerUserId));
+            if (currentUserId == null) {
+                // 取不到当前用户时只放行无归属的公共订阅。不能直接把 null 交给 eq()——
+                // MyBatis-Plus 会生成 `owner_user_id = NULL`，在 SQL 里恒为 unknown，
+                // 条件看着在、实则永远不成立，排查时极难看出来
+                wrapper.isNull(PtSubscriptionPlus::getOwnerUserId);
+            } else {
+                wrapper.and(w -> w.eq(PtSubscriptionPlus::getOwnerUserId, currentUserId)
+                        .or().isNull(PtSubscriptionPlus::getOwnerUserId));
+            }
         }
         if (StringUtils.isNotBlank(entity.getTitle())) {
             wrapper.like(PtSubscriptionPlus::getTitle, entity.getTitle());

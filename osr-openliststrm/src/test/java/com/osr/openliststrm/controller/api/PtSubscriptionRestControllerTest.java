@@ -3,6 +3,7 @@ package com.osr.openliststrm.controller.api;
 import com.osr.common.core.domain.Result;
 import com.osr.common.utils.CurrentUserService;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
+import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.osr.openliststrm.pt.subscription.SubscriptionSearchOnCreateTrigger;
 import com.osr.openliststrm.pt.subscription.SubscriptionService;
 import com.osr.openliststrm.pt.subscription.dto.SubscribeRequest;
@@ -15,6 +16,7 @@ import org.mockito.MockitoAnnotations;
 import java.lang.reflect.Field;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.doThrow;
@@ -37,6 +39,10 @@ class PtSubscriptionRestControllerTest {
     @Mock
     private CurrentUserService currentUserService;
 
+    /** 基类 BaseCrudRestController 的 service 字段，归属校验要靠它查订阅 */
+    @Mock
+    private IPtSubscriptionPlusService subscriptionService;
+
     private PtSubscriptionRestController controller;
 
     @BeforeEach
@@ -46,6 +52,7 @@ class PtSubscriptionRestControllerTest {
         inject("subscriptionBiz", subscriptionBiz);
         inject("searchOnCreateTrigger", searchOnCreateTrigger);
         inject("currentUserService", currentUserService);
+        inject("service", subscriptionService);
         when(currentUserService.getUserId()).thenReturn(7L);
     }
 
@@ -105,6 +112,62 @@ class PtSubscriptionRestControllerTest {
 
         assertEquals(200, result.getCode());
         verify(searchOnCreateTrigger, org.mockito.Mockito.never()).triggerAsync(anyInt());
+    }
+
+    /** 归属于 ownerId 的订阅 */
+    private static PtSubscriptionPlus ownedSub(Integer id, Long ownerId) {
+        PtSubscriptionPlus sub = activeSub(id);
+        sub.setOwnerUserId(ownerId);
+        return sub;
+    }
+
+    /**
+     * 管理员(userId=1)能访问别人名下的订阅。
+     * <p>
+     * 曾经因为 CurrentUserService.getUserId() 恒返回 null（它读的 ThreadLocal
+     * 从来没有过滤器填充），管理员被判成未登录用户，网页端只看得到 owner_user_id
+     * IS NULL 的历史订阅——企微里建的订阅全部消失，而接口照常 200、日志照常干净。
+     */
+    @Test
+    void 管理员_能访问他人名下的订阅() {
+        when(currentUserService.getUserId()).thenReturn(1L);
+        when(subscriptionService.getById(50)).thenReturn(ownedSub(50, 999L));
+
+        assertEquals(200, controller.getById(50).getCode());
+    }
+
+    @Test
+    void 普通用户_不能访问他人名下的订阅() {
+        when(currentUserService.getUserId()).thenReturn(9L);
+        when(subscriptionService.getById(50)).thenReturn(ownedSub(50, 999L));
+
+        assertEquals(500, controller.getById(50).getCode());
+    }
+
+    @Test
+    void 普通用户_能访问自己的订阅() {
+        when(currentUserService.getUserId()).thenReturn(9L);
+        when(subscriptionService.getById(50)).thenReturn(ownedSub(50, 9L));
+
+        assertEquals(200, controller.getById(50).getCode());
+    }
+
+    /** 无归属的历史订阅对所有人可见，否则升级后老数据会从非管理员的列表里整批消失 */
+    @Test
+    void 普通用户_能访问无归属的公共订阅() {
+        when(currentUserService.getUserId()).thenReturn(9L);
+        when(subscriptionService.getById(50)).thenReturn(ownedSub(50, null));
+
+        assertEquals(200, controller.getById(50).getCode());
+    }
+
+    /** 取不到当前用户时不能放行有归属的订阅 */
+    @Test
+    void 取不到当前用户_不能访问有归属的订阅() {
+        when(currentUserService.getUserId()).thenReturn(null);
+        when(subscriptionService.getById(50)).thenReturn(ownedSub(50, 999L));
+
+        assertEquals(500, controller.getById(50).getCode());
     }
 
     /**
