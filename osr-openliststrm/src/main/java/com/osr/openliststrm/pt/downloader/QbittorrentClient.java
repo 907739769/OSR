@@ -68,17 +68,72 @@ public class QbittorrentClient implements IDownloaderClient {
     }
 
     @Override
-    public void addTorrent(PtDownloaderPlus config, String downloadUrl, String savePath, String tag) throws IOException {
-        FormBody body = new FormBody.Builder()
+    public void addTorrent(PtDownloaderPlus config, String downloadUrl, String savePath, String tag, boolean paused)
+            throws IOException {
+        FormBody.Builder builder = new FormBody.Builder()
                 .add("urls", downloadUrl)
                 .add("savepath", savePath)
-                .add("tags", tag)
-                .build();
-        String response = post(config, "/api/v2/torrents/add", body);
+                .add("tags", tag);
+        if (paused) {
+            // qB 4.x 认 paused、5.x 改叫 stopped。两个都发：qB 会忽略自己不认识的字段，
+            // 省掉一次版本探测，也不用在两个大版本之间二选一
+            builder.add("paused", "true").add("stopped", "true");
+        }
+        String response = post(config, "/api/v2/torrents/add", builder.build());
         if (!OK.equalsIgnoreCase(response.trim())) {
             throw new IOException("qBittorrent 拒绝添加种子，响应：" + response);
         }
-        log.info("已推送种子到下载器[{}]：{}", config.getName(), maskUrl(downloadUrl));
+        log.info("已推送种子到下载器[{}]{}：{}", config.getName(),
+                paused ? "（暂停态，待选完目标集文件再启动）" : "", maskUrl(downloadUrl));
+    }
+
+    /** qB 4.x 的启动端点。5.0 起改名为 {@link #START_ENDPOINT_MODERN} 并移除了本端点 */
+    private static final String START_ENDPOINT_LEGACY = "/api/v2/torrents/resume";
+
+    /** qB 5.x 的启动端点 */
+    private static final String START_ENDPOINT_MODERN = "/api/v2/torrents/start";
+
+    /** downloaderId -> 探测出来的可用启动端点，首次成功后缓存，避免之后每次都先撞一个 404 */
+    private final Map<Integer, String> startEndpointCache = new ConcurrentHashMap<>();
+
+    @Override
+    public void resumeTorrent(PtDownloaderPlus config, String hash) throws IOException {
+        String cached = startEndpointCache.get(config.getId());
+        if (cached != null) {
+            post(config, cached, hashesBody(hash));
+            log.info("下载器[{}] 已启动种子[{}]", config.getName(), hash);
+            return;
+        }
+        // 先试旧端点（存量用户多在 4.x），404 再试新的，成功的那个记下来。
+        // 两个都失败时把首次异常挂成 suppressed，免得"5.x 端点不存在"盖掉真正的网络故障
+        try {
+            post(config, START_ENDPOINT_LEGACY, hashesBody(hash));
+            startEndpointCache.put(config.getId(), START_ENDPOINT_LEGACY);
+        } catch (IOException legacyFailed) {
+            try {
+                post(config, START_ENDPOINT_MODERN, hashesBody(hash));
+                startEndpointCache.put(config.getId(), START_ENDPOINT_MODERN);
+            } catch (IOException modernFailed) {
+                modernFailed.addSuppressed(legacyFailed);
+                throw modernFailed;
+            }
+        }
+        log.info("下载器[{}] 已启动种子[{}]", config.getName(), hash);
+    }
+
+    @Override
+    public void deleteTorrent(PtDownloaderPlus config, String hash, boolean deleteFiles) throws IOException {
+        FormBody body = new FormBody.Builder()
+                .add("hashes", hash)
+                .add("deleteFiles", String.valueOf(deleteFiles))
+                .build();
+        post(config, "/api/v2/torrents/delete", body);
+        log.info("下载器[{}] 已移除种子[{}]{}", config.getName(), hash, deleteFiles ? "（含已下载文件）" : "");
+    }
+
+    /** FormBody 不可变，但每次请求都要一个新实例（重试时会被复用写入两次），统一在这里造 */
+    private FormBody hashesBody(String hash) {
+        return new FormBody.Builder().add("hashes", hash).build();
     }
 
     /**

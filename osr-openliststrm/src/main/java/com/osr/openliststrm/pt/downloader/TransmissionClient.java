@@ -72,12 +72,16 @@ public class TransmissionClient implements IDownloaderClient {
     }
 
     @Override
-    public void addTorrent(PtDownloaderPlus config, String downloadUrl, String savePath, String tag) throws IOException {
+    public void addTorrent(PtDownloaderPlus config, String downloadUrl, String savePath, String tag, boolean paused)
+            throws IOException {
         JSONObject args = new JSONObject();
         args.put("filename", downloadUrl);
         args.put("download-dir", savePath);
+        // Transmission 的 paused 语义与 qB 一致，且没有跨版本改名的问题
+        args.put("paused", paused);
         JSONObject result = call(config, "torrent-add", args);
-        log.info("已推送种子到下载器[{}]：{}", config.getName(), maskUrl(downloadUrl));
+        log.info("已推送种子到下载器[{}]{}：{}", config.getName(),
+                paused ? "（暂停态，待选完目标集文件再启动）" : "", maskUrl(downloadUrl));
 
         // 打标签是独立的第二步：labels 是 Transmission 3.0+ 才支持的字段，若目标版本较旧，
         // 这一步失败不该连累种子已经添加成功的事实，只记 warn。
@@ -212,6 +216,23 @@ public class TransmissionClient implements IDownloaderClient {
         args.put("files-unwanted", List.copyOf(fileIndexes));
         call(config, "torrent-set", args);
         log.info("下载器[{}] 种子[{}] 已排除 {} 个文件（非目标集数）", config.getName(), hash, fileIndexes.size());
+    }
+
+    @Override
+    public void resumeTorrent(PtDownloaderPlus config, String hash) throws IOException {
+        JSONObject args = new JSONObject();
+        args.put("ids", List.of(hash));
+        call(config, "torrent-start", args);
+        log.info("下载器[{}] 已启动种子[{}]", config.getName(), hash);
+    }
+
+    @Override
+    public void deleteTorrent(PtDownloaderPlus config, String hash, boolean deleteFiles) throws IOException {
+        JSONObject args = new JSONObject();
+        args.put("ids", List.of(hash));
+        args.put("delete-local-data", deleteFiles);
+        call(config, "torrent-remove", args);
+        log.info("下载器[{}] 已移除种子[{}]{}", config.getName(), hash, deleteFiles ? "（含已下载文件）" : "");
     }
 
     /**

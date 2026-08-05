@@ -33,9 +33,38 @@ public interface IDownloaderClient {
      * @param downloadUrl .torrent 链接或磁力链
      * @param savePath    保存路径
      * @param tag         标签，后续按此标签过滤查询
+     * @param paused      是否以暂停态添加，等 OSR 按目标集选完文件后再
+     *                    {@link #resumeTorrent} 启动。<b>磁力链绝不能传 true</b>：
+     *                    下载器在暂停态下不会去下载磁力的元数据，文件列表永远为空，
+     *                    种子会永远等不到启动
      * @throws IOException 网络异常或下载器拒绝
      */
-    void addTorrent(PtDownloaderPlus config, String downloadUrl, String savePath, String tag) throws IOException;
+    void addTorrent(PtDownloaderPlus config, String downloadUrl, String savePath, String tag, boolean paused)
+            throws IOException;
+
+    /**
+     * 启动一个暂停中的种子。
+     * <p>
+     * 对已经在下载的种子调用是幂等的无害操作——调用方因此不需要记录"这个种子当初是不是
+     * 暂停加进来的"，选完文件无脑启动即可，省掉一列状态和它带来的一致性问题。
+     * </p>
+     *
+     * @throws IOException 网络异常或下载器拒绝
+     */
+    void resumeTorrent(PtDownloaderPlus config, String hash) throws IOException;
+
+    /**
+     * 从下载器移除种子。
+     * <p>
+     * <b>调用它之前先读根目录 AGENTS.md 的「OSR 从不删种」。</b>目前唯一的例外是
+     * {@code DownloadTrackService#removeUselessTorrent}：种子从未下载完成、也从未做种，
+     * 站点的 H&R 考核根本没开始计，删它不可能记过。任何其它场景都不要调用本方法。
+     * </p>
+     *
+     * @param deleteFiles 是否连同已下载的文件一起删除
+     * @throws IOException 网络异常或下载器拒绝
+     */
+    void deleteTorrent(PtDownloaderPlus config, String hash, boolean deleteFiles) throws IOException;
 
     /**
      * 查询指定标签下的全部种子。

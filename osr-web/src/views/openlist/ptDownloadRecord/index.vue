@@ -286,11 +286,15 @@ const failReasonCodeLabel = (code: string) => {
   switch (code) {
     case 'TORRENT_NOT_FOUND': return '种子丢失'
     case 'ZOMBIE_TIMEOUT': return '下载超时'
+    case 'NO_TARGET_EPISODE': return '无目标集'
+    case 'METADATA_TIMEOUT': return '种子无响应'
     default: return '其他原因'
   }
 }
+// 这三类都不是错误：超时、包选错、种子没人做种，占位集都已退回并会继续搜索，不该用红色吓人
+const WARNING_FAIL_CODES = ['ZOMBIE_TIMEOUT', 'NO_TARGET_EPISODE', 'METADATA_TIMEOUT']
 const failReasonTagType = (code: string): 'warning' | 'error' => {
-  return code === 'ZOMBIE_TIMEOUT' ? 'warning' : 'error'
+  return WARNING_FAIL_CODES.includes(code) ? 'warning' : 'error'
 }
 
 const formatSize = (bytes: number): string => {

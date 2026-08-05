@@ -30,6 +30,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
@@ -62,6 +63,25 @@ public class DownloadTrackService {
 
     /** 推送后找不到对应种子的宽限期：超过它才判失败（qB 解析磁力元数据需要时间） */
     private static final long GRACE_MILLIS = 10 * 60 * 1000L;
+
+    /**
+     * 种子在下载器里、但迟迟解析不出文件列表的容忍上限。
+     * <p>
+     * 这是<b>暂停加种</b>的必要兜底：多集包以暂停态推送，只有拿到文件列表选完目标集才会被启动。
+     * 种子损坏、磁力无人做种、OSR 恰好在启动前重启……任何一种都会让它永远停在暂停态。
+     * 不在这里收尾的话，它会占着下载器的并发名额直到僵尸超时（默认 24 小时），
+     * 而僵尸超时判的是"下载不动"，跟"元数据都没拿到"根本是两回事。
+     * </p>
+     * <p>
+     * 30 分钟是刻意给足的：.torrent 的文件列表本该秒级可得，磁力慢些但十几分钟也够了；
+     * 判早了会误杀正在解析的种子，判晚了只是让一个本就废掉的任务多占半小时名额。
+     * </p>
+     * <p>
+     * 判定还<b>必须叠加"进度为 0"</b>（见调用处）：文件选不出来的原因也可能是下载器 API
+     * 临时故障，而种子本身下得好好的——只按时间判会把它一并删掉。
+     * </p>
+     */
+    private static final long METADATA_TIMEOUT_MILLIS = 30 * 60 * 1000L;
 
     /** 同一集连续失败达到该次数后不再回退 MISSING，转 BLOCKED 停止自动重试，避免已下架/失效资源被无限次静默重试 */
     private final int maxConsecutiveFailures;
@@ -140,11 +160,27 @@ public class DownloadTrackService {
                 // 未超宽限期：qB 可能还在解析元数据，本轮跳过
             } else {
                 // 种子还在下载器但未完成：先尝试按目标集数过滤文件（幂等，仅第一次成功后才标记跳过）
-                if (!Boolean.TRUE.equals(record.getFilesSelected())) {
-                    trySelectFiles(downloader, record, matched, subCache.get(record.getSubId()));
+                if (!Boolean.TRUE.equals(record.getFilesSelected())
+                        && trySelectFiles(downloader, record, matched, subCache.get(record.getSubId()))) {
+                    // 包里没有任何目标集，记录已判失败、占位集已回退。绝不能再往下走：
+                    // markDownloading 是无条件 updateById，会把刚置 FAILED 的记录复活成 DOWNLOADING
+                    continue;
                 }
                 // H&R 限额越早下发越好：种子刚加进来时下载器就可能按全局限额安排它的命运
                 applyShareLimitsIfNeeded(downloader, record, matched);
+                if (!Boolean.TRUE.equals(record.getFilesSelected()) && matched.getProgress() <= 0) {
+                    // 文件没选好 + 一个字节都没下 = 它还停在起跑线上：要么是暂停态的多集包在等
+                    // 文件选择，要么是元数据根本没解析出来。标成 DOWNLOADING 会在前端显示成
+                    // "下载中 0%"，保持 PUSHED（"已推送，未开始"）才是它真实的样子。
+                    //
+                    // progress > 0 的种子绝不能走这条路：文件选择失败的原因也可能是下载器 API
+                    // 临时故障（listFiles 抛异常），而种子本身在正常下载。那种情况下按超时中止
+                    // 会连带把一个下得好好的种子删掉，比不做这个兜底糟得多
+                    if (age >= METADATA_TIMEOUT_MILLIS) {
+                        abortMetadataTimeout(downloader, record, matched);
+                    }
+                    continue;
+                }
                 if (age >= zombieTimeoutMillis) {
                     fail(record, FailReasonCode.ZOMBIE_TIMEOUT,
                             "下载超过 " + (zombieTimeoutMillis / 3600000) + " 小时仍未完成，判定为僵尸种子");
@@ -337,16 +373,19 @@ public class DownloadTrackService {
      * 任何异常都只记 warn、不标记 {@code filesSelected}，留给下一轮 30 秒轮询重试；
      * 种子刚加入下载器、元数据还没解析完成时 {@code listFiles} 会返回空列表，同样等下一轮重试。
      * </p>
+     *
+     * @return 是否已<b>中止</b>这条记录（包内一个目标集都没有）。返回 true 时记录已是 FAILED 终态，
+     *         调用方必须立刻跳过它——后续的 markDownloading 是无条件 updateById，会把它复活
      */
-    private void trySelectFiles(PtDownloaderPlus downloader, PtDownloadRecordPlus record, DownloaderTorrent matched,
-                                PtSubscriptionPlus sub) {
+    private boolean trySelectFiles(PtDownloaderPlus downloader, PtDownloadRecordPlus record, DownloaderTorrent matched,
+                                   PtSubscriptionPlus sub) {
         try {
             List<PtSubscriptionEpisodePlus> targets = episodeService.list(
                     new QueryWrapper<PtSubscriptionEpisodePlus>().eq("download_id", record.getId()));
             if (targets.isEmpty()) {
                 // 理论上不该发生：claim() 推送种子时必然写好 download_id 关联。保守起见不标记
                 // filesSelected，留给下一轮重试，避免异常数据下误吞掉本该处理的场景。
-                return;
+                return false;
             }
             Set<Integer> targetEpisodes = targets.stream()
                     .map(PtSubscriptionEpisodePlus::getEpisode)
@@ -356,7 +395,7 @@ public class DownloadTrackService {
                     .listFiles(downloader, matched.getHash());
             if (files.isEmpty()) {
                 // 元数据尚未解析完成，本轮跳过，不标记 selected
-                return;
+                return false;
             }
 
             Set<Integer> excludeIndexes = new HashSet<>();
@@ -373,14 +412,138 @@ public class DownloadTrackService {
                     excludeIndexes.add(file.getIndex());
                 }
             }
+            // 包内一个目标集都没有：绝不能把这批排除指令发下去。那会让下载器拿到一个所有
+            // 视频文件都 prio=0 的任务，0 字节永远挂在那里占着并发名额，直到僵尸超时（默认
+            // 24 小时）才收尾；qB 某些版本还会把"全部文件不下载"直接判成 completed，
+            // 记录转 COMPLETED 后连僵尸兜底都够不着，只能等 12 小时后的卡死在途集清扫。
+            // 这一步的判据（下载器给出的真实文件列表）已经足够精确，直接中止最干净。
+            if (isNoTargetEpisode(sub, targetEpisodes, actualEpisodes)) {
+                abortNoTargetEpisode(downloader, record, sub, matched, targetEpisodes, actualEpisodes);
+                return true;
+            }
             if (!excludeIndexes.isEmpty()) {
                 downloaderClientFactory.get(downloader).excludeFiles(downloader, matched.getHash(), excludeIndexes);
             }
+            // 文件选完才启动。多集包是以暂停态推送的（见 SubscriptionEngine#shouldPauseOnAdd），
+            // 不启动它就永远不会开始下载；对没有暂停加入的种子（单集、磁力、电影）这是无害的空操作，
+            // 因此不必记录"当初是不是暂停加进来的"。
+            // 必须赶在 markFilesSelected 之前：这一步失败要留给下一轮重试，而一旦标了
+            // filesSelected 就再也不会进到本方法，暂停的种子将永远没人启动
+            downloaderClientFactory.get(downloader).resumeTorrent(downloader, matched.getHash());
             reconcileClaims(record, sub, targets, actualEpisodes);
             markFilesSelected(record);
         } catch (Exception e) {
             log.warn("下载记录[{}] 按目标集数过滤文件失败，下一轮重试：{}", record.getId(), e.getMessage());
         }
+        return false;
+    }
+
+    /**
+     * 种子里能解析出集号的文件，与本记录要补的集<b>一个都对不上</b>吗？
+     * <p>
+     * 三条保守约束与 {@link #reconcileClaims} 同源，宁可漏判也不能错判——错判会把一个
+     * 正在正常下载的种子当场中止掉：
+     * <ul>
+     *   <li>{@code actualEpisodes} 为空时返回 false：那说明文件名一个集号都没解析出来
+     *       （整季打包成单文件、命名奇特），不是"包里没有目标集"的证据。此时原有逻辑
+     *       同样一个文件都不会排除，任务照常下载。</li>
+     *   <li>电影订阅返回 false：电影集号是哨兵 0，文件名里随便一个数字都可能被解析成集号，
+     *       比对必然假阳性，会把刚推送的电影整个中止掉。</li>
+     *   <li>订阅为 null（已被删除）返回 false：没有判据就不动手，交给僵尸超时兜底。</li>
+     * </ul>
+     * </p>
+     */
+    private boolean isNoTargetEpisode(PtSubscriptionPlus sub, Set<Integer> targetEpisodes,
+                                      Set<Integer> actualEpisodes) {
+        if (sub == null || TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType()) || actualEpisodes.isEmpty()) {
+            return false;
+        }
+        return Collections.disjoint(targetEpisodes, actualEpisodes);
+    }
+
+    /**
+     * 中止一条"包里没有任何目标集"的下载：判记录失败并回退占位集，让这些集重新参与搜索。
+     * <p>
+     * <b>不累加 {@code fail_count}</b>：与 {@link #reconcileClaims} 同一取向——这不是
+     * "这一集补不到货"，而是季包的覆盖范围估错了。累加会让几次季包误判把一个明明能补到的集
+     * 熔断成 BLOCKED，用户还得去下载记录页手动解封。
+     * </p>
+     * <p>
+     * 通知里必须把"包内实际有哪几集 / 本次要补哪几集"说清楚：这是用户唯一能看懂
+     * 「为什么这个种子刚推就没了」的地方，否则看起来就像系统随机丢任务。
+     * 顺带提醒下载器里的空任务需要手动清——OSR 从不删种。
+     * </p>
+     */
+    private void abortNoTargetEpisode(PtDownloaderPlus downloader, PtDownloadRecordPlus record,
+                                      PtSubscriptionPlus sub, DownloaderTorrent matched,
+                                      Set<Integer> targetEpisodes, Set<Integer> actualEpisodes) {
+        String actual = joinEpisodes(actualEpisodes);
+        String target = joinEpisodes(targetEpisodes);
+        log.info("下载记录[{}] 包内实际含第 {} 集，与本次目标第 {} 集无交集，已中止：{}",
+                record.getId(), actual, target, record.getTitle());
+        doFail(record, FailReasonCode.NO_TARGET_EPISODE,
+                "种子内不含任何目标集（包内第 " + actual + " 集，本次要补第 " + target + " 集）",
+                false,
+                "📦 种子内不含任何目标集：《" + StringUtils.escapeHtml(sub.getTitle()) + "》\n"
+                        + StringUtils.escapeHtml(record.getTitle())
+                        + "\n包内实际是第 " + actual + " 集，本次的目标是第 " + target
+                        + " 集，已中止下载，相关集将重新参与后续匹配");
+        // 多集包是暂停态推送的，走到这里它一个字节都没下过，删掉不留痕
+        removeUselessTorrent(downloader, record, matched);
+    }
+
+    /**
+     * 元数据迟迟解析不出来：判失败并把种子从下载器移除。
+     * <p>
+     * 见 {@link #METADATA_TIMEOUT_MILLIS} 的注释——这是暂停加种绕不开的兜底。
+     * 回退占位集时<b>累加</b> {@code fail_count}（与普通下载失败同一取向）：
+     * 解析不出文件列表的种子基本就是废种，同一集反复撞上它该被熔断，
+     * 这一点与"包选错了"的 {@link #abortNoTargetEpisode} 不同。
+     * </p>
+     */
+    private void abortMetadataTimeout(PtDownloaderPlus downloader, PtDownloadRecordPlus record,
+                                      DownloaderTorrent matched) {
+        log.warn("下载记录[{}] 超过 {} 分钟仍未解析出文件列表，已中止：{}",
+                record.getId(), METADATA_TIMEOUT_MILLIS / 60000, record.getTitle());
+        fail(record, FailReasonCode.METADATA_TIMEOUT,
+                "超过 " + (METADATA_TIMEOUT_MILLIS / 60000) + " 分钟仍未解析出种子文件列表（种子损坏或无人做种）");
+        removeUselessTorrent(downloader, record, matched);
+    }
+
+    /**
+     * 把一个「什么有用数据都没下到」的种子从下载器移除，连同已下载的碎片。
+     * <p>
+     * 这是「OSR 从不删种」<b>唯一</b>的例外，因此边界必须是可证明的：<b>只删从未下载完成、
+     * 也从未做种的种子</b>。站点的 H&R 考核从下载完成才开始计，这样的种子根本不在考核范围内，
+     * 删它不可能记过。两个条件任一不成立就宁可留着让用户自己处置——留一个垃圾任务的代价，
+     * 远小于误删一个正在保种的种子。
+     * </p>
+     * <p>
+     * 删除失败只记 warn：记录已判失败、占位集已回退，这一步纯粹是打扫现场，
+     * 不该反过来影响已经落定的主流程。
+     * </p>
+     */
+    private void removeUselessTorrent(PtDownloaderPlus downloader, PtDownloadRecordPlus record,
+                                      DownloaderTorrent matched) {
+        if (matched == null || StringUtils.isBlank(matched.getHash())) {
+            return;
+        }
+        if (matched.isCompleted() || matched.getSeedingSeconds() > 0) {
+            log.info("下载记录[{}] 的种子已完成或已在做种，保留在下载器里由用户处置：{}",
+                    record.getId(), record.getTitle());
+            return;
+        }
+        try {
+            downloaderClientFactory.get(downloader).deleteTorrent(downloader, matched.getHash(), true);
+            log.info("下载记录[{}] 的无用种子已从下载器移除：{}", record.getId(), record.getTitle());
+        } catch (Exception e) {
+            log.warn("下载记录[{}] 从下载器移除种子失败（不影响已判失败的记录）：{}", record.getId(), e.getMessage());
+        }
+    }
+
+    /** 集号排序后拼成人能读的列表，通知与失败原因共用 */
+    private String joinEpisodes(Set<Integer> episodes) {
+        return episodes.stream().sorted().map(String::valueOf).collect(Collectors.joining("、"));
     }
 
     /**
@@ -665,6 +828,18 @@ public class DownloadTrackService {
      * </p>
      */
     private void fail(PtDownloadRecordPlus record, FailReasonCode code, String reason) {
+        doFail(record, code, reason, true, null);
+    }
+
+    /**
+     * {@link #fail} 的完全体，供需要差异化收尾的失败路径调用。
+     *
+     * @param countFailure 是否给回退的集累加连续失败次数。"下载没成功"要累加（熔断掉永远
+     *                     补不到的集）；"占位范围估错了"不该累加（见 {@link #abortNoTargetEpisode}）
+     * @param notice       自定义通知文案；{@code null} 时用默认的"下载失败/洗版失败"文案
+     */
+    private void doFail(PtDownloadRecordPlus record, FailReasonCode code, String reason,
+                        boolean countFailure, String notice) {
         // 1) 先回退关联集（幂等：只动 IN_FLIGHT / UPGRADING 的；普通集1条、季包多条统一处理）。
         // 一次查出两类在途集再按状态分流，而不是分两条查询：补缺集与洗版的回退目标不同，
         // 但"这条下载记录关联着哪些还没落定的集"是同一个问题，查两次既多一次往返，
@@ -673,7 +848,7 @@ public class DownloadTrackService {
                 new QueryWrapper<PtSubscriptionEpisodePlus>()
                         .eq("download_id", record.getId())
                         .in("state", EP_IN_FLIGHT, EP_UPGRADING));
-        Rollback rollback = releaseInFlightEpisodes(pending);
+        Rollback rollback = releaseInFlightEpisodes(pending, countFailure);
         int upgradeReverted = revertUpgradingEpisodes(pending);
         // 2) 再置记录 FAILED（条件更新门控通知，避免重叠轮询重复发）
         PtDownloadRecordPlus set = new PtDownloadRecordPlus();
@@ -687,9 +862,9 @@ public class DownloadTrackService {
             return; // 已被并发轮次置为终态，避免重复通知
         }
         PtStatusWebSocket.pushDownloadEvent(record, STATE_FAILED, null, reason);
-        notifySafely(NotificationType.DOWNLOAD_FAILED, upgradeReverted > 0
+        notifySafely(NotificationType.DOWNLOAD_FAILED, notice != null ? notice : (upgradeReverted > 0
                 ? "❌ 洗版下载失败：" + StringUtils.escapeHtml(record.getTitle()) + "，原有版本保持不变"
-                : "❌ 下载失败：" + StringUtils.escapeHtml(record.getTitle()) + "，已释放待下轮重新匹配", ownerOf(record));
+                : "❌ 下载失败：" + StringUtils.escapeHtml(record.getTitle()) + "，已释放待下轮重新匹配"), ownerOf(record));
         log.warn("下载记录[{}] 失败（{} 个集回退缺失，{} 个集回退入库）：{}",
                 record.getId(), rollback.released(), upgradeReverted, record.getTitle());
         if (rollback.blocked() > 0) {
@@ -706,21 +881,28 @@ public class DownloadTrackService {
      * 回退补缺集下载关联的集：达到熔断阈值前退回 MISSING（RSS/补搜会重新捡回），
      * 达到阈值后转 BLOCKED 停止自动重试，避免已下架/失效的资源被无限次静默重试。
      */
-    private Rollback releaseInFlightEpisodes(List<PtSubscriptionEpisodePlus> pending) {
+    private Rollback releaseInFlightEpisodes(List<PtSubscriptionEpisodePlus> pending, boolean countFailure) {
         List<PtSubscriptionEpisodePlus> episodes = pending.stream()
                 .filter(e -> EP_IN_FLIGHT.equals(e.getState()))
                 .toList();
         int blocked = 0;
         for (PtSubscriptionEpisodePlus episode : episodes) {
             int fails = (episode.getFailCount() == null ? 0 : episode.getFailCount()) + 1;
-            boolean cut = fails >= maxConsecutiveFailures;
+            boolean cut = countFailure && fails >= maxConsecutiveFailures;
             PtSubscriptionEpisodePlus set = new PtSubscriptionEpisodePlus();
             set.setState(cut ? EP_BLOCKED : EP_MISSING);
-            set.setDownloadId(null);
-            set.setFailCount(fails);
+            // 不累加时把 fail_count 留空：实体里的 null 会被 MyBatis-Plus 跳过，
+            // 正好等于"这一次不计入熔断，原有计数保持不变"
+            if (countFailure) {
+                set.setFailCount(fails);
+            }
             episodeService.update(set, new UpdateWrapper<PtSubscriptionEpisodePlus>()
                     .eq("id", episode.getId())
-                    .eq("state", EP_IN_FLIGHT));
+                    .eq("state", EP_IN_FLIGHT)
+                    // 实体的 null 同样会被跳过，download_id 必须走 UpdateWrapper 显式置空
+                    // （口径与 reconcileClaims、StuckEpisodeSweepService 一致），否则退回缺失的集
+                    // 仍指着这条 FAILED 记录，用户在下载记录页手动重试它时会把它们又拖回在途
+                    .set("download_id", null));
             if (cut) {
                 blocked++;
             }
@@ -749,10 +931,12 @@ public class DownloadTrackService {
         for (PtSubscriptionEpisodePlus episode : episodes) {
             PtSubscriptionEpisodePlus set = new PtSubscriptionEpisodePlus();
             set.setState(EP_IN_LIBRARY);
-            set.setDownloadId(null);
             episodeService.update(set, new UpdateWrapper<PtSubscriptionEpisodePlus>()
                     .eq("id", episode.getId())
-                    .eq("state", EP_UPGRADING));
+                    .eq("state", EP_UPGRADING)
+                    // 同 releaseInFlightEpisodes：实体的 null 会被 MyBatis-Plus 跳过，
+                    // download_id 必须走 UpdateWrapper 才真的能置空
+                    .set("download_id", null));
         }
         return episodes.size();
     }

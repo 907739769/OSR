@@ -42,6 +42,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -148,7 +149,7 @@ class SubscriptionEngineTest {
         int pushed = engine.process(List.of(torrent("Some.Show.S01E02.1080p.WEB-DL", "g1", 10, "1080p")));
 
         assertEquals(1, pushed);
-        verify(downloaderClient).addTorrent(any(), anyString(), anyString(), anyString());
+        verify(downloaderClient).addTorrent(any(), anyString(), anyString(), anyString(), anyBoolean());
 
         ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
         verify(recordService).save(captor.capture());
@@ -171,7 +172,7 @@ class SubscriptionEngineTest {
 
         ArgumentCaptor<String> savePath = ArgumentCaptor.forClass(String.class);
         ArgumentCaptor<String> tag = ArgumentCaptor.forClass(String.class);
-        verify(downloaderClient).addTorrent(any(), anyString(), savePath.capture(), tag.capture());
+        verify(downloaderClient).addTorrent(any(), anyString(), savePath.capture(), tag.capture(), anyBoolean());
         assertEquals("/data/downloads", savePath.getValue());
         // 公共标签 + 唯一标签，用逗号分隔一次打上
         assertTrue(tag.getValue().contains("osr-pt"));
@@ -192,7 +193,7 @@ class SubscriptionEngineTest {
         when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Other Show", 1, 3)));
 
         assertEquals(0, engine.process(List.of(torrent("Some.Show.S01E02.1080p", "g1", 10, "1080p"))));
-        verify(downloaderClient, never()).addTorrent(any(), anyString(), anyString(), anyString());
+        verify(downloaderClient, never()).addTorrent(any(), anyString(), anyString(), anyString(), anyBoolean());
     }
 
     @Test
@@ -202,7 +203,7 @@ class SubscriptionEngineTest {
                 episode(101, 1, "MISSING"), episode(102, 2, "IN_FLIGHT")));
 
         assertEquals(0, engine.process(List.of(torrent("Some.Show.S01E02.1080p", "g1", 10, "1080p"))));
-        verify(downloaderClient, never()).addTorrent(any(), anyString(), anyString(), anyString());
+        verify(downloaderClient, never()).addTorrent(any(), anyString(), anyString(), anyString(), anyBoolean());
     }
 
     @Test
@@ -225,7 +226,7 @@ class SubscriptionEngineTest {
         when(recordService.list(any(Wrapper.class))).thenReturn(List.of(existing));
 
         assertEquals(0, engine.process(List.of(torrent("Some.Show.S01E02.1080p", "g1", 10, "1080p"))));
-        verify(downloaderClient, never()).addTorrent(any(), anyString(), anyString(), anyString());
+        verify(downloaderClient, never()).addTorrent(any(), anyString(), anyString(), anyString(), anyBoolean());
     }
 
     /** 构造一条落在同一 (indexer_id, guid_hash) 上的历史失败记录 */
@@ -258,7 +259,7 @@ class SubscriptionEngineTest {
         ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
         verify(recordService).update(captor.capture(), any(Wrapper.class));
         assertEquals("PUSHED", captor.getValue().getState());
-        verify(downloaderClient).addTorrent(any(), anyString(), anyString(), anyString());
+        verify(downloaderClient).addTorrent(any(), anyString(), anyString(), anyString(), anyBoolean());
     }
 
     @Test
@@ -289,7 +290,7 @@ class SubscriptionEngineTest {
                 .thenReturn(List.of(failedRecord(777, "g1", "ZOMBIE_TIMEOUT")));
 
         assertEquals(0, engine.process(List.of(torrent("Some.Show.S01E02.1080p", "g1", 10, "1080p"))));
-        verify(downloaderClient, never()).addTorrent(any(), anyString(), anyString(), anyString());
+        verify(downloaderClient, never()).addTorrent(any(), anyString(), anyString(), anyString(), anyBoolean());
     }
 
     @Test
@@ -315,7 +316,7 @@ class SubscriptionEngineTest {
         when(recordService.update(any(), any(Wrapper.class))).thenReturn(false);
 
         assertEquals(0, engine.process(List.of(torrent("Some.Show.S01E02.1080p", "g1", 10, "1080p"))));
-        verify(downloaderClient, never()).addTorrent(any(), anyString(), anyString(), anyString());
+        verify(downloaderClient, never()).addTorrent(any(), anyString(), anyString(), anyString(), anyBoolean());
     }
 
     @Test
@@ -343,7 +344,7 @@ class SubscriptionEngineTest {
         when(episodeService.update(any(), any(Wrapper.class))).thenReturn(false);
 
         assertEquals(0, engine.process(List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p"))));
-        verify(downloaderClient, never()).addTorrent(any(), anyString(), anyString(), anyString());
+        verify(downloaderClient, never()).addTorrent(any(), anyString(), anyString(), anyString(), anyBoolean());
         verify(recordService, never()).save(any());
     }
 
@@ -429,7 +430,7 @@ class SubscriptionEngineTest {
             return true;
         });
         org.mockito.Mockito.doThrow(new IOException("qb down"))
-                .when(downloaderClient).addTorrent(any(), anyString(), anyString(), anyString());
+                .when(downloaderClient).addTorrent(any(), anyString(), anyString(), anyString(), anyBoolean());
 
         assertEquals(0, engine.process(List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p"))));
 
@@ -583,7 +584,7 @@ class SubscriptionEngineTest {
         when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "MISSING")));
 
         assertEquals(1, engine.process(List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p"))));
-        verify(downloaderClient).addTorrent(any(), anyString(), anyString(), anyString());
+        verify(downloaderClient).addTorrent(any(), anyString(), anyString(), anyString(), anyBoolean());
     }
 
     @Test
@@ -593,7 +594,7 @@ class SubscriptionEngineTest {
         when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "MISSING")));
 
         assertEquals(1, engine.process(List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p"))));
-        verify(downloaderClient).addTorrent(any(), anyString(), anyString(), anyString());
+        verify(downloaderClient).addTorrent(any(), anyString(), anyString(), anyString(), anyBoolean());
     }
 
     @Test
@@ -619,7 +620,7 @@ class SubscriptionEngineTest {
 
         verify(episodeService, never()).update(any(), any(Wrapper.class));
         verify(recordService, never()).save(any());
-        verify(downloaderClient, never()).addTorrent(any(), anyString(), anyString(), anyString());
+        verify(downloaderClient, never()).addTorrent(any(), anyString(), anyString(), anyString(), anyBoolean());
         verify(searchLogService).recordSummary(eq(10), eq(1), eq(SearchLogService.SOURCE_RSS), contains("并发"));
     }
 
@@ -641,7 +642,7 @@ class SubscriptionEngineTest {
         when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "MISSING")));
 
         assertEquals(1, engine.process(List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p"))));
-        verify(downloaderClient).addTorrent(any(), anyString(), anyString(), anyString());
+        verify(downloaderClient).addTorrent(any(), anyString(), anyString(), anyString(), anyBoolean());
     }
 
     // ---------- 多订阅 ----------
@@ -658,7 +659,7 @@ class SubscriptionEngineTest {
                 torrent("Show.B.S01E01.1080p", "gB", 10, "1080p")));
 
         assertEquals(2, pushed);
-        verify(downloaderClient, times(2)).addTorrent(any(), anyString(), anyString(), anyString());
+        verify(downloaderClient, times(2)).addTorrent(any(), anyString(), anyString(), anyString(), anyBoolean());
     }
 
     @Test
@@ -751,7 +752,7 @@ class SubscriptionEngineTest {
         boolean pushed = engine.pushBest(movie, 0, List.of(torrent("Some.Movie.2020.1080p", "g1", 10, "1080p")));
 
         assertTrue(pushed);
-        verify(downloaderClient).addTorrent(any(), anyString(), anyString(), anyString());
+        verify(downloaderClient).addTorrent(any(), anyString(), anyString(), anyString(), anyBoolean());
     }
 
     @Test
@@ -859,7 +860,7 @@ class SubscriptionEngineTest {
             return true;
         });
         org.mockito.Mockito.doThrow(new IOException("qb down"))
-                .when(downloaderClient).addTorrent(any(), anyString(), anyString(), anyString());
+                .when(downloaderClient).addTorrent(any(), anyString(), anyString(), anyString(), anyBoolean());
 
         engine.process(List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p")));
 
@@ -922,7 +923,7 @@ class SubscriptionEngineTest {
             return true;
         });
         org.mockito.Mockito.doThrow(new IOException("qb down"))
-                .when(downloaderClient).addTorrent(any(), anyString(), anyString(), anyString());
+                .when(downloaderClient).addTorrent(any(), anyString(), anyString(), anyString(), anyBoolean());
 
         try (MockedStatic<PtStatusWebSocket> ws = mockStatic(PtStatusWebSocket.class)) {
             engine.process(List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p")));
@@ -945,7 +946,7 @@ class SubscriptionEngineTest {
         int pushed = engine.process(List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p")));
 
         assertEquals(0, pushed);
-        verify(downloaderClient, never()).addTorrent(any(), anyString(), anyString(), anyString());
+        verify(downloaderClient, never()).addTorrent(any(), anyString(), anyString(), anyString(), anyBoolean());
         ArgumentCaptor<List> verdicts = ArgumentCaptor.forClass(List.class);
         verify(searchLogService).recordVerdicts(eq(10), eq(1), eq(SearchLogService.SOURCE_RSS), verdicts.capture());
         TorrentFilterEngine.Verdict verdict = (TorrentFilterEngine.Verdict) verdicts.getValue().get(0);
@@ -1000,7 +1001,7 @@ class SubscriptionEngineTest {
 
         assertFalse(engine.pushUpgrade(sub, 1,
                 List.of(torrent("Some.Show.S01E01.2160p", "g-up", 10, "2160p"))));
-        verify(downloaderClient, never()).addTorrent(any(), anyString(), anyString(), anyString());
+        verify(downloaderClient, never()).addTorrent(any(), anyString(), anyString(), anyString(), anyBoolean());
     }
 
     @Test
@@ -1019,7 +1020,7 @@ class SubscriptionEngineTest {
         PtSubscriptionPlus sub = tvSub(10, "Some Show", 1, 1);
         when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "IN_LIBRARY")));
         doThrow(new IOException("下载器挂了")).when(downloaderClient)
-                .addTorrent(any(), anyString(), anyString(), anyString());
+                .addTorrent(any(), anyString(), anyString(), anyString(), anyBoolean());
 
         assertFalse(engine.pushUpgrade(sub, 1,
                 List.of(torrent("Some.Show.S01E01.2160p", "g-up", 10, "2160p"))));
@@ -1089,7 +1090,7 @@ class SubscriptionEngineTest {
         when(indexerService.list()).thenReturn(List.of(hrIndexer(1)));
 
         assertEquals(0, engine.process(List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p"))));
-        verify(downloaderClient, never()).addTorrent(any(), anyString(), anyString(), anyString());
+        verify(downloaderClient, never()).addTorrent(any(), anyString(), anyString(), anyString(), anyBoolean());
     }
 
     @Test

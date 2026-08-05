@@ -19,12 +19,14 @@ import com.osr.openliststrm.pt.ws.PtStatusWebSocket;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
+import java.io.IOException;
 import java.util.Date;
 import java.util.List;
 import java.util.Set;
@@ -34,6 +36,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -43,6 +46,7 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -725,9 +729,10 @@ class DownloadTrackServiceTest {
     }
 
     @Test
-    void 洗版占位的集_不会被认领对账退成缺失() throws Exception {
+    void 洗版包里没有目标集_集退回入库而不是缺失() throws Exception {
         // 洗版占位的是 UPGRADING，旧文件一直在库里。退成 MISSING 会让这一集显示成缺失
         // 并被从头重下，比不洗版还糟
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
         PtDownloadRecordPlus r = record(100, 7, "osr-pt-up", "PUSHED", 60_000);
         when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
         PtSubscriptionEpisodePlus upgrading = episodeRow(501, 0, 7);
@@ -742,7 +747,190 @@ class DownloadTrackServiceTest {
         when(subscriptionService.listByIds(any())).thenReturn(List.of(tvSub(10)));
         svc.track(downloader(), List.of(torrent("osr-pt,osr-pt-up", 0.1)));
 
-        verify(episodeService, never()).update(any(PtSubscriptionEpisodePlus.class), any(Wrapper.class));
+        // 全部文件都不是目标集，排除指令一条都不该下发（否则 qB 拿到一个 0 字节的空任务）
+        verify(downloaderClient, never()).excludeFiles(any(), any(), any());
+        ArgumentCaptor<PtSubscriptionEpisodePlus> captor = ArgumentCaptor.forClass(PtSubscriptionEpisodePlus.class);
+        verify(episodeService).update(captor.capture(), any(Wrapper.class));
+        assertEquals("IN_LIBRARY", captor.getValue().getState());
+        assertNull(captor.getValue().getFailCount());
+    }
+
+    // ---------- 包内没有任何目标集：中止而不是空跑 ----------
+
+    @Test
+    void 包内没有任何目标集_不下发排除指令并直接判失败() throws Exception {
+        // 用户实测场景：季包里那几集其实都已入库（或包只含别的段落），目标集一个都不在包里。
+        // 照原逻辑会把全部视频文件 prio=0 发给 qB，任务 0 字节挂在下载器里占着并发名额，
+        // 直到僵尸超时才收尾
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+        PtDownloadRecordPlus r = record(100, -1, "osr-pt-pack", "PUSHED", 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of(
+                episodeRow(501, 0, 11), episodeRow(502, 0, 12)));
+        when(downloaderClientFactory.get(any())).thenReturn(downloaderClient);
+        when(downloaderClient.listFiles(any(), eq("h"))).thenReturn(List.of(
+                file(0, "Show.Name.S01E01.1080p.mkv"),
+                file(1, "Show.Name.S01E02.1080p.mkv")));
+
+        DownloadTrackService svc = service();
+        when(subscriptionService.listByIds(any())).thenReturn(List.of(tvSub(10)));
+        try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
+            svc.track(downloader(), List.of(torrent("osr-pt,osr-pt-pack", 0.1)));
+            tg.verify(() -> TgHelper.sendMsg(any(), argThat(m -> m.contains("不含任何目标集")), any()));
+        }
+
+        verify(downloaderClient, never()).excludeFiles(any(), any(), any());
+        // 记录判失败，失败码不可重试——这个包与本订阅当前要补的集确实无关
+        ArgumentCaptor<PtDownloadRecordPlus> rec = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService).update(rec.capture(), any(Wrapper.class));
+        assertEquals("FAILED", rec.getValue().getState());
+        assertEquals("NO_TARGET_EPISODE", rec.getValue().getFailReasonCode());
+        // 占位集退回缺失，但不累加 fail_count：占位范围估错了，不是这一集补不到货
+        ArgumentCaptor<PtSubscriptionEpisodePlus> eps = ArgumentCaptor.forClass(PtSubscriptionEpisodePlus.class);
+        verify(episodeService, times(2)).update(eps.capture(), any(Wrapper.class));
+        assertTrue(eps.getAllValues().stream().allMatch(e -> "MISSING".equals(e.getState())));
+        assertTrue(eps.getAllValues().stream().allMatch(e -> e.getFailCount() == null));
+        // 已是终态，绝不能再往下走 markDownloading（无条件 updateById，会把它复活成 DOWNLOADING）
+        verify(recordService, never()).updateById(any());
+    }
+
+    // ---------- 暂停加种：选完文件才启动 ----------
+
+    @Test
+    void 文件选完后启动种子_且赶在标记selected之前() throws Exception {
+        // 多集包以暂停态推送，不启动它就永远不会开始下载
+        PtDownloadRecordPlus r = record(100, -1, "osr-pt-pack", "PUSHED", 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of(episodeRow(501, 0, 2)));
+        when(downloaderClientFactory.get(any())).thenReturn(downloaderClient);
+        when(downloaderClient.listFiles(any(), eq("h"))).thenReturn(List.of(
+                file(0, "Show.Name.S01E01.1080p.mkv"),
+                file(1, "Show.Name.S01E02.1080p.mkv")));
+
+        DownloadTrackService svc = service();
+        when(subscriptionService.listByIds(any())).thenReturn(List.of(tvSub(10)));
+        svc.track(downloader(), List.of(torrent("osr-pt,osr-pt-pack", 0.1)));
+
+        InOrder order = inOrder(downloaderClient, recordService);
+        order.verify(downloaderClient).excludeFiles(any(), eq("h"), any());
+        order.verify(downloaderClient).resumeTorrent(any(), eq("h"));
+        // 启动失败必须留给下一轮重试，所以它得排在 markFilesSelected 之前——
+        // 一旦标了 selected 就再也不会进 trySelectFiles，暂停的种子将永远没人启动。
+        // 用 atLeastOnce 而不是按内容匹配：markFilesSelected 与 markDownloading 传的是同一个
+        // record 实例，Mockito 验证时读到的是它被改过的最终状态，两次调用无法用 argThat 区分
+        order.verify(recordService, atLeastOnce()).updateById(any());
+    }
+
+    @Test
+    void 启动种子失败_不标记selected留待下一轮重试() throws Exception {
+        PtDownloadRecordPlus r = record(100, -1, "osr-pt-pack", "PUSHED", 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of(episodeRow(501, 0, 2)));
+        when(downloaderClientFactory.get(any())).thenReturn(downloaderClient);
+        when(downloaderClient.listFiles(any(), eq("h"))).thenReturn(List.of(
+                file(0, "Show.Name.S01E02.1080p.mkv")));
+        doThrow(new IOException("boom")).when(downloaderClient).resumeTorrent(any(), any());
+
+        DownloadTrackService svc = service();
+        when(subscriptionService.listByIds(any())).thenReturn(List.of(tvSub(10)));
+        svc.track(downloader(), List.of(torrent("osr-pt,osr-pt-pack", 0.1)));
+
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService, atLeastOnce()).updateById(captor.capture());
+        assertTrue(captor.getAllValues().stream().noneMatch(rec -> Boolean.TRUE.equals(rec.getFilesSelected())));
+    }
+
+    @Test
+    void 暂停中的包未选出文件_不标记下载中() throws Exception {
+        // 暂停态的种子一个字节都没下，标成 DOWNLOADING 会在前端显示"下载中 0%"
+        PtDownloadRecordPlus r = record(100, -1, "osr-pt-pack", "PUSHED", 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of(episodeRow(501, 0, 2)));
+        when(downloaderClientFactory.get(any())).thenReturn(downloaderClient);
+        // 元数据还没解析出来
+        when(downloaderClient.listFiles(any(), eq("h"))).thenReturn(List.of());
+
+        service().track(downloader(), List.of(torrent("osr-pt,osr-pt-pack", 0.0)));
+
+        verify(recordService, never()).updateById(any());
+    }
+
+    @Test
+    void 元数据超时且零进度_判失败并从下载器移除() throws Exception {
+        // 暂停的种子只有选完文件才会启动，元数据一直解析不出来就永远没人启动它
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+        PtDownloadRecordPlus r = record(100, -1, "osr-pt-pack", "PUSHED", 31 * 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of(episodeRow(501, 0, 2)));
+        when(downloaderClientFactory.get(any())).thenReturn(downloaderClient);
+        when(downloaderClient.listFiles(any(), eq("h"))).thenReturn(List.of());
+
+        service().track(downloader(), List.of(torrent("osr-pt,osr-pt-pack", 0.0)));
+
+        ArgumentCaptor<PtDownloadRecordPlus> rec = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService).update(rec.capture(), any(Wrapper.class));
+        assertEquals("FAILED", rec.getValue().getState());
+        assertEquals("METADATA_TIMEOUT", rec.getValue().getFailReasonCode());
+        verify(downloaderClient).deleteTorrent(any(), eq("h"), eq(true));
+    }
+
+    @Test
+    void 元数据超时但已有下载进度_不中止也不删种() throws Exception {
+        // 文件选不出来也可能是下载器 API 临时故障，而种子本身下得好好的。
+        // 只按时间判会把一个正常下载的种子删掉，比不做这个兜底糟得多
+        PtDownloadRecordPlus r = record(100, -1, "osr-pt-pack", "PUSHED", 31 * 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of(episodeRow(501, 0, 2)));
+        when(downloaderClientFactory.get(any())).thenReturn(downloaderClient);
+        when(downloaderClient.listFiles(any(), eq("h"))).thenThrow(new IOException("下载器暂时不可用"));
+
+        service().track(downloader(), List.of(torrent("osr-pt,osr-pt-pack", 0.4)));
+
+        verify(downloaderClient, never()).deleteTorrent(any(), any(), anyBoolean());
+        verify(recordService, never()).update(any(PtDownloadRecordPlus.class), any(Wrapper.class));
+        // 有进度就照常推进下载中，与改造前的行为一致
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService).updateById(captor.capture());
+        assertEquals("DOWNLOADING", captor.getValue().getState());
+    }
+
+    @Test
+    void 已完成或已做种的种子_绝不删除() throws Exception {
+        // removeUselessTorrent 是「OSR 从不删种」唯一的例外，边界必须可证明：
+        // 已做种的种子处在 H&R 考核期内，删它等于亲手制造一次记过
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+        PtDownloadRecordPlus r = record(100, -1, "osr-pt-pack", "PUSHED", 31 * 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of(episodeRow(501, 0, 2)));
+        when(downloaderClientFactory.get(any())).thenReturn(downloaderClient);
+        when(downloaderClient.listFiles(any(), eq("h"))).thenReturn(List.of());
+        DownloaderTorrent seeding = torrent("osr-pt,osr-pt-pack", 0.0);
+        seeding.setSeedingSeconds(3600);
+
+        service().track(downloader(), List.of(seeding));
+
+        verify(downloaderClient, never()).deleteTorrent(any(), any(), anyBoolean());
+    }
+
+    @Test
+    void 包内含部分目标集_照常排除其余文件不中止() throws Exception {
+        // 有交集就是正常的季包命中，不该被新增的中止逻辑误伤
+        PtDownloadRecordPlus r = record(100, -1, "osr-pt-pack", "PUSHED", 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of(
+                episodeRow(501, 0, 2), episodeRow(502, 0, 9)));
+        when(downloaderClientFactory.get(any())).thenReturn(downloaderClient);
+        when(downloaderClient.listFiles(any(), eq("h"))).thenReturn(List.of(
+                file(0, "Show.Name.S01E01.1080p.mkv"),
+                file(1, "Show.Name.S01E02.1080p.mkv")));
+        when(episodeService.update(any(PtSubscriptionEpisodePlus.class), any(Wrapper.class))).thenReturn(true);
+
+        DownloadTrackService svc = service();
+        when(subscriptionService.listByIds(any())).thenReturn(List.of(tvSub(10)));
+        svc.track(downloader(), List.of(torrent("osr-pt,osr-pt-pack", 0.1)));
+
+        verify(downloaderClient).excludeFiles(any(), eq("h"), eq(Set.of(0)));
+        verify(recordService, never()).update(any(PtDownloadRecordPlus.class), any(Wrapper.class));
     }
 
     // ---------- 失败重试熔断 ----------

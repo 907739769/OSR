@@ -82,7 +82,7 @@ class QbittorrentClientTest {
             String secret = "super-secret-apikey";
             client.addTorrent(config(11),
                     "http://prowlarr:9696/1/download?apikey=" + secret + "&link=abc",
-                    "/data/downloads", "osr-pt");
+                    "/data/downloads", "osr-pt", false);
 
             String logged = appender.list.stream()
                     .map(ILoggingEvent::getFormattedMessage)
@@ -99,7 +99,7 @@ class QbittorrentClientTest {
         server.enqueue(loginOk());
         server.enqueue(new MockResponse().setBody("Ok."));
 
-        client.addTorrent(config(1), "https://pt.example.com/t.torrent", "/data/downloads", "osr-pt");
+        client.addTorrent(config(1), "https://pt.example.com/t.torrent", "/data/downloads", "osr-pt", false);
 
         RecordedRequest login = server.takeRequest();
         assertEquals("/api/v2/auth/login", login.getPath());
@@ -118,7 +118,7 @@ class QbittorrentClientTest {
         server.enqueue(new MockResponse().setBody("Fails."));
 
         assertThrows(IOException.class,
-                () -> client.addTorrent(config(2), "https://pt.example.com/t.torrent", "/data/downloads", "osr-pt"));
+                () -> client.addTorrent(config(2), "https://pt.example.com/t.torrent", "/data/downloads", "osr-pt", false));
     }
 
     @Test
@@ -127,7 +127,7 @@ class QbittorrentClientTest {
         server.enqueue(new MockResponse().setBody("Fails."));
 
         assertThrows(IOException.class,
-                () -> client.addTorrent(config(3), "https://pt.example.com/t.torrent", "/data/downloads", "osr-pt"));
+                () -> client.addTorrent(config(3), "https://pt.example.com/t.torrent", "/data/downloads", "osr-pt", false));
     }
 
     @Test

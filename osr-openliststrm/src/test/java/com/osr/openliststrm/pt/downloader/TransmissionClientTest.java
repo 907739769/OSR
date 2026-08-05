@@ -99,7 +99,7 @@ class TransmissionClientTest {
         // 第二次调用（打标签）复用缓存的 session，不会再收到 409
         server.enqueue(new MockResponse().setBody("{\"result\":\"success\",\"arguments\":{}}"));
 
-        client.addTorrent(config(4), "https://pt.example.com/t.torrent", "/data/downloads", "osr-pt");
+        client.addTorrent(config(4), "https://pt.example.com/t.torrent", "/data/downloads", "osr-pt", false);
 
         server.takeRequest(); // 首次 409
         RecordedRequest add = server.takeRequest();
@@ -130,7 +130,7 @@ class TransmissionClientTest {
             String secret = "super-secret-apikey";
             client.addTorrent(config(5),
                     "http://prowlarr:9696/1/download?apikey=" + secret + "&link=abc",
-                    "/data/downloads", "osr-pt");
+                    "/data/downloads", "osr-pt", false);
 
             String logged = appender.list.stream()
                     .map(ILoggingEvent::getFormattedMessage)
@@ -150,7 +150,7 @@ class TransmissionClientTest {
         // torrent-set 调用返回失败（例如老版本不支持 labels），addTorrent 不应向上抛异常
         server.enqueue(new MockResponse().setBody("{\"result\":\"invalid argument\",\"arguments\":{}}"));
 
-        client.addTorrent(config(6), "https://pt.example.com/t.torrent", "/data/downloads", "osr-pt");
+        client.addTorrent(config(6), "https://pt.example.com/t.torrent", "/data/downloads", "osr-pt", false);
         // 未抛异常即为通过
     }
 
@@ -160,7 +160,7 @@ class TransmissionClientTest {
         server.enqueue(new MockResponse().setBody("{\"result\":\"invalid argument\",\"arguments\":{}}"));
 
         assertThrows(IOException.class,
-                () -> client.addTorrent(config(7), "https://pt.example.com/t.torrent", "/data/downloads", "osr-pt"));
+                () -> client.addTorrent(config(7), "https://pt.example.com/t.torrent", "/data/downloads", "osr-pt", false));
     }
 
     @Test

@@ -378,7 +378,8 @@ public class SubscriptionEngine {
         try {
             String tags = downloader.getTag() + "," + record.getTrackingTag();
             downloaderClientFactory.get(downloader)
-                    .addTorrent(downloader, best.getDownloadUrl(), resolveSavePath(downloader, sub), tags);
+                    .addTorrent(downloader, best.getDownloadUrl(), resolveSavePath(downloader, sub), tags,
+                            shouldPauseOnAdd(match, best));
         } catch (Exception e) {
             log.error("推送种子到下载器失败，已回滚：{}", best.getTitle(), e);
             searchLogService.recordSummary(sub.getId(), match.getEpisode(), source,
@@ -414,6 +415,42 @@ public class SubscriptionEngine {
                     + "\n已推送至下载器：" + StringUtils.escapeHtml(downloader.getName()), sub);
         }
         return true;
+    }
+
+    /**
+     * 这个种子要不要以<b>暂停态</b>加入下载器，等 {@code DownloadTrackService#trySelectFiles}
+     * 按目标集选完文件再启动？
+     * <p>
+     * 只有<b>多集包</b>需要。推送那一刻谁也不知道包里究竟有哪几集——判据（下载器给出的
+     * 真实文件列表）要等元数据解析完才拿得到。不暂停的话，这段窗口期里非目标集的文件
+     * 已经在下了，几十 GB 的季包可能白下掉大半；更糟的是包内一集目标都没有时，
+     * 那些流量完全是白烧的。
+     * </p>
+     * <p>
+     * <b>单集种子一律不暂停</b>：它没有"选错文件"的可能，{@code trySelectFiles} 对它几乎是
+     * 空操作，暂停只会白白多等一轮 30 秒轮询。电影同理（集号是哨兵 0，本就不做文件过滤）。
+     * </p>
+     * <p>
+     * <b>磁力链一律不暂停</b>：下载器在暂停态下不会去下载磁力的元数据，{@code listFiles}
+     * 会永远返回空列表，种子就永远停在暂停、永远等不到启动——比不暂停糟得多。
+     * .torrent 链接的元数据在种子文件里，加进来就能读，不受影响。
+     * </p>
+     */
+    private boolean shouldPauseOnAdd(MatchResult match, TorrentInfo best) {
+        if (isMagnet(best.getDownloadUrl())
+                || SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(match.getSubscription().getMediaType())) {
+            return false;
+        }
+        if (match.getEpisode() == SubscriptionMatcher.SEASON_PACK) {
+            return true;
+        }
+        // 区间包（E01-E04 这类）与季包同理：覆盖多集，同样要等文件列表才能定夺
+        return best.getParsedEpisode() != null && best.getParsedEpisodeEnd() != null
+                && best.getParsedEpisodeEnd() > best.getParsedEpisode();
+    }
+
+    private boolean isMagnet(String downloadUrl) {
+        return downloadUrl != null && downloadUrl.trim().toLowerCase(Locale.ROOT).startsWith("magnet:");
     }
 
     /** 电影不带季集号；季包整季提示；单集/区间正常拼 SxxEyy，episode/episodeEnd 已在上面按 best 重算过 */
