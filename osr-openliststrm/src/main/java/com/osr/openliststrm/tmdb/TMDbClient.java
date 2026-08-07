@@ -22,6 +22,18 @@ public class TMDbClient {
     // ObjectMapper 线程安全，可在所有 TMDbClient 实例间共享，避免每次刮削创建都 new 一个
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
+    /** 包含关系判定时，较短一方的最小长度（拉丁）——防止 "Up"、"It" 被任意长标题包含 */
+    private static final int MIN_CONTAINS_LENGTH_LATIN = 4;
+
+    /** 同上（CJK）。单个汉字/假名的信息量远高于拉丁字母，两字（「三体」）已足够可辨 */
+    private static final int MIN_CONTAINS_LENGTH_CJK = 2;
+
+    /**
+     * 年份被视为"接近"的最大偏差。与 {@code SubscriptionMatcher#MOVIE_YEAR_TOLERANCE} 同口径：
+     * 电影节首映 vs 正式公映、年末跨年上映会让同一部作品在不同来源差一年。
+     */
+    private static final int YEAR_CLOSE_TOLERANCE = 1;
+
     private final String apiKey;
     private final ObjectMapper mapper;
 
@@ -228,34 +240,59 @@ public class TMDbClient {
     }
 
     /**
-     * 通用搜索（重构版）
+     * 通用搜索：按标题候选（title → originalTitle → englishTitle）逐个尝试。
+     * <p>
+     * <b>外层循环换标题，内层才降级年份</b>——标题是强信号，年份是弱信号，
+     * 该先放宽弱信号而不是先换强信号。原实现是反的（先拿所有标题带年份各试一遍，
+     * 再拿所有标题不带年份各试一遍），于是「次要标题 + 年份碰巧对上」会打败
+     * 「主标题 + 年份对不上」：{@code 开始推理吧.The.Truth.S04E18.2026} 这类文件里，
+     * 主标题带 2026 搜不到（理由见下），却让 englishTitle "The Truth" 撞上某部 2026 年
+     * 首播的同名剧并被直接采纳，整部剧被重命名成另一部作品。
+     * </p>
+     * <p>
+     * <b>剧集一律不带年份搜。</b>{@link TMDbApiService#search} 对剧集用的过滤参数是
+     * {@code first_air_date_year}（<b>剧集首播年</b>），而文件名里的年份是发布组随手填的——
+     * 可能是首播年，也可能是本季/本集的播出年。两者只在第一季才相等，对 S2 以上的剧集
+     * 这个过滤器在构造上就是错的：哪怕发布组填得完全正确，它也一定过滤不到正确答案，
+     * 留着只是浪费一次请求外加保留一个误配入口。年份对剧集的甄别作用改由
+     * {@link #scoreCandidate} 的年份接近度软打分承担（对同名重启剧反而更稳：
+     * 年份对得上加 30 分，对不上时还能靠热度兜底，而硬过滤会把两个版本一起滤掉）。
+     * </p>
+     * <p>
+     * <b>电影保留年份过滤。</b>电影的 {@code primary_release_year} 与文件名里的上映年
+     * 是同一个量，语义正确，且能有效区分翻拍；差一年的（电影节首映 vs 正式上映）
+     * 由同一标题的下一级「不带年份」兜住。
+     * </p>
+     * <p>
+     * 包内可见而非 private：供 {@code TMDbClientSearchTest} 直接注入 mock 的
+     * {@link TMDbApiService} 验证请求顺序，不必为了测一段编排逻辑去搭 Spring 上下文。
+     * </p>
      */
-    private String search(String type, MediaInfo info, TMDbApiService api) throws IOException {
+    String search(String type, MediaInfo info, TMDbApiService api) throws IOException {
         if (StringUtils.isBlank(type) || info == null) return null;
 
         List<String> candidates = new ArrayList<>();
         candidates.add(info.getTitle());
         candidates.add(info.getOriginalTitle());
         candidates.add(info.getEnglishTitle());
-        String title;
-        // 逐一尝试（去重 + 过滤空串）
-        for (String q : candidates.stream()
+        List<String> queries = candidates.stream()
                 .filter(StringUtils::isNotBlank)
                 .distinct()
-                .collect(Collectors.toList())) {
-            log.debug("尝试根据标题查询TMDB：{}", q);
-            JsonNode root = mapper.readTree(api.search(apiKey, type, q, info.getYear()));
-            title = doSearchOnce(type, info, root, api);
-            if (title != null) return title;
-        }
+                .collect(Collectors.toList());
 
-        for (String q : candidates.stream()
-                .filter(StringUtils::isNotBlank)
-                .distinct()
-                .collect(Collectors.toList())) {
+        // 年份在循环外取一次：doSearchOnce 命中后会把 info.year 改写成 TMDb 的首播/上映年，
+        // 循环里现取的话，后续候选会拿上一轮改写过的年份去过滤，行为不可预期
+        String year = info.getYear();
+        boolean movie = "movie".equals(type);
+
+        for (String q : queries) {
+            if (movie && StringUtils.isNotEmpty(year)) {
+                log.debug("尝试根据标题+年份查询TMDB：{}（{}）", q, year);
+                String title = doSearchOnce(type, info, mapper.readTree(api.search(apiKey, type, q, year)), api);
+                if (title != null) return title;
+            }
             log.debug("尝试只根据标题查询TMDB，不限定年份：{}", q);
-            JsonNode root = mapper.readTree(api.search(apiKey, type, q, null));
-            title = doSearchOnce(type, info, root, api);
+            String title = doSearchOnce(type, info, mapper.readTree(api.search(apiKey, type, q, null)), api);
             if (title != null) return title;
         }
 
@@ -263,7 +300,14 @@ public class TMDbClient {
     }
 
     /**
-     * 处理 search 返回的 JsonNode（来自 TMDbApiService），在候选结果中打分挑选最佳匹配
+     * 处理 search 返回的 JsonNode（来自 TMDbApiService），在候选结果中打分挑选最佳匹配。
+     * <p>
+     * 打分挑出冠军之后还要过一道<b>采纳门槛</b>（{@link #hasEnoughEvidence}）：证据不足就当本次
+     * 未命中返回 null，让 {@code search()} 继续降级到下一个候选标题，全部落空则交给 AI 兜底
+     * （{@code MediaParser#needsAI} 的判据正是 tmdbId 为空）。没有门槛的话，「搜到了正确答案」
+     * 与「搜到了一堆垃圾、靠 TMDb 相关度排序蒙了个第一」走的是同一条路，后者会把整部剧
+     * 安静地刮成另一部作品。
+     * </p>
      */
     private String doSearchOnce(String type, MediaInfo info, com.fasterxml.jackson.databind.JsonNode root, TMDbApiService api) throws IOException {
         if (root == null) return null;
@@ -273,22 +317,155 @@ public class TMDbClient {
 
         JsonNode picked = pickBestCandidate(type, info, results);
 
+        if (!hasEnoughEvidence(type, info, picked)) {
+            log.info("TMDb 结果证据不足，本次不采纳：{} —— 打分冠军是「{}（{}）」，"
+                            + "但与解析出的标题「{}」既不匹配、年份也不接近（解析年份 {}）",
+                    info.getOriginalName(), describeCandidate(type, picked), getYearSafe(picked, type),
+                    firstNonBlankTitle(info), info.getYear());
+            return null;
+        }
+
+        int id = picked.path("id").asInt(-1);
+        if (id <= 0) {
+            // 没有可用 id 就没法拉详情，此时绝不能写 info：否则 tmdbId/year 被半途改掉，
+            // 既让后续候选拿着被污染的年份去判断，又会让 needsAI 误以为已经识别出来了
+            log.debug("TMDb 冠军候选缺少 id，跳过：{}", info.getOriginalName());
+            return null;
+        }
+
         info.setYear(getYearSafe(picked, type));
         info.setTmdbId(picked.path("id").asText());
 
-        int id = picked.path("id").asInt(-1);
-        String best = (id > 0) ? getBestTitle(type, picked, id, api) : null;
+        String best = getBestTitle(type, picked, id, api);
 
         // fetch details to populate genres, original language and origin countries
-        if (id > 0) {
-            try {
-                fetchDetails(type, id, info, api);
-            } catch (Exception e) {
-                log.warn("fetchDetails failed: {}", e.getMessage());
-            }
+        try {
+            fetchDetails(type, id, info, api);
+        } catch (Exception e) {
+            log.warn("fetchDetails failed: {}", e.getMessage());
         }
 
         return best;
+    }
+
+    /**
+     * 采纳门槛：这个候选有没有一条<b>独立于 TMDb 相关度排序</b>的正面证据。
+     * 标题命中 或 年份差 ≤ {@link #YEAR_CLOSE_TOLERANCE}，满足其一即可。
+     * <p>
+     * <b>为什么不是「分数 ≥ 某个阈值」</b>：{@link #scoreCandidate} 的分数是用来在候选之间
+     * <b>排序</b>的相对量，从未校准过——它把一个 0/100 的离散项、一个 −10~+30 的档位项
+     * 和一个无上界的热度项（{@code log1p(popularity)*2}）加在一起，量纲是混的。更要命的是
+     * 改造前那个 +100 只在 {@code getOfficialChineseTitle} 返回非空时才触发，而该方法要求
+     * TMDb 的 name/title <b>含中文</b>，于是英文剧、日番、韩剧永远拿不到这 100 分：
+     * 在这样的分数上设数值门槛，实际效果是设了一道「是不是中文作品」的门槛，
+     * 会把非中文内容成片拒掉。所以门槛必须落在<b>信号</b>上，不是落在分数上。
+     * </p>
+     */
+    private boolean hasEnoughEvidence(String type, MediaInfo info, JsonNode node) {
+        return titleMatchLevel(type, info, node) > 0 || yearClose(type, info, node);
+    }
+
+    /**
+     * 标题匹配强度：2=归一化后全等，1=一方包含另一方，0=不匹配。
+     * <p>
+     * 与旧的「官方中文标题精确匹配」相比有两处关键差别：<b>语言中立</b>（不再要求候选的
+     * name/title 含中文，英文/日文作品终于也能拿到标题信号），以及<b>双向多字段比较</b>
+     * （解析出的三个标题 × 候选的规范名与原始名）。
+     * </p>
+     * <p>
+     * 包含关系要求较短一方达到最小长度，防止 {@code Up}、{@code It} 这类短标题被任意长标题
+     * 包含而误判。阈值按语言区分——CJK 单字的信息量远高于拉丁字母，两个汉字（「三体」）
+     * 已经足够可辨，而两个拉丁字母毫无意义。
+     * </p>
+     */
+    private int titleMatchLevel(String type, MediaInfo info, JsonNode node) {
+        List<String> mine = normalizedTitles(info.getTitle(), info.getOriginalTitle(), info.getEnglishTitle());
+        List<String> theirs = normalizedTitles(candidateTitleFields(type, node));
+        for (String a : mine) {
+            for (String b : theirs) {
+                if (a.equals(b)) {
+                    return 2;
+                }
+            }
+        }
+        for (String a : mine) {
+            for (String b : theirs) {
+                String shorter = a.length() <= b.length() ? a : b;
+                String longer = a.length() <= b.length() ? b : a;
+                int minLen = containsCjk(shorter) ? MIN_CONTAINS_LENGTH_CJK : MIN_CONTAINS_LENGTH_LATIN;
+                if (shorter.length() >= minLen && longer.contains(shorter)) {
+                    return 1;
+                }
+            }
+        }
+        return 0;
+    }
+
+    /** 解析出的年份与候选年份是否接近；任一侧缺失即判否（判不出来不算证据） */
+    private boolean yearClose(String type, MediaInfo info, JsonNode node) {
+        String mine = info.getYear();
+        String theirs = getYearSafe(node, type);
+        if (StringUtils.isEmpty(mine) || StringUtils.isEmpty(theirs)) {
+            return false;
+        }
+        try {
+            return Math.abs(Integer.parseInt(mine.trim()) - Integer.parseInt(theirs.trim()))
+                    <= YEAR_CLOSE_TOLERANCE;
+        } catch (NumberFormatException e) {
+            return false;
+        }
+    }
+
+    /** 候选侧参与标题比较的字段：规范名 + 原始名（原始名对日番/韩剧尤其关键） */
+    private String[] candidateTitleFields(String type, JsonNode node) {
+        boolean movie = "movie".equals(type);
+        return new String[]{
+                node.path(movie ? "title" : "name").asText(null),
+                node.path(movie ? "original_title" : "original_name").asText(null)
+        };
+    }
+
+    private List<String> normalizedTitles(String... raw) {
+        List<String> result = new ArrayList<>();
+        for (String s : raw) {
+            String n = normalizeForCompare(s);
+            if (n != null && !result.contains(n)) {
+                result.add(n);
+            }
+        }
+        return result;
+    }
+
+    /**
+     * 比较用归一化，实现收口在 {@link com.osr.openliststrm.rename.TitleNormalizer}——与 PT 订阅匹配侧
+     * （{@code SubscriptionMatcher#normalize}）共用同一份字符类，不要在任一侧另写一份。
+     */
+    private String normalizeForCompare(String raw) {
+        return com.osr.openliststrm.rename.TitleNormalizer.normalizeForCompare(raw);
+    }
+
+    private boolean containsCjk(String text) {
+        return text != null && text.matches(".*[\\u4E00-\\u9FFF\\u3040-\\u30FF\\uAC00-\\uD7AF].*");
+    }
+
+    /** 日志里描述一个候选，够用即可 */
+    private String describeCandidate(String type, JsonNode node) {
+        String[] fields = candidateTitleFields(type, node);
+        for (String f : fields) {
+            if (StringUtils.isNotEmpty(f)) {
+                return f;
+            }
+        }
+        return "id=" + node.path("id").asText("?");
+    }
+
+    private String firstNonBlankTitle(MediaInfo info) {
+        for (String s : new String[]{info.getTitle(), info.getOriginalTitle(), info.getEnglishTitle()}) {
+            if (StringUtils.isNotEmpty(s)) {
+                return s;
+            }
+        }
+        return "(未解析出标题)";
     }
 
     /**
@@ -313,11 +490,17 @@ public class TMDbClient {
     private double scoreCandidate(String type, MediaInfo info, JsonNode node) {
         double score = 0;
 
-        // 官方中文标题与文件名解析出的标题精确匹配：最强信号
-        if (StringUtils.isNotEmpty(info.getOriginalTitle())
-                && info.getOriginalTitle().equals(getOfficialChineseTitle(node, type))) {
-            score += 100;
-        }
+        // 标题匹配：全等最强，一方包含另一方次之。
+        // 必须与采纳门槛（hasEnoughEvidence）共用 titleMatchLevel——两者用不同判据会前后打架：
+        // 候选 X 标题命中但年份偏、候选 Y 标题不命中但年份准，若打分不认标题就会选中 Y，
+        // 再靠年份混过门槛，而真正的答案 X 连被检验的机会都没有。
+        // 旧实现这一项是 getOfficialChineseTitle（要求候选名含中文）的精确相等，
+        // 非中文作品恒为 0 分，等于只按年份+热度排序。
+        score += switch (titleMatchLevel(type, info, node)) {
+            case 2 -> 100;
+            case 1 -> 60;
+            default -> 0;
+        };
 
         // 发行年份接近度：越接近文件名解析出的年份分越高，差距过大则扣分（防止误选重制版/不同季）
         String targetYear = info.getYear();
@@ -472,8 +655,23 @@ public class TMDbClient {
         return null;
     }
 
+    /**
+     * 取中文别名。这是<b>锦上添花</b>的一次辅助请求，失败绝不能拖垮整次刮削——
+     * {@code TMDbApiService#executeAndReturnString} 在 HTTP 失败（404 / 429 重试耗尽 / 5xx）时
+     * 返回 null，而 {@code mapper.readTree(null)} 会抛 {@code IllegalArgumentException}。
+     * 该异常原先会一路冒泡出 {@code doSearchOnce}、{@code search}，最终被 {@link #enrich} 的
+     * {@code catch (Exception)} 吞掉：明明冠军候选已经选出来了，却因为一次可有可无的别名查询
+     * 失败而整次刮削作废；更糟的是此时 {@code tmdbId} 已经写进 info，
+     * {@code MediaParser#needsAI} 随之变 false，AI 兜底也不会触发，只剩一个没有标题和详情的半成品。
+     * 查不到别名的正常降级是 {@code fallbackTitle}（用候选自身的 name/title），本就存在。
+     */
     private String fetchChineseAlias(String type, int id, TMDbApiService api) throws IOException {
-        JsonNode root = mapper.readTree(api.getAlternativeTitles(apiKey, type, id));
+        String raw = api.getAlternativeTitles(apiKey, type, id);
+        if (StringUtils.isBlank(raw)) {
+            log.debug("TMDb 未返回别名数据（type={}, id={}），跳过中文别名，不影响刮削", type, id);
+            return null;
+        }
+        JsonNode root = mapper.readTree(raw);
         if (root == null) return null;
         log.debug("fetchChineseAlias: {}", root);
 
