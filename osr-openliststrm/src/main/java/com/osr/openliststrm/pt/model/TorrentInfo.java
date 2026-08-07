@@ -56,6 +56,23 @@ public class TorrentInfo {
     /** 发布时间原始字符串，保留索引器返回的格式 */
     private String pubDate;
 
+    /**
+     * 种子内文件总数（Torznab {@code files} 属性），索引器未提供时为 null。
+     * <p>
+     * <b>推送前唯一能证伪「整季包」的硬信号</b>。标题命名成季包（有季无集）只说明发布者
+     * 这么写，一个 8 集季包和一个「按季包命名、实际只含 1 集」的种子在标题上完全一样，
+     * 体积也分不开——8GB 可能是 8 集 × 1GB，也可能是 1 集 Remux。但包内集数不可能超过
+     * 文件总数，{@code files} 一旦给出就是一个可靠的上界。
+     * </p>
+     * <p>
+     * 只能<b>单向</b>使用：files 小是"覆盖不了那么多集"的证据，files 大不代表集数多
+     * （nfo/字幕/封面都算文件）。为 null 时一律按"判不出来"处理，维持既有行为——
+     * 取向与 {@code SeasonPackRange} 一致，判不出来就当整季包，交给
+     * {@code DownloadTrackService} 拿下载器的真实文件列表事后对账兜底。
+     * </p>
+     */
+    private Integer files;
+
     /** 来源索引器 ID */
     private Integer indexerId;
 

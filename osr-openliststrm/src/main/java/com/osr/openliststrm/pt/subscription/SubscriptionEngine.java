@@ -283,6 +283,11 @@ public class SubscriptionEngine {
             return false;
         }
 
+        // 季包目标下，先把「文件数证明覆盖不全」的候选让位给不矛盾的候选，再进过滤择优
+        if (!mode.isUpgrade() && match.getEpisode() == SubscriptionMatcher.SEASON_PACK) {
+            fresh = preferCompletePacks(fresh, targets.size());
+        }
+
         FilterCriteria criteria = FilterCriteriaFactory.build(globalConfig, sub.getFilterOverride());
         // 体积阈值按每集判定时要知道候选覆盖多少集，必须赶在 evaluate/pickBest 之前算好
         EpisodeCountResolver.apply(fresh, sub.getTotalEpisodes(),
@@ -427,6 +432,55 @@ public class SubscriptionEngine {
                     + "\n已推送至下载器：" + StringUtils.escapeHtml(downloader.getName()), sub);
         }
         return true;
+    }
+
+    /**
+     * 季包择优前的收窄：把「文件数已经证明它覆盖不全」的候选剔掉，前提是同组里还有不矛盾的候选。
+     * <p>
+     * 「按季包命名、实际只含 1 集」的种子与真季包在标题上一模一样，体积也分不开——8GB 可能是
+     * 8 集 × 1GB，也可能是 1 集 Remux。唯一的硬判据是 {@code files}（种子内文件总数）：包内集数
+     * 不可能超过文件总数，{@code files < 待占位集数} 就<b>一定</b>覆盖不全，这是算术，不是启发式。
+     * </p>
+     * <p>
+     * 不剔除的代价是实打实的：假季包只要在做种数等任一维度上赢下 {@link TorrentFilterEngine#pickBest}，
+     * 就会走 {@link #resolveTargets} 的季包分支占位<b>整季</b>缺失集；等元数据解析完，
+     * {@code DownloadTrackService#reconcileClaims} 再把其余集退回 MISSING，下一轮才轮到真季包
+     * ——而那时它只能占到剩下的集。最终这一季被拆成两个种子下载，多一份 H&R 保种义务，
+     * 且先下的那一集与其余集大概率不是同一个版本。
+     * </p>
+     * <p>
+     * 三条保守约束：
+     * <ul>
+     *   <li>{@code files} 为 null（索引器未提供该属性）的候选一律算"不矛盾"，不做任何推断——
+     *       判据缺失时维持既有行为，交给 {@code reconcileClaims} 事后对账兜底。</li>
+     *   <li>只占 1 集时直接返回：{@code files >= 1} 恒成立，判据本身不成立。</li>
+     *   <li>候选<b>全部</b>覆盖不全时不剔除：宁可下一个只覆盖部分集的包（剩下的集由
+     *       {@code reconcileClaims} 退回后继续搜），也不能因为没有完美候选就一集都不补。</li>
+     * </ul>
+     * </p>
+     */
+    private List<TorrentInfo> preferCompletePacks(List<TorrentInfo> candidates, int targetCount) {
+        if (targetCount < 2) {
+            return candidates;
+        }
+        List<TorrentInfo> complete = new ArrayList<>();
+        List<TorrentInfo> incomplete = new ArrayList<>();
+        for (TorrentInfo candidate : candidates) {
+            Integer files = candidate.getFiles();
+            if (files != null && files < targetCount) {
+                incomplete.add(candidate);
+            } else {
+                complete.add(candidate);
+            }
+        }
+        if (incomplete.isEmpty() || complete.isEmpty()) {
+            return candidates;
+        }
+        for (TorrentInfo dropped : incomplete) {
+            log.debug("季包候选被文件数判据剔除：{} —— 种子内仅 {} 个文件，覆盖不了本次要占位的 {} 集",
+                    dropped.getTitle(), dropped.getFiles(), targetCount);
+        }
+        return complete;
     }
 
     /**

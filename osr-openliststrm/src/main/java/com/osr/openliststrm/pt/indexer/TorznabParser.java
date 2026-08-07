@@ -107,6 +107,9 @@ public final class TorznabParser {
         info.setSeeders((int) parseLong(attrValue(item, "seeders"), 0L));
         info.setPeers((int) parseLong(attrValue(item, "peers"), 0L));
         info.setInfoHash(StringUtils.trimToNull(attrValue(item, "infohash")));
+        // files 缺失/非法时保持 null 而不是 0：0 会被下游当成"这个种子一个文件都没有"，
+        // 而真实语义是"这个索引器没告诉我们"，两者的处理方式完全相反（见 TorrentInfo#files）
+        info.setFiles(parseNullableInt(attrValue(item, "files")));
         // 未提供促销信息时按正常计量处理，绝不能默认成免费
         info.setDownloadVolumeFactor(parseDouble(attrValue(item, "downloadvolumefactor"), 1.0));
 
@@ -159,6 +162,22 @@ public final class TorznabParser {
             return Long.parseLong(value.trim());
         } catch (NumberFormatException e) {
             return fallback;
+        }
+    }
+
+    /**
+     * 解析可缺省的整数属性：空、非数字、非正数一律返回 null（"索引器没给"），
+     * 不返回 0 —— 见 {@link TorrentInfo#getFiles()} 的注释。
+     */
+    private static Integer parseNullableInt(String value) {
+        if (StringUtils.isBlank(value)) {
+            return null;
+        }
+        try {
+            int parsed = Integer.parseInt(value.trim());
+            return parsed > 0 ? parsed : null;
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 

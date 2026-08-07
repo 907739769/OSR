@@ -49,6 +49,39 @@ class EpisodeCountResolverTest {
     }
 
     @Test
+    void 整季包_files小于总集数_按files收口() {
+        // 「按季包命名、实际只含 1 集」的种子：8GB 既可能是 8 集 × 1GB 也可能是 1 集 Remux，
+        // 标题和体积都分不开，files 是唯一的硬上界。不收口的话每集体积会被折算成实际值的 1/8，
+        // 任何体积下限都拦不住它
+        TorrentInfo fake = torrent(1, null, null);
+        fake.setFiles(1);
+        assertEquals(1, EpisodeCountResolver.resolve(fake, 8, false));
+    }
+
+    @Test
+    void 整季包_files大于集数_不反向放大() {
+        // 真季包常带 nfo/字幕/封面，files 大于集数是常态；拿 files 当集数会把每集体积
+        // 折算得过小，方向与收口的目的相反
+        TorrentInfo real = torrent(1, null, null);
+        real.setFiles(20);
+        assertEquals(8, EpisodeCountResolver.resolve(real, 8, false));
+    }
+
+    @Test
+    void 区间包_同样受files收口() {
+        TorrentInfo t = torrent(1, 1, 6);
+        t.setFiles(2);
+        assertEquals(2, EpisodeCountResolver.resolve(t, 50, false));
+    }
+
+    @Test
+    void files缺失_行为与收口前完全一致() {
+        // 索引器没提供该属性时判不出来，不做任何推断
+        assertEquals(8, EpisodeCountResolver.resolve(torrent(1, null, null), 8, false));
+        assertEquals(6, EpisodeCountResolver.resolve(torrent(1, 1, 6), 50, false));
+    }
+
+    @Test
     void 电影_恒为1() {
         // 电影没有集的概念，哪怕解析出了季集信息也不折算
         assertEquals(1, EpisodeCountResolver.resolve(torrent(null, null, null), 1, true));

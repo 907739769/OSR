@@ -89,6 +89,54 @@ class TorznabParserTest {
     }
 
     @Test
+    void parse_files属性_被解析出来() {
+        String xml = wrap("""
+                    <item>
+                      <title>Some.Show.S01.1080p.WEB-DL-GROUP</title>
+                      <link>https://pt.example.com/download.php?id=20</link>
+                      <size>68719476736</size>
+                      <torznab:attr name="files" value="12"/>
+                    </item>
+                """);
+
+        assertEquals(12, TorznabParser.parse(xml).get(0).getFiles());
+    }
+
+    @Test
+    void parse_files缺失或非法_保持null而不是0() {
+        // 0 会被下游当成"这个种子一个文件都没有"，而真实语义是"这个索引器没告诉我们"，
+        // 两者的处理方式完全相反：前者是覆盖不全的证据，后者必须维持既有行为
+        String missing = wrap("""
+                    <item>
+                      <title>Some.Show.S01.1080p</title>
+                      <link>https://pt.example.com/download.php?id=21</link>
+                      <size>100</size>
+                    </item>
+                """);
+        assertNull(TorznabParser.parse(missing).get(0).getFiles());
+
+        String malformed = wrap("""
+                    <item>
+                      <title>Some.Show.S01.1080p</title>
+                      <link>https://pt.example.com/download.php?id=22</link>
+                      <size>100</size>
+                      <torznab:attr name="files" value="unknown"/>
+                    </item>
+                """);
+        assertNull(TorznabParser.parse(malformed).get(0).getFiles());
+
+        String zero = wrap("""
+                    <item>
+                      <title>Some.Show.S01.1080p</title>
+                      <link>https://pt.example.com/download.php?id=23</link>
+                      <size>100</size>
+                      <torznab:attr name="files" value="0"/>
+                    </item>
+                """);
+        assertNull(TorznabParser.parse(zero).get(0).getFiles());
+    }
+
+    @Test
     void parse_newznab命名空间_属性同样被识别() {
         String xml = """
                 <?xml version="1.0" encoding="UTF-8"?>

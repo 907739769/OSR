@@ -409,6 +409,78 @@ class SubscriptionEngineTest {
         verify(episodeService, times(3)).update(any(), any(Wrapper.class));
     }
 
+    /** 8 集全缺；假季包 files=1（只含 1 集）但做种更多，真季包 files=12 但做种少 */
+    private List<TorrentInfo> fakeAndRealPack(Integer fakeFiles, Integer realFiles) {
+        TorrentInfo fake = torrent("Some.Show.S01.2160p.WEB-DL-FAKE", "g-fake", 100, "2160p");
+        fake.setFiles(fakeFiles);
+        TorrentInfo real = torrent("Some.Show.S01.2160p.WEB-DL-REAL", "g-real", 10, "2160p");
+        real.setFiles(realFiles);
+        return List.of(fake, real);
+    }
+
+    private void eightMissingEpisodes() {
+        when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Some Show", 1, 8)));
+        List<PtSubscriptionEpisodePlus> episodes = new ArrayList<>();
+        for (int i = 1; i <= 8; i++) {
+            episodes.add(episode(100 + i, i, "MISSING"));
+        }
+        when(episodeService.listBySubscription(10)).thenReturn(episodes);
+    }
+
+    @Test
+    void 季包_文件数证明覆盖不全的候选_让位给真季包() throws Exception {
+        // 用户实测场景：两条种子都按季包命名，其中一条实际只含 1 集。标题一模一样、体积也分不开
+        // （8GB 可能是 8 集 × 1GB，也可能是 1 集 Remux），唯一的硬判据是 files——包内集数
+        // 不可能超过文件总数。不剔除的话假季包靠做种数赢下择优，占位整季缺失集，等元数据解析完
+        // reconcileClaims 再把其余集退回，下一轮真季包只能占到剩下的集，一季被拆成两个种子下载
+        eightMissingEpisodes();
+
+        int pushed = engine.process(fakeAndRealPack(1, 12));
+
+        assertEquals(1, pushed);
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService).save(captor.capture());
+        assertEquals("g-real", captor.getValue().getGuid());
+    }
+
+    @Test
+    void 季包_索引器未提供files_行为与判据引入前一致() throws Exception {
+        // 判据缺失时不做任何推断，仍由做种数决胜，交给 DownloadTrackService 事后对账兜底
+        eightMissingEpisodes();
+
+        engine.process(fakeAndRealPack(null, null));
+
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService).save(captor.capture());
+        assertEquals("g-fake", captor.getValue().getGuid());
+    }
+
+    @Test
+    void 季包_全部候选都覆盖不全_不剔除任何候选() throws Exception {
+        // 宁可下一个只覆盖部分集的包（剩下的集由 reconcileClaims 退回后继续搜），
+        // 也不能因为没有完美候选就一集都不补
+        eightMissingEpisodes();
+
+        assertEquals(1, engine.process(fakeAndRealPack(1, 2)));
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService).save(captor.capture());
+        assertEquals("g-fake", captor.getValue().getGuid());
+    }
+
+    @Test
+    void 季包_只占一集时不启用文件数判据() throws Exception {
+        // files >= 1 恒成立，判据本身不成立，不能拿它去剔除候选
+        when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Some Show", 1, 8)));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(
+                episode(101, 1, "IN_LIBRARY"), episode(102, 2, "MISSING")));
+
+        engine.process(fakeAndRealPack(1, 12));
+
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService).save(captor.capture());
+        assertEquals("g-fake", captor.getValue().getGuid());
+    }
+
     @Test
     void 季包_无缺失集_跳过() throws Exception {
         when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Some Show", 1, 2)));
