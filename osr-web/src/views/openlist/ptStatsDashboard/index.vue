@@ -74,6 +74,20 @@
       <v-col cols="12">
         <v-card class="chart-card">
           <v-card-title class="chart-header">
+            <span class="chart-title">搜索淘汰原因分布</span>
+            <span class="chart-subtitle">候选在推送前被过滤规则挡掉的分布，占比过高说明规则可能过严</span>
+          </v-card-title>
+          <v-card-text>
+            <div ref="rejectReasonContainer" class="echarts-container" />
+          </v-card-text>
+        </v-card>
+      </v-col>
+    </v-row>
+
+    <v-row class="chart-row">
+      <v-col cols="12">
+        <v-card class="chart-card">
+          <v-card-title class="chart-header">
             <span class="chart-title">Top 活跃订阅</span>
           </v-card-title>
           <v-data-table
@@ -122,6 +136,7 @@ import {
   getPtStatsTrendApi,
   getPtStatsIndexerHitRateApi,
   getPtStatsFailReasonsApi,
+  getPtStatsRejectReasonsApi,
   getPtStatsTopSubscriptionsApi,
   type PtStatsActiveSubscription
 } from '@/api/openlist/ptStats'
@@ -153,10 +168,12 @@ const topSubHeaders = [
 const trendContainer = ref<HTMLElement | null>(null)
 const indexerContainer = ref<HTMLElement | null>(null)
 const failReasonContainer = ref<HTMLElement | null>(null)
+const rejectReasonContainer = ref<HTMLElement | null>(null)
 
 let trendChart: any = null
 let indexerChart: any = null
 let failReasonChart: any = null
+let rejectReasonChart: any = null
 let resizeHandler: (() => void) | null = null
 
 const defaultColors = ['#B4690E', '#3F8F5F', '#C98A1E', '#C0362C', '#4C6C93', '#8A5A9E', '#D98A2B', '#3B4B6B']
@@ -307,6 +324,41 @@ async function loadFailReasons() {
   }
 }
 
+async function loadRejectReasons() {
+  if (!rejectReasonContainer.value) return
+  if (!rejectReasonChart) rejectReasonChart = echarts.init(rejectReasonContainer.value)
+  try {
+    const data = await getPtStatsRejectReasonsApi()
+    if (!data || data.length === 0) {
+      rejectReasonChart.clear()
+      rejectReasonChart.setOption(emptyOption('暂无数据'), true)
+      return
+    }
+    // 用横向柱状而不是饼图：淘汰原因多达 15 类且标签较长，饼图的标签会挤成一团；
+    // 而且这里要看的是"哪一条规则最能挡"的排序，柱状比扇形更好比较
+    const sorted = [...data].sort((a, b) => a.count - b.count)
+    rejectReasonChart.setOption({
+      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, formatter: '{b}: {c}' },
+      grid: { left: 8, right: 24, top: 12, bottom: 8, containLabel: true },
+      xAxis: { type: 'value', minInterval: 1 },
+      yAxis: { type: 'category', data: sorted.map(i => i.reason), axisLabel: { fontSize: 11 } },
+      series: [{
+        type: 'bar',
+        barMaxWidth: 18,
+        itemStyle: { borderRadius: [0, 4, 4, 0], color: osrCssVar('--osr-warning') || '#f0a020' },
+        label: { show: true, position: 'right', fontSize: 11 },
+        data: sorted.map(i => i.count)
+      }]
+    }, true)
+  } catch (e) {
+    console.error('[PtStatsDashboard] Failed to load reject reasons:', e)
+    if (rejectReasonChart) {
+      rejectReasonChart.clear()
+      rejectReasonChart.setOption(emptyOption('加载失败'), true)
+    }
+  }
+}
+
 async function loadTopSubscriptions() {
   topSubscriptionsLoading.value = true
   try {
@@ -321,7 +373,7 @@ async function loadTopSubscriptions() {
 }
 
 async function loadAll() {
-  await Promise.all([loadOverview(), loadTrend(), loadIndexerHitRate(), loadFailReasons(), loadTopSubscriptions()])
+  await Promise.all([loadOverview(), loadTrend(), loadIndexerHitRate(), loadFailReasons(), loadRejectReasons(), loadTopSubscriptions()])
 }
 
 async function onRangeChange() {
@@ -337,6 +389,7 @@ onMounted(async () => {
     trendChart?.resize()
     indexerChart?.resize()
     failReasonChart?.resize()
+    rejectReasonChart?.resize()
   }
   window.addEventListener('resize', resizeHandler)
 
@@ -345,6 +398,7 @@ onMounted(async () => {
     loadTrend()
     loadIndexerHitRate()
     loadFailReasons()
+    loadRejectReasons()
   }
   document.addEventListener('osr-theme-change', themeChangeHandler)
 })
