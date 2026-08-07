@@ -24,6 +24,7 @@ import com.osr.openliststrm.pt.downloader.DownloaderClientFactory;
 import com.osr.openliststrm.pt.filter.EpisodeCountResolver;
 import com.osr.openliststrm.pt.filter.FilterCriteria;
 import com.osr.openliststrm.pt.filter.FilterCriteriaFactory;
+import com.osr.openliststrm.pt.filter.RejectCode;
 import com.osr.openliststrm.pt.filter.TorrentBlacklist;
 import com.osr.openliststrm.pt.filter.TorrentFilterEngine;
 import com.osr.openliststrm.pt.indexer.GuidHasher;
@@ -79,6 +80,9 @@ public class SubscriptionEngine {
 
     /** 唯一标签前缀，用于把下载记录回映到下载器里的种子 */
     private static final String TAG_PREFIX = "osr-pt-";
+
+    /** 全淘汰摘要里最多列举几类淘汰原因 */
+    private static final int REJECT_SUMMARY_TOP_N = 3;
 
     private final IPtSubscriptionPlusService subscriptionService;
     private final IPtSubscriptionEpisodePlusService episodeService;
@@ -292,6 +296,14 @@ public class SubscriptionEngine {
                 .toList();
         TorrentInfo best = filterEngine.pickBest(survivors, criteria);
         if (best == null) {
+            // 走到这里说明 fresh 非空（上面已短路）却一个幸存者都没有——候选是被过滤规则全清的。
+            // 原先这里直接 return false，什么都不说：用户看到的是"没搜到资源"，实际是自己配的
+            // freeOnly / 分辨率白名单把 103 个候选全挡了，而通知还提示他去检查索引器配置。
+            // 按 RejectCode 聚合而不是按 reason 文本：文案里嵌着实际值，按文本分组只会得到
+            // 一堆计数为 1 的碎片，看不出主要卡在哪条规则上。
+            String summary = summarizeRejections(verdicts);
+            log.info("订阅[{}] 集{} {}", sub.getId(), match.getEpisode(), summary);
+            searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, summary);
             return false;
         }
 
@@ -415,6 +427,28 @@ public class SubscriptionEngine {
                     + "\n已推送至下载器：" + StringUtils.escapeHtml(downloader.getName()), sub);
         }
         return true;
+    }
+
+    /**
+     * 把「全部候选被过滤规则淘汰」聚合成一句人话，按 {@link RejectCode} 分类而不是按原因文案。
+     * <p>
+     * 只列前 {@link #REJECT_SUMMARY_TOP_N} 类——用户需要的是判断方向（"哦是我把 freeOnly 打开了"），
+     * 完整明细本来就由 {@code recordVerdicts} 逐条落在 {@code pt_search_log} 里。
+     * </p>
+     */
+    private String summarizeRejections(List<TorrentFilterEngine.Verdict> verdicts) {
+        Map<RejectCode, Long> byCode = verdicts.stream()
+                .filter(v -> !v.accepted())
+                .collect(java.util.stream.Collectors.groupingBy(
+                        TorrentFilterEngine.Verdict::rejectCode,
+                        LinkedHashMap::new,
+                        java.util.stream.Collectors.counting()));
+        String detail = byCode.entrySet().stream()
+                .sorted(Map.Entry.<RejectCode, Long>comparingByValue().reversed())
+                .limit(REJECT_SUMMARY_TOP_N)
+                .map(e -> e.getValue() + " 个「" + e.getKey().label() + "」")
+                .collect(java.util.stream.Collectors.joining("、"));
+        return verdicts.size() + " 个候选全部被过滤规则淘汰：" + detail;
     }
 
     /**

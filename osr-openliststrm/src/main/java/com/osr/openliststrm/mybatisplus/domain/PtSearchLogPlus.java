@@ -53,6 +53,17 @@ public class PtSearchLogPlus extends BaseEntity {
     private String accepted;
 
     /** 淘汰原因或摘要说明；通过的候选为空 */
+    /**
+     * 结构化淘汰原因码，取值见 {@code pt.filter.RejectCode}。
+     * <p>
+     * 与 {@link #reason} 是两用：reason 带具体数值（"做种数 3 低于下限 5"）供逐条排查，
+     * 本字段是稳定分类，供聚合与统计——按 reason 分组只会得到一堆计数为 1 的碎片。
+     * 摘要类日志（{@code recordSummary}）与历史数据为空。
+     * </p>
+     */
+    @TableField("reason_code")
+    private String reasonCode;
+
     @TableField("reason")
     private String reason;
 }

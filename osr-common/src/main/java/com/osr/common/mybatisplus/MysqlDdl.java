@@ -87,7 +87,8 @@ public class MysqlDdl extends SimpleDdl {
                 "sql/20260762-wecom-integration.sql",
                 "sql/20260763-wecom-auto-provision.sql",
                 "sql/20260764-wecom-proxy.sql",
-                "sql/20260765-pt-subscription-upgrade-default-off.sql"
+                "sql/20260765-pt-subscription-upgrade-default-off.sql",
+                "sql/20260766-pt-search-log-reason-code.sql"
         );
     }
 }

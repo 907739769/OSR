@@ -68,6 +68,8 @@ public class SearchSupplementService {
     private final TorrentFilterEngine filterEngine;
     private final TmdbSearchService tmdbSearchService;
     private final IPtTorrentBlacklistPlusService blacklistService;
+    /** 只用来取水位线与回读淘汰原因聚合，不参与落库——落库由 SubscriptionEngine 在过滤现场完成 */
+    private final SearchLogService searchLogService;
 
     /**
      * 单次搜索调用内部的并发上限。
@@ -91,6 +93,7 @@ public class SearchSupplementService {
                                    TorrentFilterEngine filterEngine,
                                    TmdbSearchService tmdbSearchService,
                                    IPtTorrentBlacklistPlusService blacklistService,
+                                   SearchLogService searchLogService,
                                    @Value("${pt.search.max-concurrency:3}") int maxConcurrency) {
         this.indexerService = indexerService;
         this.torznabClient = torznabClient;
@@ -103,6 +106,7 @@ public class SearchSupplementService {
         this.filterEngine = filterEngine;
         this.tmdbSearchService = tmdbSearchService;
         this.blacklistService = blacklistService;
+        this.searchLogService = searchLogService;
         this.maxConcurrency = Math.max(1, maxConcurrency);
     }
 
@@ -337,7 +341,7 @@ public class SearchSupplementService {
         if (!summary.anyPushed()) {
             PtSubscriptionPlus sub = subscriptionService.getById(subId);
             if (sub != null) {
-                notifyNoResult(sub);
+                notifyNoResult(sub, summary.getRejectSummary());
             }
         }
     }
@@ -369,6 +373,10 @@ public class SearchSupplementService {
             return SearchAndPushSummary.skip();
         }
 
+        // 水位线：本次搜索开始前该订阅日志的最大 id，结束后只聚合这之后新写入的淘汰行，
+        // 精确对应「这一次搜索」，不会把上一轮的原因混进来
+        long watermark = searchLogService.watermark(subId);
+
         boolean movie = SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType());
         if (movie) {
             boolean pushed = false;
@@ -377,7 +385,8 @@ public class SearchSupplementService {
             } catch (Exception e) {
                 log.warn("订阅[{}] 补搜失败：{}", subId, e.getMessage());
             }
-            return new SearchAndPushSummary(false, pushed, 0);
+            return new SearchAndPushSummary(false, pushed, 0,
+                    pushed ? null : searchLogService.summarizeRejectionsSince(subId, watermark));
         }
 
         // 单次全季节搜索（三级回退：ID → 中文 → 英文/原语言）
@@ -424,7 +433,9 @@ public class SearchSupplementService {
         sub.setLastSearchTime(new Date());
         subscriptionService.updateById(sub);
 
-        return new SearchAndPushSummary(false, seasonPushed, episodesPushed);
+        boolean anyPushed = seasonPushed || episodesPushed > 0;
+        return new SearchAndPushSummary(false, seasonPushed, episodesPushed,
+                anyPushed ? null : searchLogService.summarizeRejectionsSince(subId, watermark));
     }
 
     /**
@@ -479,9 +490,18 @@ public class SearchSupplementService {
         }
     }
 
-    private void notifyNoResult(PtSubscriptionPlus sub) {
+    /**
+     * @param rejectSummary 候选被过滤规则淘汰的聚合说明，为 null 表示压根没搜到候选
+     *                      （那种情况与过滤规则无关，不能把用户往规则方向引）
+     */
+    private void notifyNoResult(PtSubscriptionPlus sub, String rejectSummary) {
+        if (StringUtils.isNotBlank(rejectSummary)) {
+            notifySafely("🔍 订阅[" + StringUtils.escapeHtml(sub.getTitle()) + "] 建订阅补搜未推送任何资源——"
+                    + StringUtils.escapeHtml(rejectSummary) + "。请检查过滤规则是否过严", sub);
+            return;
+        }
         notifySafely("🔍 订阅[" + StringUtils.escapeHtml(sub.getTitle()) + "] 建订阅补搜未找到可用资源，"
-                + "可等待自动补搜/RSS 命中，或检查索引器配置", sub);
+                + "可等待自动补搜/RSS 命中，或检查关键词与索引器配置", sub);
     }
 
     private void notifySafely(String msg, PtSubscriptionPlus sub) {

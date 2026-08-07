@@ -13,7 +13,9 @@ import com.osr.openliststrm.pt.stats.dto.PtStatsActiveSubscriptionDTO;
 import com.osr.openliststrm.pt.stats.dto.PtStatsFailReasonDTO;
 import com.osr.openliststrm.pt.stats.dto.PtStatsIndexerHitRateDTO;
 import com.osr.openliststrm.pt.stats.dto.PtStatsOverviewDTO;
+import com.osr.openliststrm.pt.stats.dto.PtStatsRejectReasonDTO;
 import com.osr.openliststrm.pt.stats.dto.PtStatsTrendPointDTO;
+import com.osr.openliststrm.pt.filter.RejectCode;
 import com.osr.openliststrm.pt.subscription.SubscriptionService;
 import com.osr.openliststrm.pt.task.DownloadRecordState;
 import org.springframework.stereotype.Service;
@@ -178,6 +180,39 @@ public class PtStatsService {
         return rows.stream().map(row -> {
             PtStatsFailReasonDTO dto = new PtStatsFailReasonDTO();
             dto.setReason(String.valueOf(row.get("reason")));
+            dto.setCount(asLong(row.get("count")));
+            return dto;
+        }).toList();
+    }
+
+    /**
+     * 搜索淘汰原因分布：按 {@code pt_search_log.reason_code} 聚合被过滤规则淘汰的候选。
+     * <p>
+     * 与 {@link #failReasons} 对称但口径不同——那边是「推送之后下载失败」，这边是
+     * 「候选在推送之前就被规则挡掉」。后者此前完全没有统计，而它恰恰是「订阅一直补不到货」
+     * 最常见的原因：用户自己开的 freeOnly、分辨率白名单能把整批候选清空，而系统只会说
+     * 「未找到可用资源」。
+     * </p>
+     * <p>
+     * 按<b>码</b>聚合而不是按 reason 文案：文案里嵌着实际值，按文案 GROUP BY 只会得到
+     * 一堆计数为 1 的碎片。与 {@link #indexerHitRate} 同理不做 days 筛选——
+     * {@code pt_search_log} 本身按订阅保留 ≤200 条，再叠加时间筛选口径会不一致。
+     * </p>
+     */
+    public List<PtStatsRejectReasonDTO> rejectReasons() {
+        List<Map<String, Object>> rows = searchLogService.listMaps(
+                Wrappers.<PtSearchLogPlus>query()
+                        .select("reason_code as reason_code, count(*) as count")
+                        .eq("accepted", "0")
+                        .isNotNull("reason_code")
+                        .groupBy("reason_code")
+                        .orderByDesc("count"));
+
+        return rows.stream().map(row -> {
+            PtStatsRejectReasonDTO dto = new PtStatsRejectReasonDTO();
+            String code = String.valueOf(row.get("reason_code"));
+            dto.setCode(code);
+            dto.setReason(RejectCode.labelOf(code));
             dto.setCount(asLong(row.get("count")));
             return dto;
         }).toList();

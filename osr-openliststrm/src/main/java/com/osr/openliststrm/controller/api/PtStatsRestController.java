@@ -6,6 +6,7 @@ import com.osr.openliststrm.pt.stats.dto.PtStatsActiveSubscriptionDTO;
 import com.osr.openliststrm.pt.stats.dto.PtStatsFailReasonDTO;
 import com.osr.openliststrm.pt.stats.dto.PtStatsIndexerHitRateDTO;
 import com.osr.openliststrm.pt.stats.dto.PtStatsOverviewDTO;
+import com.osr.openliststrm.pt.stats.dto.PtStatsRejectReasonDTO;
 import com.osr.openliststrm.pt.stats.dto.PtStatsTrendPointDTO;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -54,6 +55,15 @@ public class PtStatsRestController {
     @GetMapping("/fail-reasons")
     public Result<List<PtStatsFailReasonDTO>> failReasons(@RequestParam(value = "days", required = false) Integer days) {
         return Result.success(statsService.failReasons(normalizeDays(days)));
+    }
+
+    /**
+     * 搜索淘汰原因分布。与 /fail-reasons 对称：那个统计"推送后下载失败"，
+     * 这个统计"候选在推送前就被过滤规则挡掉"——后者才是"订阅一直补不到货"最常见的原因。
+     */
+    @GetMapping("/reject-reasons")
+    public Result<List<PtStatsRejectReasonDTO>> rejectReasons() {
+        return Result.success(statsService.rejectReasons());
     }
 
     @GetMapping("/top-subscriptions")

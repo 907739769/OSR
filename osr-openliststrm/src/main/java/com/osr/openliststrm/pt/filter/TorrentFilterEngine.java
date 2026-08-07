@@ -45,12 +45,32 @@ public class TorrentFilterEngine {
             Pattern.CASE_INSENSITIVE);
 
     /**
-     * 候选种子的过滤裁决：{@code rejectReason} 为 null 表示通过。
+     * 候选种子的过滤裁决：{@code rejectCode} 为 null 表示通过。
+     * <p>
+     * 码与文案<b>都要</b>：{@code rejectReason} 带具体数值（"做种数 3 低于下限 5"）便于逐条排查，
+     * {@code rejectCode} 是稳定分类，用来聚合与统计——按文案聚合会因为嵌了实际值而碎成
+     * 一堆计数为 1 的片段，看不出"这批候选主要卡在哪条规则上"。
+     * </p>
+     * <p>请用 {@link #accept}/{@link #reject} 构造，不要直接 new：两个工厂让"通过"与"淘汰"
+     * 在调用点一眼可辨，也保证码与文案不会出现一个为 null 另一个非 null 的错位状态。</p>
      */
-    public record Verdict(TorrentInfo torrent, String rejectReason) {
-        public boolean accepted() {
-            return rejectReason == null;
+    public record Verdict(TorrentInfo torrent, RejectCode rejectCode, String rejectReason) {
+
+        public static Verdict accept(TorrentInfo torrent) {
+            return new Verdict(torrent, null, null);
         }
+
+        public static Verdict reject(TorrentInfo torrent, RejectCode code, String reason) {
+            return new Verdict(torrent, code, reason);
+        }
+
+        public boolean accepted() {
+            return rejectCode == null;
+        }
+    }
+
+    /** {@link #rejectReason} 的返回值：淘汰分类 + 带实际值的说明。通过时返回 null */
+    private record Rejection(RejectCode code, String reason) {
     }
 
     /**
@@ -82,7 +102,10 @@ public class TorrentFilterEngine {
                                    TorrentBlacklist blacklist, String originalLanguage) {
         List<Verdict> verdicts = new ArrayList<>();
         for (TorrentInfo torrent : candidates) {
-            verdicts.add(new Verdict(torrent, rejectReason(torrent, criteria, blacklist, originalLanguage)));
+            Rejection rejection = rejectReason(torrent, criteria, blacklist, originalLanguage);
+            verdicts.add(rejection == null
+                    ? Verdict.accept(torrent)
+                    : Verdict.reject(torrent, rejection.code(), rejection.reason()));
         }
         return verdicts;
     }
@@ -170,32 +193,36 @@ public class TorrentFilterEngine {
      *
      * @param originalLanguage 影片的原始语言代码（如 "en"、"zh"），为 null 则跳过中字检查
      */
-    private String rejectReason(TorrentInfo torrent, FilterCriteria criteria,
+    private Rejection rejectReason(TorrentInfo torrent, FilterCriteria criteria,
                                  TorrentBlacklist blacklist, String originalLanguage) {
         if (!blacklist.guidHashes().isEmpty()) {
             String guid = torrent.getGuid();
             if (StringUtils.isNotBlank(guid) && blacklist.guidHashes().contains(GuidHasher.hash(guid))) {
-                return "该种子已被手动拉黑（GUID）";
+                return new Rejection(RejectCode.BLACKLISTED_GUID, "该种子已被手动拉黑（GUID）");
             }
         }
         if (torrent.getSeeders() < criteria.minSeeders()) {
-            return "做种数 " + torrent.getSeeders() + " 低于下限 " + criteria.minSeeders();
+            return new Rejection(RejectCode.LOW_SEEDERS,
+                    "做种数 " + torrent.getSeeders() + " 低于下限 " + criteria.minSeeders());
         }
         // 体积一律走 criteria.effectiveSize()：开了「按每集判定」时它是折算到单集的体积，
         // 否则就是整包体积。SIZE 排序维度用的是同一个方法，两处口径不会分叉
         long size = criteria.effectiveSize(torrent);
         if (criteria.minSize() > 0 && size < criteria.minSize()) {
-            return describeSize(torrent, criteria) + size + " 小于下限 " + criteria.minSize();
+            return new Rejection(RejectCode.SIZE_BELOW_MIN,
+                    describeSize(torrent, criteria) + size + " 小于下限 " + criteria.minSize());
         }
         if (criteria.maxSize() > 0 && size > criteria.maxSize()) {
-            return describeSize(torrent, criteria) + size + " 超过上限 " + criteria.maxSize();
+            return new Rejection(RejectCode.SIZE_ABOVE_MAX,
+                    describeSize(torrent, criteria) + size + " 超过上限 " + criteria.maxSize());
         }
         if (criteria.freeOnly() && !torrent.isFree()) {
-            return "非免费种(下载量系数 " + torrent.getDownloadVolumeFactor() + ")，而配置为仅要免费";
+            return new Rejection(RejectCode.NOT_FREE,
+                    "非免费种(下载量系数 " + torrent.getDownloadVolumeFactor() + ")，而配置为仅要免费");
         }
         // 与做种数/体积/免费一样是不依赖标题解析的站点级判定，放在同一段
         if (criteria.avoidHitAndRun() && torrent.isHitAndRun()) {
-            return "来源站点有 H&R 考核，而配置为规避 H&R";
+            return new Rejection(RejectCode.HIT_AND_RUN, "来源站点有 H&R 考核，而配置为规避 H&R");
         }
         List<String> whitelist = criteria.resolutionWhitelist();
         if (!whitelist.isEmpty()) {
@@ -203,7 +230,8 @@ public class TorrentFilterEngine {
             // 解析不出分辨率时无法判定是否在白名单内，不能放行；只有白名单为空(不限)才不受此约束
             if (StringUtils.isBlank(resolution) || !containsIgnoreCase(whitelist, resolution.trim())) {
                 String actual = StringUtils.isBlank(resolution) ? "(未知)" : resolution;
-                return "分辨率 " + actual + " 不在白名单 " + whitelist + " 内";
+                return new Rejection(RejectCode.RESOLUTION_NOT_ALLOWED,
+                        "分辨率 " + actual + " 不在白名单 " + whitelist + " 内");
             }
         }
 
@@ -214,20 +242,21 @@ public class TorrentFilterEngine {
             String source = torrent.getParsedSource();
             if (StringUtils.isBlank(source) || !containsIgnoreCase(sourceWhitelist, source.trim())) {
                 String actual = StringUtils.isBlank(source) ? "(未知)" : source;
-                return "媒介来源 " + actual + " 不在白名单 " + sourceWhitelist + " 内";
+                return new Rejection(RejectCode.SOURCE_NOT_ALLOWED,
+                        "媒介来源 " + actual + " 不在白名单 " + sourceWhitelist + " 内");
             }
         }
 
         String title = torrent.getTitle();
         // 标题缺失的条目无法做关键词判定，一律淘汰而非放行
         if (StringUtils.isBlank(title)) {
-            return "标题为空，无法判定";
+            return new Rejection(RejectCode.BLANK_TITLE, "标题为空，无法判定");
         }
 
         if (!blacklist.releaseGroupsUpper().isEmpty()) {
             String group = torrent.getParsedReleaseGroup();
             if (StringUtils.isNotBlank(group) && blacklist.releaseGroupsUpper().contains(group.toUpperCase(Locale.ROOT))) {
-                return "发布组「" + group + "」已被手动拉黑";
+                return new Rejection(RejectCode.BLACKLISTED_GROUP, "发布组「" + group + "」已被手动拉黑");
             }
         }
 
@@ -237,14 +266,15 @@ public class TorrentFilterEngine {
         List<String> tags = torrent.getParsedTags();
         for (String excluded : criteria.excludeTags()) {
             if (containsIgnoreCase(tags, excluded)) {
-                return "命中排除标签「" + excluded + "」";
+                return new Rejection(RejectCode.EXCLUDED_TAG, "命中排除标签「" + excluded + "」");
             }
         }
         // 必需标签是 AND 语义：配了 HDR,ATMOS 就是"既要 HDR 又要 ATMOS"。
         // 想表达"任选其一"请用标题包含词，那一项本就是 OR 语义。
         for (String required : criteria.requiredTags()) {
             if (!containsIgnoreCase(tags, required)) {
-                return "缺少必需标签「" + required + "」（已解析到的标签：" + describeTags(tags) + "）";
+                return new Rejection(RejectCode.MISSING_REQUIRED_TAG,
+                        "缺少必需标签「" + required + "」（已解析到的标签：" + describeTags(tags) + "）");
             }
         }
 
@@ -252,17 +282,19 @@ public class TorrentFilterEngine {
 
         for (String keyword : criteria.excludeKeywords()) {
             if (lower.contains(keyword.toLowerCase(Locale.ROOT))) {
-                return "命中排除词「" + keyword + "」";
+                return new Rejection(RejectCode.EXCLUDED_KEYWORD, "命中排除词「" + keyword + "」");
             }
         }
         if (!criteria.includeKeywords().isEmpty() && !containsAny(lower, criteria.includeKeywords())) {
-            return "未命中任何包含词 " + criteria.includeKeywords();
+            return new Rejection(RejectCode.NO_INCLUDE_KEYWORD,
+                    "未命中任何包含词 " + criteria.includeKeywords());
         }
 
         // 外语电影中字检测
         if (criteria.requireChineseSubtitle() && isForeignLanguage(originalLanguage)) {
             if (!hasChineseSubtitle(torrent)) {
-                return "外语电影(originalLanguage=" + originalLanguage + ")，标题/描述中未检测到中文字幕标识";
+                return new Rejection(RejectCode.NO_CHINESE_SUBTITLE,
+                        "外语电影(originalLanguage=" + originalLanguage + ")，标题/描述中未检测到中文字幕标识");
             }
         }
 

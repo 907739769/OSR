@@ -73,6 +73,8 @@ class SearchSupplementServiceTest {
     private TmdbSearchService tmdbSearchService;
     @Mock
     private IPtTorrentBlacklistPlusService blacklistService;
+    @Mock
+    private SearchLogService searchLogService;
 
     private IndexerCapabilityCache capabilityCache;
 
@@ -81,7 +83,7 @@ class SearchSupplementServiceTest {
     @BeforeEach
     void setUp() {
         capabilityCache = new IndexerCapabilityCache(torznabClient, 300_000L);
-        service = new SearchSupplementService(indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, blacklistService, 10);
+        service = new SearchSupplementService(indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, blacklistService, searchLogService, 10);
     }
 
     private PtIndexerPlus indexer(int id) {
@@ -173,7 +175,7 @@ class SearchSupplementServiceTest {
     void searchAcrossIndexers_并发数不超过配置上限() throws Exception {
         int limit = 2;
         SearchSupplementService limited = new SearchSupplementService(
-                indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, blacklistService, limit);
+                indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, blacklistService, searchLogService, limit);
         when(indexerService.listEnabled()).thenReturn(
                 List.of(indexer(1), indexer(2), indexer(3), indexer(4), indexer(5)));
 
@@ -208,7 +210,7 @@ class SearchSupplementServiceTest {
     void searchAcrossIndexers_并发受限但最终仍处理完所有索引器() throws Exception {
         int limit = 2;
         SearchSupplementService limited = new SearchSupplementService(
-                indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, blacklistService, limit);
+                indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, blacklistService, searchLogService, limit);
         when(indexerService.listEnabled()).thenReturn(
                 List.of(indexer(1), indexer(2), indexer(3), indexer(4), indexer(5)));
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(torrent("t")));
@@ -221,7 +223,7 @@ class SearchSupplementServiceTest {
     @Test
     void 配置并发数小于1_至少允许1个() throws Exception {
         SearchSupplementService limited = new SearchSupplementService(
-                indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, blacklistService, 0);
+                indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, blacklistService, searchLogService, 0);
         when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(torrent("t")));
 
@@ -306,7 +308,7 @@ class SearchSupplementServiceTest {
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(range));
         when(filterConfigService.getConfig()).thenReturn(null);
         when(filterEngine.evaluate(anyList(), any(), any(), org.mockito.ArgumentMatchers.nullable(String.class)))
-                .thenAnswer(inv -> List.of(new TorrentFilterEngine.Verdict(range, null)));
+                .thenAnswer(inv -> List.of(TorrentFilterEngine.Verdict.accept(range)));
 
         SupplementResult result = service.supplement(10, 1, "Some Show S01E01", true);
 

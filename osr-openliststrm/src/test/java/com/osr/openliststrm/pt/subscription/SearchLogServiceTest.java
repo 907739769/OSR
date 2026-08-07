@@ -3,6 +3,7 @@ package com.osr.openliststrm.pt.subscription;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.osr.openliststrm.mybatisplus.domain.PtSearchLogPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtSearchLogPlusService;
+import com.osr.openliststrm.pt.filter.RejectCode;
 import com.osr.openliststrm.pt.filter.TorrentFilterEngine;
 import com.osr.openliststrm.pt.model.TorrentInfo;
 import org.junit.jupiter.api.Test;
@@ -16,6 +17,7 @@ import org.mockito.quality.Strictness;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
@@ -43,8 +45,8 @@ class SearchLogServiceTest {
     void recordVerdicts_按裁决落库通过与淘汰的原因() {
         when(logService.count(any())).thenReturn(2L);
         List<TorrentFilterEngine.Verdict> verdicts = List.of(
-                new TorrentFilterEngine.Verdict(torrent("good", 1), null),
-                new TorrentFilterEngine.Verdict(torrent("bad", 1), "做种数不足"));
+                TorrentFilterEngine.Verdict.accept(torrent("good", 1)),
+                TorrentFilterEngine.Verdict.reject(torrent("bad", 1), RejectCode.LOW_SEEDERS, "做种数 1 低于下限 3"));
 
         service().recordVerdicts(10, 2, SearchLogService.SOURCE_RSS, verdicts);
 
@@ -54,7 +56,11 @@ class SearchLogServiceTest {
         assertEquals(2, rows.size());
         assertEquals("1", rows.get(0).getAccepted());
         assertEquals("0", rows.get(1).getAccepted());
-        assertEquals("做种数不足", rows.get(1).getReason());
+        // 文案带实际值供逐条排查，码是稳定分类供聚合与统计——两者都要落库
+        assertEquals("做种数 1 低于下限 3", rows.get(1).getReason());
+        assertEquals(RejectCode.LOW_SEEDERS.value(), rows.get(1).getReasonCode());
+        // 通过的行不写码，否则统计会把"通过"也算进淘汰分布
+        assertNull(rows.get(0).getReasonCode());
         assertEquals(10, rows.get(0).getSubId());
         assertEquals(2, rows.get(0).getEpisode());
         assertEquals(SearchLogService.SOURCE_RSS, rows.get(0).getSource());
@@ -63,7 +69,7 @@ class SearchLogServiceTest {
     @Test
     void recordVerdicts_subId为空_不落库() {
         service().recordVerdicts(null, 1, SearchLogService.SOURCE_RSS,
-                List.of(new TorrentFilterEngine.Verdict(torrent("t", 1), null)));
+                List.of(TorrentFilterEngine.Verdict.accept(torrent("t", 1))));
 
         verify(logService, never()).saveBatch(any());
     }

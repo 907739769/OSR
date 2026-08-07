@@ -90,11 +90,28 @@ public class AutoSearchService {
             return;
         }
         if (!previouslyNoResult) {
-            notifySafely("🔍 订阅[" + StringUtils.escapeHtml(sub.getTitle()) + "] 自动补搜连续未找到可用资源，"
-                    + "可等待 RSS 命中，或检查索引器配置（本提醒在下次搜到资源前只发一次）", sub);
+            notifySafely(describeNoResult(sub, summary.getRejectSummary()), sub);
             sub.setLastAutoSearchNoResult(NO_RESULT);
             subscriptionService.updateById(sub);
         }
+    }
+
+    /**
+     * 落空通知的文案：能说出「被自己的过滤规则淘汰了多少」就直说，别再一律提示检查索引器。
+     * <p>
+     * 这两种落空是完全不同的处置方向：候选被规则淘汰要去调过滤配置，压根没搜到候选才该看
+     * 关键词与索引器。旧文案不加区分地写"检查索引器配置"，在前一种情况下把用户引向了
+     * 一个根本没问题的地方——索引器好好地返回了上百个候选，是 freeOnly 或分辨率白名单全清了。
+     * </p>
+     */
+    private String describeNoResult(PtSubscriptionPlus sub, String rejectSummary) {
+        String title = StringUtils.escapeHtml(sub.getTitle());
+        if (StringUtils.isNotBlank(rejectSummary)) {
+            return "🔍 订阅[" + title + "] 自动补搜未推送任何资源——" + StringUtils.escapeHtml(rejectSummary)
+                    + "。请检查过滤规则是否过严（本提醒在下次推送成功前只发一次）";
+        }
+        return "🔍 订阅[" + title + "] 自动补搜连续未找到可用资源，"
+                + "可等待 RSS 命中，或检查关键词与索引器配置（本提醒在下次搜到资源前只发一次）";
     }
 
     private boolean isDue(PtSubscriptionPlus sub, int intervalHours, long now) {
