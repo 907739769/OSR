@@ -37,11 +37,22 @@ public class YearSeasonEpisodeExtractor implements Extractor {
     @Override
     public String extract(String name, MediaInfo info) {
         // --- 1. 提取年份 ---
+        // 取<b>最后一个</b>匹配而不是第一个：片名本身就是四位年份的作品（《1917》《2012》
+        // 《1984》《2046》）在 "1917.2019.1080p..." 这类种子名里会让第一个匹配落在片名上，
+        // 于是年份取成 1917、标题又被按它的位置截成空串，PT 侧年份校验必挂、重命名侧
+        // 拿空标题去 TMDb 搜索。发行年总是排在片名之后，取最后一个才是它。
+        // 分辨率（1080p/1920x1080）此前已被 ResolutionExtractor 摘除，不会混进来。
         Matcher y = YEAR.matcher(name);
         int yearIndex = Integer.MAX_VALUE;
-        if (y.find()) {
+        while (y.find()) {
             yearIndex = y.start();
             info.setYear(y.group(1));
+        }
+        // 年份就是片名本身、且种子名里没有另一个发行年（"2012.1080p.BluRay"）时，
+        // 按年份位置截断会得到空标题。这种情况下年份值照留，但不参与标题截断——
+        // 宁可让标题带上这四位数字，也不能交出一个空标题。
+        if (yearIndex != Integer.MAX_VALUE && name.substring(0, yearIndex).trim().isEmpty()) {
+            yearIndex = Integer.MAX_VALUE;
         }
 
         // --- 2. 优先尝试提取中文 "第x季" ---

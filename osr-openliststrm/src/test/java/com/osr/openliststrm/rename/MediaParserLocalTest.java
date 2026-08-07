@@ -149,4 +149,66 @@ class MediaParserLocalTest {
 
         assertEquals(raw, parser.parseLocal(raw).getOriginalName());
     }
+
+    // ---------- 方括号里的发布组不再被当成作品名 ----------
+
+    @Test
+    void parseLocal_方括号内是发布组_不当中文标题_作品名取连续中文块() {
+        // 曾经的行为：TitleProcessor 的括号正则只要求"括号内非空"，于是发布组 Nekomoe kissaten
+        // 被当成 originalTitle，真正的作品名被挤进 englishTitle
+        MediaInfo info = parser.parseLocal("[Nekomoe kissaten] 摇曳露营 - 05 [1080p]");
+
+        assertEquals("摇曳露营", info.getOriginalTitle());
+    }
+
+    @Test
+    void parseLocal_方括号内含中文_仍按原行为取括号内容() {
+        MediaInfo info = parser.parseLocal("[摇曳露营] Yuru Camp S01E05");
+
+        assertEquals("摇曳露营", info.getOriginalTitle());
+    }
+
+    @Test
+    void parseLocal_纯英文无括号_标题不受影响() {
+        MediaInfo info = parser.parseLocal("Some.Show.S01E05.1080p.WEB-DL");
+
+        assertEquals("Some Show", info.getOriginalTitle());
+    }
+
+    // ---------- 片名本身是四位年份 ----------
+
+    @Test
+    void parseLocal_片名是年份且带发行年_年份取发行年_标题保住片名() {
+        // 取第一个匹配时：year=1917、标题被截成空串，PT 年份校验必挂、重命名拿空标题搜 TMDb
+        MediaInfo info = parser.parseLocal("1917.2019.1080p.BluRay.x264-GROUP");
+
+        assertEquals("2019", info.getYear());
+        assertEquals("1917", info.getOriginalTitle());
+    }
+
+    @Test
+    void parseLocal_片名是年份且无发行年_标题不被截空() {
+        MediaInfo info = parser.parseLocal("2012.1080p.BluRay.x264-GROUP");
+
+        assertEquals("2012", info.getYear());
+        assertEquals("2012", info.getOriginalTitle());
+    }
+
+    @Test
+    void parseLocal_重启剧带年份后缀_季集与标题都正确() {
+        MediaInfo info = parser.parseLocal("Doctor.Who.2005.S01E01.1080p.WEB-DL");
+
+        assertEquals("2005", info.getYear());
+        assertEquals("01", info.getSeason());
+        assertEquals("01", info.getEpisode());
+        assertEquals("Doctor Who", info.getOriginalTitle());
+    }
+
+    @Test
+    void parseLocal_普通电影单个年份_行为不变() {
+        MediaInfo info = parser.parseLocal("Fight.Club.1999.1080p.BluRay.x264-GROUP");
+
+        assertEquals("1999", info.getYear());
+        assertEquals("Fight Club", info.getOriginalTitle());
+    }
 }
