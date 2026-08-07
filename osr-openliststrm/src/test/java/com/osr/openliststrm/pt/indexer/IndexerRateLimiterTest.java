@@ -129,7 +129,10 @@ class IndexerRateLimiterTest {
         limiter.penalize(1, 300);
 
         long start = System.nanoTime();
-        assertThrows(IOException.class, () -> limiter.execute(1, () -> "never"));
+        // 类型是 IndexerBackpressureException 而非裸 IOException：冷却是我方自己设的，
+        // 若被上层当成普通失败累加 fail_count，一次 429 之后的整段冷却期都会被记成"索引器坏了"，
+        // 退避把轮询间隔放大数倍，恰好抵消掉 429 分支"不计失败"的用意
+        assertThrows(IndexerBackpressureException.class, () -> limiter.execute(1, () -> "never"));
         long elapsedMillis = (System.nanoTime() - start) / 1_000_000;
 
         assertTrue(elapsedMillis < 500, "冷却期内应立即失败而非挂起，实际耗时 " + elapsedMillis + "ms");
@@ -199,7 +202,9 @@ class IndexerRateLimiterTest {
 
         try {
             long start = System.nanoTime();
-            IOException e = assertThrows(IOException.class, () -> limiter.execute(1, () -> "blocked"));
+            // 类型必须是 IndexerBackpressureException：请求压根没发出去，
+            // 调用方要靠它把这次跳过与"索引器真的坏了"区分开，不能计入 fail_count
+            IOException e = assertThrows(IndexerBackpressureException.class, () -> limiter.execute(1, () -> "blocked"));
             long elapsedMillis = (System.nanoTime() - start) / 1_000_000;
 
             assertTrue(elapsedMillis < 1500, "应在 maxWait(300ms) 后放弃，实际等了 " + elapsedMillis + "ms");
@@ -233,7 +238,7 @@ class IndexerRateLimiterTest {
         try {
             // 打的是另一个索引器：站点串行许可是空的，卡住的只可能是全局名额
             long start = System.nanoTime();
-            IOException e = assertThrows(IOException.class, () -> limiter.execute(2, () -> "blocked"));
+            IOException e = assertThrows(IndexerBackpressureException.class, () -> limiter.execute(2, () -> "blocked"));
             long elapsedMillis = (System.nanoTime() - start) / 1_000_000;
 
             assertTrue(elapsedMillis < 1500, "应在 maxWait(300ms) 后放弃，实际等了 " + elapsedMillis + "ms");

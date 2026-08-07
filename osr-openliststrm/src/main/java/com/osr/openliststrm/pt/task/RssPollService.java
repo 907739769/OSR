@@ -6,6 +6,7 @@ import com.osr.openliststrm.helper.TgHelper;
 import com.osr.openliststrm.mybatisplus.domain.PtIndexerPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtIndexerPlusService;
 import com.osr.openliststrm.pt.indexer.GuidHasher;
+import com.osr.openliststrm.pt.indexer.IndexerBackpressureException;
 import com.osr.openliststrm.pt.indexer.IndexerHttpException;
 import com.osr.openliststrm.pt.indexer.IndexerRateLimiter;
 import com.osr.openliststrm.pt.indexer.TorznabClient;
@@ -15,6 +16,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
+import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
@@ -155,6 +162,13 @@ public class RssPollService {
      * 本该 10 分钟一次的轮询塌缩成 1 分钟一次。而站点返回 429/503 恰恰意味着"你打太快了"，
      * 于是系统对限流信号的反应是把频率再提高 10 倍，正反馈直到被 ban。
      * </p>
+     * <p>
+     * 三条失败分支按"这次失败该不该记在索引器账上"划分，顺序不能乱：
+     * {@link IndexerBackpressureException}（请求没发出去，不计账）→
+     * {@link IndexerHttpException} 且 {@code isThrottled()}（对方让你慢点，只冷却不计账）→
+     * 其余一切（真失败，计账并退避）。前两者都是 IOException 的子类，
+     * 漏掉任一个 catch 都会静默落回最后那条通用分支。
+     * </p>
      */
     void pollOne(PtIndexerPlus indexer, List<TorrentInfo> collector) {
         try {
@@ -164,6 +178,8 @@ public class RssPollService {
             indexer.setLastStatus("OK");
             indexer.setFailCount(0);
             log.info("索引器[{}]拉取到 {} 条种子", indexer.getName(), fetched.size());
+        } catch (IndexerBackpressureException e) {
+            handleBackpressure(indexer, e);
         } catch (IndexerHttpException e) {
             if (e.isThrottled()) {
                 handleThrottled(indexer, e);
@@ -176,6 +192,25 @@ public class RssPollService {
         // 成功与失败共用：失败同样要推进轮询时钟，否则退避无从谈起
         indexer.setLastPollTime(new Date());
         indexerService.updateById(indexer);
+    }
+
+    /**
+     * 本地背压导致请求根本没发出去（限流冷却期内、等许可超时）：<b>既不累加也不清零 fail_count</b>。
+     * <p>
+     * 这是 {@link #handleThrottled} 的必要补充。命中 429 时我们刻意不计失败，但紧接着的几轮
+     * 都会撞上自己设的冷却期而快速失败，若按普通失败处理，那次"不计失败"就被原样绕开了：
+     * fail_count 照样涨，退避照样把 5 分钟的周期放大到几十分钟，两次<b>成功</b>拉取之间的窗口
+     * 随之拉长，最后由 {@link #checkCoverageGap} 报"拉取窗口覆盖不全"。用户此时的自然反应是
+     * 再缩短轮询周期，而那只会让请求更密、更容易撞冷却——正反馈。
+     * </p>
+     * <p>
+     * 不清零也是有意的：本轮没跟索引器说上话，拿不到"它已经好了"的任何证据，
+     * 把此前累计的失败次数抹掉等于凭空解除退避。
+     * </p>
+     */
+    private void handleBackpressure(PtIndexerPlus indexer, IndexerBackpressureException e) {
+        indexer.setLastStatus(truncate("本轮跳过：" + e.getMessage()));
+        log.info("索引器[{}]本轮跳过，请求未发出，不计入失败次数：{}", indexer.getName(), e.getMessage());
     }
 
     /**
@@ -257,6 +292,19 @@ public class RssPollService {
      * 假定 Torznab RSS 按发布时间降序返回（标准约定），取本轮首条种子的 guid 作为新游标；
      * 若上一轮游标未出现在本轮结果中，说明存在覆盖不到的漏拉窗口，仅记警告+告警一次，
      * 不尝试补救（Torznab RSS 语义上无法找回已漏掉的种子）。
+     * <p>
+     * <b>这条告警有三种成因，只看告警本身分辨不出来，所以日志里必须带够判据</b>：
+     * </p>
+     * <ol>
+     *   <li><b>窗口真的不够</b>：{@code pubDate 跨度} 明显小于本索引器的轮询周期，说明单页容量
+     *       跟不上发布速度。这是告警字面意思成立的唯一情形。</li>
+     *   <li><b>退避把间隔放大了</b>：{@code fail_count} 不为 0 时实际间隔是配置值的 2~32 倍
+     *       （见 {@link #isDue}），游标比的是两次<b>成功</b>拉取之间的窗口，改配置里的周期无济于事。</li>
+     *   <li><b>guid 不稳定</b>：部分索引器的 guid 带一次性 token 或时间戳（{@code TorznabParser}
+     *       在 guid 缺失时还会降级用 downloadUrl），同一条目每轮的 guid 都不同，游标永远匹配不上，
+     *       于是<b>每一轮</b>都告警，与间隔无关。判据是相邻两轮日志里同一标题的 {@code guid#} 是否变化——
+     *       所以日志打的是标题 + 哈希前缀，<b>不能打 guid 原文</b>（PT 站的链接里常含 passkey）。</li>
+     * </ol>
      */
     private void checkCoverageGap(PtIndexerPlus indexer, List<TorrentInfo> fetched) {
         // 本轮无新种子是正常情况（索引器该轮未发布新内容），不能当作拉取失败处理
@@ -270,18 +318,108 @@ public class RssPollService {
         }
         String previousCursor = indexer.getLastSeenGuidHash();
         if (previousCursor != null) {
-            boolean covered = fetched.stream()
-                    .map(TorrentInfo::getGuid)
-                    .filter(StringUtils::isNotBlank)
-                    .map(GuidHasher::hash)
-                    .anyMatch(previousCursor::equals);
-            if (!covered) {
-                log.warn("索引器[{}]本轮拉取窗口未覆盖上次记录点，期间可能有种子被跳过", indexer.getName());
-                notifySafely("⚠️ 索引器[" + StringUtils.escapeHtml(indexer.getName()) + "]拉取窗口覆盖不全，可能有种子被漏拉，"
-                        + "建议缩短轮询间隔或联系索引器提高单页返回数");
+            int hit = indexOfCursor(fetched, previousCursor);
+            if (hit < 0) {
+                int fails = indexer.getFailCount() == null ? 0 : indexer.getFailCount();
+                log.warn("索引器[{}]本轮拉取窗口未覆盖上次记录点，期间可能有种子被跳过。"
+                                + "本轮 {} 条，{}；最新条目「{}」guid#{}，上轮游标#{}；"
+                                + "轮询周期 {} 秒，fail_count={}（退避 {} 倍，实际间隔 {} 秒）",
+                        indexer.getName(), fetched.size(), describeWindow(fetched),
+                        fetched.get(0).getTitle(), shortHash(GuidHasher.hash(newestGuid)), shortHash(previousCursor),
+                        indexer.getPollInterval(), fails, backoffMultiplier(fails),
+                        (indexer.getPollInterval() == null ? 600 : indexer.getPollInterval()) * backoffMultiplier(fails));
+                notifySafely("⚠️ 索引器[" + StringUtils.escapeHtml(indexer.getName()) + "]拉取窗口覆盖不全，可能有种子被漏拉。"
+                        + "先看该索引器的失败次数（不为 0 时退避已把实际间隔放大数倍），再看日志里同一时刻的诊断行"
+                        + "判断是单页容量不足还是索引器 guid 不稳定");
+            } else if (hit * 5 >= fetched.size() * 4) {
+                // 命中位置就是上轮以来的新增条数：逼近单页容量说明再快一点就要漏了，提前示警但不打扰用户
+                log.warn("索引器[{}]拉取窗口余量不足：上轮以来新增 {} 条，单页共 {} 条，{}",
+                        indexer.getName(), hit, fetched.size(), describeWindow(fetched));
+            } else {
+                log.debug("索引器[{}]拉取窗口正常：上轮以来新增 {} 条 / 单页 {} 条",
+                        indexer.getName(), hit, fetched.size());
             }
         }
         indexer.setLastSeenGuidHash(GuidHasher.hash(newestGuid));
+    }
+
+    /** 上轮游标在本轮结果中的下标（即上轮以来的新增条数），未命中返回 -1 */
+    private static int indexOfCursor(List<TorrentInfo> fetched, String cursor) {
+        for (int i = 0; i < fetched.size(); i++) {
+            String guid = fetched.get(i).getGuid();
+            if (StringUtils.isNotBlank(guid) && cursor.equals(GuidHasher.hash(guid))) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * 概括本轮返回列表的时间窗口：pubDate 跨度 + 是否降序。
+     * <p>
+     * 跨度是判断漏拉告警是否属实的核心判据——它直接说明"这一页覆盖了多长时间"，
+     * 跨度远小于轮询周期就是单页容量跟不上发布速度，与游标逻辑无关。
+     * 降序检查则守着 {@code fetched.get(0)} 是最新条目这个前提：聚合型索引器合并多站点结果时
+     * 未必严格降序，那样游标会记在一条偏老的种子上，下一轮它早被挤出首页，恒定误报。
+     * </p>
+     */
+    private static String describeWindow(List<TorrentInfo> fetched) {
+        Instant newest = null;
+        Instant oldest = null;
+        Instant previous = null;
+        boolean descending = true;
+        int unparsable = 0;
+        for (TorrentInfo info : fetched) {
+            Instant at = parsePubDate(info.getPubDate());
+            if (at == null) {
+                unparsable++;
+                continue;
+            }
+            if (newest == null || at.isAfter(newest)) {
+                newest = at;
+            }
+            if (oldest == null || at.isBefore(oldest)) {
+                oldest = at;
+            }
+            if (previous != null && at.isAfter(previous)) {
+                descending = false;
+            }
+            previous = at;
+        }
+        if (newest == null) {
+            return "pubDate 全部缺失或无法解析（" + unparsable + " 条），无法判断窗口跨度";
+        }
+        return "pubDate 跨度 " + Duration.between(oldest, newest).toSeconds() + " 秒（" + oldest + " ~ " + newest + "）"
+                + (descending ? "，降序正常" : "，⚠️非降序，首条并非最新，游标可能记错位置")
+                + (unparsable > 0 ? "，另有 " + unparsable + " 条 pubDate 不可解析" : "");
+    }
+
+    /** 解析 Torznab 的 pubDate（RFC 1123 为主，兼容少数发 ISO-8601 的索引器）；解析不出返回 null */
+    private static Instant parsePubDate(String raw) {
+        if (StringUtils.isBlank(raw)) {
+            return null;
+        }
+        String trimmed = raw.trim();
+        try {
+            return ZonedDateTime.parse(trimmed, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant();
+        } catch (DateTimeParseException ignored) {
+            try {
+                return OffsetDateTime.parse(trimmed).toInstant();
+            } catch (DateTimeParseException ignored2) {
+                return null;
+            }
+        }
+    }
+
+    /**
+     * 取哈希前 8 位用于日志比对。<b>绝不能改成打 guid 原文</b>——
+     * guid 在缺失时会降级为 downloadUrl，而 PT 站的下载链接里常含 passkey。
+     */
+    private static String shortHash(String hash) {
+        if (hash == null) {
+            return "null";
+        }
+        return hash.length() <= 8 ? hash : hash.substring(0, 8);
     }
 
     /**

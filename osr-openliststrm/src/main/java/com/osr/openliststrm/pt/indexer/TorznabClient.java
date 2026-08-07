@@ -195,8 +195,10 @@ public class TorznabClient {
     /**
      * 发起一次受限流保护的 GET，返回响应体文本。
      *
-     * @throws IndexerHttpException 响应非 2xx，异常携带状态码与 Retry-After 供调用方决定退避策略
-     * @throws IOException          网络异常，或该索引器正处于限流冷却期（快速失败，不挂起线程）
+     * @throws IndexerHttpException         响应非 2xx，异常携带状态码与 Retry-After 供调用方决定退避策略
+     * @throws IndexerBackpressureException 该索引器正处于限流冷却期，或等许可超时（快速失败，不挂起线程）——
+     *                                     请求没发出去，调用方不应计入失败次数
+     * @throws IOException                  网络异常
      */
     private String execute(PtIndexerPlus indexer, HttpUrl url) throws IOException {
         return rateLimiter.execute(indexer.getId(), () -> {

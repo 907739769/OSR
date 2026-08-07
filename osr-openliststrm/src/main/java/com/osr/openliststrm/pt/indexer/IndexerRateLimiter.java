@@ -98,7 +98,10 @@ public class IndexerRateLimiter {
      * 都能容忍单次请求被跳过，但不能容忍线程被别人的请求占住。
      * </p>
      *
-     * @throws IOException            动作本身抛出的异常，或任一段等待超过 {@code maxWaitMillis} 的快速失败
+     * @throws IndexerBackpressureException 任一段等待超过 {@code maxWaitMillis}，或该索引器仍在冷却期内。
+     *                                     这类失败必须能被调用方与"真失败"区分开：请求压根没发出去，
+     *                                     不该计入索引器的 {@code fail_count}
+     * @throws IOException            动作本身抛出的异常
      * @throws InterruptedIOException 等待许可期间被中断（中断标志已恢复）
      */
     public <T> T execute(Integer indexerId, IndexerCall<T> action) throws IOException {
@@ -154,7 +157,8 @@ public class IndexerRateLimiter {
         }
         if (waitMillis > maxWaitMillis) {
             // 快速失败而非挂死：调用方（轮询/搜索）都能容忍单次跳过，但不能容忍线程被冷却期占住
-            throw new IOException("索引器处于限流冷却中，还需等待 " + (waitMillis / 1000) + " 秒，本次请求跳过");
+            throw new IndexerBackpressureException(
+                    "索引器处于限流冷却中，还需等待 " + (waitMillis / 1000) + " 秒，本次请求跳过");
         }
         try {
             // 虚拟线程下 sleep 会让出载体线程，不占用平台线程资源
@@ -168,13 +172,16 @@ public class IndexerRateLimiter {
     /**
      * 带上限地抢一个许可。等不到不是异常状态而是正常的背压结果——本次请求跳过，
      * 调用方记一条日志继续跑，比让线程无限期挂在队列里健康得多。
+     * 正因为"不是异常状态"，抛的是 {@link IndexerBackpressureException} 而非裸 IOException：
+     * 别人的请求把名额占满，不该记在这个索引器的失败账上。
      *
      * @param what 超时消息里用来说明等的是哪一段，便于排查是站点串行还是全局名额被占满
      */
     private void acquire(Semaphore semaphore, String what) throws IOException {
         try {
             if (!semaphore.tryAcquire(maxWaitMillis, TimeUnit.MILLISECONDS)) {
-                throw new IOException("等待" + what + "超过 " + maxWaitMillis + "ms，本次请求跳过");
+                throw new IndexerBackpressureException(
+                        "等待" + what + "超过 " + maxWaitMillis + "ms，本次请求跳过");
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();

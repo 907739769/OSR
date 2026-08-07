@@ -3,6 +3,7 @@ package com.osr.openliststrm.pt.task;
 import com.osr.openliststrm.helper.TgHelper;
 import com.osr.openliststrm.mybatisplus.domain.PtIndexerPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtIndexerPlusService;
+import com.osr.openliststrm.pt.indexer.IndexerBackpressureException;
 import com.osr.openliststrm.pt.indexer.IndexerHttpException;
 import com.osr.openliststrm.pt.indexer.IndexerRateLimiter;
 import com.osr.openliststrm.pt.indexer.TorznabClient;
@@ -72,6 +73,12 @@ class RssPollServiceTest {
     private TorrentInfo torrent(String title, String guid) {
         TorrentInfo t = torrent(title);
         t.setGuid(guid);
+        return t;
+    }
+
+    private TorrentInfo torrent(String title, String guid, String pubDate) {
+        TorrentInfo t = torrent(title, guid);
+        t.setPubDate(pubDate);
         return t;
     }
 
@@ -202,6 +209,37 @@ class RssPollServiceTest {
             service().pollOne(idx, new java.util.ArrayList<>());
 
             tg.verify(() -> TgHelper.sendMsg(argThat(m -> m.contains("覆盖不全"))));
+        }
+    }
+
+    @Test
+    void 覆盖度校验只认哈希后的游标_不受pubDate缺失影响() throws Exception {
+        // 诊断日志会去解析 pubDate，全部缺失时不能影响覆盖判定本身，也不能抛
+        PtIndexerPlus idx = indexer(1, 600, null, 0);
+        idx.setLastSeenGuidHash(com.osr.openliststrm.pt.indexer.GuidHasher.hash("guid-old"));
+        when(torznabClient.fetch(any())).thenReturn(List.of(
+                torrent("t1", "guid-new", null), torrent("t0", "guid-old", "不是个日期")));
+
+        try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
+            service().pollOne(idx, new java.util.ArrayList<>());
+
+            tg.verify(() -> TgHelper.sendMsg(anyString()), never());
+            assertEquals(com.osr.openliststrm.pt.indexer.GuidHasher.hash("guid-new"), idx.getLastSeenGuidHash());
+        }
+    }
+
+    @Test
+    void 漏拉告警不再建议缩短周期_改为指向失败次数与诊断行() throws Exception {
+        // 回归用例：旧文案"建议缩短轮询间隔"会把用户往反方向引——请求更密更容易撞限流冷却，
+        // 冷却期的快速失败又累加 fail_count 触发退避，实际间隔反而被放大
+        PtIndexerPlus idx = indexer(1, 300, null, 0);
+        idx.setLastSeenGuidHash(com.osr.openliststrm.pt.indexer.GuidHasher.hash("guid-old"));
+        when(torznabClient.fetch(any())).thenReturn(List.of(torrent("t1", "guid-new")));
+
+        try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
+            service().pollOne(idx, new java.util.ArrayList<>());
+
+            tg.verify(() -> TgHelper.sendMsg(argThat(m -> m.contains("覆盖不全") && !m.contains("建议缩短轮询间隔"))));
         }
     }
 
@@ -430,5 +468,67 @@ class RssPollServiceTest {
         verify(indexerService).updateById(captor.capture());
         assertEquals(1, captor.getValue().getFailCount());
         assertEquals(0, rateLimiter.remainingCooldownMillis(1));
+    }
+
+    // ---------- 本地背压：请求没发出去，不记在索引器账上 ----------
+
+    @Test
+    void 限流冷却期内的快速失败_不计入失败次数() throws Exception {
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1, 300, null, 0)));
+        when(torznabClient.fetch(any())).thenThrow(
+                new IndexerBackpressureException("索引器处于限流冷却中，还需等待 280 秒，本次请求跳过"));
+
+        service().poll();
+
+        ArgumentCaptor<PtIndexerPlus> captor = ArgumentCaptor.forClass(PtIndexerPlus.class);
+        verify(indexerService).updateById(captor.capture());
+        assertEquals(0, captor.getValue().getFailCount());
+        assertTrue(captor.getValue().getLastStatus().contains("本轮跳过"));
+        // 轮询时钟照样推进：下一次心跳不该立刻重打一个正在冷却的索引器
+        assertNotNull(captor.getValue().getLastPollTime());
+    }
+
+    @Test
+    void 等待全局并发许可超时_同样不计入失败次数() throws Exception {
+        // 别的索引器把名额占满，与本索引器是否健康无关
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1, 300, null, 0)));
+        when(torznabClient.fetch(any())).thenThrow(
+                new IndexerBackpressureException("等待全局并发许可（其它索引器正占满名额）超过 30000ms，本次请求跳过"));
+
+        service().poll();
+
+        ArgumentCaptor<PtIndexerPlus> captor = ArgumentCaptor.forClass(PtIndexerPlus.class);
+        verify(indexerService).updateById(captor.capture());
+        assertEquals(0, captor.getValue().getFailCount());
+    }
+
+    @Test
+    void 背压跳过_不清零此前累计的失败次数() throws Exception {
+        // 本轮没跟索引器说上话，拿不到"它已经好了"的证据，抹掉退避等于凭空恢复高频轮询
+        PtIndexerPlus idx = indexer(1, 300, null, 3);
+        when(torznabClient.fetch(any())).thenThrow(new IndexerBackpressureException("冷却中"));
+
+        service().pollOne(idx, new java.util.ArrayList<>());
+
+        assertEquals(3, idx.getFailCount());
+    }
+
+    @Test
+    void 命中429后紧接着的冷却快速失败_失败次数仍为0() throws Exception {
+        // 回归用例：冷却期的快速失败若按普通失败处理，429 分支"不计失败"的设计会被原样绕开——
+        // fail_count 照涨，退避把 5 分钟的周期放大到几十分钟，两次成功拉取之间的窗口随之拉长，
+        // 最后报"拉取窗口覆盖不全"，而用户再缩短周期只会撞得更频繁
+        PtIndexerPlus idx = indexer(1, 300, null, 0);
+        when(torznabClient.fetch(any()))
+                .thenThrow(new IndexerHttpException(429, 300))
+                .thenThrow(new IndexerBackpressureException("索引器处于限流冷却中，还需等待 295 秒，本次请求跳过"))
+                .thenThrow(new IndexerBackpressureException("索引器处于限流冷却中，还需等待 290 秒，本次请求跳过"));
+
+        RssPollService svc = service();
+        svc.pollOne(idx, new java.util.ArrayList<>());
+        svc.pollOne(idx, new java.util.ArrayList<>());
+        svc.pollOne(idx, new java.util.ArrayList<>());
+
+        assertEquals(0, idx.getFailCount());
     }
 }
