@@ -4,13 +4,13 @@ import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.osr.openliststrm.pt.model.TorrentInfo;
 import com.osr.openliststrm.pt.subscription.dto.MatchResult;
+import com.osr.openliststrm.rename.TitleNormalizer;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Set;
 
 /**
@@ -65,8 +65,7 @@ public class SubscriptionMatcher {
                 return null;
             }
             // 同名翻拍常见，年份不符宁可漏也不能串台
-            if (StringUtils.isBlank(torrent.getParsedYear()) || StringUtils.isBlank(sub.getYear())
-                    || !torrent.getParsedYear().equals(sub.getYear())) {
+            if (!movieYearMatches(sub.getYear(), torrent.getParsedYear())) {
                 return null;
             }
             return new MatchResult(sub, MOVIE_EPISODE);
@@ -89,27 +88,65 @@ public class SubscriptionMatcher {
     }
 
     /**
-     * 标题归一化：转小写、全角空格/连字符/句号转半角、把点/下划线/连字符/连续空白压成单空格、去首尾空白。
+     * 电影年份容差（年）。取 1 而不是 0：同一部电影的「年份」在不同来源本就可能差一年——
+     * 电影节首映年 vs 正式公映年、年末上映跨年、TMDb 记的是首映地上映日而发布组按本地上映年标注。
+     * 严格相等会把这些完全正确的候选整条淘汰，而这一类占比不低。
      * <p>
-     * 归一化后做<b>全等</b>比较而非子串包含——否则「The Office」会吃掉「The Office US」的种子。
+     * 不放宽到 2 及以上：容差每放宽一年，同名翻拍被串台的风险就实打实地增加一分，
+     * 而「正好差两年」的同一部电影几乎不存在。这个取值也与
+     * {@code TMDbClient#scoreCandidate} 里「差 1 年仍给正分、差更多开始扣分」的口径一致。
+     * </p>
+     */
+    static final int MOVIE_YEAR_TOLERANCE = 1;
+
+    /**
+     * 电影候选的年份是否可接受：允许 {@link #MOVIE_YEAR_TOLERANCE} 年以内的偏差。
+     * <p>
+     * 任一侧缺失年份一律判为不匹配——电影没有季集号可供交叉验证，年份是唯一能把同名作品
+     * 区分开的信号，判不出来时宁可漏也不能串台（这一点相对严格相等的旧实现没有放宽）。
      * </p>
      * <p>
-     * 日剧/韩剧标题常混用全角空格（U+3000）、全角连字符（－）、全角句号（．），Java 正则的 {@code \s}
-     * 不识别全角空格，不预先转换会导致订阅标题与种子标题归一化后不再逐字符相等，本该匹配的候选被漏判。
+     * 包内可见供 {@link SearchSupplementService#filterMovieCandidates} 复用：RSS 自动匹配与
+     * 搜索补集两条链路对「这个候选是不是这部电影」必须给出同一个答案，各写一份迟早漂移
+     * （标题归一化 {@link #normalizeAll} 共用同一份也是这个理由）。
+     * </p>
+     *
+     * @param subYear     订阅记录的年份
+     * @param torrentYear 从种子标题解析出的年份
+     */
+    boolean movieYearMatches(String subYear, String torrentYear) {
+        if (StringUtils.isBlank(subYear) || StringUtils.isBlank(torrentYear)) {
+            return false;
+        }
+        String sub = subYear.trim();
+        String torrent = torrentYear.trim();
+        if (sub.equals(torrent)) {
+            return true;
+        }
+        try {
+            return Math.abs(Integer.parseInt(torrent) - Integer.parseInt(sub)) <= MOVIE_YEAR_TOLERANCE;
+        } catch (NumberFormatException e) {
+            // 解析不出数字就没有「相差几年」可言，字符串相等在上面已经判过，走到这里必然是不匹配
+            return false;
+        }
+    }
+
+    /**
+     * 标题归一化，实现收口在 {@link TitleNormalizer}——与 TMDb 刮削侧
+     * （{@code TMDbClient#titleMatchLevel}）共用同一份字符类。
+     * <p>
+     * <b>不要在这里另写一份。</b>历史上本方法只处理 {@code . _ -} 与三个全角字符，
+     * 而刮削侧剥掉了全部标点，于是《神探夏洛克：可恶的新娘》这类带标点的作品在刮削侧能匹配、
+     * 在订阅匹配侧却因为一个全角冒号被漏搜，同一部作品两条链路给出相反结论。
+     * </p>
+     * <p>
+     * 归一化后本类做<b>全等</b>比较而非子串包含——否则「The Office」会吃掉「The Office US」的种子。
+     * 这一点与刮削侧不同：刮削侧允许「长包含短」是因为它只用来决定「证据够不够采纳」，
+     * 而这里的结论直接决定往下载器推哪个种子，推错就是下错内容。
      * </p>
      */
     private String normalize(String title) {
-        if (StringUtils.isBlank(title)) {
-            return null;
-        }
-        String normalized = title.toLowerCase(Locale.ROOT)
-                .replace('　', ' ')
-                .replace('－', '-')
-                .replace('．', '.')
-                .replaceAll("[._\\-]+", " ")
-                .replaceAll("\\s+", " ")
-                .trim();
-        return normalized.isEmpty() ? null : normalized;
+        return TitleNormalizer.normalizeForCompare(title);
     }
 
     /**

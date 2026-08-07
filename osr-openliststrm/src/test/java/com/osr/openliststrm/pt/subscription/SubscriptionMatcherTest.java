@@ -8,8 +8,10 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SubscriptionMatcherTest {
 
@@ -167,6 +169,61 @@ class SubscriptionMatcherTest {
         // 同名翻拍太常见，年份不符宁可漏也不能串台
         assertNull(matcher.match(torrent("Fight Club", "2020", null, null),
                 List.of(movieSub(20, "Fight Club", "1999"))));
+    }
+
+    @Test
+    void 电影_标题带标点_仍匹配() {
+        // 归一化收口到 TitleNormalizer 之前，PT 侧只处理 . _ -，冒号/撇号一律不认：
+        // 刮削侧能匹配、订阅匹配侧却漏搜，同一部作品两条链路给出相反结论
+        assertNotNull(matcher.match(torrent("Mission Impossible Fallout", "2018", null, null),
+                List.of(movieSub(20, "Mission: Impossible - Fallout", "2018"))));
+        assertNotNull(matcher.match(torrent("WALL E", "2008", null, null),
+                List.of(movieSub(21, "WALL·E", "2008"))));
+    }
+
+    @Test
+    void 剧集_标题带全角标点_仍匹配() {
+        assertNotNull(matcher.match(torrent("神探夏洛克 可恶的新娘", null, 1, 1),
+                List.of(tvSub(10, "神探夏洛克：可恶的新娘", 1))));
+    }
+
+    @Test
+    void 标点归一化不会让不同作品串台() {
+        // 归一化把标点换成空格而不是删除，全等比较的保护边界仍然成立
+        assertNull(matcher.match(torrent("The Office US", null, 1, 1),
+                List.of(tvSub(10, "The Office", 1))));
+    }
+
+    @Test
+    void 电影_年份差一年_仍匹配() {
+        // 电影节首映 vs 正式公映、年末上映跨年，同一部电影在不同来源差一年是常态，
+        // 严格相等会把这一类完全正确的候选整条淘汰
+        assertNotNull(matcher.match(torrent("Fight Club", "2000", null, null),
+                List.of(movieSub(20, "Fight Club", "1999"))));
+        assertNotNull(matcher.match(torrent("Fight Club", "1998", null, null),
+                List.of(movieSub(20, "Fight Club", "1999"))));
+    }
+
+    @Test
+    void 电影_年份差两年_不匹配() {
+        // 容差止于 1 年：再放宽下去同名翻拍串台的风险实打实增加，
+        // 而"正好差两年"的同一部电影几乎不存在
+        assertNull(matcher.match(torrent("Fight Club", "2001", null, null),
+                List.of(movieSub(20, "Fight Club", "1999"))));
+    }
+
+    @Test
+    void movieYearMatches_边界与异常输入() {
+        assertTrue(matcher.movieYearMatches("1999", "1999"));
+        assertTrue(matcher.movieYearMatches("1999", " 2000 "));
+        assertFalse(matcher.movieYearMatches("1999", "2001"));
+        // 任一侧缺年份一律不匹配——电影没有季集号可交叉验证，判不出来时不能放行
+        assertFalse(matcher.movieYearMatches(null, "1999"));
+        assertFalse(matcher.movieYearMatches("1999", null));
+        assertFalse(matcher.movieYearMatches("  ", "1999"));
+        // 解析不出数字时退回字符串相等的结论，不抛异常
+        assertFalse(matcher.movieYearMatches("1999", "abcd"));
+        assertTrue(matcher.movieYearMatches("abcd", "abcd"));
     }
 
     @Test

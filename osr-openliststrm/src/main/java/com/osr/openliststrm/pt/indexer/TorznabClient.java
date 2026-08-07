@@ -108,8 +108,15 @@ public class TorznabClient {
 
     /**
      * 探测索引器 ID 搜索能力（t=caps），用于判断是否可以发起 imdbid/tmdbid 精确搜索。
-     * 任何异常（网络失败、响应非法）均返回 {@link IndexerCapability#NONE}，不向上抛——
+     * 任何异常（网络失败、限流冷却、响应非法）均<b>返回 null</b>，不向上抛——
      * 与 {@link #testConnection} 同样的容错哲学，能力探测失败不该阻断后续的标题搜索兜底。
+     * <p>
+     * <b>失败必须返回 null 而不是 {@link IndexerCapability#NONE}</b>：NONE 是一个合法的探测结果
+     * （站点确实不支持任何 ID 搜索），把失败也塌成 NONE，调用方就再也分不清「探明了不支持」与
+     * 「压根没探明」。{@link IndexerCapabilityCache} 正是靠这个区分决定缓存策略——
+     * 成功的结果永久缓存，失败的只短期缓存并择机重探，否则一次网络抖动会让该索引器
+     * 在整个进程生命周期内永远走不到 ID 精确搜索，且没有任何地方说得出为什么。
+     * </p>
      */
     public IndexerCapability getCaps(PtIndexerPlus indexer) {
         try {
@@ -117,7 +124,7 @@ public class TorznabClient {
             return TorznabCapsParser.parse(body);
         } catch (Exception e) {
             log.warn("索引器[{}]能力探测失败：{}", indexer.getName(), e.getMessage());
-            return IndexerCapability.NONE;
+            return null;
         }
     }
 
@@ -150,7 +157,14 @@ public class TorznabClient {
         HttpUrl.Builder builder = buildUrl(indexer, movie ? "movie" : "tvsearch").newBuilder()
                 .addQueryParameter(idParamName, idValue);
         if (!movie) {
-            builder.addQueryParameter("season", String.valueOf(season));
+            // season 判空不是多余的防御：它是 Integer，String.valueOf(Integer) 解析到
+            // String.valueOf(Object)，为 null 时会得到字面量 "null" 并原样拼进 URL
+            // （&season=null），索引器多半直接 400。订阅的 season 理论上非空，
+            // 但 SubscriptionMatcher 明确把 sub.getSeason()==null 当作可能状态处理，
+            // 这里不能比它更乐观。判不出季号就不带该参数，退化为按 ID 全量搜索。
+            if (season != null) {
+                builder.addQueryParameter("season", String.valueOf(season));
+            }
             if (episode != null) {
                 builder.addQueryParameter("ep", String.valueOf(episode));
             }

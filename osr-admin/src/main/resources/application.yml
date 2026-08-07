@@ -133,6 +133,10 @@ pt:
     max-concurrency: 4
     # 连续失败自动停用后，多久做一次自愈探测（小时）
     self-heal-cooldown-hours: 2
+    # t=caps 能力探测失败后多久允许重探（毫秒）。探测成功的结果进程内永久缓存，
+    # 失败的只缓存这么久——否则一次网络抖动或限流冷却就会让该索引器在整个进程生命周期内
+    # 永远走不到 imdbid/tmdbid 精确搜索，只剩关键词兜底，且无从察觉
+    caps-retry-after-failure-ms: 300000
   search:
     # 单次搜索补集内部的并发闸门
     max-concurrency: 3

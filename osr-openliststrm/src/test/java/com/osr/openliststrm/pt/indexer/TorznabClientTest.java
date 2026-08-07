@@ -231,16 +231,37 @@ class TorznabClientTest {
         assertTrue(cap.movieTmdbSupported());
     }
 
+    // 探测失败一律返回 null 而不是 NONE：NONE 是合法结果（站点确实不支持任何 ID 搜索），
+    // 两者塌成一个值，IndexerCapabilityCache 就分不清"探明了不支持"与"压根没探明"，
+    // 也就没法做"成功永久缓存、失败短期缓存"的区分。
+
     @Test
-    void getCaps_请求异常_返回NONE而不抛异常() throws IOException {
+    void getCaps_请求异常_返回null而不抛异常() throws IOException {
         server.shutdown();
 
-        assertEquals(IndexerCapability.NONE, client.getCaps(indexer(null)));
+        assertNull(client.getCaps(indexer(null)));
     }
 
     @Test
-    void getCaps_HTTP错误码_返回NONE而不抛异常() {
+    void getCaps_HTTP错误码_返回null而不抛异常() {
         server.enqueue(new MockResponse().setResponseCode(500));
+
+        assertNull(client.getCaps(indexer(null)));
+    }
+
+    @Test
+    void getCaps_站点明确不支持任何ID搜索_返回NONE而非null() {
+        // 合法的空能力：caps 正常返回，只是没有声明 imdbid/tmdbid 参数
+        server.enqueue(new MockResponse().setBody("""
+                <?xml version="1.0" encoding="UTF-8"?>
+                <caps>
+                  <searching>
+                    <search available="yes" supportedParams="q"/>
+                    <tv-search available="yes" supportedParams="q,season,ep"/>
+                    <movie-search available="yes" supportedParams="q"/>
+                  </searching>
+                </caps>
+                """));
 
         assertEquals(IndexerCapability.NONE, client.getCaps(indexer(null)));
     }
@@ -320,6 +341,21 @@ class TorznabClientTest {
         RecordedRequest request = server.takeRequest();
         assertEquals("1", request.getRequestUrl().queryParameter("season"));
         assertEquals("3", request.getRequestUrl().queryParameter("ep"));
+    }
+
+    @Test
+    void searchByExternalId_剧集季号为null_不拼season参数() throws Exception {
+        // season 是 Integer，String.valueOf(Integer) 解析到 String.valueOf(Object)，
+        // 为 null 时会得到字面量 "null" 并原样拼进 URL（&season=null），索引器多半直接 400
+        server.enqueue(new MockResponse().setBody(SAMPLE_XML));
+
+        client.searchByExternalId(indexer(null), false, "tmdbid", "1396", null, null);
+
+        RecordedRequest request = server.takeRequest();
+        assertEquals("tvsearch", request.getRequestUrl().queryParameter("t"));
+        assertEquals("1396", request.getRequestUrl().queryParameter("tmdbid"));
+        assertNull(request.getRequestUrl().queryParameter("season"));
+        assertFalse(request.getRequestUrl().toString().contains("season=null"));
     }
 
     @Test

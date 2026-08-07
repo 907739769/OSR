@@ -80,7 +80,7 @@ class SearchSupplementServiceTest {
 
     @BeforeEach
     void setUp() {
-        capabilityCache = new IndexerCapabilityCache(torznabClient);
+        capabilityCache = new IndexerCapabilityCache(torznabClient, 300_000L);
         service = new SearchSupplementService(indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, blacklistService, 10);
     }
 
@@ -518,6 +518,25 @@ class SearchSupplementServiceTest {
         ArgumentCaptor<List<TorrentInfo>> captor = ArgumentCaptor.forClass(List.class);
         verify(subscriptionEngine).pushBest(eq(movie), eq(0), captor.capture());
         assertTrue(captor.getValue().isEmpty());
+    }
+
+    @Test
+    void supplement_电影订阅_年份差一年的候选仍放行() throws Exception {
+        // 与 SubscriptionMatcher 的电影分支共用 movieYearMatches：电影节首映 vs 正式公映、
+        // 跨年上映都会让同一部电影差一年，严格相等会把这类完全正确的候选整条淘汰
+        PtSubscriptionPlus movie = movieSub(20, "手机", "2003");
+        when(subscriptionService.getById(20)).thenReturn(movie);
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+        TorrentInfo offByOne = torrent("手机.2004.1080p");
+        offByOne.setParsedTitle("手机");
+        offByOne.setParsedYear("2004");
+        when(torznabClient.search(any(), anyString())).thenReturn(List.of(offByOne));
+
+        service.supplement(20, 0, "手机");
+
+        ArgumentCaptor<List<TorrentInfo>> captor = ArgumentCaptor.forClass(List.class);
+        verify(subscriptionEngine).pushBest(eq(movie), eq(0), captor.capture());
+        assertEquals(1, captor.getValue().size());
     }
 
     @Test

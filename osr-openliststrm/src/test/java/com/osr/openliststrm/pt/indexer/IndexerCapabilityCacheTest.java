@@ -22,9 +22,12 @@ class IndexerCapabilityCacheTest {
 
     private IndexerCapabilityCache cache;
 
+    /** 失败重探间隔取 5 分钟，与生产默认值一致，用于验证"失败结果在窗口内被缓存" */
+    private static final long RETRY_WINDOW_MS = 300_000L;
+
     @BeforeEach
     void setUp() {
-        cache = new IndexerCapabilityCache(torznabClient);
+        cache = new IndexerCapabilityCache(torznabClient, RETRY_WINDOW_MS);
     }
 
     private PtIndexerPlus indexer(int id) {
@@ -65,12 +68,52 @@ class IndexerCapabilityCacheTest {
     }
 
     @Test
-    void get_TorznabClient返回null时视为NONE而非缓存null() {
+    void get_探测失败_对外返回NONE让调用方退回标题搜索() {
         PtIndexerPlus indexer = indexer(3);
         when(torznabClient.getCaps(indexer)).thenReturn(null);
 
-        IndexerCapability result = cache.get(indexer);
+        assertEquals(IndexerCapability.NONE, cache.get(indexer));
+    }
 
-        assertEquals(IndexerCapability.NONE, result);
+    @Test
+    void get_探测失败_窗口内不重复探测() {
+        // 不能每次调用都去捅一个已经不通的站点，那会和 IndexerRateLimiter 的退避对着干
+        PtIndexerPlus indexer = indexer(4);
+        when(torznabClient.getCaps(indexer)).thenReturn(null);
+
+        cache.get(indexer);
+        cache.get(indexer);
+        cache.get(indexer);
+
+        verify(torznabClient, times(1)).getCaps(indexer);
+    }
+
+    @Test
+    void get_探测失败_窗口过后重新探测_不永久降级() {
+        // 这是本次修复的核心：旧实现用 computeIfAbsent 把失败结果永久缓存，
+        // 一次网络抖动就让该索引器在整个进程生命周期内再也走不到 ID 精确搜索
+        IndexerCapabilityCache noWindow = new IndexerCapabilityCache(torznabClient, 0L);
+        PtIndexerPlus indexer = indexer(5);
+        IndexerCapability recovered = new IndexerCapability(true, false, true, false);
+        when(torznabClient.getCaps(indexer)).thenReturn(null, recovered);
+
+        assertEquals(IndexerCapability.NONE, noWindow.get(indexer));
+        // 窗口为 0，下一次调用即重探，此时站点已恢复
+        assertEquals(recovered, noWindow.get(indexer));
+        verify(torznabClient, times(2)).getCaps(indexer);
+    }
+
+    @Test
+    void get_探测成功但确实不支持任何ID_永久缓存不重探() {
+        // NONE 是合法的探测结果（站点确实不支持 imdbid/tmdbid），必须与"探测失败"区分开：
+        // 前者永久缓存，后者短期缓存。两者塌成一个值就没法分别处理了
+        PtIndexerPlus indexer = indexer(6);
+        IndexerCapabilityCache noWindow = new IndexerCapabilityCache(torznabClient, 0L);
+        when(torznabClient.getCaps(indexer)).thenReturn(IndexerCapability.NONE);
+
+        assertEquals(IndexerCapability.NONE, noWindow.get(indexer));
+        assertEquals(IndexerCapability.NONE, noWindow.get(indexer));
+
+        verify(torznabClient, times(1)).getCaps(indexer);
     }
 }

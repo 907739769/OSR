@@ -833,8 +833,9 @@ public class SearchSupplementService {
 
     /**
      * 电影候选校验标准与 {@link SubscriptionMatcher} 的电影分支保持一致：
-     * 带季/集信息的一定是剧集/综艺，标题需归一化后与订阅有交集，年份必须完全一致
-     * （同名翻拍常见，宁可漏也不能串台）。
+     * 带季/集信息的一定是剧集/综艺，标题需归一化后与订阅有交集，年份允许 1 年以内偏差
+     * （见 {@link SubscriptionMatcher#movieYearMatches}——电影节首映 vs 正式公映、跨年上映
+     * 都会让同一部电影在不同来源差一年；但任一侧缺年份仍判不匹配，同名翻拍宁可漏也不能串台）。
      * <p>
      * 注意：{@link SubscriptionEngine#fillParsed} 填入的 {@code parsedTitle} 依赖
      * {@code MediaParser.parseLocal} 的解析结果，特殊格式的种子标题可能解析失败（产生 null）。
@@ -851,8 +852,9 @@ public class SearchSupplementService {
             if (!titleMatches(subTitles, candidate)) {
                 continue;
             }
-            if (StringUtils.isBlank(candidate.getParsedYear()) || StringUtils.isBlank(sub.getYear())
-                    || !candidate.getParsedYear().equals(sub.getYear())) {
+            // 年份判定走 SubscriptionMatcher 的共享方法（允许 1 年偏差），不要在这里另写一份：
+            // RSS 自动匹配与搜索补集对「这个候选是不是这部电影」必须给出同一个答案
+            if (!matcher.movieYearMatches(sub.getYear(), candidate.getParsedYear())) {
                 continue;
             }
             matched.add(candidate);
