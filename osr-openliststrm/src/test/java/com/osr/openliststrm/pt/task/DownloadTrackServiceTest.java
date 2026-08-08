@@ -682,11 +682,59 @@ class DownloadTrackServiceTest {
         svc.track(downloader(), List.of(torrent("osr-pt,osr-pt-pack", 0.1)));
 
         ArgumentCaptor<PtSubscriptionEpisodePlus> captor = ArgumentCaptor.forClass(PtSubscriptionEpisodePlus.class);
-        verify(episodeService, times(2)).update(captor.capture(), any(Wrapper.class));
+        // 3 次写：1 次批量给包内确实存在的 1-3 集打确认标记，2 次把多占的 4、5 集退回缺失
+        verify(episodeService, times(3)).update(captor.capture(), any(Wrapper.class));
+        List<PtSubscriptionEpisodePlus> released = captor.getAllValues().stream()
+                .filter(ep -> ep.getState() != null).toList();
+        assertEquals(2, released.size());
         // 包里没有的第 4、5 集退回缺失；1-3 集是真在下载，不动
-        assertTrue(captor.getAllValues().stream().allMatch(ep -> "MISSING".equals(ep.getState())));
+        assertTrue(released.stream().allMatch(ep -> "MISSING".equals(ep.getState())));
         // 不是"补不到货"而是占位范围估错了，累加 fail_count 会把正常的集熔断成 BLOCKED
-        assertTrue(captor.getAllValues().stream().allMatch(ep -> ep.getFailCount() == null));
+        assertTrue(released.stream().allMatch(ep -> ep.getFailCount() == null));
+        // 包内真有的集必须留下确认标记，否则上传慢时会被 12 小时后的清扫误判成卡死重下
+        assertTrue(captor.getAllValues().stream().anyMatch(ep -> "1".equals(ep.getFileConfirmed())));
+    }
+
+    @Test
+    void 秒下的种子_完成前补跑一次对账把集标成已确认() throws Exception {
+        // trySelectFiles 只在"还在下载"分支跑。秒下、或本地已做种被重新加回的种子，
+        // 第一次轮询看见它就已经 completed，文件列表一次都没读过 —— 那样的集一旦上传慢，
+        // 12 小时后会被清扫误判成卡死重下，正是 file_confirmed 要防的事
+        PtDownloadRecordPlus r = record(100, 1, "osr-pt-fast", "PUSHED", 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of(episodeRow(501, 0, 1)));
+        when(downloaderClientFactory.get(any())).thenReturn(downloaderClient);
+        when(downloaderClient.listFiles(any(), eq("h"))).thenReturn(List.of(
+                file(0, "Show.Name.S01E01.1080p.mkv")));
+
+        DownloadTrackService svc = service();
+        when(subscriptionService.listByIds(any())).thenReturn(List.of(tvSub(10)));
+        // progress=1.0 → 第一次轮询就是完成态，走不到 trySelectFiles
+        svc.track(downloader(), List.of(torrent("osr-pt,osr-pt-fast", 1.0)));
+
+        ArgumentCaptor<PtSubscriptionEpisodePlus> captor = ArgumentCaptor.forClass(PtSubscriptionEpisodePlus.class);
+        verify(episodeService, atLeastOnce()).update(captor.capture(), any(Wrapper.class));
+        assertTrue(captor.getAllValues().stream().anyMatch(ep -> "1".equals(ep.getFileConfirmed())));
+        // 完成前的补对账绝不能挡住 complete()：下载确实成功了
+        verify(recordService, atLeastOnce()).update(any(PtDownloadRecordPlus.class), any(Wrapper.class));
+    }
+
+    @Test
+    void 完成前补对账读文件列表失败_不影响判完成() throws Exception {
+        // 这只是让日后清扫更准的补充信息，绝不能让它挡住下载完成的通知与 H&R 追踪
+        PtDownloadRecordPlus r = record(100, 1, "osr-pt-fast", "PUSHED", 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of(episodeRow(501, 0, 1)));
+        when(downloaderClientFactory.get(any())).thenReturn(downloaderClient);
+        when(downloaderClient.listFiles(any(), eq("h"))).thenThrow(new java.io.IOException("下载器 API 故障"));
+
+        DownloadTrackService svc = service();
+        when(subscriptionService.listByIds(any())).thenReturn(List.of(tvSub(10)));
+        svc.track(downloader(), List.of(torrent("osr-pt,osr-pt-fast", 1.0)));
+
+        verify(recordService, atLeastOnce()).update(any(PtDownloadRecordPlus.class), any(Wrapper.class));
     }
 
     @Test

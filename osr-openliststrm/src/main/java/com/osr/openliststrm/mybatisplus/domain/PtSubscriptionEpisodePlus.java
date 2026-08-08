@@ -61,4 +61,19 @@ public class PtSubscriptionEpisodePlus extends BaseEntity {
     /** 关联的下载记录ID */
     @TableField("download_id")
     private Integer downloadId;
+
+    /**
+     * 该集的文件是否已在下载器的真实文件列表里确认存在 0-否 1-是。
+     * <p>
+     * 由 {@code DownloadTrackService} 读 {@code listFiles} 时顺带落下——那一刻是全流程里
+     * 唯一能确切知道「这个种子到底含哪些集」的时机，{@code reconcileClaims} 本就在算它。
+     * </p>
+     * <p>
+     * 存在的意义是让 {@code StuckEpisodeSweepService} 分得开两种长期在途：文件压根不在种子里
+     * （季包多占，该退回重搜）vs 文件已下好只是还没传上网盘（该等，重下解决不了问题，
+     * 反而白费带宽并多背一份 H&R 保种义务）。为 1 时清扫只告警、永不退回。
+     * </p>
+     */
+    @TableField("file_confirmed")
+    private String fileConfirmed;
 }

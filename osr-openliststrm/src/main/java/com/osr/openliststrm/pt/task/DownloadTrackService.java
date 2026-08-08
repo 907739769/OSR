@@ -58,6 +58,9 @@ public class DownloadTrackService {
     private static final String EP_UPGRADING = SubscriptionEpisodeState.UPGRADING.value();
     private static final String EP_BLOCKED = SubscriptionEpisodeState.BLOCKED.value();
 
+    /** pt_subscription_episode.file_confirmed 的「已确认」取值 */
+    static final String FILE_CONFIRMED = "1";
+
     /** 媒体类型：电影。判定只看 media_type，口径与 {@link SubscriptionService} 同源，不用 season==0（特别篇也是第0季） */
     private static final String TYPE_MOVIE = SubscriptionService.TYPE_MOVIE;
 
@@ -152,6 +155,9 @@ public class DownloadTrackService {
                 // 设限要赶在判完成之前：complete() 会把记录移出本查询的范围，
                 // 而下载器的自动管理恰恰是在"下载完成"这一刻开始按限额清算的
                 applyShareLimitsIfNeeded(downloader, record, matched);
+                // 对账也要赶在判完成之前，理由同上：记录转 COMPLETED 后就再不经过 trackActive，
+                // 这是最后一次能读到文件列表并给集打确认标记的机会
+                confirmEpisodesIfNeeded(downloader, record, matched, subCache.get(record.getSubId()));
                 complete(record, downloader, matched);
             } else if (matched == null) {
                 if (age >= GRACE_MILLIS) {
@@ -578,6 +584,9 @@ public class DownloadTrackService {
         if (actualEpisodes.isEmpty() || sub == null || TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType())) {
             return;
         }
+        // 对账的另一半：包内确实有的集打上"文件已确认"。同一份 actualEpisodes 判据，
+        // 一半用来退多占的集，一半用来保护下好了的集，见 markFileConfirmed 的说明
+        markFileConfirmed(targets, actualEpisodes);
         List<PtSubscriptionEpisodePlus> orphans = targets.stream()
                 .filter(ep -> EP_IN_FLIGHT.equals(ep.getState()))
                 .filter(ep -> ep.getEpisode() != null && !actualEpisodes.contains(ep.getEpisode()))
@@ -615,6 +624,91 @@ public class DownloadTrackService {
                 + StringUtils.escapeHtml(record.getTitle())
                 + "\n包内实际 " + actualEpisodes.size() + " 集，多占的第 " + episodeList
                 + " 集已退回缺失，将继续自动搜索补齐", sub.getOwnerUserId());
+    }
+
+    /**
+     * 判完成前补一次文件对账，只为给集打确认标记。
+     * <p>
+     * <b>为什么不能只靠 {@link #trySelectFiles}。</b>那个方法在 {@code trackActive} 的
+     * "未完成"分支里，只有轮询至少撞见过一次"还在下载"才会跑。而秒下、已在本地做种被重新
+     * 加回、或体积很小的单集，完全可能在两次 30 秒轮询之间下完——第一次看见它就已经是
+     * completed，于是文件列表一次都没读过，{@code file_confirmed} 恒为 0。那样的集一旦
+     * 上传慢，12 小时后就会被清扫误判成卡死重下，正是本标记要防的事。
+     * </p>
+     * <p>
+     * 这里刻意<b>不</b>做排除文件与启动种子：都已经下完了，排除文件毫无意义，启动更是空操作。
+     * 只读一次列表、打标、顺带把多占的集退回（快速完成的季包同样会多占）。
+     * </p>
+     * <p>
+     * 全程异常自吞：这只是一个让日后清扫更准的补充信息，绝不能让它挡住 {@code complete()}——
+     * 下载确实成功了，通知、H&R 追踪、STRM 联动都必须照常发生。
+     * </p>
+     */
+    private void confirmEpisodesIfNeeded(PtDownloaderPlus downloader, PtDownloadRecordPlus record,
+                                         DownloaderTorrent matched, PtSubscriptionPlus sub) {
+        if (Boolean.TRUE.equals(record.getFilesSelected())) {
+            // trySelectFiles 已经跑过完整对账，标记也打过了
+            return;
+        }
+        if (sub == null || TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType())) {
+            return;
+        }
+        try {
+            List<PtSubscriptionEpisodePlus> targets = episodeService.list(
+                    new QueryWrapper<PtSubscriptionEpisodePlus>().eq("download_id", record.getId()));
+            if (targets.isEmpty()) {
+                return;
+            }
+            List<DownloaderTorrentFile> files = downloaderClientFactory.get(downloader)
+                    .listFiles(downloader, matched.getHash());
+            Set<Integer> actualEpisodes = new HashSet<>();
+            for (DownloaderTorrentFile file : files) {
+                Integer episode = toInt(mediaParser.parseLocal(file.getName()).getEpisode());
+                if (episode != null) {
+                    actualEpisodes.add(episode);
+                }
+            }
+            reconcileClaims(record, sub, targets, actualEpisodes);
+        } catch (Exception e) {
+            log.warn("下载记录[{}] 完成前补对账文件列表失败，该集将按未确认处理：{}", record.getId(), e.getMessage());
+        }
+    }
+
+    /**
+     * 给「包内确实存在」的集打上 {@code file_confirmed=1}。
+     * <p>
+     * 这是 {@link StuckEpisodeSweepService} 唯一能分开两种长期在途的依据：
+     * </p>
+     * <ul>
+     *   <li><b>文件根本不在种子里</b>（季包多占）——上面的 orphans 分支已经把它们退回缺失了，
+     *       走不到这里，{@code file_confirmed} 保持 0，日后真要卡死也该重搜。</li>
+     *   <li><b>文件已经下好，只是还没传上网盘</b>——网盘秒传要等别人先传过同一份文件，
+     *       否则只能真传，大文件跨天、中途失败重来都是常态（失败会落进 {@code openlist_copy_record}，
+     *       可在复制记录页重试）。这种集在 Emby 里同样查不到，症状与前一种一模一样，
+     *       但重下一遍解决不了任何问题：本地文件本来就在，白费带宽还多背一份 H&R 保种义务，
+     *       而且每轮清扫都累加 {@code fail_count}，三轮之后把一个好端端的集熔断成 BLOCKED。</li>
+     * </ul>
+     * <p>
+     * 一条 UPDATE 批量打标而不是逐条：一个季包能一次确认几十集。条件里带 {@code state=IN_FLIGHT}
+     * 与其余回退路径同源——洗版占位的 UPGRADING 集不该被这里动到。
+     * </p>
+     */
+    private void markFileConfirmed(List<PtSubscriptionEpisodePlus> targets, Set<Integer> actualEpisodes) {
+        List<Integer> ids = targets.stream()
+                .filter(ep -> EP_IN_FLIGHT.equals(ep.getState()))
+                .filter(ep -> ep.getEpisode() != null && actualEpisodes.contains(ep.getEpisode()))
+                .filter(ep -> !FILE_CONFIRMED.equals(ep.getFileConfirmed()))
+                .map(PtSubscriptionEpisodePlus::getId)
+                .toList();
+        if (ids.isEmpty()) {
+            return;
+        }
+        PtSubscriptionEpisodePlus set = new PtSubscriptionEpisodePlus();
+        set.setFileConfirmed(FILE_CONFIRMED);
+        episodeService.update(set, new UpdateWrapper<PtSubscriptionEpisodePlus>()
+                .in("id", ids)
+                .eq("state", EP_IN_FLIGHT));
+        log.debug("下载记录关联的 {} 个集已确认文件在种子内，卡死清扫将不再退回它们", ids.size());
     }
 
     private void markFilesSelected(PtDownloadRecordPlus record) {

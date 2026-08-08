@@ -16,9 +16,12 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
@@ -72,6 +75,15 @@ public class StuckEpisodeSweepService {
     /** 与补缺集失败共用的熔断阈值：同一集连续失败达到该次数后转 BLOCKED，停止自动重试 */
     private final int maxConsecutiveFailures;
 
+    /** 「文件已下好但没入库」的提醒间隔：清扫每 10 分钟一轮，不限频会把通知刷爆 */
+    private static final long WARN_INTERVAL_MILLIS = 24 * 3600_000L;
+
+    /**
+     * 已提醒过的集 → 上次提醒时间。进程内内存态，重启后至多多发一次提醒，不值得为它落库。
+     * 每轮结束按"本轮仍然卡着"收敛，上传成功的集自动出表，不会无界增长。
+     */
+    private final Map<Integer, Long> pendingUploadWarnedAt = new ConcurrentHashMap<>();
+
     public StuckEpisodeSweepService(IPtSubscriptionEpisodePlusService episodeService,
                                     IPtSubscriptionPlusService subscriptionService,
                                     IPtMediaServerPlusService mediaServerService,
@@ -98,11 +110,20 @@ public class StuckEpisodeSweepService {
         }
         List<PtSubscriptionEpisodePlus> stuck = episodeService.listStuckInFlight(stuckTimeoutHours);
         if (stuck.isEmpty()) {
+            pendingUploadWarnedAt.clear();
             return 0;
         }
+        // 文件已确认在种子里的，症状虽然一样（Emby 查不到），成因却完全不同：文件本来就下好了，
+        // 卡住的是上传/STRM/刮削这一段。重下解决不了，只会白费带宽、多背一份 H&R 保种义务，
+        // 还会累加 fail_count 把好端端的集熔断。这批只告警，永不退回
+        Map<Boolean, List<PtSubscriptionEpisodePlus>> partitioned = stuck.stream()
+                .collect(Collectors.partitioningBy(
+                        ep -> DownloadTrackService.FILE_CONFIRMED.equals(ep.getFileConfirmed())));
+        warnPendingUpload(partitioned.get(true));
+
         Map<Integer, List<Integer>> releasedBySub = new LinkedHashMap<>();
         Map<Integer, List<Integer>> blockedBySub = new LinkedHashMap<>();
-        for (PtSubscriptionEpisodePlus episode : stuck) {
+        for (PtSubscriptionEpisodePlus episode : partitioned.get(false)) {
             int fails = (episode.getFailCount() == null ? 0 : episode.getFailCount()) + 1;
             boolean cut = fails >= maxConsecutiveFailures;
             PtSubscriptionEpisodePlus set = new PtSubscriptionEpisodePlus();
@@ -133,6 +154,51 @@ public class StuckEpisodeSweepService {
 
     private int count(Map<Integer, List<Integer>> bySub) {
         return bySub.values().stream().mapToInt(List::size).sum();
+    }
+
+    /**
+     * 文件已下好但迟迟没入库：只提醒，不动状态、不累加 {@code fail_count}、永不退回重下。
+     * <p>
+     * 这类集的瓶颈在下载之后：网盘秒传要等别人先传过同一份文件，否则只能真传，大文件跨天、
+     * 中途失败重来都是常态；上传失败会落进 {@code openlist_copy_record}，可在复制记录页重试。
+     * 用户要做的是去看那条链路，而不是让 OSR 再下一遍——本地文件本来就在，重下改变不了任何事。
+     * </p>
+     * <p>
+     * 提醒按集限频（默认 24 小时一次）。清扫每 10 分钟跑一轮，不限频的话一个传了三天的大文件
+     * 会发出四百多条内容完全相同的通知，真正需要注意的消息会被埋掉。限频表只保留本轮仍然卡着的集，
+     * 上传成功后条目自动清掉，下次再卡会立刻重新提醒而不是被旧时间戳压住。
+     * </p>
+     */
+    private void warnPendingUpload(List<PtSubscriptionEpisodePlus> pendingUpload) {
+        if (pendingUpload.isEmpty()) {
+            pendingUploadWarnedAt.clear();
+            return;
+        }
+        long now = System.currentTimeMillis();
+        Map<Integer, List<Integer>> dueBySub = new LinkedHashMap<>();
+        Set<Integer> stillPending = new HashSet<>();
+        for (PtSubscriptionEpisodePlus episode : pendingUpload) {
+            stillPending.add(episode.getId());
+            Long lastWarned = pendingUploadWarnedAt.get(episode.getId());
+            if (lastWarned != null && now - lastWarned < WARN_INTERVAL_MILLIS) {
+                continue;
+            }
+            pendingUploadWarnedAt.put(episode.getId(), now);
+            dueBySub.computeIfAbsent(episode.getSubId(), k -> new ArrayList<>()).add(episode.getEpisode());
+        }
+        pendingUploadWarnedAt.keySet().retainAll(stillPending);
+        for (Map.Entry<Integer, List<Integer>> entry : dueBySub.entrySet()) {
+            PtSubscriptionPlus sub = subscriptionService.getById(entry.getKey());
+            String title = sub == null ? ("订阅#" + entry.getKey()) : sub.getTitle();
+            log.info("订阅[{}] 第 {} 集文件已下好但超过 {} 小时未入库，疑似上传/入库链路卡住（不重下）",
+                    entry.getKey(), join(entry.getValue()), stuckTimeoutHours);
+            notifySafely("📤 文件已下好但一直没入库：《" + StringUtils.escapeHtml(title) + "》"
+                    + "\n第 " + join(entry.getValue()) + " 集下载完成已超过 " + stuckTimeoutHours + " 小时"
+                    + "\n种子里确实有这些文件，所以卡住的是上传到网盘或 STRM/刮削这一段，"
+                    + "OSR 不会重下（本地文件本来就在，重下解决不了问题）"
+                    + "\n请到「复制记录」页看有没有失败的上传任务，可直接重试；"
+                    + "网盘秒传需要别人先传过同一份文件，否则大文件真传跨天是正常的", sub);
+        }
     }
 
     /**
