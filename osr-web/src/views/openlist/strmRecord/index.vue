@@ -41,7 +41,7 @@
             class="status-select"
           />
           <v-text-field
-            v-model="rangeStart"
+            v-model="dateStart"
             label="开始时间"
             type="date"
             density="compact"
@@ -50,7 +50,7 @@
             class="date-field"
           />
           <v-text-field
-            v-model="rangeEnd"
+            v-model="dateEnd"
             label="结束时间"
             type="date"
             density="compact"
@@ -134,34 +134,18 @@
 <script setup lang="ts">
 import PageHeader from '@/components/PageHeader.vue'
 import StatusChip from '@/components/StatusChip.vue'
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import { useStrmRecord } from '@/composables/useStrmRecord'
 
 const showSearch = ref(window.innerWidth >= 768)
 
 const {
   recordList, loading, total, queryParams,
-  getList, queryRef, dateRange, handleQuery, resetQuery,
+  getList, queryRef, dateStart, dateEnd, handleQuery, resetQuery,
   multiple, handleSelectionChange,
   handleRetryOne, handleBatchRetry, handleDeleteOne, handleBatchDelete,
   handleRemoveNetDiskOne, handleBatchRemoveNetDisk
 } = useStrmRecord()
-
-// dateRange 是 [开始, 结束] 的字符串数组，这里拆成两个日期输入框分别读写
-const rangeStart = computed({
-  get: () => dateRange.value?.[0] ?? '',
-  set: (val: string) => {
-    const end = dateRange.value?.[1] ?? ''
-    dateRange.value = (val || end) ? [val, end] : null
-  }
-})
-const rangeEnd = computed({
-  get: () => dateRange.value?.[1] ?? '',
-  set: (val: string) => {
-    const start = dateRange.value?.[0] ?? ''
-    dateRange.value = (start || val) ? [start, val] : null
-  }
-})
 
 const headers = [
   { title: '文件信息', key: 'fileInfo', minWidth: '300' },

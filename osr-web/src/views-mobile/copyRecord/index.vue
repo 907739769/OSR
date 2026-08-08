@@ -168,7 +168,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import FullTextDialog from '@/components/mobile/FullTextDialog.vue'
@@ -180,29 +180,12 @@ const searchCollapsed = ref(true)
 const {
   recordList, loading, total, queryParams, totalPages,
   getList, prevPage, nextPage, handleSizeChange,
-  dateRange, handleQuery, resetQuery,
+  dateStart, dateEnd, handleQuery, resetQuery,
   selectedIds, toggleSelect, handleCardClick, clearSelection,
   handleRetryOne, handleBatchRetry, handleDeleteOne, handleBatchDelete,
   handleRemoveNetDiskOne, handleBatchRemoveNetDisk,
   getCopyStatusText, getCopyStatusType
 } = useCopyRecord()
-
-// dateRange 是 [start, end] 数组结构（从 el-date-picker daterange 迁移而来），
-// 拆成两个独立日期输入框绑定，写回时仍保持数组形状供 handleQuery 组装 params
-const dateStart = computed({
-  get: () => dateRange.value?.[0] ?? '',
-  set: (val: string) => {
-    dateRange.value = [val || '', dateRange.value?.[1] ?? '']
-    if (!dateRange.value[0] && !dateRange.value[1]) dateRange.value = null
-  }
-})
-const dateEnd = computed({
-  get: () => dateRange.value?.[1] ?? '',
-  set: (val: string) => {
-    dateRange.value = [dateRange.value?.[0] ?? '', val || '']
-    if (!dateRange.value[0] && !dateRange.value[1]) dateRange.value = null
-  }
-})
 
 const fullTextRef = ref<InstanceType<typeof FullTextDialog>>()
 const showFullText = (content: string, title: string) => fullTextRef.value?.show(content, title)

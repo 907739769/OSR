@@ -329,14 +329,14 @@
 <script setup lang="ts">
 import PageHeader from '@/components/PageHeader.vue'
 import StatusChip from '@/components/StatusChip.vue'
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import { useRenameDetailList } from '@/composables/useRenameDetailList'
 
 const showSearch = ref(window.innerWidth >= 768)
 
 const {
   recordList, loading, total, queryParams,
-  getList, queryRef, dateRange, handleQuery, resetQuery,
+  getList, queryRef, dateStart, dateEnd, handleQuery, resetQuery,
   selectedIds, multiple, handleSelectionChange,
   handleDeleteOne, handleBatchDelete,
   retryDialogVisible, retryLoading, retryFormRef, retryForm,
@@ -350,23 +350,6 @@ const {
 } = useRenameDetailList()
 
 getList()
-
-// dateRange 是 el-date-picker daterange 遗留的 [start, end] 数组结构，
-// 拆成两个独立日期输入框绑定，写回时仍保持数组形状供 handleQuery 组装 params
-const dateStart = computed({
-  get: () => dateRange.value?.[0] ?? '',
-  set: (val: string) => {
-    dateRange.value = [val || '', dateRange.value?.[1] ?? '']
-    if (!dateRange.value[0] && !dateRange.value[1]) dateRange.value = null
-  }
-})
-const dateEnd = computed({
-  get: () => dateRange.value?.[1] ?? '',
-  set: (val: string) => {
-    dateRange.value = [dateRange.value?.[0] ?? '', val || '']
-    if (!dateRange.value[0] && !dateRange.value[1]) dateRange.value = null
-  }
-})
 
 const headers = [
   { title: '重命名详情', key: 'detail', minWidth: '400' },

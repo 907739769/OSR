@@ -35,7 +35,7 @@
         />
         <div class="date-range-fields">
           <v-text-field
-            v-model="rangeStart"
+            v-model="dateStart"
             label="开始日期"
             type="date"
             density="compact"
@@ -43,7 +43,7 @@
             hide-details
           />
           <v-text-field
-            v-model="rangeEnd"
+            v-model="dateEnd"
             label="结束日期"
             type="date"
             density="compact"
@@ -146,7 +146,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref } from 'vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import FullTextDialog from '@/components/mobile/FullTextDialog.vue'
@@ -158,27 +158,11 @@ const searchCollapsed = ref(true)
 const {
   recordList, loading, total, queryParams, totalPages,
   getList, prevPage, nextPage, handleSizeChange,
-  queryRef, dateRange, handleQuery, resetQuery,
+  queryRef, dateStart, dateEnd, handleQuery, resetQuery,
   selectedIds, toggleSelect, handleCardClick, clearSelection,
   handleRetryOne, handleBatchRetry, handleDeleteOne, handleBatchDelete,
   handleRemoveNetDiskOne, handleBatchRemoveNetDisk
 } = useStrmRecord()
-
-// dateRange 是 [开始, 结束] 的字符串数组，这里拆成两个日期输入框分别读写
-const rangeStart = computed({
-  get: () => dateRange.value?.[0] ?? '',
-  set: (val: string) => {
-    const end = dateRange.value?.[1] ?? ''
-    dateRange.value = (val || end) ? [val, end] : null
-  }
-})
-const rangeEnd = computed({
-  get: () => dateRange.value?.[1] ?? '',
-  set: (val: string) => {
-    const start = dateRange.value?.[0] ?? ''
-    dateRange.value = (start || val) ? [start, val] : null
-  }
-})
 
 const fullTextRef = ref<InstanceType<typeof FullTextDialog>>()
 const showFullText = (content: string, title: string) => fullTextRef.value?.show(content, title)

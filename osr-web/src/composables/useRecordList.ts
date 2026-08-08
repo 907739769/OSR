@@ -121,16 +121,40 @@ export function useRecordList<TQuery extends SearchParams = SearchParams>(config
   const queryRef = ref<any>()
   const dateRange = ref<string[] | null>(null)
 
+  /**
+   * 开始 / 结束日期是两个独立的输入框，任一侧都可以单独填。
+   * 写回时保持 [开始, 结束] 的数组形状，未填的一侧留空串，两侧都空则整体置 null。
+   */
+  function setRangeSide(index: 0 | 1, val: string) {
+    const next: [string, string] = [dateRange.value?.[0] ?? '', dateRange.value?.[1] ?? '']
+    next[index] = val || ''
+    dateRange.value = (next[0] || next[1]) ? next : null
+  }
+
+  const dateStart = computed({
+    get: () => dateRange.value?.[0] ?? '',
+    set: (val: string) => setRangeSide(0, val)
+  })
+  const dateEnd = computed({
+    get: () => dateRange.value?.[1] ?? '',
+    set: (val: string) => setRangeSide(1, val)
+  })
+
   const handleQuery = () => {
     queryParams.pageNum = 1
     // params 只存在于 SearchParams 的索引签名里，TS 不会把索引签名应用到泛型形参上，
     // 这里退回基类型来读写
     const qp = queryParams as SearchParams
-    if (dateRange.value != null && dateRange.value.length === 2) {
-      qp.params = {
-        beginTime: dateRange.value[0] + ' 00:00:00',
-        endTime: dateRange.value[1] + ' 23:59:59'
-      }
+    // 两侧各自判空后再拼时间：只填一边时按半开区间查询。
+    // 不能因为「数组长度是 2」就两个都拼——空的那一侧会拼出 " 00:00:00" / " 23:59:59"，
+    // 后端拿它去比 DATETIME 列，MySQL 直接报 Incorrect DATETIME value 变成 500。
+    const begin = dateRange.value?.[0]
+    const end = dateRange.value?.[1]
+    if (begin || end) {
+      const params: Record<string, string> = {}
+      if (begin) params.beginTime = begin + ' 00:00:00'
+      if (end) params.endTime = end + ' 23:59:59'
+      qp.params = params
     } else {
       delete qp.params
     }
@@ -236,7 +260,7 @@ export function useRecordList<TQuery extends SearchParams = SearchParams>(config
     recordList, loading, total, queryParams, totalPages,
     getList, silentRefresh, prevPage, nextPage, handleSizeChange,
     // 搜索
-    queryRef, dateRange, handleQuery, resetQuery,
+    queryRef, dateRange, dateStart, dateEnd, handleQuery, resetQuery,
     // 选择
     selectedIds, multiple, toggleSelect, handleCardClick, clearSelection, handleSelectionChange,
     // 操作

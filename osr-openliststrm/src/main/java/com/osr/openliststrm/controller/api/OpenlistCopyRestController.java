@@ -123,18 +123,16 @@ public class OpenlistCopyRestController extends BaseCrudRestController<IOpenlist
             {
                 wrapper.eq(OpenlistCopyPlus::getCopyStatus, openlistCopy.getCopyStatus());
             }
-            if (openlistCopy.getParams() != null)
+            // 开始 / 结束时间各自独立，只填一侧就是半开区间；格式不合法的一侧直接忽略
+            String beginTime = QueryTimeRange.get(openlistCopy.getParams(), "beginTime");
+            String endTime = QueryTimeRange.get(openlistCopy.getParams(), "endTime");
+            if (beginTime != null)
             {
-                String beginTime = (String) openlistCopy.getParams().get("beginTime");
-                String endTime = (String) openlistCopy.getParams().get("endTime");
-                if (beginTime != null && !beginTime.isEmpty())
-                {
-                    wrapper.ge(OpenlistCopyPlus::getCreateTime, beginTime);
-                }
-                if (endTime != null && !endTime.isEmpty())
-                {
-                    wrapper.le(OpenlistCopyPlus::getCreateTime, endTime);
-                }
+                wrapper.ge(OpenlistCopyPlus::getCreateTime, beginTime);
+            }
+            if (endTime != null)
+            {
+                wrapper.le(OpenlistCopyPlus::getCreateTime, endTime);
             }
         }
         wrapper.last("ORDER BY create_time DESC");

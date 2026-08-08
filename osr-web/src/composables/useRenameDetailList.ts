@@ -35,7 +35,7 @@ export function useRenameDetailList() {
   const {
     recordList, loading, total, queryParams, totalPages,
     getList, silentRefresh, prevPage, nextPage, handleSizeChange,
-    queryRef, dateRange, handleQuery, resetQuery,
+    queryRef, dateRange, dateStart, dateEnd, handleQuery, resetQuery,
     selectedIds, multiple, toggleSelect, handleCardClick, clearSelection, handleSelectionChange
     // 删除记录不用 useRecordList 的默认实现：它的确认文案只说"是否确认删除"，
     // 而这里"只删记录不删文件"的后果必须讲清楚，见下方 handleDeleteOne
@@ -224,7 +224,7 @@ export function useRenameDetailList() {
   return {
     recordList, loading, total, queryParams, totalPages,
     getList, silentRefresh, prevPage, nextPage, handleSizeChange,
-    queryRef, dateRange, handleQuery, resetQuery,
+    queryRef, dateRange, dateStart, dateEnd, handleQuery, resetQuery,
     selectedIds, multiple, toggleSelect, handleCardClick, clearSelection, handleSelectionChange,
     handleDeleteOne, handleBatchDelete,
     retryDialogVisible, retryLoading, retryFormRef, retryForm,

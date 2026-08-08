@@ -206,18 +206,16 @@ public class RenameDetailRestController extends BaseCrudRestController<IRenameDe
             {
                 wrapper.eq("status", renameDetail.getStatus());
             }
-            if (renameDetail.getParams() != null)
+            // 开始 / 结束时间各自独立，只填一侧就是半开区间；格式不合法的一侧直接忽略
+            String beginTime = QueryTimeRange.get(renameDetail.getParams(), "beginTime");
+            String endTime = QueryTimeRange.get(renameDetail.getParams(), "endTime");
+            if (beginTime != null)
             {
-                String beginTime = (String) renameDetail.getParams().get("beginTime");
-                String endTime = (String) renameDetail.getParams().get("endTime");
-                if (StringUtils.isNotEmpty(beginTime))
-                {
-                    wrapper.ge("create_time", beginTime);
-                }
-                if (StringUtils.isNotEmpty(endTime))
-                {
-                    wrapper.le("create_time", endTime);
-                }
+                wrapper.ge("create_time", beginTime);
+            }
+            if (endTime != null)
+            {
+                wrapper.le("create_time", endTime);
             }
         }
         wrapper.orderByDesc("create_time");

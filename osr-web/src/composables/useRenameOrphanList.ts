@@ -42,7 +42,7 @@ export function useRenameOrphanList() {
   const {
     recordList, loading, total, queryParams, totalPages,
     getList, silentRefresh, prevPage, nextPage, handleSizeChange,
-    queryRef, dateRange, handleQuery, resetQuery,
+    queryRef, dateRange, dateStart, dateEnd, handleQuery, resetQuery,
     selectedIds, multiple, toggleSelect, handleCardClick, clearSelection, handleSelectionChange,
     handleDeleteOne: handleCleanOne, handleBatchDelete: handleBatchClean
   } = useRecordList<RenameOrphanQuery>({
@@ -90,7 +90,7 @@ export function useRenameOrphanList() {
   return {
     recordList, loading, total, queryParams, totalPages,
     getList, silentRefresh, prevPage, nextPage, handleSizeChange,
-    queryRef, dateRange, handleQuery, resetQuery,
+    queryRef, dateRange, dateStart, dateEnd, handleQuery, resetQuery,
     selectedIds, multiple, toggleSelect, handleCardClick, clearSelection, handleSelectionChange,
     handleCleanOne, handleBatchClean,
     scanning, handleScanNow,
