@@ -36,6 +36,7 @@ com/osr/openliststrm/
 |------|------|------|
 | STRM 生成逻辑 | `task/` + `service/` | OpenListStrmTask, IStrmService |
 | 文件夹同步 | `service/` | ICopyService, 增量/全量同步 |
+| 复制任务监控 | `helper/` | AsynHelper（内存监控链）+ CopyRecoveryTask（重启兜底）+ CopyMonitorRegistry（心跳分工） |
 | Telegram Bot | `tg/` | StrmBot (7 个指令), TgBotRegister |
 | 企业微信 | `wecom/` + `controller/api/WeComCallbackController` | 收发消息、订阅指令、成员绑定 |
 | 通知渠道 | `notify/` | INotifier / NotifierManager / NotifyTarget |
@@ -104,6 +105,9 @@ com/osr/openliststrm/
 - **种子的 `parsedTags` 是 `MediaInfo.tags` + 视频编码 + 音频编码的并集**（见 `SubscriptionEngine#collectTags`）。extractor 按 Resolution → Codec → SourceAndGroup 顺序跑，`CodecExtractor` 会先把 `Atmos`/`H265`/`DTS-HD` 匹进 `audioCodec`/`videoCodec` 并从标题里抹掉，只读 `tags` 的话「必须带 Atmos」这类配置会一条都匹配不上
 - **`TorrentInfo.files`（Torznab `files` 属性）是推送前唯一能证伪「整季包」的硬信号，只能单向使用**。「按季包命名、实际只含 1 集」的种子与真季包在标题上完全一致，体积也分不开——8GB 可能是 8 集 × 1GB，也可能是 1 集 Remux，所以**任何绝对体积阈值都拦不住它**。包内集数不可能超过文件总数，`files` 一旦给出就是可靠上界：`EpisodeCountResolver#capByFileCount` 用它给集数估算收口（只收口不放大——真季包常带 nfo/字幕/封面，files 大于集数是常态，拿它当集数会把每集体积折算得过小），`SubscriptionEngine#preferCompletePacks` 在季包目标下把 `files < 待占位集数` 的候选让位给不矛盾的候选。**`files` 为 null 表示「索引器没提供」，绝不能落成 0**（0 的语义是"覆盖不全的证据"，两者处理方式完全相反，见 `TorznabParser#parseNullableInt`）；null 时一律维持既有行为，交给 `DownloadTrackService#reconcileClaims` 事后对账兜底。不剔除的代价是实打实的：假季包只要在做种数等任一维度赢下 `pickBest`，就会占位**整季**缺失集，等元数据解析完 `reconcileClaims` 再把其余集退回，下一轮真季包只能占到剩下的集——一季被拆成两个种子下载，多一份 H&R 保种义务，先下的那一集与其余集大概率不是同一版本。两条保守约束：只占 1 集时不启用（`files >= 1` 恒成立，判据不成立）、候选全部覆盖不全时不剔除（宁可下一个只覆盖部分集的包）
 
+- **`AsynHelper` 的复制监控只活在内存里，进程重启必然断链，兜底靠 `CopyRecoveryTask` 而不是「把监控做得更结实」**。监控是 `scheduler.schedule` 递归自调，`deadline` 也只是个方法参数——重启后既没人查状态，连超时兜底都不会发生，记录永远停在 `copy_status=1`，STRM 也永远不生成（批量同步的 STRM 是整批收尾时由 `finishStrmDir` 一次性生成的，重启把这一步整个吃掉，那批已经标成功的记录同样拿不到 .strm，所以恢复必须**两段都补**：无主的处理中记录 + 已成功但缺 STRM 记录的记录）。两者的分工凭据是 `CopyMonitorRegistry` 的心跳表：内存链每轮给自己还盯着的 taskId 续心跳，兜底扫描只捡心跳过期的。心跳表**故意只存在于进程内**——重启后全部失效，正好等于「所有记录都变成无主记录」。心跳 TTL 5 分钟对内存链 60 秒的最大退避留了 5 倍冗余，另有 3 分钟宽限期覆盖「记录已落库、首检还没到」的 30 秒空窗
+- **兜底裁决查不到任务状态时，唯一可用的硬证据是「目标文件在不在」**（`CopyRecoveryTask#probeDst`）。重启场景下 AList 多半也重启过、任务表已清空，`copy/info` 一律 404，这时不能判失败——文件通常早就复制完了，只是没人收尾。判据与 `CopyServiceImpl#syncOneFile` 的「目标已存在直接记成功」同源。**AList 不可达（响应为 null）与 404 必须分开**：前者本轮不下结论、留给下一轮，否则一次网络抖动会把一整批记录误判成异常。恢复补 STRM 走 `strmOneFile` 而非 `strmDir`（当初那次同步的根目录与相对路径已随进程消失，只有记录本身能定位到文件），但仍要判一次视频扩展名，否则改过视频类型字典后逐文件恢复与目录级生成会给出不同结果
+- **兜底扫描的失败/异常只发一条汇总通知，不逐条发**：升级后首轮很可能一次捞出几十上百条历史遗留记录，逐条发会把 TG/企微刷屏。全部恢复成功时静默——那是正常自愈，没有告知价值
 - **订阅相关通知必须带 `NotifyTarget`**：`TgHelper.sendMsg(type, msg)` 是广播，只适用于系统级告警（索引器失败、复制任务超时）。凡是「某条订阅」的动态（命中/完成/失败/入库/补搜落空），一律走 `TgHelper.sendMsg(type, msg, NotifyTarget.owner(sub.getOwnerUserId()))`，否则 A 的下载动态会推到 B 的企微上。各 Service 里的 `notifySafely` 私有方法已统一改成带归属参数的签名，新增通知点照抄相邻写法即可。`ownerUserId` 为 null 表示无归属（历史订阅），自动退化为广播
 - **`pt_subscription.owner_user_id` 允许为 NULL 且必须继续允许**：该列是后加的，历史订阅全为 NULL。NULL 语义是「无归属的公共订阅，所有人可见」；改成非空或把 NULL 当作「归属于某个不存在的人」，会让升级后所有老订阅从非管理员的列表里整批消失。可见性判定统一为「管理员看全部；其余人看 `owner_user_id = 自己 OR IS NULL`」，Web 端在 `PtSubscriptionRestController`、企微端在 `WeComCommandService#requireAccessible`，两处口径必须一致
 - **企微回调是 `@Anonymous` 端点**：请求来自企微服务器，不可能带 JWT。安全性靠签名校验 + AES 解密 + receiveid 比对三重保证，三者都依赖只有配置方知道的 Token/AESKey/corpid。回调<b>不做被动回复</b>而是立即返回空串、异步处理完再主动推送——企微要求 5 秒内响应，而建订阅要串行调 TMDb 搜索+详情+媒体库对账，被动回复必然超时并触发企微重试（同一条指令被执行多次）

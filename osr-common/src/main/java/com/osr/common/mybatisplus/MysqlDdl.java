@@ -90,7 +90,8 @@ public class MysqlDdl extends SimpleDdl {
                 "sql/20260765-pt-subscription-upgrade-default-off.sql",
                 "sql/20260766-pt-search-log-reason-code.sql",
                 "sql/20260767-rename-orphan-reverse-scan.sql",
-                "sql/20260768-pt-episode-file-confirmed.sql"
+                "sql/20260768-pt-episode-file-confirmed.sql",
+                "sql/20260769-copy-recovery-index.sql"
         );
     }
 }

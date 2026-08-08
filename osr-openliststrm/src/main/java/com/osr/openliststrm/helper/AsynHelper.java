@@ -48,6 +48,9 @@ public class AsynHelper {
     @Autowired
     private OpenlistConfig config;
 
+    @Autowired
+    private CopyMonitorRegistry monitorRegistry;
+
     private final TaskScheduler scheduler = SpringUtils.getBean("virtualScheduledExecutor");
 
     /**
@@ -86,6 +89,10 @@ public class AsynHelper {
      */
     private void processCopyListRecursive(List<OpenlistCopyPlus> copyList, String dstDir,
                                           String strmDir, Instant deadline, int round) {
+        // 先续心跳再查状态：{@link CopyRecoveryTask} 据此认定这些记录已有内存监控认领，
+        // 不会跟这里抢着裁决同一条记录
+        monitorRegistry.heartbeat(copyList.stream().map(OpenlistCopyPlus::getCopyTaskId).toList());
+
         // 并行查询本轮所有任务的状态
         Map<String, JSONObject> infoMap = fetchCopyInfoParallel(copyList);
 
@@ -212,7 +219,8 @@ public class AsynHelper {
             return;
         }
 
-        // 延迟30秒后开始第一次检查
+        // 延迟30秒后开始第一次检查。心跳提前到调度前打，覆盖首检前的这30秒空窗
+        monitorRegistry.heartbeat(copy.getCopyTaskId());
         Instant deadline = Instant.now().plus(monitorDuration());
         scheduler.schedule(Threads.wrap(() -> checkOneFileRecursive(path, copy, deadline, 0)), Instant.now().plusSeconds(30));
     }
@@ -222,6 +230,7 @@ public class AsynHelper {
      */
     private void checkOneFileRecursive(String path, OpenlistCopyPlus copy, Instant deadline, int round) {
         try {
+            monitorRegistry.heartbeat(copy.getCopyTaskId());
             JSONObject jsonResponse = openlistApi.copyInfo(copy.getCopyTaskId());
 
             if (jsonResponse == null) {
