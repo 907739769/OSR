@@ -6,6 +6,7 @@ import com.osr.framework.manager.AsyncManager;
 import com.osr.openliststrm.mybatisplus.domain.RenameDetailPlus;
 import com.osr.openliststrm.mybatisplus.service.IRenameDetailPlusService;
 import com.osr.openliststrm.rename.RenameTaskManager;
+import com.osr.openliststrm.rename.cleanup.RenameCleanupService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -26,8 +27,15 @@ public class RenameDetailRestController extends BaseCrudRestController<IRenameDe
     @Autowired
     private RenameTaskManager renameTaskManager;
 
+    @Autowired
+    private RenameCleanupService cleanupService;
+
     /**
-     * 批量删除重命名明细
+     * 批量删除重命名明细（只删数据库记录，磁盘上的产物原样保留）。
+     * <p>
+     * 这是"失忆"操作，前端必须把后果讲清楚：删完之后一致性检查会失去这条记录这个入口、
+     * 刮削共享文件的兄弟计数会失真、手动执行任务时源文件会被当成没处理过而重新复制一份。
+     * 多数场景该用 {@link #purge} 而不是它。
      */
     @PostMapping("/batchDelete")
     public Result<Void> batchDelete(@RequestParam("ids") String ids)
@@ -43,6 +51,71 @@ public class RenameDetailRestController extends BaseCrudRestController<IRenameDe
             return Result.success();
         }
         return Result.error("批量删除失败");
+    }
+
+    /**
+     * 预览清理：返回这批记录名下磁盘上真实存在、将被删除的文件清单。只读。
+     */
+    @PostMapping("/purge/preview")
+    public Result<List<String>> purgePreview(@RequestParam("ids") String ids)
+    {
+        List<RenameDetailPlus> details = loadDetails(ids);
+        if (details.isEmpty())
+        {
+            return Result.success(List.of());
+        }
+        return Result.success(cleanupService.preview(details));
+    }
+
+    /**
+     * 清理重命名产物：删目标库里的主文件（STRM / 视频副本）+ 刮削文件 + 回收空目录，
+     * 可选连数据库记录一起删。
+     * <p>
+     * 只动目标库副本，不碰源文件——源目录是网盘挂载或下载器保种目录。
+     *
+     * @param deleteRecord 是否连 rename_detail 行一起删；false 时记录保留，
+     *                     一致性检查下一轮会把它标成 local_missing，仍在用户视野里
+     */
+    @PostMapping("/purge")
+    public Result<String> purge(@RequestParam("ids") String ids,
+                                @RequestParam(value = "deleteRecord", defaultValue = "true") boolean deleteRecord)
+    {
+        List<RenameDetailPlus> details = loadDetails(ids);
+        if (details.isEmpty())
+        {
+            return Result.error("请选择要清理的记录");
+        }
+        logger.info("开始清理重命名产物，记录数：{}，同时删除记录：{}", details.size(), deleteRecord);
+        RenameCleanupService.PurgeResult result = cleanupService.purge(details, deleteRecord);
+        return Result.success(String.format("已删除 主文件 %d、刮削文件 %d，回收空目录 %d，删除记录 %d",
+                result.mainFiles(), result.scrapeFiles(), result.dirs(), result.records()));
+    }
+
+    private List<RenameDetailPlus> loadDetails(String ids)
+    {
+        if (ids == null || ids.trim().isEmpty())
+        {
+            return List.of();
+        }
+        List<Integer> idList = Arrays.stream(ids.split(",")).map(String::trim).filter(s -> !s.isEmpty())
+                .map(s -> {
+                    try
+                    {
+                        return Integer.valueOf(s);
+                    }
+                    catch (NumberFormatException e)
+                    {
+                        logger.warn("忽略非法的记录 ID：{}", s);
+                        return null;
+                    }
+                })
+                .filter(java.util.Objects::nonNull)
+                .collect(Collectors.toList());
+        if (idList.isEmpty())
+        {
+            return List.of();
+        }
+        return service.listByIds(idList);
     }
 
     /**

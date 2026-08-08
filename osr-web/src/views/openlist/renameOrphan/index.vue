@@ -3,7 +3,7 @@
     <PageHeader
       icon="mdi-file-remove-outline"
       title="重命名一致性检查"
-      desc="扫描重命名后已失效的记录（本地文件丢失或网盘源丢失），可清理或忽略"
+      desc="双向扫描：记录指向的文件是否还在，以及库里的文件是否还有记录。可清理或忽略"
     />
 
     <!-- Search Panel -->
@@ -23,7 +23,7 @@
           <v-select
             v-model="queryParams.reason"
             label="原因"
-            :items="[{ title: '本地文件丢失', value: 'local_missing' }, { title: '网盘源丢失', value: 'source_missing' }]"
+            :items="REASON_OPTIONS"
             placeholder="全部原因"
             clearable
             density="compact"
@@ -90,11 +90,10 @@
           <span v-if="item.year" class="orphan-year">（{{ item.year }}）</span>
         </template>
         <template #item.reason="{ item }">
-          <StatusChip v-if="item.reason === 'local_missing'" type="warning" text="本地文件丢失" />
-          <StatusChip v-else-if="item.reason === 'source_missing'" type="error" text="网盘源丢失" />
+          <StatusChip :type="REASON_META[item.reason]?.type || 'info'" :text="REASON_META[item.reason]?.text || item.reason" />
         </template>
         <template #item.path="{ item }">
-          <span class="orphan-path" :title="`${item.newPath}/${item.newName}`">{{ item.newPath }}/{{ item.newName }}</span>
+          <span class="orphan-path" :title="fullPath(item)">{{ fullPath(item) }}</span>
         </template>
         <template #item.status="{ item }">
           <StatusChip v-if="item.status === '0'" type="info" text="待处理" />
@@ -118,7 +117,7 @@
 import PageHeader from '@/components/PageHeader.vue'
 import StatusChip from '@/components/StatusChip.vue'
 import { ref } from 'vue'
-import { useRenameOrphanList } from '@/composables/useRenameOrphanList'
+import { useRenameOrphanList, REASON_META, REASON_OPTIONS, fullPath } from '@/composables/useRenameOrphanList'
 
 const showSearch = ref(window.innerWidth >= 768)
 

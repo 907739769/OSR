@@ -11,7 +11,9 @@ import {
   scrapeRenameDetailApi,
   batchScrapeRenameDetailApi,
   deleteScrapeFilesApi,
-  batchDeleteScrapeFilesApi
+  batchDeleteScrapeFilesApi,
+  previewPurgeApi,
+  purgeRenameDetailApi
 } from '@/api/openlist/renameDetail'
 
 export type RenameDetailQuery = SearchParams & {
@@ -34,8 +36,9 @@ export function useRenameDetailList() {
     recordList, loading, total, queryParams, totalPages,
     getList, silentRefresh, prevPage, nextPage, handleSizeChange,
     queryRef, dateRange, handleQuery, resetQuery,
-    selectedIds, multiple, toggleSelect, handleCardClick, clearSelection, handleSelectionChange,
-    handleDeleteOne, handleBatchDelete
+    selectedIds, multiple, toggleSelect, handleCardClick, clearSelection, handleSelectionChange
+    // 删除记录不用 useRecordList 的默认实现：它的确认文案只说"是否确认删除"，
+    // 而这里"只删记录不删文件"的后果必须讲清楚，见下方 handleDeleteOne
   } = useRecordList<RenameDetailQuery>({
     listApi: getRenameDetailListApi,
     batchDeleteApi: batchDeleteRenameDetailApi,
@@ -152,6 +155,72 @@ export function useRenameDetailList() {
     } catch (e) { if (e !== 'cancel') console.error(e) }
   }
 
+  // --- 只删记录 ---
+  // 这是「失忆」操作：数据库行没了、文件全留着。后果必须写进确认框，
+  // 否则用户会以为点完就干净了，实际上一致性检查从此看不见这些文件、
+  // 手动执行任务时源文件还会被当成没处理过而重新复制一份。
+  const RECORD_ONLY_WARNING =
+    '只删除数据库记录，磁盘上的 STRM/视频、NFO 与图片都会保留。\n' +
+    '删除后一致性检查将不再跟踪这些文件，且下次执行重命名任务时源文件会被重新处理一遍。\n' +
+    '若要连文件一起清掉，请改用「清理产物」。'
+
+  const deleteRecords = async (ids: number[], scopeText: string) => {
+    try {
+      await confirm({ message: `${scopeText}\n\n${RECORD_ONLY_WARNING}`, title: '仅删除记录', type: 'warning' })
+      await batchDeleteRenameDetailApi(ids)
+      message.success('记录已删除')
+      getList()
+    } catch (e) { if (e !== 'cancel') console.error(e) }
+  }
+
+  const handleDeleteOne = (row: any) => deleteRecords([row.id], `即将删除记录"${row.newName || row.originalName}"。`)
+  const handleBatchDelete = () => deleteRecords(selectedIds.value, `即将删除选中的 ${selectedIds.value.length} 条记录。`)
+
+  // --- 清理产物 ---
+  // 先 dry-run 拉一份真实存在的文件清单给用户过目，再执行。
+  // 预览与执行走同一份后端判定，清单里列出的就是真正会被删的。
+  const purgeDialogVisible = ref(false)
+  const purgeLoading = ref(false)
+  const purgePreviewLoading = ref(false)
+  const purgeFiles = ref<string[]>([])
+  const purgeIds = ref<number[]>([])
+  const purgeDeleteRecord = ref(true)
+
+  const openPurgeDialog = async (ids: number[]) => {
+    if (!ids.length) return
+    purgeIds.value = ids
+    purgeFiles.value = []
+    purgeDeleteRecord.value = true
+    purgeDialogVisible.value = true
+    purgePreviewLoading.value = true
+    try {
+      purgeFiles.value = (await previewPurgeApi(ids)) || []
+    } catch (error: any) {
+      message.error(error.message || '获取清理清单失败')
+      purgeDialogVisible.value = false
+    } finally {
+      purgePreviewLoading.value = false
+    }
+  }
+
+  const handlePurgeOne = (row: any) => openPurgeDialog([row.id])
+  const handleBatchPurge = () => openPurgeDialog(selectedIds.value)
+
+  const handlePurgeSubmit = async () => {
+    purgeLoading.value = true
+    try {
+      const summary = await purgeRenameDetailApi(purgeIds.value, purgeDeleteRecord.value)
+      message.success(summary || '清理完成')
+      purgeDialogVisible.value = false
+      clearSelection()
+      getList()
+    } catch (error: any) {
+      message.error(error.message || '清理失败')
+    } finally {
+      purgeLoading.value = false
+    }
+  }
+
   return {
     recordList, loading, total, queryParams, totalPages,
     getList, silentRefresh, prevPage, nextPage, handleSizeChange,
@@ -163,6 +232,8 @@ export function useRenameDetailList() {
     batchDialogVisible, batchLoading, batchFormRef, batchForm,
     handleBatchExecute, handleBatchClose, handleBatchSubmit,
     handleScrapeOne, handleBatchScrape,
-    handleDeleteScrapeOne, handleBatchDeleteScrape
+    handleDeleteScrapeOne, handleBatchDeleteScrape,
+    purgeDialogVisible, purgeLoading, purgePreviewLoading, purgeFiles, purgeDeleteRecord,
+    handlePurgeOne, handleBatchPurge, handlePurgeSubmit
   }
 }

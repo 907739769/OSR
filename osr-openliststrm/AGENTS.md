@@ -20,6 +20,7 @@ com/osr/openliststrm/
 ├── orphan/           # 重命名一致性检查 (孤儿扫描/清理/忽略)
 ├── pt/               # PT 订阅管理 (downloader/indexer/subscription/media server)
 ├── rename/           # 影视文件重命名 (MediaParser/TitleProcessor/PebbleRenderer)
+│   └── cleanup/      # 产物清理 (ArtifactPaths 纯逻辑 + RenameCleanupService 实际 I/O)
 ├── req/              # 请求 DTO
 ├── scrape/           # 文件刮削 (ScrapeService 等)
 ├── service/          # 业务服务层 (IStrmService/ICopyService 等)
@@ -40,7 +41,8 @@ com/osr/openliststrm/
 | 通知渠道 | `notify/` | INotifier / NotifierManager / NotifyTarget |
 | TMDB 查询 | `tmdb/` | TMDbClient, 元数据获取/增强 |
 | 文件重命名 | `rename/` | MediaParser + OpenAI + Pebble 模板 |
-| 重命名一致性检查 | `orphan/` | RenameOrphanScanServiceImpl, OrphanReconciler |
+| 重命名一致性检查 | `orphan/` | RenameOrphanScanServiceImpl（双向扫描）, OrphanReconciler, OrphanReason |
+| 重命名产物清理 | `rename/cleanup/` | RenameCleanupService（purge/purgeRelocated/回收空目录）, ArtifactPaths |
 | PT 订阅管理 | `pt/` | Downloader/Indexer/Subscription/MediaServer |
 | 文件刮削 | `scrape/` | ScrapeService, TMDb 刮削/文件删除 |
 | 任务监控 | `monitor/` | MediaRenameProcessor 等处理器 |
@@ -57,6 +59,15 @@ com/osr/openliststrm/
 - **FastJSON2**: 所有 JSON 序列化/反序列化统一使用 FastJSON2
 - **异步任务**: 使用虚拟线程 (Java 25 preview) 处理并发 IO
 - **孤儿判定**: `orphan/OrphanReconciler` 纯逻辑无 I/O，方便单测覆盖；`RenameOrphanScanServiceImpl` 负责实际 I/O
+- **「删产物」与「删记录」是两件不同的事，任何入口都不许合并成一个按钮**。`rename_detail` 同时是三处判据的事实来源，只删数据库行是「失忆」操作：①孤儿正向扫描以它为遍历起点，删了就再也发现不了那些文件；②`ScrapeService` 的 `hasSiblingInSameSeason/Show` 靠它计数，行少了会让别的记录删刮削时误删还在用的 `tvshow.nfo`/`season.nfo`/剧集图；③`MediaRenameProcessor#processOnce` 的 `processedKeys` 也来自它，删了记录后手动执行任务会把源文件当成没处理过、重新复制一份出来，用户会看到「明明删了怎么又冒出来」。删产物走 `rename/cleanup/RenameCleanupService#purge`，前端确认框必须把「只删记录」的这三条后果写出来
+- **清理顺序是硬要求：先删文件、后删记录**。删完记录就没有 `new_path`/`new_name` 可用了，而且兄弟判定要靠这些行还在才算得对。**批量清理必须把整批 id 一次性传给 `ScrapeService.DeleteOptions#excludeDetailIds`**：逐条调用时兄弟计数是边删边变的，不排除整批的话前几条会认为"还有兄弟"而跳过共享元数据，只靠最后一条兜底——中途任何一条失败就留下没人认领的 `tvshow.nfo`
+- **预览与执行必须走同一份判定**：`ScrapeService#resolveScrapeFiles` 解析路径、`deleteScrapeFiles` 遍历它去删，`RenameCleanupService#preview` 也调它。分叉一次就会出现"确认框里列的"和"真正删掉的"对不上，那比不给预览更糟
+- **空目录回收必须锚定 `电影`/`电视剧` 那一层，找不到锚点就一个都不删**（`ArtifactPaths#mediaRootOf`）。这两个顶层目录名是 `MediaRenameProcessor#buildDestPath` 硬编码产出的，因此一定出现在每条产物路径里，可以拿来当可证明的下界；删到它或它的祖先，Emby/Jellyfin 的媒体库根目录会直接失效。回收只删 `Files.newDirectoryStream` 为空的目录，**绝不用递归删除**
+- **重命名换位（改标题重试导致落到另一部剧）必须调 `RenameCleanupService#purgeRelocated`，且必须在改写记录的 `new_path`/`new_name` 之前调**。旧实现只删旧主文件，旧目录里的单集 NFO、`season.nfo`、`tvshow.nfo` 和七张剧集图原样留下，Emby 会扫出一个只有元数据没有视频的鬼剧集。**`keepDir`/`keepShowRoot` 不能省**：此刻记录的 `new_path` 还是旧值、兄弟判定又会排除自己，不传的话"同剧还有没有别的记录"会答成"没有"，把新位置正要用的 `tvshow.nfo` 一起删掉
+- **孤儿扫描是双向的，两个方向的去重键不同**。正向（记录→文件）挂 `detail_id`，反向（文件→记录，`local_extra`/`metadata_only`/`empty_dir`）没有 detail 可挂靠，`detail_id` 为 NULL、去重靠 `(new_path, new_name)`。MySQL 的 UNIQUE 索引允许多行 NULL，所以 `uk_detail_id` 能原样保留。反向发现必须**先登记 foundKeys 再判上限与忽略**：正常落库、超上限丢弃、用户已忽略这三条路径都得算"本轮见过"，否则轮末的"已恢复"清扫会把它们删掉，下一轮再重新发现，列表来回抖动、用户点的忽略也白费
+- **反向扫描的单轮上限（`MAX_EXTRA_FINDINGS`）超了要记进 `ScanSummary#truncated` 并打日志**，静默截断会读成"已经扫全了"。被丢弃的项不写库也不影响下一轮重新发现
+- **`hasSiblingInSameShow` 的前缀匹配要补路径分隔符再匹配，且值要过 `ArtifactPaths#escapeLike`**。不补分隔符时 `/电视剧/国产剧/三体` 会连 `/电视剧/国产剧/三体2` 一起算进来，"同剧还有别的记录"恒为真、`tvshow.nfo` 永远删不掉；不转义时路径里的 `_`（发布组命名的常态）在 LIKE 里是"任意单字符"，同样会误配
+- **`LambdaQueryWrapper#select(实体::getXxx)` 会立刻解析 MyBatis-Plus 的实体 lambda 缓存**，那份缓存要等 Mapper 注册后才有。纯单测里直接 new 出 Service 再调用会抛 `can not find lambda cache for this entity`（`eq`/`isNotNull` 是惰性的所以不炸，只有 `select` 会）。需要投影列时改用 `QueryWrapper` 传列名字符串
 - **重命名流程**: `MediaParser.parse()` → 本地正则抽取 → TMDb 增强 → AI 补充 (如需) → Pebble 模板渲染
 - **`TMDbClient#search` 的两层循环：外层换标题、内层降级年份，顺序不能反**。标题是强信号、年份是弱信号，该先放宽弱信号而不是先换强信号。旧实现是「所有标题带年份各试一遍 → 所有标题不带年份各试一遍」，于是「次要标题 + 年份碰巧对上」会打败「主标题 + 年份对不上」：`开始推理吧.The.Truth.S04E18.2026...` 里主标题带 2026 搜不到，接着 englishTitle "The Truth" 撞上一部 2026 年首播的同名剧被直接采纳，整部剧重命名成别的作品。`TMDbClientSearchTest` 守着这个顺序
 - **剧集搜索一律不传年份，电影才传**。`TMDbApiService#search` 对剧集用的过滤参数是 `first_air_date_year`（**剧集首播年**），而文件名里的年份是发布组随手填的（可能是首播年，也可能是本季/本集播出年），两者只在第一季才相等——对 S2 以上的剧集这个过滤器在构造上就是错的，哪怕发布组填得完全正确也一定过滤不到正确答案。年份对剧集的甄别改由 `scoreCandidate` 的接近度软打分承担（年份对得上 +30，对不上还能靠热度兜底；硬过滤会把同名重启剧的两个版本一起滤掉，反而更差）。电影的 `primary_release_year` 与文件名里的上映年是同一个量，语义正确，保留
@@ -104,3 +115,4 @@ com/osr/openliststrm/
 - Telegram Bot handler 不要超过 50 行，复杂逻辑抽到独立方法
 - PT 订阅 RSS 轮询不要逐条查 TMDb (配额爆炸)，用 `parseLocal()` 仅本地正则
 - 孤儿扫描不要重复提醒已忽略项 (`status=2` 直接 SKIP)
+- 不要提供「删除源文件」的入口。目标库里的主文件是 `Files.copy` 出来的副本，删了重跑任务就回来；源目录（`original_path`）是网盘挂载或下载器保种目录，删它等于毁保种

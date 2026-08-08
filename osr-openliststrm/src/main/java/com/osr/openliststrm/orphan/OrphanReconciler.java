@@ -49,4 +49,44 @@ public final class OrphanReconciler {
         target.setFoundTime(now);
         return new Decision(existing != null ? Action.UPDATE : Action.INSERT, target);
     }
+
+    /**
+     * 反向扫描（有文件、无记录）的判定。与 {@link #reconcile} 的区别只在于没有 detail 可挂靠：
+     * {@code detail_id} 留 null，去重靠 (new_path, new_name) 这对路径。
+     * <p>
+     * 「已忽略仍跳过」的语义与正向一致——用户说过不管的东西，不该每轮扫描再冒出来一次。
+     *
+     * @param newPath   目录（empty_dir / metadata_only 时就是目录本身）
+     * @param newName   文件名；目录级发现传 null
+     * @param title     展示用标题，一般取文件名或目录名
+     * @param mediaType 媒体类型，判不出来传 null
+     * @param existing  该路径在 rename_orphan 里已有的记录，没有则为 null
+     * @param reason    见 {@link OrphanReason}
+     */
+    public static Decision reconcileExtra(String newPath, String newName, String title, String mediaType,
+                                          RenameOrphanPlus existing, String reason, Date now) {
+        if (reason == null) {
+            return existing != null ? new Decision(Action.DELETE, existing) : SKIP_DECISION;
+        }
+        if (existing != null && "2".equals(existing.getStatus())) {
+            return SKIP_DECISION;
+        }
+        RenameOrphanPlus target = existing != null ? existing : new RenameOrphanPlus();
+        target.setDetailId(null);
+        target.setNewPath(newPath);
+        target.setNewName(newName);
+        target.setTitle(truncate(title, 255));
+        target.setMediaType(mediaType);
+        target.setReason(reason);
+        target.setStatus("0");
+        target.setFoundTime(now);
+        return new Decision(existing != null ? Action.UPDATE : Action.INSERT, target);
+    }
+
+    private static String truncate(String value, int max) {
+        if (value == null || value.length() <= max) {
+            return value;
+        }
+        return value.substring(0, max);
+    }
 }

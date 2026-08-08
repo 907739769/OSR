@@ -93,7 +93,10 @@
       <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-refresh" @click="handleBatchExecute">
         执行
       </v-btn>
-      <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleBatchDelete">
+      <v-btn variant="text" color="error" size="small" prepend-icon="mdi-broom" @click="handleBatchPurge">
+        清产物
+      </v-btn>
+      <v-btn variant="text" color="error" size="small" prepend-icon="mdi-database-remove-outline" @click="handleBatchDelete">
         删记录
       </v-btn>
       <v-btn variant="text" color="warning" size="small" prepend-icon="mdi-refresh" @click="handleBatchScrape">
@@ -185,7 +188,8 @@
         <v-card-text>
           <div class="drawer-actions">
             <v-btn v-if="actionDrawerTarget.scrapeStatus === '1'" color="error" block @click="handleDeleteScrapeOne(actionDrawerTarget); actionDrawerOpen = false">删刮削</v-btn>
-            <v-btn color="error" block prepend-icon="mdi-delete-outline" @click="handleDeleteOne(actionDrawerTarget); actionDrawerOpen = false">删记录</v-btn>
+            <v-btn color="error" block prepend-icon="mdi-broom" @click="handlePurgeOne(actionDrawerTarget); actionDrawerOpen = false">清理产物</v-btn>
+            <v-btn color="error" variant="outlined" block prepend-icon="mdi-database-remove-outline" @click="handleDeleteOne(actionDrawerTarget); actionDrawerOpen = false">仅删记录</v-btn>
           </div>
         </v-card-text>
       </v-card>
@@ -291,6 +295,44 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- Purge Dialog -->
+    <v-dialog v-model="purgeDialogVisible" width="92%">
+      <v-card title="清理重命名产物">
+        <v-card-text>
+          <v-alert type="info" variant="tonal" density="compact" class="mb-3">
+            只删目标库副本（STRM / 视频、NFO、图片）并回收空目录，源文件不动。
+          </v-alert>
+          <v-progress-linear v-if="purgePreviewLoading" indeterminate color="primary" class="mb-3" />
+          <div v-else-if="!purgeFiles.length" class="purge-empty">磁盘上没有找到对应文件，只需处理数据库记录。</div>
+          <template v-else>
+            <div class="purge-count">将删除以下 {{ purgeFiles.length }} 个文件：</div>
+            <div class="purge-list">
+              <div v-for="file in purgeFiles" :key="file" class="purge-item" @click="showFullText(file, '待删除文件')">{{ file }}</div>
+            </div>
+          </template>
+          <v-checkbox
+            v-model="purgeDeleteRecord"
+            label="同时删除重命名记录"
+            density="compact"
+            hide-details
+            class="mt-2"
+          />
+          <div class="purge-hint">
+            {{ purgeDeleteRecord
+              ? '记录一并删除，此后一致性检查不再跟踪；下次执行任务会重新处理源文件。'
+              : '记录保留，一致性检查下一轮会标成「本地文件丢失」。' }}
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="outlined" @click="purgeDialogVisible = false">取消</v-btn>
+          <v-btn color="error" variant="flat" :loading="purgeLoading" :disabled="purgePreviewLoading" @click="handlePurgeSubmit">
+            确认清理
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
@@ -326,7 +368,9 @@ const {
   batchDialogVisible, batchLoading, batchFormRef, batchForm,
   handleBatchExecute, handleBatchClose, handleBatchSubmit,
   handleScrapeOne, handleBatchScrape,
-  handleDeleteScrapeOne, handleBatchDeleteScrape
+  handleDeleteScrapeOne, handleBatchDeleteScrape,
+  purgeDialogVisible, purgeLoading, purgePreviewLoading, purgeFiles, purgeDeleteRecord,
+  handlePurgeOne, handleBatchPurge, handlePurgeSubmit
 } = useRenameDetailList()
 
 getList()
@@ -368,6 +412,41 @@ const episodeRule = (v: string) => !v || /^\d{1,4}$/.test(v) || '集为 1-4 位�
   font-size: 13px;
   color: var(--osr-text-secondary);
   margin-bottom: 12px;
+}
+
+.purge-count {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--osr-text-primary);
+  margin-bottom: 6px;
+}
+
+.purge-list {
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--osr-border-base);
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.purge-item {
+  font-family: monospace;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--osr-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.purge-empty,
+.purge-hint {
+  font-size: 12px;
+  color: var(--osr-text-secondary);
+}
+
+.purge-hint {
+  margin-top: 4px;
 }
 
 .rename-compare-header {

@@ -3,7 +3,7 @@
     <PageHeader
       icon="mdi-format-list-checks"
       title="重命名明细"
-      desc="逐文件的重命名与刮削结果，可单条重试或删除刮削产物"
+      desc="逐文件的重命名与刮削结果，可重试改名、清理产物或仅删除记录"
     />
 
     <!-- Search Panel -->
@@ -104,8 +104,11 @@
       <!-- Action Bar -->
       <div class="action-bar">
         <div class="action-left">
-          <v-btn color="error" prepend-icon="mdi-delete-outline" :disabled="multiple" @click="handleBatchDelete()">
-            批量删除记录
+          <v-btn color="error" prepend-icon="mdi-broom" :disabled="multiple" @click="handleBatchPurge()">
+            批量清理产物
+          </v-btn>
+          <v-btn color="error" variant="outlined" prepend-icon="mdi-database-remove-outline" :disabled="multiple" @click="handleBatchDelete()">
+            仅删记录
           </v-btn>
           <v-btn color="info" prepend-icon="mdi-refresh" :disabled="multiple" @click="handleBatchExecute()">
             批量执行
@@ -184,8 +187,11 @@
           <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-refresh" @click="handleRetryOne(item)">
             重试
           </v-btn>
-          <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDeleteOne(item)">
-            删除记录
+          <v-btn variant="text" color="error" size="small" prepend-icon="mdi-broom" @click="handlePurgeOne(item)">
+            清理产物
+          </v-btn>
+          <v-btn variant="text" color="error" size="small" prepend-icon="mdi-database-remove-outline" @click="handleDeleteOne(item)">
+            仅删记录
           </v-btn>
         </template>
       </v-data-table-server>
@@ -278,6 +284,45 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- Purge Dialog -->
+    <v-dialog v-model="purgeDialogVisible" max-width="900">
+      <v-card title="清理重命名产物">
+        <v-card-text>
+          <v-alert type="info" variant="tonal" density="compact" class="mb-3">
+            只删除目标库里的副本（STRM / 视频、NFO、图片），并回收变空的目录。
+            源目录里的原始文件不会被动——重跑一次任务就能重新生成。
+          </v-alert>
+          <v-progress-linear v-if="purgePreviewLoading" indeterminate color="primary" class="mb-3" />
+          <div v-else-if="!purgeFiles.length" class="purge-empty">磁盘上没有找到对应文件，只需处理数据库记录。</div>
+          <template v-else>
+            <div class="purge-count">将删除以下 {{ purgeFiles.length }} 个文件：</div>
+            <div class="purge-list">
+              <div v-for="file in purgeFiles" :key="file" class="purge-item" :title="file">{{ file }}</div>
+            </div>
+          </template>
+          <v-checkbox
+            v-model="purgeDeleteRecord"
+            label="同时删除重命名记录"
+            density="compact"
+            hide-details
+            class="mt-2"
+          />
+          <div class="purge-hint">
+            {{ purgeDeleteRecord
+              ? '记录一并删除，此后一致性检查不再跟踪；下次执行重命名任务会把源文件重新处理一遍。'
+              : '记录保留，一致性检查下一轮会把它标成「本地文件丢失」，仍在你的视野里。' }}
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="outlined" @click="purgeDialogVisible = false">取消</v-btn>
+          <v-btn color="error" variant="flat" :loading="purgeLoading" :disabled="purgePreviewLoading" @click="handlePurgeSubmit">
+            确认清理
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
@@ -299,7 +344,9 @@ const {
   batchDialogVisible, batchLoading, batchFormRef, batchForm,
   handleBatchExecute, handleBatchClose, handleBatchSubmit,
   handleScrapeOne, handleBatchScrape,
-  handleDeleteScrapeOne, handleBatchDeleteScrape
+  handleDeleteScrapeOne, handleBatchDeleteScrape,
+  purgeDialogVisible, purgeLoading, purgePreviewLoading, purgeFiles, purgeDeleteRecord,
+  handlePurgeOne, handleBatchPurge, handlePurgeSubmit
 } = useRenameDetailList()
 
 getList()
@@ -326,7 +373,7 @@ const headers = [
   { title: '状态', key: 'status', align: 'center' as const, width: '80' },
   { title: '刮削', key: 'scrapeStatus', align: 'center' as const, width: '90' },
   { title: '创建时间', key: 'createTime', width: '170', align: 'center' as const },
-  { title: '操作', key: 'actions', align: 'center' as const, width: '320', sortable: false }
+  { title: '操作', key: 'actions', align: 'center' as const, width: '460', sortable: false }
 ]
 
 // v-data-table-server 的多选需要一个本地 ref 承接当前选中的行对象，
@@ -466,6 +513,44 @@ const episodeRule = (v: string) => !v || /^\d{1,4}$/.test(v) || '集为 1-4 位�
 .scrape-none {
   color: var(--osr-text-placeholder);
   font-size: 13px;
+}
+
+/* ============================================
+   Purge Dialog
+   ============================================ */
+.purge-count {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--osr-text-primary);
+  margin-bottom: 6px;
+}
+
+.purge-list {
+  max-height: 280px;
+  overflow: auto;
+  border: 1px solid var(--osr-border-base);
+  border-radius: 6px;
+  padding: 8px;
+}
+
+.purge-item {
+  font-family: monospace;
+  font-size: 12px;
+  line-height: 1.7;
+  color: var(--osr-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.purge-empty,
+.purge-hint {
+  font-size: 12px;
+  color: var(--osr-text-secondary);
+}
+
+.purge-hint {
+  margin-top: 4px;
 }
 
 .scrape-tag {

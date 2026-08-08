@@ -14,7 +14,7 @@
         <v-select
           v-model="queryParams.reason"
           label="原因"
-          :items="[{ title: '本地文件丢失', value: 'local_missing' }, { title: '网盘源丢失', value: 'source_missing' }]"
+          :items="REASON_OPTIONS"
           placeholder="全部原因"
           clearable
           density="compact"
@@ -82,16 +82,15 @@
             <StatusChip v-else-if="item.status === '1'" type="success" text="已清理" />
             <StatusChip v-else type="info" text="已忽略" />
           </div>
-          <div class="card-path card-path--link" @click.stop="showFullText(`${item.newPath}/${item.newName}`, '重命名后路径')">
+          <div class="card-path card-path--link" @click.stop="showFullText(fullPath(item), '重命名后路径')">
             <v-icon class="card-path-icon" icon="mdi-map-marker-outline" size="14" />
-            <span class="card-path-text">{{ item.newPath }}/{{ item.newName }}</span>
+            <span class="card-path-text">{{ fullPath(item) }}</span>
           </div>
           <div class="card-detail">
             <div class="detail-row">
               <span class="label">原因</span>
               <span class="value">
-                <StatusChip v-if="item.reason === 'local_missing'" type="warning" text="本地文件丢失" />
-                <StatusChip v-else type="error" text="网盘源丢失" />
+                <StatusChip :type="REASON_META[item.reason]?.type || 'info'" :text="REASON_META[item.reason]?.text || item.reason" />
               </span>
             </div>
           </div>
@@ -135,7 +134,7 @@ import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import FullTextDialog from '@/components/mobile/FullTextDialog.vue'
 import StatusChip from '@/components/StatusChip.vue'
-import { useRenameOrphanList } from '@/composables/useRenameOrphanList'
+import { useRenameOrphanList, REASON_META, REASON_OPTIONS, fullPath } from '@/composables/useRenameOrphanList'
 
 const searchCollapsed = ref(true)
 

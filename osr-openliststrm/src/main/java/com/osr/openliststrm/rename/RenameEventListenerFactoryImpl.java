@@ -4,15 +4,13 @@ import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.mybatisplus.domain.RenameDetailPlus;
 import com.osr.openliststrm.mybatisplus.service.IRenameDetailPlusService;
+import com.osr.openliststrm.rename.cleanup.RenameCleanupService;
 import com.osr.openliststrm.rename.model.MediaInfo;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.List;
 
 /**
@@ -27,6 +25,9 @@ public class RenameEventListenerFactoryImpl implements RenameEventListenerFactor
 
     @Autowired
     private IRenameDetailPlusService renameDetailService;
+
+    @Autowired
+    private RenameCleanupService cleanupService;
 
     @Override
     public RenameEventListener create(final Integer taskId) {
@@ -60,7 +61,9 @@ public class RenameEventListenerFactoryImpl implements RenameEventListenerFactor
             RenameDetailPlus record = findByOriginal(originalDir, originalName);
 
             if (record != null) {
-                deleteOldFiles(record, destDir, destName);
+                // 必须在改写 record 的 new_path/new_name 之前清旧位置：
+                // 清理要用旧值定位文件，也要靠这一行还指着旧路径来做兄弟判定
+                cleanupService.purgeRelocated(record, dest);
             } else {
                 record = new RenameDetailPlus();
                 record.setOriginalPath(originalDir);
@@ -114,19 +117,6 @@ public class RenameEventListenerFactoryImpl implements RenameEventListenerFactor
         qw.eq("original_path", path).eq("original_name", name);
         List<RenameDetailPlus> list = renameDetailService.list(qw);
         return list.isEmpty() ? null : list.get(0);
-    }
-
-    private void deleteOldFiles(RenameDetailPlus record, String newDir, String newName) {
-        try {
-            if (StringUtils.isBlank(record.getNewPath()) || StringUtils.isBlank(record.getNewName())) return;
-            Path oldPath = Paths.get(record.getNewPath()).resolve(record.getNewName());
-            Path newPath = Paths.get(newDir).resolve(newName);
-            if (Files.exists(oldPath) && !oldPath.normalize().equals(newPath.normalize())) {
-                Files.deleteIfExists(oldPath);
-            }
-        } catch (IOException e) {
-            log.warn("Delete old file failed", e);
-        }
     }
 
     private void fillCommonFields(RenameDetailPlus record, MediaInfo info, String mediaType) {
