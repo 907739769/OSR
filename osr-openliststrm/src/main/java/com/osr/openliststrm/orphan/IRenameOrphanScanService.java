@@ -46,9 +46,13 @@ public interface IRenameOrphanScanService {
      * @param localExtra    目标库里无主的媒体文件
      * @param metadataOnly  只剩元数据的目录
      * @param emptyDir      空目录
-     * @param truncated     因单轮上限被丢弃、未落库的反向发现数（不是 0 就说明这轮没扫全）
+     * @param truncated     因单轮上限被丢弃、未落库的反向发现数（不是 0 就说明这轮没扫全）；
+     *                      文件级与目录级各有独立额度，这里是两者之和
+     * @param baselineSkipped 早于任务创建时间、被基线放过的反向发现数。这些是重命名接管之前
+     *                      就存在的历史文件/目录，不归任务管；数字大是正常的，不代表漏扫
      */
     record ScanSummary(int localMissing, int sourceMissing, int resolved, int unparsable,
-                       int localExtra, int metadataOnly, int emptyDir, int truncated) {
+                       int localExtra, int metadataOnly, int emptyDir, int truncated,
+                       int baselineSkipped) {
     }
 }

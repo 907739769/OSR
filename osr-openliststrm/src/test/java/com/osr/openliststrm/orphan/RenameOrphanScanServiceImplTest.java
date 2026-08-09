@@ -22,6 +22,11 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.FileTime;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -286,16 +291,35 @@ class RenameOrphanScanServiceImplTest {
     // 反向扫描：文件 -> 记录
     // ------------------------------------------------------------------
 
-    /** 建出 <temp>/lib/电视剧/国产剧/某剧 (2024)/Season 01 并把 lib 配成任务目标目录 */
+    /**
+     * 建出 &lt;temp&gt;/lib/电视剧/国产剧/某剧 (2024)/Season 01 并把 lib 配成任务目标目录。
+     * 不设 create_time，即基线为 0——反向扫描退化为全量判定，与加基线之前的行为一致。
+     */
     private Path prepareLibrary() throws IOException {
+        return prepareLibrary(null);
+    }
+
+    /** 同上，但给任务设一个创建时间作为反向扫描的基线（格式同 MyMetaObjectHandler 写入的那种） */
+    private Path prepareLibrary(String taskCreateTime) throws IOException {
         Path lib = tempDir.resolve("lib");
         Path seasonDir = lib.resolve("电视剧").resolve("国产剧").resolve("某剧 (2024)").resolve("Season 01");
         Files.createDirectories(seasonDir);
         RenameTaskPlus task = new RenameTaskPlus();
         task.setId(1);
         task.setTargetRoot(lib.toString());
+        task.setCreateTime(taskCreateTime);
         when(renameTaskService.list()).thenReturn(List.of(task));
         return seasonDir;
+    }
+
+    /** 把文件的最后修改时间设成相对现在的偏移量（负数=过去） */
+    private static void setModified(Path path, Duration offsetFromNow) throws IOException {
+        Files.setLastModifiedTime(path, FileTime.from(Instant.now().plus(offsetFromNow)));
+    }
+
+    /** 相对现在偏移若干天的时刻，按 create_time 的存储格式（yyyy-MM-dd HH:mm:ss）输出 */
+    private static String daysAgo(long days) {
+        return LocalDateTime.now().minusDays(days).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
     }
 
     @Test
@@ -409,6 +433,119 @@ class RenameOrphanScanServiceImplTest {
         assertEquals(0, summary.localExtra());
         verify(renameOrphanService, never()).save(any());
         verify(renameOrphanService, never()).removeById(any());
+    }
+
+    // ------------------------------------------------------------------
+    // 反向扫描：mtime 基线
+    // ------------------------------------------------------------------
+
+    @Test
+    void scan反向_文件早于任务创建时间_不判为无主() throws IOException {
+        Path seasonDir = prepareLibrary(daysAgo(30));
+        Path old = seasonDir.resolve("重命名接管之前就在的.strm");
+        Files.writeString(old, "x");
+        setModified(old, Duration.ofDays(-365));
+        when(renameDetailService.list(any(Wrapper.class))).thenReturn(List.of());
+        when(renameOrphanService.list()).thenReturn(List.of());
+
+        var summary = service.scan();
+
+        assertEquals(0, summary.localExtra(), "任务建起来之前就躺在库里的历史文件不归它管");
+        assertEquals(1, summary.baselineSkipped());
+        verify(renameOrphanService, never()).save(any());
+    }
+
+    @Test
+    void scan反向_文件晚于任务创建时间_照常判为无主() throws IOException {
+        Path seasonDir = prepareLibrary(daysAgo(30));
+        Path fresh = seasonDir.resolve("只删了记录文件还在.strm");
+        Files.writeString(fresh, "x");
+        setModified(fresh, Duration.ofDays(-1));
+        when(renameDetailService.list(any(Wrapper.class))).thenReturn(List.of());
+        when(renameOrphanService.list()).thenReturn(List.of());
+
+        var summary = service.scan();
+
+        assertEquals(1, summary.localExtra(), "基线之后产生的无主文件正是这个方向要抓的");
+        assertEquals(0, summary.baselineSkipped());
+    }
+
+    @Test
+    void scan反向_被基线放过的媒体文件仍算目录里有主文件_不把目录判成仅剩元数据() throws IOException {
+        Path seasonDir = prepareLibrary(daysAgo(30));
+        Path oldMedia = seasonDir.resolve("历史影片.mkv");
+        Files.writeString(oldMedia, "x");
+        setModified(oldMedia, Duration.ofDays(-365));
+        Path nfo = seasonDir.resolve("历史影片.nfo");
+        Files.writeString(nfo, "x");
+        setModified(nfo, Duration.ofDays(-365));
+        when(renameDetailService.list(any(Wrapper.class))).thenReturn(List.of());
+        when(renameOrphanService.list()).thenReturn(List.of());
+
+        var summary = service.scan();
+
+        assertEquals(0, summary.localExtra());
+        assertEquals(0, summary.metadataOnly(),
+                "基线只影响报不报，不影响'这个目录有没有主媒体文件'的事实——判错会让目录被清理掉");
+        assertEquals(0, summary.emptyDir());
+    }
+
+    @Test
+    void scan反向_任务没有创建时间_退化为全量判定() throws IOException {
+        Path seasonDir = prepareLibrary(null);
+        Path old = seasonDir.resolve("很老的.strm");
+        Files.writeString(old, "x");
+        setModified(old, Duration.ofDays(-3650));
+        when(renameDetailService.list(any(Wrapper.class))).thenReturn(List.of());
+        when(renameOrphanService.list()).thenReturn(List.of());
+
+        var summary = service.scan();
+
+        assertEquals(1, summary.localExtra(), "没有基线可用时宁可多报也不漏报");
+        assertEquals(0, summary.baselineSkipped());
+    }
+
+    @Test
+    void scan反向_同一锚点被两个任务共用_取最早的创建时间做基线() throws IOException {
+        Path lib = tempDir.resolve("lib");
+        Path seasonDir = lib.resolve("电视剧").resolve("国产剧").resolve("某剧 (2024)").resolve("Season 01");
+        Files.createDirectories(seasonDir);
+        Path file = seasonDir.resolve("早建任务的产物.strm");
+        Files.writeString(file, "x");
+        setModified(file, Duration.ofDays(-100));
+
+        RenameTaskPlus early = new RenameTaskPlus();
+        early.setId(1);
+        early.setTargetRoot(lib.toString());
+        early.setCreateTime(daysAgo(200));
+        RenameTaskPlus late = new RenameTaskPlus();
+        late.setId(2);
+        late.setTargetRoot(lib.toString());
+        late.setCreateTime(daysAgo(10));
+        when(renameTaskService.list()).thenReturn(List.of(early, late));
+        when(renameDetailService.list(any(Wrapper.class))).thenReturn(List.of());
+        when(renameOrphanService.list()).thenReturn(List.of());
+
+        var summary = service.scan();
+
+        assertEquals(1, summary.localExtra(), "晚建的任务不该把早建任务的产物挡在基线之外");
+    }
+
+    @Test
+    void scan反向_目录级发现有独立额度_不被文件级发现挤掉() throws IOException {
+        // 一个空目录 + 一个无主文件同时存在时，两类发现各走各的额度，都要落库
+        Path seasonDir = prepareLibrary();
+        Files.writeString(seasonDir.resolve("无主.strm"), "x");
+        Path emptyDir = tempDir.resolve("lib").resolve("电视剧").resolve("国产剧").resolve("空剧 (2024)");
+        Files.createDirectories(emptyDir);
+        when(renameDetailService.list(any(Wrapper.class))).thenReturn(List.of());
+        when(renameOrphanService.list()).thenReturn(List.of());
+
+        var summary = service.scan();
+
+        assertEquals(1, summary.localExtra());
+        assertEquals(1, summary.emptyDir());
+        assertEquals(0, summary.truncated());
     }
 
     @Test

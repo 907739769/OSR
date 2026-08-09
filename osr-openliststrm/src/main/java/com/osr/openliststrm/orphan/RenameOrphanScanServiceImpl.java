@@ -3,6 +3,7 @@ package com.osr.openliststrm.orphan;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.osr.common.utils.DateUtils;
 import com.osr.openliststrm.api.OpenlistApi;
 import com.osr.openliststrm.config.OpenlistConfig;
 import com.osr.openliststrm.helper.OpenListHelper;
@@ -31,6 +32,7 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.Deque;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -45,11 +47,19 @@ import java.util.stream.Collectors;
 public class RenameOrphanScanServiceImpl implements IRenameOrphanScanService {
 
     /**
-     * 单轮反向扫描最多落库的发现数。首次在一个积压已久的库上跑，无主文件可能上万条，
-     * 全量写进去只会让页面变成不可用的噪音墙。超出部分记入 {@code truncated} 并打日志——
-     * 静默截断会读成"已经扫全了"，那比不扫更危险。
+     * 单轮反向扫描最多落库的发现数，文件级与目录级<b>各自独立</b>。首次在一个积压已久的库上跑，
+     * 无主文件可能上万条，全量写进去只会让页面变成不可用的噪音墙。超出部分记入
+     * {@code truncated} 并打日志——静默截断会读成"已经扫全了"，那比不扫更危险。
+     * <p>
+     * 两个额度必须分开：{@code visitFile} 在遍历顺序上永远排在 {@code postVisitDirectory} 前面，
+     * 共用一个池子时文件级发现会把目录级发现结构性地饿死——而 metadata_only / empty_dir
+     * 恰恰是这个方向最想抓的东西（只删记录留下的残骸、改标题重试留下的鬼剧集），
+     * 数量级又天然小得多，凭什么跟成千上万的无主文件抢同一份额度。
      */
-    private static final int MAX_EXTRA_FINDINGS = 2000;
+    private static final int MAX_FILE_FINDINGS = 1500;
+
+    /** 目录级发现（metadata_only + empty_dir）的单轮落库上限，见 {@link #MAX_FILE_FINDINGS} */
+    private static final int MAX_DIR_FINDINGS = 500;
 
     /**
      * 反向扫描判定目录级问题的最小深度（相对 {@code targetRoot/电影} 或 {@code targetRoot/电视剧}）。
@@ -81,6 +91,16 @@ public class RenameOrphanScanServiceImpl implements IRenameOrphanScanService {
     private record ScanCandidate(RenameDetailPlus detail, String sourcePath) {
     }
 
+    /**
+     * 反向扫描的一个起点：媒体锚点目录 + 这个目录「归重命名任务管」的起始时刻。
+     *
+     * @param anchor          {@code targetRoot/电影} 或 {@code targetRoot/电视剧}
+     * @param baselineMillis  基线时刻，取自该 targetRoot 对应任务的 create_time；
+     *                        0 表示没有基线（任务行的 create_time 为空），此时退化为全量判定
+     */
+    private record ScanRoot(Path anchor, long baselineMillis) {
+    }
+
     @Override
     public ScanSummary scan() {
         List<RenameOrphanPlus> allOrphans = renameOrphanService.list();
@@ -91,10 +111,12 @@ public class RenameOrphanScanServiceImpl implements IRenameOrphanScanService {
 
         ScanSummary summary = new ScanSummary(forward.localMissing, forward.sourceMissing,
                 forward.resolved + extra.resolved, forward.unparsable,
-                extra.localExtra, extra.metadataOnly, extra.emptyDir, extra.truncated);
-        log.info("重命名一致性检查扫描完成: 本地丢失={}, 网盘源丢失={}, 无主文件={}, 仅元数据目录={}, 空目录={}, 已恢复正常={}, 无法解析跳过={}, 超上限丢弃={}",
+                extra.localExtra, extra.metadataOnly, extra.emptyDir, extra.truncated(),
+                extra.baselineSkipped);
+        log.info("重命名一致性检查扫描完成: 本地丢失={}, 网盘源丢失={}, 无主文件={}, 仅元数据目录={}, 空目录={}, 已恢复正常={}, 无法解析跳过={}, 早于基线跳过={}, 超上限丢弃={}(文件级{}/目录级{})",
                 summary.localMissing(), summary.sourceMissing(), summary.localExtra(), summary.metadataOnly(),
-                summary.emptyDir(), summary.resolved(), summary.unparsable(), summary.truncated());
+                summary.emptyDir(), summary.resolved(), summary.unparsable(), summary.baselineSkipped(),
+                summary.truncated(), extra.truncatedFile, extra.truncatedDir);
         return summary;
     }
 
@@ -246,7 +268,13 @@ public class RenameOrphanScanServiceImpl implements IRenameOrphanScanService {
         int metadataOnly;
         int emptyDir;
         int resolved;
-        int truncated;
+        int truncatedFile;
+        int truncatedDir;
+        int baselineSkipped;
+
+        int truncated() {
+            return truncatedFile + truncatedDir;
+        }
     }
 
     /** 遍历一个目录时累计的内容构成，用于在 postVisitDirectory 判定目录级问题 */
@@ -255,12 +283,14 @@ public class RenameOrphanScanServiceImpl implements IRenameOrphanScanService {
         int metadataFiles;
         int otherFiles;
         int subDirs;
+        /** 目录自身的最后修改时刻，进目录时就取好——postVisitDirectory 拿不到 attrs */
+        long modifiedMillis;
     }
 
     private ExtraCounters scanExtras(List<RenameOrphanPlus> allOrphans, Date now) {
         ExtraCounters counters = new ExtraCounters();
 
-        List<Path> roots = mediaRoots();
+        List<ScanRoot> roots = mediaRoots();
         if (roots.isEmpty()) {
             log.debug("没有配置任何重命名任务的目标目录，跳过反向扫描");
             return counters;
@@ -273,7 +303,7 @@ public class RenameOrphanScanServiceImpl implements IRenameOrphanScanService {
 
         Set<String> foundKeys = new LinkedHashSet<>();
 
-        for (Path root : roots) {
+        for (ScanRoot root : roots) {
             walkRoot(root, known, existingByPath, foundKeys, counters, now);
         }
 
@@ -290,17 +320,19 @@ public class RenameOrphanScanServiceImpl implements IRenameOrphanScanService {
         return counters;
     }
 
-    private void walkRoot(Path root, Set<String> known, Map<String, RenameOrphanPlus> existingByPath,
+    private void walkRoot(ScanRoot root, Set<String> known, Map<String, RenameOrphanPlus> existingByPath,
                           Set<String> foundKeys, ExtraCounters counters, Date now) {
         Deque<DirStat> stack = new ArrayDeque<>();
         Deque<Integer> depths = new ArrayDeque<>();
         try {
             // 不跟随符号链接（walkFileTree 的默认行为），避免挂载点自引用把遍历带进死循环
-            Files.walkFileTree(root, new SimpleFileVisitor<>() {
+            Files.walkFileTree(root.anchor(), new SimpleFileVisitor<>() {
 
                 @Override
                 public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
-                    stack.push(new DirStat());
+                    DirStat stat = new DirStat();
+                    stat.modifiedMillis = attrs.lastModifiedTime().toMillis();
+                    stack.push(stat);
                     depths.push(depths.isEmpty() ? 0 : depths.peek() + 1);
                     return FileVisitResult.CONTINUE;
                 }
@@ -310,8 +342,15 @@ public class RenameOrphanScanServiceImpl implements IRenameOrphanScanService {
                     DirStat stat = stack.peek();
                     String name = file.getFileName().toString();
                     if (openListHelper.isStrm(name) || openListHelper.isVideo(name)) {
+                        // 计数必须排在基线判定之前：被基线放过的历史文件同样是"这个目录里有主媒体文件"
+                        // 的证据，漏计会让整个目录被判成 metadata_only / empty_dir，
+                        // 而那两种是可以点清理的——等于拿基线换来一次误删
                         if (stat != null) {
                             stat.mediaFiles++;
+                        }
+                        if (beforeBaseline(attrs.lastModifiedTime().toMillis(), root)) {
+                            counters.baselineSkipped++;
+                            return FileVisitResult.CONTINUE;
                         }
                         Path dir = file.getParent();
                         String key = pathKey(dir == null ? null : dir.toString(), name);
@@ -351,6 +390,13 @@ public class RenameOrphanScanServiceImpl implements IRenameOrphanScanService {
                             && stat.otherFiles == 0 && stat.subDirs == 0;
                     boolean metadataOnly = stat.mediaFiles == 0 && stat.metadataFiles > 0
                             && stat.otherFiles == 0 && stat.subDirs == 0;
+                    // 目录同样吃基线：任务创建之前就在、此后没被动过的目录不是重命名留下的残骸。
+                    // 判定放在这里而不是方法开头，是为了让 baselineSkipped 只统计"本来会上报的"目录——
+                    // 库里绝大多数目录压根不是发现项，一并计进去这个数字就没法读了
+                    if ((nothingAtAll || metadataOnly) && beforeBaseline(stat.modifiedMillis, root)) {
+                        counters.baselineSkipped++;
+                        return FileVisitResult.CONTINUE;
+                    }
                     if (nothingAtAll) {
                         record(pathKey(dir.toString(), null), dir.toString(), null, dirName,
                                 OrphanReason.EMPTY_DIR, existingByPath, foundKeys, counters, now);
@@ -367,6 +413,13 @@ public class RenameOrphanScanServiceImpl implements IRenameOrphanScanService {
     }
 
     /**
+     * 某个时刻是否早于基线。基线为 0（任务行没有 create_time）时恒为 false，即退化为不过滤。
+     */
+    private static boolean beforeBaseline(long millis, ScanRoot root) {
+        return root.baselineMillis() > 0 && millis < root.baselineMillis();
+    }
+
+    /**
      * 落一条反向发现。超过单轮上限时只累加 truncated 并跳过写库——注意仍然不计入 foundKeys，
      * 因此被丢弃的项在下一轮会重新出现，不会永久丢失。
      */
@@ -377,8 +430,14 @@ public class RenameOrphanScanServiceImpl implements IRenameOrphanScanService {
         // 都必须算见过，否则下面的"已恢复"清扫会把它们当成问题已解决而删掉，
         // 下一轮再重新发现——列表来回抖动，用户的忽略也白点了
         foundKeys.add(key);
-        if (counters.localExtra + counters.metadataOnly + counters.emptyDir >= MAX_EXTRA_FINDINGS) {
-            counters.truncated++;
+        boolean dirLevel = !OrphanReason.LOCAL_EXTRA.equals(reason);
+        if (dirLevel) {
+            if (counters.metadataOnly + counters.emptyDir >= MAX_DIR_FINDINGS) {
+                counters.truncatedDir++;
+                return;
+            }
+        } else if (counters.localExtra >= MAX_FILE_FINDINGS) {
+            counters.truncatedFile++;
             return;
         }
         RenameOrphanPlus existing = existingByPath.get(key);
@@ -397,24 +456,46 @@ public class RenameOrphanScanServiceImpl implements IRenameOrphanScanService {
         }
     }
 
-    /** 所有重命名任务目标目录下的 电影/电视剧 两个锚点，去重后作为反向扫描的起点 */
-    private List<Path> mediaRoots() {
+    /**
+     * 所有重命名任务目标目录下的 电影/电视剧 两个锚点，去重后作为反向扫描的起点，
+     * 每个锚点附带一个基线时刻。
+     * <p>
+     * 基线取任务的 {@code create_time}：任务建起来之前就躺在库里、此后又没被动过的东西，
+     * 不是这个任务产出的，也就不该被判成"无主"。没有这道闸的话，一个混着历史文件的媒体库
+     * 每轮都会把成千上万个与重命名无关的文件报成 local_extra，把额度占满，
+     * 真正想抓的残骸（metadata_only / empty_dir）反而一条都露不出来。
+     * <p>
+     * 同一个锚点被多个任务共用时取<b>最早</b>的 create_time：晚建的那个任务不该把早建任务
+     * 的产物挡在基线之外。任一任务缺 create_time 则退化为 0（不过滤），这是保守方向——
+     * 宁可多报也不漏报。
+     */
+    private List<ScanRoot> mediaRoots() {
         List<RenameTaskPlus> tasks = renameTaskService.list();
-        Set<Path> roots = new LinkedHashSet<>();
+        Map<Path, Long> baselineByAnchor = new LinkedHashMap<>();
         for (RenameTaskPlus task : tasks) {
             String targetRoot = task.getTargetRoot();
             if (targetRoot == null || targetRoot.isBlank()) {
                 continue;
             }
+            // create_time 在 BaseEntity 里是 String（MyMetaObjectHandler 按 yyyy-MM-dd HH:mm:ss 填），
+            // 解析不出来时 parseDate 返回 null，与"这行本来就没有创建时间"同样处理
+            Date created = DateUtils.parseDate(task.getCreateTime());
+            long baseline = created == null ? 0L : created.getTime();
+            if (baseline == 0L) {
+                log.warn("重命名任务 id={} 没有可用的创建时间，反向扫描对 {} 退化为全量判定（历史文件会被报成无主）",
+                        task.getId(), targetRoot);
+            }
             Path base = Paths.get(targetRoot.replaceAll("[/\\\\]+$", "")).toAbsolutePath().normalize();
             for (String topLevel : ArtifactPaths.MEDIA_TOP_LEVELS) {
                 Path anchor = base.resolve(topLevel);
                 if (Files.isDirectory(anchor)) {
-                    roots.add(anchor);
+                    baselineByAnchor.merge(anchor, baseline, Math::min);
                 }
             }
         }
-        return new ArrayList<>(roots);
+        return baselineByAnchor.entrySet().stream()
+                .map(e -> new ScanRoot(e.getKey(), e.getValue()))
+                .collect(Collectors.toList());
     }
 
     /** rename_detail 里所有成功记录指向的产物路径，作为"有主"的判据 */
