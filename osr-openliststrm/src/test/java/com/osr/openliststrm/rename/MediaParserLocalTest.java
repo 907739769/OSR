@@ -99,6 +99,30 @@ class MediaParserLocalTest {
     }
 
     @Test
+    void parseLocal_集数区间_季号在结尾重复_S01E01dashS01E04_识别为区间() {
+        // 如 "Furious 2026 S01E01-S01E04 2160p..."：区间结尾把季号又重复了一遍，
+        // 不是常见的 "-E04"/"-04" 写法
+        MediaInfo info = parser.parseLocal("Furious.2026.S01E01-S01E04.2160p.WEB-DL");
+
+        assertEquals("01", info.getSeason());
+        assertEquals("01", info.getEpisode());
+        assertEquals("04", info.getEpisodeEnd());
+    }
+
+    @Test
+    void parseLocal_真实种子标题_区间在中段_结尾发布组仍能正确识别() {
+        // 完整标题：区间后面还跟着分辨率/来源/HDR/编码/发布组，
+        // 确认 "-S01E04" 不会被 SourceAndGroupExtractor 误当发布组吃掉，真正的发布组 UBWEB 也不受影响
+        MediaInfo info = parser.parseLocal(
+                "Furious.2026.S01E01-S01E04.2160p.DSNP.WEB-DL.DoVi.HDR10+.H265.10bit.DDP5.1-UBWEB");
+
+        assertEquals("01", info.getSeason());
+        assertEquals("01", info.getEpisode());
+        assertEquals("04", info.getEpisodeEnd());
+        assertEquals("UBWEB", info.getReleaseGroup());
+    }
+
+    @Test
     void parseLocal_单集无区间后缀_episodeEnd为空() {
         MediaInfo info = parser.parseLocal("Some.Show.S01E01.1080p.WEB-DL");
 

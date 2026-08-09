@@ -15,13 +15,16 @@ public class YearSeasonEpisodeExtractor implements Extractor {
     // 年份：19xx 或 20xx
     private static final Pattern YEAR = Pattern.compile("\\b(19\\d{2}|20\\d{2})\\b");
 
-    // 1. 标准 S01E01 格式 (支持 S01E01-03、S01E01-E03 区间写法，以及 S01E01E02E03 多集拼接写法)
-    // 区间分隔符要么是 "-E"/"-"，要么单独一个 "E"；不能用简单的字符类 [-eE] 一次只吃一个字符，
+    // 1. 标准 S01E01 格式 (支持 S01E01-03、S01E01-E03、S01E01-S01E04 区间写法，以及 S01E01E02E03 多集拼接写法)
+    // 区间分隔符要么是 "-S01E"（季号在区间结尾重复一遍，如 "Furious 2026 S01E01-S01E04"）、
+    // 要么 "-E"/"-"，要么单独一个 "E"；"-S\d{1,2}E" 必须排在最前面——alternation 按顺序尝试，
+    // 排在后面的话 "-" 分支会先吃掉连字符，剩下的 "S01E04" 因为不是纯数字而让本次重复匹配失败
+    // （链条其余部分因此被漏掉，只剩起始集号）。也不能用简单的字符类 [-eE] 一次只吃一个字符，
     // 否则 "-E03" 会因为 "-" 吃掉分隔符后紧跟的 "E" 不是数字而匹配失败（曾经的实际 bug）。
     // group(3) 用 (?:...)*（非捕获组重复）只保留最后一次匹配的子串，因此后续用 CHAIN_NUM 二次扫描
     // 整个链条取出所有集号，而不是依赖 group(3) 单值（否则 E01E02E03 会丢失中间的 E02）。
-    private static final Pattern S_E = Pattern.compile("\\bS(\\d{1,2})\\s?E(\\d{1,4})((?:(?:-E|-|E)\\d{1,4})*)\\b", Pattern.CASE_INSENSITIVE);
-    private static final Pattern CHAIN_NUM = Pattern.compile("(?:-E|-|E)(\\d{1,4})", Pattern.CASE_INSENSITIVE);
+    private static final Pattern S_E = Pattern.compile("\\bS(\\d{1,2})\\s?E(\\d{1,4})((?:(?:-S\\d{1,2}E|-E|-|E)\\d{1,4})*)\\b", Pattern.CASE_INSENSITIVE);
+    private static final Pattern CHAIN_NUM = Pattern.compile("(?:-S\\d{1,2}E|-E|-|E)(\\d{1,4})", Pattern.CASE_INSENSITIVE);
 
     // 2. 纯 S01 或 纯 EP01 (EP01 同样支持 -03/-E03/E02E03 等区间与多集拼接写法)
     private static final Pattern S_ONLY = Pattern.compile("\\bS(\\d{1,2})\\b", Pattern.CASE_INSENSITIVE);

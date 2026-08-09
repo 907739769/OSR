@@ -17,8 +17,11 @@ public class SourceAndGroupExtractor implements Extractor {
     private static final Pattern SOURCE = Pattern.compile("\\b(WEB-?DL|WEB-?Rip|Blu-?Ray|BRRip|HDRip|HDTV|BDRip|CAM|WEB|DVD|DVDRip)\\b", Pattern.CASE_INSENSITIVE);
     private static final Pattern GROUP_END = Pattern.compile("(?:[-@]|\\s@)\\s*([A-Za-z0-9_\\.-]+)$");
 
-    /** "03"、"E03" 这类纯集号/带 E 前缀的集号不是发布组名，是季集区间的结尾（如 S01E01-03、S01E01-E03） */
-    private static final Pattern EPISODE_LIKE = Pattern.compile("^E?\\d{1,4}$", Pattern.CASE_INSENSITIVE);
+    /**
+     * "03"、"E03"、"S01E04" 这类纯集号/带 E 前缀/带季号前缀的集号不是发布组名，是季集区间的结尾
+     * （如 S01E01-03、S01E01-E03、S01E01-S01E04——区间结尾把季号又重复了一遍）
+     */
+    private static final Pattern EPISODE_LIKE = Pattern.compile("^(?:S\\d{1,2})?E?\\d{1,4}$", Pattern.CASE_INSENSITIVE);
     private static final Pattern GROUP_BRACKET = Pattern.compile("^\\[([A-Za-z0-9_\\.-]+)\\]");
 
     @Override
