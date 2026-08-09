@@ -7,6 +7,7 @@ import org.mockito.InOrder;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
@@ -244,6 +245,100 @@ class TMDbClientSearchTest {
         info.setSeason("01");
 
         assertEquals("神探夏洛克：可恶的新娘", client.search("tv", info, api));
+    }
+
+    // ---------- 门槛的最后一道证据：TMDb 的英文规范名（language=en-US） ----------
+
+    /**
+     * 真实漏网案例：{@code Mushoku.Tensei.Jobless.Reincarnation.S03E06.2026}。
+     * 搜索结果按 zh-CN 本地化，name 是中文译名、original_name 是日文原名，发布组用的罗马字标题
+     * 一个都不在里面；年份 2026 是第三季播出年，与首播 2021 差 5 年。两条证据全灭，
+     * 只能靠 en-US 详情里的英文规范名把它捞回来。
+     */
+    private static final String ZH_JA_ONLY = "{\"results\":[{\"id\":94664,"
+            + "\"name\":\"无职转生，到了异世界就拿出真本事\","
+            + "\"original_name\":\"無職転生 ～異世界行ったら本気だす～\","
+            + "\"first_air_date\":\"2021-01-11\",\"popularity\":90}]}";
+
+    private MediaInfo animeInfo() {
+        MediaInfo info = new MediaInfo("Mushoku.Tensei.Jobless.Reincarnation.S03E06.2026.1080p.NF.WEB-DL.x264-ADWeb.strm");
+        info.setOriginalTitle("Mushoku Tensei Jobless Reincarnation");
+        info.setYear("2026");
+        info.setSeason("03");
+        info.setEpisode("06");
+        return info;
+    }
+
+    @Test
+    void 门槛_中文名与日文原名都对不上时_靠英文规范名放行() throws Exception {
+        TMDbApiService api = mock(TMDbApiService.class);
+        when(api.search(anyString(), anyString(), anyString(), any())).thenReturn(ZH_JA_ONLY);
+        when(api.getDetails(anyString(), eq("tv"), eq(94664), eq("en-US")))
+                .thenReturn("{\"id\":94664,\"name\":\"Mushoku Tensei: Jobless Reincarnation\"}");
+
+        MediaInfo info = animeInfo();
+
+        // 采纳后标题仍取中文（getBestTitle 优先中文名），英文规范名只用于证明"是同一部作品"
+        assertEquals("无职转生，到了异世界就拿出真本事", client.search("tv", info, api));
+        assertEquals("94664", info.getTmdbId());
+    }
+
+    @Test
+    void 门槛_前两条证据成立时_不发英文详情请求() throws Exception {
+        TMDbApiService api = mock(TMDbApiService.class);
+        when(api.search(anyString(), anyString(), anyString(), any())).thenReturn(EMPTY);
+        when(api.search(anyString(), eq("tv"), eq("开始推理吧"), isNull())).thenReturn(TV_HIT);
+
+        client.search("tv", tvInfo(), api);
+
+        // 补查只走在"就要被拒"的路径上，正常命中的请求数不能变
+        verify(api, never()).getDetails(anyString(), anyString(), anyInt(), eq("en-US"));
+    }
+
+    @Test
+    void 门槛_英文规范名也对不上_仍然不采纳() throws Exception {
+        TMDbApiService api = mock(TMDbApiService.class);
+        when(api.search(anyString(), anyString(), anyString(), any())).thenReturn(IRRELEVANT);
+        when(api.getDetails(anyString(), anyString(), anyInt(), eq("en-US")))
+                .thenReturn("{\"id\":999,\"name\":\"Something Else Entirely\"}");
+
+        MediaInfo info = tvInfo();
+
+        assertNull(client.search("tv", info, api));
+        assertNull(info.getTmdbId());
+    }
+
+    @Test
+    void 门槛_英文详情请求失败_按证据不足处理而不是抛异常() throws Exception {
+        TMDbApiService api = mock(TMDbApiService.class);
+        when(api.search(anyString(), anyString(), anyString(), any())).thenReturn(ZH_JA_ONLY);
+        // TMDbApiService 在 HTTP 失败时返回 null——mapper.readTree(null) 会抛 IllegalArgumentException，
+        // 这类可有可无的补查绝不能把整次刮削带崩
+        when(api.getDetails(anyString(), anyString(), anyInt(), eq("en-US"))).thenReturn(null);
+
+        MediaInfo info = animeInfo();
+
+        assertNull(client.search("tv", info, api));
+        assertNull(info.getTmdbId());
+    }
+
+    @Test
+    void 门槛_文件名没有年份的韩剧_靠英文规范名放行() throws Exception {
+        // Flex.X.Cop.S02E02：文件名里压根没有年份，"年份接近"这条证据在构造上就不可能成立
+        String korean = "{\"results\":[{\"id\":234789,\"name\":\"财阀×刑警\","
+                + "\"original_name\":\"재벌 X 형사\",\"first_air_date\":\"2024-01-20\",\"popularity\":30}]}";
+        TMDbApiService api = mock(TMDbApiService.class);
+        when(api.search(anyString(), anyString(), anyString(), any())).thenReturn(korean);
+        when(api.getDetails(anyString(), eq("tv"), eq(234789), eq("en-US")))
+                .thenReturn("{\"id\":234789,\"name\":\"Flex X Cop\"}");
+
+        MediaInfo info = new MediaInfo("Flex.X.Cop.S02E02.1080p.DSNP.WEB-DL.AAC2.0.H.264-MWeb.strm");
+        info.setOriginalTitle("Flex X Cop");
+        info.setSeason("02");
+        info.setEpisode("02");
+
+        assertEquals("财阀×刑警", client.search("tv", info, api));
+        assertEquals("234789", info.getTmdbId());
     }
 
     @Test

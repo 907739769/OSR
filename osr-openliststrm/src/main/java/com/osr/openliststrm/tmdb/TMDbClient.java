@@ -317,19 +317,19 @@ public class TMDbClient {
 
         JsonNode picked = pickBestCandidate(type, info, results);
 
-        if (!hasEnoughEvidence(type, info, picked)) {
-            log.info("TMDb 结果证据不足，本次不采纳：{} —— 打分冠军是「{}（{}）」，"
-                            + "但与解析出的标题「{}」既不匹配、年份也不接近（解析年份 {}）",
-                    info.getOriginalName(), describeCandidate(type, picked), getYearSafe(picked, type),
-                    firstNonBlankTitle(info), info.getYear());
+        // 没有可用 id 就没法拉详情（英文规范名也拉不到），此时绝不能写 info：否则 tmdbId/year
+        // 被半途改掉，既让后续候选拿着被污染的年份去判断，又会让 needsAI 误以为已经识别出来了
+        int id = picked.path("id").asInt(-1);
+        if (id <= 0) {
+            log.debug("TMDb 冠军候选缺少 id，跳过：{}", info.getOriginalName());
             return null;
         }
 
-        int id = picked.path("id").asInt(-1);
-        if (id <= 0) {
-            // 没有可用 id 就没法拉详情，此时绝不能写 info：否则 tmdbId/year 被半途改掉，
-            // 既让后续候选拿着被污染的年份去判断，又会让 needsAI 误以为已经识别出来了
-            log.debug("TMDb 冠军候选缺少 id，跳过：{}", info.getOriginalName());
+        if (!hasEnoughEvidence(type, info, picked, id, api)) {
+            log.info("TMDb 结果证据不足，本次不采纳：{} —— 打分冠军是「{}（{}）」，"
+                            + "但与解析出的标题「{}」既不匹配（含英文规范名）、年份也不接近（解析年份 {}）",
+                    info.getOriginalName(), describeCandidate(type, picked), getYearSafe(picked, type),
+                    firstNonBlankTitle(info), info.getYear());
             return null;
         }
 
@@ -361,8 +361,71 @@ public class TMDbClient {
      * 会把非中文内容成片拒掉。所以门槛必须落在<b>信号</b>上，不是落在分数上。
      * </p>
      */
-    private boolean hasEnoughEvidence(String type, MediaInfo info, JsonNode node) {
-        return titleMatchLevel(type, info, node) > 0 || yearClose(type, info, node);
+    private boolean hasEnoughEvidence(String type, MediaInfo info, JsonNode node, int id, TMDbApiService api) {
+        if (titleMatchLevel(type, info, node) > 0 || yearClose(type, info, node)) {
+            return true;
+        }
+        return englishTitleMatches(type, info, id, api);
+    }
+
+    /**
+     * 最后一道证据：拿 TMDb 的<b>英文规范名</b>（{@code language=en-US}）再比一次标题。
+     * <p>
+     * 搜索结果里能比的只有 {@code name}（按 {@code openlist.tmdb.metadata.language} 本地化，默认 zh-CN）
+     * 与 {@code original_name}（作品母语）。对日番/韩剧/动画来说，这两个字段分别是中文译名和日文/韩文原名，
+     * 而发布组用的是<b>英文/罗马字</b>标题——它一个都不在里面，{@link #titleMatchLevel} 恒为 0。
+     * 年份这条证据同时又对 S2 以上的剧集失效（文件名里写的是本季播出年，候选侧是首播年，差好几年），
+     * 于是「TMDb 明明搜到了正确答案」却被门槛拒掉，{@code tmdbId} 为空、
+     * {@code MediaRenameProcessor} 直接跳过该文件。真实漏网案例：
+     * {@code Mushoku.Tensei.Jobless.Reincarnation.S03E06.2026}（中文名/日文原名 vs 罗马字，年份差 5）、
+     * {@code That.Time.I.Got.Reincarnated.as.a.Slime.S04E17.2026}（年份差 8）、
+     * {@code Flex.X.Cop.S02E02}（韩剧，且文件名里压根没有年份，第二条证据在构造上就不可能成立）。
+     * </p>
+     * <p>
+     * 与 PT 侧 {@code TmdbSearchService#resolveEnglishTitle} 同一做法（那边也踩过同一个坑）：
+     * 不走 {@code /alternative_titles}——那是众包数据，长篇动画常年被登记一堆"篇章别名"，取到的
+     * 根本不是剧集本身的英文名。
+     * </p>
+     * <p>
+     * <b>只在前两条证据都不成立时才发这次请求</b>，正常命中的路径请求数不变；且
+     * {@code TMDbApiService} 对 getDetails 有 L1+DB 两层缓存，同一部剧的几十集只会真正请求一次。
+     * 打分（{@link #scoreCandidate}）刻意不引入英文名——那需要给<b>每个</b>候选各发一次请求，
+     * 代价与收益不成比例；冠军选错时的兜底仍是「拒绝 → 降级到下一个候选标题 → AI」。
+     * </p>
+     */
+    private boolean englishTitleMatches(String type, MediaInfo info, int id, TMDbApiService api) {
+        String english = fetchEnglishCanonicalTitle(type, id, api);
+        if (StringUtils.isBlank(english)) {
+            return false;
+        }
+        boolean matched = titleMatchLevel(info, english) > 0;
+        if (matched) {
+            log.debug("TMDb 候选靠英文规范名「{}」通过采纳门槛：{}", english, info.getOriginalName());
+        }
+        return matched;
+    }
+
+    /**
+     * 取 TMDb 的英文规范名。任何失败都静默返回 null——这是一次<b>可有可无</b>的补查，
+     * 失败只意味着回到"证据不足、不采纳"，绝不能把异常抛给调用方而作废整次刮削
+     * （同 {@link #fetchChineseAlias} 的教训：{@code TMDbApiService} HTTP 失败时返回 null，
+     * 而 {@code mapper.readTree(null)} 会抛 {@code IllegalArgumentException}）。
+     */
+    private String fetchEnglishCanonicalTitle(String type, int id, TMDbApiService api) {
+        try {
+            String raw = api.getDetails(apiKey, type, id, "en-US");
+            if (StringUtils.isBlank(raw)) {
+                return null;
+            }
+            JsonNode d = mapper.readTree(raw);
+            if (d == null) {
+                return null;
+            }
+            return d.path("movie".equals(type) ? "title" : "name").asText(null);
+        } catch (Exception e) {
+            log.warn("获取 TMDb 英文规范名失败（type={}, id={}）：{}", type, id, e.getMessage());
+            return null;
+        }
     }
 
     /**
@@ -379,8 +442,16 @@ public class TMDbClient {
      * </p>
      */
     private int titleMatchLevel(String type, MediaInfo info, JsonNode node) {
+        return titleMatchLevel(info, candidateTitleFields(type, node));
+    }
+
+    /**
+     * 同上，但候选侧标题直接给字符串——供 {@link #englishTitleMatches} 拿单个英文规范名复用同一套判据。
+     * 门槛与打分共用这段逻辑是硬要求，两者用不同判据会前后打架（见 {@link #scoreCandidate} 注释）。
+     */
+    private int titleMatchLevel(MediaInfo info, String... theirTitles) {
         List<String> mine = normalizedTitles(info.getTitle(), info.getOriginalTitle(), info.getEnglishTitle());
-        List<String> theirs = normalizedTitles(candidateTitleFields(type, node));
+        List<String> theirs = normalizedTitles(theirTitles);
         for (String a : mine) {
             for (String b : theirs) {
                 if (a.equals(b)) {
