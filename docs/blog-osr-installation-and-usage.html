@@ -1,0 +1,772 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>OSR 上手指南</title>
+<style>
+  body { max-width: 860px; margin: 40px auto; padding: 0 20px;
+         font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+         line-height: 1.75; color: #24292f; }
+  h1 { font-size: 1.9em; } h2 { font-size: 1.5em; margin-top: 2em;
+       border-bottom: 1px solid #d0d7de; padding-bottom: .3em; }
+  h3 { font-size: 1.2em; margin-top: 1.6em; }
+  table { border-collapse: collapse; width: 100%; margin: 1em 0; }
+  th, td { border: 1px solid #d0d7de; padding: 6px 12px; text-align: left; }
+  th { background: #f6f8fa; }
+  pre { background: #f6f8fa; padding: 14px; overflow-x: auto; border-radius: 6px; }
+  code { background: #eff1f3; padding: .2em .4em; border-radius: 4px;
+         font-family: Consolas, Monaco, monospace; font-size: .9em; }
+  pre code { background: none; padding: 0; }
+  blockquote { border-left: 4px solid #d0d7de; margin-left: 0;
+               padding-left: 16px; color: #57606a; }
+</style>
+</head>
+<body>
+<h1>OSR 上手指南：用一套系统把 PT 下载、网盘同步、STRM 生成和刮削重命名串起来</h1>
+<blockquote>
+<p>本文基于 OSR 仓库代码与官方 Wiki 整理，覆盖从 Docker 部署到 PT 订阅全链路自动化的完整流程。
+项目地址：<a href="https://github.com/907739769/OSR">github.com/907739769/OSR</a> ｜ Wiki：<a href="https://github.com/907739769/OSR/wiki">项目 Wiki</a></p>
+</blockquote>
+<h2>一、OSR 是什么</h2>
+<p>OSR 的全称是 <strong>OpenList STRM Relay</strong>，是一套围绕 <strong>OpenList（AList 分支）</strong> 构建的影视 STRM 管理系统。</p>
+<p>如果你的观影链路是这样的：</p>
+<pre><code>PT 站点 → qBittorrent 下载到本地 → 上传/同步到网盘 → 生成 STRM → Emby/Jellyfin 播放
+</code></pre>
+<p>那么中间那几步「同步」「生成 STRM」「按 TMDb 规范重命名」「下完通知我一声」，基本都是靠脚本、cron 和人肉巡检拼起来的。OSR 做的事情就是把这条链路做成一个有界面、有记录、有通知、可重试的系统：</p>
+<ul>
+<li><strong>STRM 生成</strong>：递归扫描网盘目录，为视频文件生成对应的 <code>.strm</code> 流媒体文件；</li>
+<li><strong>文件夹同步</strong>：本地 ↔ 网盘、网盘 ↔ 网盘的增量/全量同步，带复制任务监控与重启兜底；</li>
+<li><strong>TMDb 刮削与重命名</strong>：按元数据识别电影/剧集，模板化重命名，并生成 NFO、海报等刮削产物；</li>
+<li><strong>一致性检查</strong>：双向孤儿扫描，找出「记录在库里、文件没了」和「文件在库里、记录没了」的残骸；</li>
+<li><strong>PT 订阅</strong>：接入 Torznab 索引器与下载器，RSS 自动追剧、缺集补搜、洗版、H&amp;R 追踪、自动删种；</li>
+<li><strong>第三方回调</strong>：开放 API 接收 qBittorrent 等下载完成通知，自动触发同步 → 复制 → STRM 全流程；</li>
+<li><strong>多端通知与控制</strong>：Telegram Bot、企业微信自建应用、通用 Webhook 三条通知渠道，前两者还能反向下指令。</li>
+</ul>
+<p>技术栈上是 Java 25（Spring Boot 4.0.6，开了 Preview 特性用虚拟线程）+ Vue 3 + Vuetify 3 + MyBatis-Plus + MySQL 8.0，前端带 PWA，移动端可以直接「添加到主屏幕」当 App 用。</p>
+<hr>
+<h2>二、安装部署</h2>
+<h3>2.1 前置要求</h3>
+<table>
+<thead>
+<tr>
+<th>项</th>
+<th>要求</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Docker</td>
+<td>20.10+</td>
+</tr>
+<tr>
+<td>Docker Compose</td>
+<td>v2</td>
+</tr>
+<tr>
+<td>内存</td>
+<td>至少 2GB 可用</td>
+</tr>
+<tr>
+<td>磁盘</td>
+<td>按 STRM/日志/上传量准备，建议 10GB 起</td>
+</tr>
+<tr>
+<td>依赖服务</td>
+<td>一个可访问的 OpenList/AList 实例（必需）</td>
+</tr>
+</tbody></table>
+<h3>2.2 准备部署目录</h3>
+<p>最简单的方式是直接克隆仓库：</p>
+<pre><code class="language-bash">git clone https://github.com/907739769/OSR.git
+</code></pre>
+<p>如果只想部署、不想要源码，也可以只下载 <code>docker-compose.yml</code>、<code>.env.example</code>、<code>nginx.conf</code> 三个文件到一个自建目录里。</p>
+<h3>2.3 配置环境变量</h3>
+<p>复制 <code>.env.example</code> 为 <code>.env</code>，逐项改掉里面的占位值：</p>
+<pre><code class="language-bash">cp .env.example .env
+</code></pre>
+<pre><code class="language-ini"># MySQL 配置
+MYSQL_ROOT_PASSWORD=你的强密码
+MYSQL_DATABASE=osr
+
+# 应用专用数据库账号（非 root，仅拥有该库权限，MySQL 镜像会自动创建）
+DB_USERNAME=osr_app
+DB_PASSWORD=你的强密码
+
+# JWT 密钥，至少 32 字符，建议 64 位随机串
+JWT_SECRET=请替换为强随机字符串
+
+# PT 下载器密码 / 索引器 apikey 的加密密钥，至少 32 字符
+PT_CREDENTIAL_SECRET=请替换为强随机字符串
+
+# 时区
+TZ=Asia/Shanghai
+
+# 前后端分域部署时才需要，生产环境由 Nginx 同源代理 /api，通常留空
+# CORS_ALLOWED_ORIGINS=http://your-domain:80
+</code></pre>
+<p>几个容易踩的点：</p>
+<ul>
+<li><code>MYSQL_ROOT_PASSWORD</code> 和 <code>DB_PASSWORD</code> 是两个独立的东西，后端连库用的是 <code>DB_USERNAME/DB_PASSWORD</code> 这个最小权限账号，不复用 root；</li>
+<li><code>PT_CREDENTIAL_SECRET</code> 不配也能跑，但会退化成内置兜底密钥并打警告日志——它只能保证下载器密码、索引器 apikey 不明文落库，不具备真正的机密性，<strong>生产环境务必显式配置</strong>；</li>
+<li><code>JWT_SECRET</code> 改了之后所有人都要重新登录，这是预期行为。</li>
+</ul>
+<p>生成随机串可以直接用：</p>
+<pre><code class="language-bash">openssl rand -base64 48
+</code></pre>
+<h3>2.4 使用预构建镜像（推荐）</h3>
+<p>仓库里的 <code>docker-compose.yml</code> 默认是本地构建（<code>build:</code>），需要先 <code>mvn package</code> 才能用。日常部署建议改成官方镜像，把 <code>backend</code>、<code>frontend</code> 两个服务的 <code>build:</code> 段换成 <code>image:</code>：</p>
+<pre><code class="language-yaml">  backend:
+    image: jacksaoding/osr-backend:latest
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile.backend
+
+  frontend:
+    image: jacksaoding/osr-frontend:latest
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile.frontend
+</code></pre>
+<h3>2.5 启动</h3>
+<pre><code class="language-bash">docker compose pull
+</code></pre>
+<pre><code class="language-bash">docker compose up -d
+</code></pre>
+<p>首次启动时 MySQL 要初始化，后端会等健康检查通过后再连库并自动执行建表/迁移脚本，耐心等一两分钟。</p>
+<h3>2.6 验证</h3>
+<pre><code class="language-bash">docker compose ps
+</code></pre>
+<pre><code class="language-bash">docker compose logs -f backend
+</code></pre>
+<p><code>docker compose ps</code> 里三个容器都是 <code>running</code>、<code>restarts</code> 为 0 才算正常。</p>
+<p><strong>排查启动失败的关键</strong>：Java 异常写在容器内的 <code>/data/logs/sys-error.log</code>，<strong>不在 docker stdout</strong>（stdout 只有启动 banner）。容器反复重启时，先让它崩溃后停住再看日志：</p>
+<pre><code class="language-bash">docker update --restart=no osr-backend &amp;&amp; docker restart osr-backend
+</code></pre>
+<p>然后把日志捞出来看：</p>
+<pre><code class="language-bash">docker cp osr-backend:/data/logs ./tmp
+</code></pre>
+<h3>2.7 端口与数据卷</h3>
+<table>
+<thead>
+<tr>
+<th>端口</th>
+<th>服务</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>80</td>
+<td>frontend (Nginx)</td>
+<td>Web 界面 + <code>/api</code> 反代 + WebSocket 代理</td>
+</tr>
+<tr>
+<td>6895</td>
+<td>backend</td>
+<td>后端 API</td>
+</tr>
+<tr>
+<td>3306</td>
+<td>mysql</td>
+<td>数据库</td>
+</tr>
+</tbody></table>
+<table>
+<thead>
+<tr>
+<th>卷</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>/data</code></td>
+<td>宿主机挂载，存放 <code>upload/</code>、<code>logs/</code>、<code>strm/</code></td>
+</tr>
+<tr>
+<td><code>mysql-data</code></td>
+<td>数据库数据</td>
+</tr>
+</tbody></table>
+<p>端口冲突就改 <code>docker-compose.yml</code> 里的 <code>ports</code> 映射，比如把 <code>&quot;80:80&quot;</code> 改成 <code>&quot;8080:80&quot;</code>。</p>
+<h3>2.8 首次登录</h3>
+<p>浏览器打开 <code>http://你的IP:80</code>：</p>
+<ul>
+<li>用户名：<code>admin</code></li>
+<li>密码：<code>openliststrm666</code></li>
+</ul>
+<p><strong>登录后第一件事：点右上角头像改掉默认密码。</strong></p>
+<hr>
+<h2>三、基础配置</h2>
+<h3>3.1 配置 OpenList 连接</h3>
+<p>进入 <strong>系统管理 → 参数管理</strong>，这里是 OSR 所有全局开关的所在地。必填的只有两项：</p>
+<table>
+<thead>
+<tr>
+<th>参数键</th>
+<th>名称</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>openlist.server.url</code></td>
+<td>OpenList 访问地址</td>
+<td>如 <code>http://192.168.1.10:5244</code></td>
+</tr>
+<tr>
+<td><code>openlist.server.token</code></td>
+<td>OpenList API token</td>
+<td>在 OpenList 后台「其他」页面获取</td>
+</tr>
+</tbody></table>
+<p>强烈建议顺手配上的：</p>
+<table>
+<thead>
+<tr>
+<th>参数键</th>
+<th>名称</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>openlist.api.apikey</code></td>
+<td>OSR 接口 Apikey</td>
+<td>第三方回调（qB 等）的鉴权凭证，不配则回调接口不可用</td>
+</tr>
+<tr>
+<td><code>openlist.tmdb.apikey</code></td>
+<td>TMDb API Key</td>
+<td>重命名/刮削/PT 订阅都依赖它</td>
+</tr>
+</tbody></table>
+<p>可选的 AI 兜底（文件名正则和 TMDb 都识别不出来时才调用）：</p>
+<table>
+<thead>
+<tr>
+<th>参数键</th>
+<th>默认值</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>openlist.openai.endpoint</code></td>
+<td>官方地址</td>
+<td>支持任意 OpenAI 兼容端点</td>
+</tr>
+<tr>
+<td><code>openlist.openai.apikey</code></td>
+<td>空</td>
+<td></td>
+</tr>
+<tr>
+<td><code>openlist.openai.model</code></td>
+<td><code>gpt-5-mini</code></td>
+<td></td>
+</tr>
+</tbody></table>
+<blockquote>
+<p>注意：<strong>Telegram Bot 相关参数改完需要重启后端才生效</strong>；TMDb / OpenAI 参数在每次重命名时实时读取，改完立即生效。</p>
+</blockquote>
+<h3>3.2 值得了解的性能与行为开关</h3>
+<p>这几个参数默认值就很合理，但了解它们能帮你在大库场景下调优：</p>
+<table>
+<thead>
+<tr>
+<th>参数键</th>
+<th>默认</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>openlist.strm.outputdir</code></td>
+<td><code>/data/strm</code></td>
+<td>STRM 文件生成根目录</td>
+</tr>
+<tr>
+<td><code>openlist.strm.encode</code></td>
+<td><code>0</code></td>
+<td>STRM 内路径是否 URL 编码</td>
+</tr>
+<tr>
+<td><code>openlist.strm.downloadsub</code></td>
+<td><code>0</code></td>
+<td>生成 STRM 时是否顺带下载字幕</td>
+</tr>
+<tr>
+<td><code>openlist.copy.minfilesize</code></td>
+<td><code>10</code></td>
+<td>复制的最小文件大小（MB），过滤掉样片、说明文件</td>
+</tr>
+<tr>
+<td><code>openlist.copy.strm</code></td>
+<td><code>1</code></td>
+<td>复制完成后是否自动生成 STRM</td>
+</tr>
+<tr>
+<td><code>openlist.api.refresh</code></td>
+<td><code>1</code></td>
+<td><strong>源目录</strong>同步列举时强制刷新网盘，保证增量正确性</td>
+</tr>
+<tr>
+<td><code>openlist.api.traversal.refresh</code></td>
+<td><code>0</code></td>
+<td><strong>目标目录</strong>遍历时是否强制刷新。默认走缓存，对网络盘快非常多</td>
+</tr>
+<tr>
+<td><code>openlist.api.traversal.concurrency</code></td>
+<td><code>10</code></td>
+<td>目录遍历并发度，范围 1–64。大目录树调高能显著提速</td>
+</tr>
+<tr>
+<td><code>openlist.copy.monitor.maxminutes</code></td>
+<td><code>600</code></td>
+<td>复制任务监控最长时长，超时标记异常，避免无限期挂着</td>
+</tr>
+<tr>
+<td><code>openlist.local.allowedroots</code></td>
+<td><code>/data</code></td>
+<td>本地目录浏览接口的根目录白名单，防止管理端枚举整个宿主机文件系统</td>
+</tr>
+<tr>
+<td><code>openlist.tmdb.metadata.language</code></td>
+<td><code>zh-CN</code></td>
+<td>TMDb 元数据语言</td>
+</tr>
+<tr>
+<td><code>openlist.tmdb.image.language</code></td>
+<td><code>zh</code></td>
+<td>TMDb 图片语言偏好</td>
+</tr>
+<tr>
+<td><code>openlist.tmdb.image.size</code></td>
+<td><code>original</code></td>
+<td>图片尺寸，可改 <code>w780/w500</code> 省带宽和存储</td>
+</tr>
+</tbody></table>
+<h3>3.3 配置路径映射</h3>
+<p>进入 <strong>OpenListStrm → 路径管理</strong>，把「本地路径」和「网盘路径」建立对应关系。核心要求是<strong>两侧的目录树结构必须一致</strong>，OSR 才能把一侧的相对路径原样映射到另一侧。</p>
+<p>举个例子：</p>
+<pre><code>本地：/download/pt/电影/华语电影/功夫/功夫.mp4
+网盘：/115网盘/影视/pt/电影/华语电影/功夫/功夫.mp4
+       └────┬────┘ └──────────┬──────────────┘
+       映射前缀差异        结构必须完全相同
+</code></pre>
+<p>这一步配错，后面同步任务和回调自动化都会「跑成功但文件放错地方」，值得多花两分钟核对。</p>
+<hr>
+<h2>四、核心功能怎么用</h2>
+<h3>4.1 同步任务</h3>
+<p><strong>OpenListStrm → 同步任务配置</strong> → 新建：</p>
+<ol>
+<li>填任务名；</li>
+<li>选源路径与目标路径（网盘 ↔ 网盘、网盘 ↔ 本地都支持）；</li>
+<li>设置任务启用状态；</li>
+<li>保存后可以手动执行，也可以交给定时任务。</li>
+</ol>
+<p>执行结果在 <strong>同步任务记录</strong> 页查看。这个页面支持：</p>
+<ul>
+<li>单条 / 批量<strong>重新处理</strong>失败记录；</li>
+<li>单个 / 多个<strong>网盘文件删除</strong>。</li>
+</ul>
+<h3>4.2 STRM 任务</h3>
+<p><strong>OpenListStrm → STRM 任务配置</strong> → 新建：</p>
+<ol>
+<li>填任务名；</li>
+<li>配置扫描路径、输出目录、文件过滤规则；</li>
+<li>保存后手动执行或等定时任务。</li>
+</ol>
+<p>结果在 <strong>STRM 生成记录</strong> 页查看，同样支持单条/批量重新处理与网盘文件删除。</p>
+<h3>4.3 重命名任务</h3>
+<p>前置条件：参数管理里配好 <code>openlist.tmdb.apikey</code>；想要 AI 兜底的话再配上 OpenAI 三项。</p>
+<p><strong>OpenListStrm → 重命名任务配置</strong> → 新建，指定源目录和目标目录，保存后执行。</p>
+<p>识别链路是：<strong>本地正则抽取 → TMDb 增强 → AI 补充（仅在前两步都识别不出时）→ 模板渲染</strong>。识别结果、原文件名到目标文件名的映射，都能在<strong>重命名明细</strong>页逐条查看。</p>
+<p>有几个设计上的取舍值得知道：</p>
+<ul>
+<li><strong>目标库里的主文件是 <code>Files.copy</code> 出来的副本</strong>，源文件（下载器的保种目录、网盘挂载点）OSR 一律不动——所以系统里<strong>根本没有「删除源文件」的入口</strong>，这是刻意的：删了它等于毁保种。</li>
+<li>「<strong>删产物</strong>」和「<strong>删记录</strong>」是两件不同的事，界面上也是分开的。只删数据库记录会导致三个后果：孤儿扫描再也发现不了那批文件、刮削共享元数据（<code>tvshow.nfo</code> 等）的兄弟计数算错、手动重跑任务时会把源文件当成没处理过再复制一份出来。前端确认框里会把这几条写清楚。</li>
+</ul>
+<h3>4.4 定时任务</h3>
+<p><strong>系统监控 → 定时任务</strong> 里内置了三个作业：</p>
+<table>
+<thead>
+<tr>
+<th>任务</th>
+<th>默认时间</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>重命名任务</td>
+<td>每天 02:00</td>
+</tr>
+<tr>
+<td>同步任务</td>
+<td>每天 03:00</td>
+</tr>
+<tr>
+<td>STRM 任务</td>
+<td>每天 05:00</td>
+</tr>
+</tbody></table>
+<p>可以改 Cron 表达式、手动触发、停用。<strong>但不要改调用目标字符串</strong>。</p>
+<h3>4.5 一致性检查（孤儿扫描）</h3>
+<p><strong>OpenListStrm → 重命名一致性检查</strong>。它是双向扫描：</p>
+<ul>
+<li><strong>正向</strong>（记录 → 文件）：数据库里有记录，目标位置的文件不见了；</li>
+<li><strong>反向</strong>（文件 → 记录）：目标库里有文件，却找不到对应记录，细分为 <code>local_extra</code>（多余文件）、<code>metadata_only</code>（只有元数据没有视频，Emby 里会显示成一个空剧集）、<code>empty_dir</code>（空目录）。</li>
+</ul>
+<p>反向扫描带 <strong>mtime 基线</strong>：早于对应任务创建时间的文件一律不上报。判据是「任务建起来之前就躺在库里、之后又没被动过的东西不是它产出的」——没这道闸，一个混着历史文件的媒体库每轮会报出成千上万条无关项。</p>
+<p>发现的项可以<strong>清理</strong>或<strong>忽略</strong>，忽略过的项后续轮次直接跳过，不会反复打扰。</p>
+<h3>4.6 实时日志与看板</h3>
+<ul>
+<li><strong>实时日志</strong>：WebSocket 推送，info / debug / error 三级，移动端自适应；</li>
+<li><strong>数据看板</strong>：首页汇总各类任务的统计与运行概况。</li>
+</ul>
+<hr>
+<h2>五、把 qBittorrent 接进来：下载完成自动上云 + 生成 STRM</h2>
+<p>这是 OSR 最实用的自动化之一：qB 下载完成 → 回调 OSR → 同步到网盘 → 生成 STRM，全程无人值守。</p>
+<h3>5.1 前置条件</h3>
+<ol>
+<li>参数管理里配好 <code>openlist.api.apikey</code>；</li>
+<li>qBittorrent 所在网络能访问到 OSR 的 6895 端口（或走前端 80 端口的 <code>/api</code> 反代）；</li>
+<li>本地目录、网盘目录、qB 下载目录三者的目录结构对得上（见 3.3）。</li>
+</ol>
+<h3>5.2 接口说明</h3>
+<pre><code>POST /api/openliststrm/notify/notifyByDir
+Header: X-API-KEY: &lt;openlist.api.apikey 的值&gt;
+Content-Type: application/json
+</code></pre>
+<p>请求体四个字段全部必填：</p>
+<pre><code class="language-json">{
+  &quot;srcDir&quot;: &quot;/download/pt&quot;,
+  &quot;srcDst&quot;: &quot;/115网盘/影视/pt&quot;,
+  &quot;qbDlRootPath&quot;: &quot;/downloads&quot;,
+  &quot;qbDlFilePath&quot;: &quot;/downloads/电影/华语电影/功夫/功夫.mp4&quot;
+}
+</code></pre>
+<table>
+<thead>
+<tr>
+<th>字段</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>srcDir</code></td>
+<td>源目录（本地下载根目录在 OSR/OpenList 视角下的路径）</td>
+</tr>
+<tr>
+<td><code>srcDst</code></td>
+<td>目标目录（对应的网盘路径）</td>
+</tr>
+<tr>
+<td><code>qbDlRootPath</code></td>
+<td>qB 的下载根目录</td>
+</tr>
+<tr>
+<td><code>qbDlFilePath</code></td>
+<td>本次下载完成的资源路径</td>
+</tr>
+</tbody></table>
+<p>OSR 拿到后会用 <code>qbDlFilePath</code> 去掉 <code>qbDlRootPath</code> 前缀得到相对路径，再判断是视频文件还是目录：视频走单文件同步，目录走批量同步。</p>
+<h3>5.3 qB 侧配置</h3>
+<p>在 qB 的 config 目录下建一个 <code>notify.sh</code>（按自己的路径改前三个变量）：</p>
+<pre><code class="language-bash">#!/bin/sh
+srcDir=&quot;/download/pt&quot;
+srcDst=&quot;/115网盘/影视/pt&quot;
+qbDlRootPath=&quot;/downloads&quot;
+apiKey=&quot;你在参数管理里配的 apikey&quot;
+osrUrl=&quot;http://osr-host:6895&quot;
+
+curl -s -X POST &quot;${osrUrl}/api/openliststrm/notify/notifyByDir&quot; \
+  -H &quot;Content-Type: application/json&quot; \
+  -H &quot;X-API-KEY: ${apiKey}&quot; \
+  -d &quot;{\&quot;srcDir\&quot;:\&quot;${srcDir}\&quot;,\&quot;srcDst\&quot;:\&quot;${srcDst}\&quot;,\&quot;qbDlRootPath\&quot;:\&quot;${qbDlRootPath}\&quot;,\&quot;qbDlFilePath\&quot;:\&quot;$2\&quot;}&quot;
+</code></pre>
+<p>然后在 qB 的「下载完成时运行外部程序」里填：</p>
+<pre><code>sh /config/notify.sh &quot;%G&quot; &quot;%F&quot;
+</code></pre>
+<hr>
+<h2>六、PT 订阅：把追剧也自动化</h2>
+<p>这是 OSR 里最复杂、也最有意思的模块。它做的事情是：你订阅一部剧，剩下的搜索、筛选、推送下载、进度追踪、入库确认、缺集补搜、洗版、H&amp;R 保种提醒，全部自动完成。</p>
+<h3>6.1 前置条件</h3>
+<table>
+<thead>
+<tr>
+<th>组件</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Torznab 索引器</td>
+<td>Jackett 或 Prowlarr，至少配好一个 PT 站</td>
+</tr>
+<tr>
+<td>下载器</td>
+<td>qBittorrent 或 Transmission，OSR 能访问到</td>
+</tr>
+<tr>
+<td>媒体服务器</td>
+<td>Emby 或 Jellyfin，<strong>必需</strong></td>
+</tr>
+<tr>
+<td>TMDb API Key</td>
+<td>参数管理里的 <code>openlist.tmdb.apikey</code></td>
+</tr>
+</tbody></table>
+<p>媒体服务器为什么是必需的：<strong>OSR 判断「这一集齐了」的依据不是下载完成，而是媒体服务器的库里真的能查到它</strong>。下完 ≠ 活干完——文件还要传上网盘、还要生成 STRM、Emby 还要扫到，中间任何一步断了这一集就不算数。</p>
+<h3>6.2 配置索引器</h3>
+<p><strong>OpenListStrm → PT 索引器</strong> → 新增：</p>
+<ul>
+<li>索引器名称、Torznab URL（从 Jackett/Prowlarr 复制）、API Key；</li>
+<li>分类代码（剧集 <code>5000</code>、电影 <code>2000</code>）；</li>
+<li>轮询周期，默认 600 秒。</li>
+</ul>
+<p>轮询周期不要设太短。系统内部对同一索引器有最小 2 秒间隔的限流，撞到站点 429 之后会进入 300 秒冷却——冷却期内的请求会走「背压」分支快速失败，这类失败<strong>既不计入失败次数也不清零</strong>，专门避免「限流 → 退避放大 → 拉取窗口从几分钟变成几小时」的正反馈。</p>
+<p>系统还会做 <strong>RSS 覆盖度校验</strong>：记录上一轮的最大发布时间作为游标，判断本轮的窗口下沿是否覆盖得上。覆盖不全会告警提醒你缩短周期。（这里刻意用「时间位置」而不是「上一轮首条种子还在不在」当游标——后者在有置顶种子、种子被删、guid 带一次性 token 的站上会恒定误报。）</p>
+<h3>6.3 配置下载器</h3>
+<p><strong>OpenListStrm → PT 下载器</strong> → 新增：</p>
+<ul>
+<li>类型（qBittorrent / Transmission）、地址、账号密码（支持 HTTPS）；</li>
+<li><strong>保存路径必须落在某个已启用的同步任务的源目录内</strong>——这是硬要求，否则下载完的文件不会流进「同步到网盘 → 生成 STRM」这条管道；</li>
+<li>标签，默认 <code>osr-pt</code>（OSR 靠它认领自己推的种子）；</li>
+<li>最大并发下载数；</li>
+<li><strong>角色</strong>：<code>DOWNLOAD</code>（订阅下载池）或 <code>SEED_ONLY</code>（只做种的保种机）。</li>
+</ul>
+<p>角色这个字段值得单独说：如果你加了一台「接 IYUU 转移+辅种、开着自动删种」的保种机，不把它标成 <code>SEED_ONLY</code> 的话，订阅会把新剧集也往它上面推——而那台机器的清理规则是按保种设计的（做满 N 小时就删），正在补的剧集下上去会被当成保种种子清掉。</p>
+<h3>6.4 过滤规则（可选但强烈建议）</h3>
+<p><strong>OpenListStrm → PT 过滤规则</strong>：</p>
+<ul>
+<li><strong>硬过滤</strong>：最小做种数、体积上下限（支持按集折算）、分辨率/片源/标签要求、是否必须带中文字幕、是否规避 H&amp;R 站点；</li>
+<li><strong>排序维度</strong>：默认 <code>RESOLUTION,FREE,SEEDERS,SIZE</code>，可调整优先级。</li>
+</ul>
+<h3>6.5 创建订阅</h3>
+<p><strong>OpenListStrm → PT 订阅</strong>：</p>
+<ol>
+<li>搜索剧名/片名（走 TMDb）；</li>
+<li>选中作品；剧集还要选季；</li>
+<li>保存——保存那一刻会立即触发一次补充搜索，不用等下一轮 RSS。</li>
+</ol>
+<h3>6.6 后台是怎么跑的</h3>
+<p>创建完订阅后，四个后台任务接管一切：</p>
+<table>
+<thead>
+<tr>
+<th>任务</th>
+<th>周期</th>
+<th>职责</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>RSS 轮询</td>
+<td>60 秒</td>
+<td>拉索引器最新种子，匹配订阅</td>
+</tr>
+<tr>
+<td>自动补搜</td>
+<td>30 分钟</td>
+<td>按订阅粒度主动搜缺失集</td>
+</tr>
+<tr>
+<td>下载追踪</td>
+<td>30 秒</td>
+<td>跟进度、选文件、排除非目标集</td>
+</tr>
+<tr>
+<td>媒体库同步</td>
+<td>10 分钟</td>
+<td>去 Emby/Jellyfin 确认这一集真的入库了</td>
+</tr>
+</tbody></table>
+<p>单集状态机：</p>
+<pre><code>MISSING（缺失，等待匹配）
+   ↓ 推送到下载器
+IN_FLIGHT（在途）
+   ↓ 下载完成 + 同步上云 + 媒体库确认
+IN_LIBRARY（已入库，完成）
+   ↓ 触发洗版
+UPGRADING（下载更高画质版本中）
+
+任意环节失败 3 次以上 → BLOCKED（熔断，需人工在下载记录页重试）
+</code></pre>
+<p>几个实现细节挺能体现这个模块的成熟度：</p>
+<ul>
+<li><strong>多集包以暂停态推送</strong>：推送那一刻不知道包里有哪几集，先暂停，等下载器返回文件列表、选出目标集文件后再启动。单集/电影不暂停（没有选错的可能），磁力链也不暂停（暂停态下下载器不下元数据，会永远卡住）。</li>
+<li><strong>包内一个目标集都没有时会中止</strong>，而不是照常下发排除指令——把全部文件设成不下载会得到一个 0 字节、永远挂着的僵尸任务，白占并发名额。</li>
+<li><strong>标题里没集号时会去种子 description 里找</strong>。有一类日更剧发布组把同一季每一集都发成标题逐字相同的种子，集号只写在描述里，不解析的话会被反复当成整季包白推。</li>
+<li><strong>OSR 默认从不删种</strong>，只有两个受控例外：从未下完也从未做种的废种，以及你逐个下载器显式开启的自动删种。</li>
+</ul>
+<h3>6.7 进阶功能</h3>
+<p><strong>洗版（画质升级）</strong>：在升级规则里开启，<strong>必须指定 cutoff 目标</strong>（分辨率/片源/标签至少填一项）——没有终止条件的话每一集都会永远搜下去把索引器配额烧干，所以三项全空时洗版不激活。判定维度只有分辨率、片源、标签、发布组四项，<strong>刻意不引入做种数/体积/免费状态</strong>：那些值随时间连续变化，会导致无限循环洗版。洗版不会自动删旧文件。</p>
+<p><strong>自动追剧规则</strong>：订阅 TMDb 的热门/趋势榜单，可设最低评分、排除类型、限定地区。</p>
+<p><strong>种子黑名单</strong>：拉黑特定发布组或种子，后续不再匹配。</p>
+<p><strong>H&amp;R 追踪</strong>：按索引器配置最短做种时长和分享率要求（<strong>或</strong>关系，达标任一即可）。H&amp;R 是站点属性不是种子属性——Torznab 协议没有标准 H&amp;R 字段，只能整站判定。OSR 只做告警，不会也无法自动补救。追踪是<strong>跨下载器</strong>的：种子被 IYUU 转移走了会去其它下载器的快照里找回来，而不是直接判成违规。</p>
+<p><strong>自动删种</strong>：按体积区间 + 做种时长分级删除（比如 &gt;50GB 做满 3 天删、其余做满 7 天删）。五条护栏一条都没省：</p>
+<ol>
+<li>总开关默认关，且要逐个下载器显式开启；</li>
+<li>没有启用任何规则就一个都不删（空规则集 = 没有规则说该删它）；</li>
+<li>H&amp;R 考核中的记录一律保护；</li>
+<li><strong>还有集停在在途/洗版中的记录同样保护</strong>——种子下完不等于活干完，文件还要传网盘，大文件跨天是常态；</li>
+<li>每轮有删除上限，超出的会记日志而不是静默截断。</li>
+</ol>
+<p>删除以<strong>辅种组</strong>为最小单位（按内容路径分组），组内每个种子都达标才整组删，任一个不达标整组保留——删掉一个种子的文件会让共用这份文件的其它种子立刻变成「文件丢失」，那是在<strong>别的站</strong>上记 H&amp;R。</p>
+<h3>6.8 PT 排障速查</h3>
+<table>
+<thead>
+<tr>
+<th>现象</th>
+<th>排查方向</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>一直不下载</td>
+<td>看通知里的过滤淘汰原因；检查索引器状态；看「搜索淘汰原因」看板</td>
+</tr>
+<tr>
+<td>下载完了还显示在途</td>
+<td>同步任务/STRM 任务有没有执行；媒体服务器连通性；文件到底传上网盘没有</td>
+</tr>
+<tr>
+<td>某集卡住不动</td>
+<td>大概率已 <code>BLOCKED</code>，去下载记录页手动重试</td>
+</tr>
+<tr>
+<td>反复失败</td>
+<td>看「搜索淘汰原因」统计，通常是过滤规则卡太死</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>七、通知与远程控制</h2>
+<p>OSR 有三条通知渠道，都支持按类型过滤（<code>GENERAL</code>、<code>SUBSCRIPTION_HIT</code>、<code>DOWNLOAD_COMPLETE</code>、<code>DOWNLOAD_FAILED</code>、<code>EMBY_LIBRARY_SYNC</code>，留空 = 全发）。</p>
+<h3>7.1 Telegram Bot</h3>
+<p>参数管理里配 <code>openlist.tg.token</code> 和 <code>openlist.tg.userid</code>，<strong>重启后端</strong>生效。支持的指令：</p>
+<table>
+<thead>
+<tr>
+<th>指令</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>/strm</code></td>
+<td>执行 STRM 任务</td>
+</tr>
+<tr>
+<td><code>/strmdir</code></td>
+<td>生成指定路径的 STRM</td>
+</tr>
+<tr>
+<td><code>/sync</code></td>
+<td>执行同步任务</td>
+</tr>
+<tr>
+<td><code>/syncdir</code></td>
+<td>同步 OpenList 指定目录</td>
+</tr>
+<tr>
+<td><code>/rename</code></td>
+<td>执行重命名任务</td>
+</tr>
+<tr>
+<td><code>/retry</code></td>
+<td>重试所有失败任务</td>
+</tr>
+<tr>
+<td><code>/checkorphan</code></td>
+<td>执行重命名一致性检查</td>
+</tr>
+</tbody></table>
+<p>类型过滤：<code>openlist.notify.tg.types</code>。</p>
+<h3>7.2 企业微信自建应用</h3>
+<p>比 TG 更适合国内网络环境，而且是<strong>订阅助手</strong>式的多轮交互。需要配置的参数：</p>
+<table>
+<thead>
+<tr>
+<th>参数键</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>openlist.wecom.corpid</code></td>
+<td>企业 ID，留空则企微功能整体不启用</td>
+</tr>
+<tr>
+<td><code>openlist.wecom.agentid</code></td>
+<td>自建应用 AgentId</td>
+</tr>
+<tr>
+<td><code>openlist.wecom.secret</code></td>
+<td>自建应用 Secret</td>
+</tr>
+<tr>
+<td><code>openlist.wecom.token</code></td>
+<td>回调 Token，不配则只能发通知、收不到指令</td>
+</tr>
+<tr>
+<td><code>openlist.wecom.aeskey</code></td>
+<td>回调 EncodingAESKey（43 位）</td>
+</tr>
+<tr>
+<td><code>openlist.wecom.touser</code></td>
+<td>无归属通知的接收人，默认 <code>@all</code></td>
+</tr>
+<tr>
+<td><code>openlist.wecom.proxy</code></td>
+<td>API 代理地址，默认官方地址</td>
+</tr>
+<tr>
+<td><code>openlist.wecom.autocreate</code></td>
+<td>成员首次发指令时自动建号绑定，默认<strong>开启</strong></td>
+</tr>
+</tbody></table>
+<blockquote>
+<p>💡 2022-06-20 之后创建的自建应用调用企微 API 必须登记「企业可信 IP」，家宽/动态 IP 登记不了。通行做法是自己反代 <code>qyapi.weixin.qq.com</code>，把中转地址填进 <code>openlist.wecom.proxy</code>。</p>
+</blockquote>
+<p>支持的指令：</p>
+<pre><code>订阅 &lt;剧名&gt;       搜索剧集并订阅，如：订阅 三体
+订阅电影 &lt;片名&gt;   搜索电影并订阅
+我的订阅          查看自己的订阅列表
+下载中            查看正在下载的集
+最近入库          查看最近入库的集
+进度 &lt;编号&gt;       查看某条订阅的进度
+暂停 &lt;编号&gt;       暂停订阅
+恢复 &lt;编号&gt;       恢复订阅
+我的账号          查看绑定状态
+取消              中断当前的多轮选择
+帮助              显示本说明
+</code></pre>
+<p>搜索后直接回复序号即可选择。订阅是带<strong>归属</strong>的：某条订阅的动态只推给它的所有者，不会把 A 的下载进度推到 B 的企微上（历史遗留的无归属订阅退化为广播，所有人可见）。</p>
+<h3>7.3 通用 Webhook</h3>
+<p>配 <code>openlist.notify.webhook.url</code>，OSR 会 POST 一个 <code>{&quot;text&quot;: &quot;消息内容&quot;}</code> 过去，留空即不启用。类型过滤：<code>openlist.notify.webhook.types</code>。</p>
+<hr>
+<h2>八、日常运维</h2>
+<h3>8.1 备份</h3>
+<p>数据库：</p>
+<pre><code class="language-bash">docker exec osr-mysql mysqldump -u root -p&quot;$MYSQL_ROOT_PASSWORD&quot; osr &gt; osr-backup.sql
+</code></pre>
+<p>文件（STRM、日志、上传）直接备份宿主机的 <code>/data</code> 目录即可。</p>
+<h3>8.2 升级</h3>
+<pre><code class="language-bash">docker compose pull &amp;&amp; docker compose up -d
+</code></pre>
+<p>自建镜像的话：拉代码 → <code>mvn clean package -DskipTests</code> → 前端 <code>cd osr-web &amp;&amp; npm run build</code> → <code>docker compose up -d --build</code>。</p>
+<p><strong>升级前先备份数据库</strong>。建表和迁移脚本由后端启动时自动执行，不需要手动导入。</p>
+<blockquote>
+<p>⚠️ 自建前端镜像有个坑：<code>Dockerfile.frontend</code> 不是多阶段构建，它只是把 <code>osr-web/dist</code> COPY 进 Nginx 镜像，<strong>不会自己跑 <code>npm run build</code></strong>。改了前端代码不先手动构建的话，<code>COPY</code> 这层会命中 Docker 缓存，容器里跑的还是旧代码（构建日志里这行显示 <code>CACHED</code> 就是没生效的信号）。</p>
+</blockquote>
+<p>只更新单个服务：</p>
+<pre><code class="language-bash">docker compose up -d --build --no-deps frontend
+</code></pre>
+<h3>8.3 常见问题</h3>
+<p><strong>服务起不来？</strong> 确认 Docker 正常、<code>.env</code> 已配置、MySQL 初始化完成（首次启动需要时间），然后看 <code>/data/logs/sys-error.log</code>。</p>
+<p><strong>改数据库密码？</strong> <code>MYSQL_ROOT_PASSWORD</code> 和 <code>DB_PASSWORD</code> 是独立的，改完要重建容器才生效。</p>
+<p><strong>改 JWT_SECRET？</strong> 至少 32 字节，改完重启后端，所有用户需重新登录。</p>
+<p><strong>前端访问不了 API？</strong> 依次检查后端容器是否运行、后端日志有无报错、端口映射是否正确、前后端分域时 <code>CORS_ALLOWED_ORIGINS</code> 有没有配。</p>
+<p><strong>定时任务不执行？</strong> 检查任务是否启用、Cron 表达式是否正确、日志里有无异常。</p>
+<p><strong>能配多个 OpenList 实例吗？</strong> 当前版本只支持单实例。</p>
+<p><strong>新增了 SQL 迁移脚本却没执行？</strong> 这是开发向的坑：<code>MysqlDdl.getSqlFiles()</code> 是<strong>硬编码的文件名清单，不是目录扫描</strong>，新脚本必须手动追加到列表末尾。</p>
+<hr>
+<h2>九、写在最后</h2>
+<p>OSR 的定位很清楚：它不试图取代 Emby/Jellyfin，也不取代 OpenList，而是把「下载器 → 网盘 → STRM → 媒体库」这条链路上所有需要人肉盯着的环节接管过来，并且在每个环节留下可查询、可重试的记录。</p>
+<p>如果你只是想要 STRM 生成，配好 OpenList 地址和 token，建一个 STRM 任务就能用；如果你想要全自动追剧，那就沿着「索引器 → 下载器 → 媒体服务器 → 过滤规则 → 订阅」的顺序一路配下来。两种用法都成立，中间的每一档也都成立。</p>
+<ul>
+<li>项目地址：<a href="https://github.com/907739769/OSR">github.com/907739769/OSR</a></li>
+<li>完整文档：<a href="https://github.com/907739769/OSR/wiki">项目 Wiki</a></li>
+</ul>
+
+</body>
+</html>
