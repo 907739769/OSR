@@ -70,8 +70,18 @@ public class PtCleanRulePlus extends BaseEntity {
     @TableField("remark")
     private String remark;
 
-    /** 是否启用 */
-    public boolean isEnabled() {
+    /**
+     * 是否启用。
+     * <p>
+     * <b>方法名不能叫 {@code isEnabled()}</b>：Lombok 已经给 {@code String enabled} 生成了
+     * {@code getEnabled()}，再加一个返回 boolean 的 {@code isEnabled()} 会让 MyBatis 认为
+     * 属性 {@code enabled} 有两个类型不一致的 getter，直接抛
+     * {@code Illegal overloaded getter method with ambiguous type}，连 INSERT 都跑不了。
+     * 同样的理由，{@code getXxx}/{@code isXxx} 形式的辅助方法一律不要往 *Plus 实体上加——
+     * 参考 {@code PtIndexerPlus#hitAndRunEnabled()} 的命名。
+     * </p>
+     */
+    public boolean enabledOn() {
         return "1".equals(enabled);
     }
 
