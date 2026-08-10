@@ -76,6 +76,20 @@ class TransmissionClientTest {
     }
 
     @Test
+    void testConnection_未保存的新增配置id为null_仍判定连通() {
+        // 新增下载器时还没点"保存"就点"测试连接"，传进来的配置 id 为 null。
+        // session id 缓存是 ConcurrentHashMap，键不接受 null，直接 get(null) 会抛 NPE，
+        // 被 testConnection 的 catch (Exception) 吞成"连接失败"——保存之后再测却一切正常，
+        // 用户看到的现象与真实原因完全无关
+        server.enqueue(sessionRequired());
+        server.enqueue(new MockResponse().setBody("{\"result\":\"success\",\"arguments\":{}}"));
+
+        PtDownloaderPlus cfg = config(1);
+        cfg.setId(null);
+        assertTrue(client.testConnection(cfg));
+    }
+
+    @Test
     void testConnection_地址不可达_判定不连通而非抛异常() throws IOException {
         PtDownloaderPlus cfg = config(2);
         server.shutdown();

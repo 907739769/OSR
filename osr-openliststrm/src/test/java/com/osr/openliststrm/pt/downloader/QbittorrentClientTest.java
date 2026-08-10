@@ -220,6 +220,20 @@ class QbittorrentClientTest {
     }
 
     @Test
+    void testConnection_未保存的新增配置id为null_仍判定连通() {
+        // 新增下载器时还没点"保存"就点"测试连接"，传进来的配置 id 为 null。
+        // SID 缓存是 ConcurrentHashMap，键不接受 null，直接 get(null) 会抛 NPE，
+        // 被 testConnection 的 catch (Exception) 吞成"连接失败"——保存之后再测却一切正常，
+        // 用户看到的现象与真实原因完全无关
+        server.enqueue(loginOk());
+        server.enqueue(new MockResponse().setBody("v4.6.2"));
+
+        PtDownloaderPlus cfg = config(8);
+        cfg.setId(null);
+        assertTrue(client.testConnection(cfg));
+    }
+
+    @Test
     void testConnection_登录失败_判定不连通而非抛异常() {
         server.enqueue(new MockResponse().setBody("Fails."));
 

@@ -315,7 +315,12 @@ public class QbittorrentClient implements IDownloaderClient {
      * 使用缓存 SID 执行请求；遇 403 视为会话过期，重新登录后重试一次。
      */
     private String executeWithSession(PtDownloaderPlus config, RequestFactory factory) throws IOException {
-        String sid = sidCache.get(config.getId());
+        // id 为 null 表示这是"新增下载器时还没保存就点测试连接"传进来的临时配置。
+        // ConcurrentHashMap 不接受 null 键，get/put 都会抛 NPE，被 testConnection 的
+        // catch (Exception) 吞成"连接失败"，用户看到的是一条与真实原因无关的提示。
+        // 这类配置不落缓存，每次重新登录即可
+        Integer downloaderId = config.getId();
+        String sid = downloaderId == null ? null : sidCache.get(downloaderId);
         if (sid == null) {
             sid = login(config);
         }
@@ -327,7 +332,9 @@ public class QbittorrentClient implements IDownloaderClient {
         }
 
         // 403：会话过期，重新登录后重试一次
-        sidCache.remove(config.getId());
+        if (downloaderId != null) {
+            sidCache.remove(downloaderId);
+        }
         String freshSid = login(config);
         try (Response retry = httpClient.newCall(factory.build(freshSid)).execute()) {
             return readSuccessful(retry);
@@ -368,7 +375,10 @@ public class QbittorrentClient implements IDownloaderClient {
             if (sid == null) {
                 throw new IOException("qBittorrent 登录成功但未返回 SID");
             }
-            sidCache.put(config.getId(), sid);
+            // 未保存的临时配置（id 为 null）不入缓存，理由见 executeWithSession
+            if (config.getId() != null) {
+                sidCache.put(config.getId(), sid);
+            }
             return sid;
         }
     }

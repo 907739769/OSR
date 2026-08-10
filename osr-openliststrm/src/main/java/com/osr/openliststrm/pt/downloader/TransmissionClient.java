@@ -337,7 +337,11 @@ public class TransmissionClient implements IDownloaderClient {
      * 使用缓存 session id 执行请求；遇 409（session 缺失或过期）取响应头里的新 id，重试一次。
      */
     private String executeWithSession(PtDownloaderPlus config, RequestFactory factory) throws IOException {
-        String sid = sessionIdCache.get(config.getId());
+        // id 为 null 表示这是"新增下载器时还没保存就点测试连接"传进来的临时配置。
+        // ConcurrentHashMap 不接受 null 键，get/put 都会抛 NPE，被 testConnection 的
+        // catch (Exception) 吞成"连接失败"。这类配置不落缓存，靠 409 重试拿 session id 即可
+        Integer downloaderId = config.getId();
+        String sid = downloaderId == null ? null : sessionIdCache.get(downloaderId);
 
         try (Response response = httpClient.newCall(factory.build(sid)).execute()) {
             if (response.code() != 409) {
@@ -347,7 +351,9 @@ public class TransmissionClient implements IDownloaderClient {
             if (sid == null) {
                 throw new IOException("Transmission 未返回 " + SESSION_HEADER);
             }
-            sessionIdCache.put(config.getId(), sid);
+            if (downloaderId != null) {
+                sessionIdCache.put(downloaderId, sid);
+            }
         }
 
         try (Response retry = httpClient.newCall(factory.build(sid)).execute()) {
