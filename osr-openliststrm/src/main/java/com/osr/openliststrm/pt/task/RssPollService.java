@@ -60,6 +60,15 @@ public class RssPollService {
     private static final int DEFAULT_THROTTLE_COOLDOWN_SECONDS = 300;
 
     /**
+     * pubDate 允许超前当前时间的幅度，超出即视为站点时钟不同步或填错，剔除不参与游标计算。
+     * <p>
+     * 放任一条未来时间成为游标，之后每一轮的"窗口下沿 &lt;= 上轮游标"都会恒成立，
+     * 覆盖度判定就此永久失效且不发任何告警——静默失效比误报难查得多。
+     * </p>
+     */
+    private static final Duration FUTURE_TOLERANCE = Duration.ofHours(1);
+
+    /**
      * 同时拉取多个到期索引器的最大并发数。
      * <p>
      * 注意这只是本轮轮询内部的一道次级闸门，<b>不是</b>对站点的真正节流——真正的节流在
@@ -75,6 +84,15 @@ public class RssPollService {
      */
     private final int selfHealCooldownHours;
 
+    /**
+     * 覆盖度校验的窗口截断线（小时）：只有发布时间在这个范围内的条目才参与"窗口下沿"的计算。
+     * <p>
+     * 用来剔除置顶种子这类远古条目——它们会把整页的最老时间拉到几年前，让判据恒成立、
+     * 真漏拉被静音。默认 24 小时，远大于任何合理的轮询周期，因此这个剔除不损失灵敏度。
+     * </p>
+     */
+    private final int coverageWindowHours;
+
     private final IPtIndexerPlusService indexerService;
     private final TorznabClient torznabClient;
     private final SubscriptionEngine subscriptionEngine;
@@ -85,13 +103,15 @@ public class RssPollService {
                           SubscriptionEngine subscriptionEngine,
                           IndexerRateLimiter rateLimiter,
                           @Value("${pt.indexer.self-heal-cooldown-hours:2}") int selfHealCooldownHours,
-                          @Value("${pt.indexer.max-concurrency:4}") int maxConcurrency) {
+                          @Value("${pt.indexer.max-concurrency:4}") int maxConcurrency,
+                          @Value("${pt.indexer.coverage-window-hours:24}") int coverageWindowHours) {
         this.indexerService = indexerService;
         this.torznabClient = torznabClient;
         this.subscriptionEngine = subscriptionEngine;
         this.rateLimiter = rateLimiter;
         this.selfHealCooldownHours = selfHealCooldownHours;
         this.maxConcurrency = Math.max(1, maxConcurrency);
+        this.coverageWindowHours = Math.max(1, coverageWindowHours);
     }
 
     /**
@@ -293,57 +313,153 @@ public class RssPollService {
      * 若上一轮游标未出现在本轮结果中，说明存在覆盖不到的漏拉窗口，仅记警告+告警一次，
      * 不尝试补救（Torznab RSS 语义上无法找回已漏掉的种子）。
      * <p>
-     * <b>这条告警有三种成因，只看告警本身分辨不出来，所以日志里必须带够判据</b>：
+     * <b>判据只依赖时间戳，不依赖条目身份</b>：记上一轮的 {@code max(pubDate)}，本轮检查
+     * </p>
+     * <pre>
+     *   本轮窗口下沿 &lt;= 上一轮 max(pubDate)
+     * </pre>
+     * <p>
+     * 成立即说明两轮的窗口首尾相接、中间没有断档。历史上这里用的是"上一轮首条种子的 guid
+     * 还在不在本轮结果里"，那个判据同时依赖三个前提，任一条不成立就<b>恒定误报</b>——
+     * 而误报的表现与真漏拉一模一样，用户唯一能做的反应（缩短轮询周期）还恰好是错的：
      * </p>
      * <ol>
-     *   <li><b>窗口真的不够</b>：{@code pubDate 跨度} 明显小于本索引器的轮询周期，说明单页容量
-     *       跟不上发布速度。这是告警字面意思成立的唯一情形。</li>
-     *   <li><b>退避把间隔放大了</b>：{@code fail_count} 不为 0 时实际间隔是配置值的 2~32 倍
-     *       （见 {@link #isDue}），游标比的是两次<b>成功</b>拉取之间的窗口，改配置里的周期无济于事。</li>
-     *   <li><b>guid 不稳定</b>：部分索引器的 guid 带一次性 token 或时间戳（{@code TorznabParser}
-     *       在 guid 缺失时还会降级用 downloadUrl），同一条目每轮的 guid 都不同，游标永远匹配不上，
-     *       于是<b>每一轮</b>都告警，与间隔无关。判据是相邻两轮日志里同一标题的 {@code guid#} 是否变化——
-     *       所以日志打的是标题 + 哈希前缀，<b>不能打 guid 原文</b>（PT 站的链接里常含 passkey）。</li>
+     *   <li><b>首条即最新</b>：把"索引器按 pubDate 降序返回"这个假设当成了事实。置顶种子、
+     *       促销置顶都会让游标记在一条非最新的条目上，而这类条目下一轮很可能已经不在了。</li>
+     *   <li><b>那条种子下一轮还在</b>：删种、审核下架、管理员挪分类（而我们带着 {@code cat} 过滤）
+     *       都会让它凭空消失，跟窗口够不够毫无关系。</li>
+     *   <li><b>guid 逐轮稳定</b>：部分索引器的 guid 带一次性 token，
+     *       {@link com.osr.openliststrm.pt.indexer.TorznabParser} 在 guid 缺失时
+     *       还会把它降级成 downloadUrl。</li>
      * </ol>
+     * <p>
+     * <b>窗口下沿取"{@code coverageWindowHours} 小时内条目的最早发布时间"，而不是整页最老那条。</b>
+     * 一条 2015 年的置顶种子会把整页的最老时间拉到十年前，判据随之恒成立，真漏拉也一起被静音。
+     * 之所以能放心剔除，是因为截断线（默认 24 小时）<b>远大于</b>轮询周期（默认 600 秒）：
+     * 被剔掉的条目绝无可能影响"上一轮到本轮这几分钟有没有被覆盖"这个判断，
+     * 所以这个剔除不损失任何灵敏度，纯粹是去噪。
+     * </p>
      */
     private void checkCoverageGap(PtIndexerPlus indexer, List<TorrentInfo> fetched) {
         // 本轮无新种子是正常情况（索引器该轮未发布新内容），不能当作拉取失败处理
         if (fetched.isEmpty()) {
             return;
         }
-        // guid 缺失的条目无法参与游标计算（正常 Torznab 响应不会出现，防御性跳过而非抛异常中断整轮拉取）
+        Instant now = Instant.now();
+        Instant futureLimit = now.plus(FUTURE_TOLERANCE);
+        Instant cutoff = now.minus(Duration.ofHours(coverageWindowHours));
+
+        // 一次遍历同时挑出：最新条目（按 pubDate，不是按下标）、窗口下沿、各类噪声计数
+        TorrentInfo newestItem = null;
+        Instant newest = null;
+        Instant floor = null;
+        int inWindow = 0;
+        int tooOld = 0;
+        int unparsable = 0;
+        int fromFuture = 0;
+        Instant oldestOverall = null;
+        for (TorrentInfo info : fetched) {
+            Instant at = parsePubDate(info.getPubDate());
+            if (at == null) {
+                unparsable++;
+                continue;
+            }
+            // 站点时钟不同步或干脆填错，会产生一个远在未来的 pubDate。放任它成为游标的话，
+            // 之后每一轮的"下沿 <= 上轮游标"都恒成立，判据永久失效且完全静默——比误报难查得多
+            if (at.isAfter(futureLimit)) {
+                fromFuture++;
+                continue;
+            }
+            if (oldestOverall == null || at.isBefore(oldestOverall)) {
+                oldestOverall = at;
+            }
+            if (newest == null || at.isAfter(newest)) {
+                newest = at;
+                newestItem = info;
+            }
+            if (at.isBefore(cutoff)) {
+                tooOld++;
+                continue;
+            }
+            inWindow++;
+            if (floor == null || at.isBefore(floor)) {
+                floor = at;
+            }
+        }
+
+        if (newest == null) {
+            // 一条可用的 pubDate 都没有，只能退回 guid 游标
+            checkCoverageGapByGuid(indexer, fetched, unparsable, fromFuture);
+            return;
+        }
+
+        Instant previousCursor = indexer.getLastSeenPubTime() == null
+                ? null : indexer.getLastSeenPubTime().toInstant();
+        if (previousCursor == null) {
+            log.debug("索引器[{}]首次记录时间游标：{}", indexer.getName(), newest);
+        } else if (floor == null) {
+            // 整页里连一条 coverageWindowHours 小时内的都没有 → 该站发布极慢，窗口至少覆盖这么久，不可能漏
+            log.debug("索引器[{}]拉取窗口远大于轮询周期（{} 小时内无新发布），跳过覆盖度判定",
+                    indexer.getName(), coverageWindowHours);
+        } else if (floor.isAfter(previousCursor)) {
+            int fails = indexer.getFailCount() == null ? 0 : indexer.getFailCount();
+            log.warn("索引器[{}]本轮拉取窗口未接上上一轮，{} ~ {} 这段时间发布的种子没有被看到。"
+                            + "本页 {} 条（{} 小时内 {} 条{}），窗口下沿 {}，上轮游标 {}，缺口 {}；"
+                            + "轮询周期 {} 秒，fail_count={}（退避 {} 倍，实际间隔 {} 秒）",
+                    indexer.getName(), previousCursor, floor,
+                    fetched.size(), coverageWindowHours, inWindow, describeNoise(tooOld, oldestOverall, unparsable, fromFuture),
+                    floor, previousCursor, formatDuration(Duration.between(previousCursor, floor)),
+                    indexer.getPollInterval(), fails, backoffMultiplier(fails),
+                    (indexer.getPollInterval() == null ? 600 : indexer.getPollInterval()) * backoffMultiplier(fails));
+            notifySafely("⚠️ 索引器[" + StringUtils.escapeHtml(indexer.getName()) + "]拉取窗口覆盖不全，"
+                    + formatDuration(Duration.between(previousCursor, floor)) + "内发布的种子可能被漏拉。"
+                    + "先看该索引器的失败次数（不为 0 时退避已把实际间隔放大数倍），再考虑缩短轮询周期"
+                    + "或让索引器提高单页返回数");
+        } else {
+            Duration margin = Duration.between(floor, previousCursor);
+            log.debug("索引器[{}]拉取窗口正常：本页 {} 条（{} 小时内 {} 条{}），窗口下沿 {}，上轮游标 {}，余量 {}",
+                    indexer.getName(), fetched.size(), coverageWindowHours, inWindow,
+                    describeNoise(tooOld, oldestOverall, unparsable, fromFuture), floor, previousCursor,
+                    formatDuration(margin));
+        }
+
+        indexer.setLastSeenPubTime(Date.from(newest));
+        // 兜底游标同步维护：取 pubDate 最新那条的 guid（而不是首条），
+        // 免得将来某天该索引器的 pubDate 忽然不可用时，兜底判据拿着一个陈旧且记错位置的游标
+        if (newestItem != null && StringUtils.isNotBlank(newestItem.getGuid())) {
+            indexer.setLastSeenGuidHash(GuidHasher.hash(newestItem.getGuid()));
+        }
+    }
+
+    /**
+     * pubDate 完全不可用时的兜底判据：仍按"上一轮首条种子的 guid 还在不在本轮结果里"判断。
+     * <p>
+     * 这条路径继承了时间游标想要摆脱的全部脆弱性（见 {@link #checkCoverageGap} 的三条前提），
+     * 所以日志里必须写明"兜底判据"——否则以后看到告警又要从头推理一遍是哪种成因。
+     * 保留它是因为对这类索引器确实没有别的信号可用，有个粗糙的判断好过完全没有。
+     * </p>
+     */
+    private void checkCoverageGapByGuid(PtIndexerPlus indexer, List<TorrentInfo> fetched,
+                                        int unparsable, int fromFuture) {
         String newestGuid = fetched.get(0).getGuid();
         if (StringUtils.isBlank(newestGuid)) {
             return;
         }
         String previousCursor = indexer.getLastSeenGuidHash();
-        if (previousCursor != null) {
-            int hit = indexOfCursor(fetched, previousCursor);
-            if (hit < 0) {
-                int fails = indexer.getFailCount() == null ? 0 : indexer.getFailCount();
-                log.warn("索引器[{}]本轮拉取窗口未覆盖上次记录点，期间可能有种子被跳过。"
-                                + "本轮 {} 条，{}；最新条目「{}」guid#{}，上轮游标#{}；"
-                                + "轮询周期 {} 秒，fail_count={}（退避 {} 倍，实际间隔 {} 秒）",
-                        indexer.getName(), fetched.size(), describeWindow(fetched),
-                        fetched.get(0).getTitle(), shortHash(GuidHasher.hash(newestGuid)), shortHash(previousCursor),
-                        indexer.getPollInterval(), fails, backoffMultiplier(fails),
-                        (indexer.getPollInterval() == null ? 600 : indexer.getPollInterval()) * backoffMultiplier(fails));
-                notifySafely("⚠️ 索引器[" + StringUtils.escapeHtml(indexer.getName()) + "]拉取窗口覆盖不全，可能有种子被漏拉。"
-                        + "先看该索引器的失败次数（不为 0 时退避已把实际间隔放大数倍），再看日志里同一时刻的诊断行"
-                        + "判断是单页容量不足还是索引器 guid 不稳定");
-            } else if (hit * 5 >= fetched.size() * 4) {
-                // 命中位置就是上轮以来的新增条数：逼近单页容量说明再快一点就要漏了，提前示警但不打扰用户
-                log.warn("索引器[{}]拉取窗口余量不足：上轮以来新增 {} 条，单页共 {} 条，{}",
-                        indexer.getName(), hit, fetched.size(), describeWindow(fetched));
-            } else {
-                log.debug("索引器[{}]拉取窗口正常：上轮以来新增 {} 条 / 单页 {} 条",
-                        indexer.getName(), hit, fetched.size());
-            }
+        if (previousCursor != null && indexOfCursor(fetched, previousCursor) < 0) {
+            log.warn("索引器[{}]本轮拉取窗口未覆盖上次记录点，期间可能有种子被跳过。"
+                            + "【该索引器 pubDate 全部不可用（{} 条无法解析、{} 条时间在未来），走的是 guid 兜底判据，"
+                            + "种子被删或 guid 每轮变化都会导致误报】本页 {} 条，"
+                            + "最新条目「{}」guid#{}，上轮游标#{}",
+                    indexer.getName(), unparsable, fromFuture, fetched.size(),
+                    fetched.get(0).getTitle(), shortHash(GuidHasher.hash(newestGuid)), shortHash(previousCursor));
+            notifySafely("⚠️ 索引器[" + StringUtils.escapeHtml(indexer.getName()) + "]拉取窗口覆盖不全，可能有种子被漏拉。"
+                    + "该索引器没有可用的发布时间，走的是精度较低的兜底判据，先看日志确认不是误报");
         }
         indexer.setLastSeenGuidHash(GuidHasher.hash(newestGuid));
     }
 
-    /** 上轮游标在本轮结果中的下标（即上轮以来的新增条数），未命中返回 -1 */
+    /** 上轮游标在本轮结果中的下标，未命中返回 -1；仅兜底判据使用 */
     private static int indexOfCursor(List<TorrentInfo> fetched, String cursor) {
         for (int i = 0; i < fetched.size(); i++) {
             String guid = fetched.get(i).getGuid();
@@ -355,43 +471,33 @@ public class RssPollService {
     }
 
     /**
-     * 概括本轮返回列表的时间窗口：pubDate 跨度 + 是否降序。
-     * <p>
-     * 跨度是判断漏拉告警是否属实的核心判据——它直接说明"这一页覆盖了多长时间"，
-     * 跨度远小于轮询周期就是单页容量跟不上发布速度，与游标逻辑无关。
-     * 降序检查则守着 {@code fetched.get(0)} 是最新条目这个前提：聚合型索引器合并多站点结果时
-     * 未必严格降序，那样游标会记在一条偏老的种子上，下一轮它早被挤出首页，恒定误报。
-     * </p>
+     * 把被剔除的条目摆到日志里。{@code tooOld} 就是这一页里置顶/远古条目的数量——
+     * 有了它不必再去索引器后台翻发布时间分布，一眼就能看出窗口下沿为什么是这个值。
      */
-    private static String describeWindow(List<TorrentInfo> fetched) {
-        Instant newest = null;
-        Instant oldest = null;
-        Instant previous = null;
-        boolean descending = true;
-        int unparsable = 0;
-        for (TorrentInfo info : fetched) {
-            Instant at = parsePubDate(info.getPubDate());
-            if (at == null) {
-                unparsable++;
-                continue;
-            }
-            if (newest == null || at.isAfter(newest)) {
-                newest = at;
-            }
-            if (oldest == null || at.isBefore(oldest)) {
-                oldest = at;
-            }
-            if (previous != null && at.isAfter(previous)) {
-                descending = false;
-            }
-            previous = at;
+    private static String describeNoise(int tooOld, Instant oldestOverall, int unparsable, int fromFuture) {
+        StringBuilder sb = new StringBuilder();
+        if (tooOld > 0) {
+            sb.append("，剔除 ").append(tooOld).append(" 条更早的（最老 ").append(oldestOverall).append("）");
         }
-        if (newest == null) {
-            return "pubDate 全部缺失或无法解析（" + unparsable + " 条），无法判断窗口跨度";
+        if (unparsable > 0) {
+            sb.append("，").append(unparsable).append(" 条 pubDate 不可解析");
         }
-        return "pubDate 跨度 " + Duration.between(oldest, newest).toSeconds() + " 秒（" + oldest + " ~ " + newest + "）"
-                + (descending ? "，降序正常" : "，⚠️非降序，首条并非最新，游标可能记错位置")
-                + (unparsable > 0 ? "，另有 " + unparsable + " 条 pubDate 不可解析" : "");
+        if (fromFuture > 0) {
+            sb.append("，").append(fromFuture).append(" 条时间在未来已忽略");
+        }
+        return sb.toString();
+    }
+
+    /** 时长的人话形式，日志里比裸秒数好读 */
+    private static String formatDuration(Duration duration) {
+        long seconds = Math.abs(duration.getSeconds());
+        if (seconds < 300) {
+            return seconds + " 秒";
+        }
+        if (seconds < 7200) {
+            return (seconds / 60) + " 分钟";
+        }
+        return String.format("%.1f 小时", seconds / 3600.0);
     }
 
     /** 解析 Torznab 的 pubDate（RFC 1123 为主，兼容少数发 ISO-8601 的索引器）；解析不出返回 null */

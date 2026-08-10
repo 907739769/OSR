@@ -50,7 +50,7 @@ class RssPollServiceTest {
     private RssPollService service() {
         // 零间隔限流器：本类验证轮询编排与退避账目，不测节流本身
         rateLimiter = new IndexerRateLimiter(0L, 5000L, 8);
-        return new RssPollService(indexerService, torznabClient, subscriptionEngine, rateLimiter, 2, 4);
+        return new RssPollService(indexerService, torznabClient, subscriptionEngine, rateLimiter, 2, 4, 24);
     }
 
     private PtIndexerPlus indexer(int id, Integer pollInterval, java.util.Date lastPoll, int failCount) {
@@ -80,6 +80,18 @@ class RssPollServiceTest {
         TorrentInfo t = torrent(title, guid);
         t.setPubDate(pubDate);
         return t;
+    }
+
+    /** 相对当前时间 minutesAgo 分钟前发布的种子，pubDate 用 Torznab 惯用的 RFC 1123 格式 */
+    private TorrentInfo aged(String title, long minutesAgo) {
+        TorrentInfo t = torrent(title, "guid-" + title);
+        t.setPubDate(java.time.format.DateTimeFormatter.RFC_1123_DATE_TIME.format(
+                java.time.ZonedDateTime.now(java.time.ZoneOffset.UTC).minusMinutes(minutesAgo)));
+        return t;
+    }
+
+    private java.util.Date minutesAgo(long minutes) {
+        return java.util.Date.from(java.time.Instant.now().minusSeconds(minutes * 60));
     }
 
     @Test
@@ -171,26 +183,27 @@ class RssPollServiceTest {
         verify(subscriptionEngine, never()).process(anyList());
     }
 
-    // ---------- 拉取窗口覆盖度校验 ----------
+    // ---------- 拉取窗口覆盖度校验：时间游标 ----------
 
     @Test
-    void 首次拉取_记录游标不告警() throws Exception {
+    void 首次拉取_记录时间游标不告警() throws Exception {
         PtIndexerPlus idx = indexer(1, 600, null, 0);
-        when(torznabClient.fetch(any())).thenReturn(List.of(torrent("t1", "guid-1")));
+        when(torznabClient.fetch(any())).thenReturn(List.of(aged("t1", 1)));
 
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
             service().pollOne(idx, new java.util.ArrayList<>());
 
-            assertNotNull(idx.getLastSeenGuidHash());
+            assertNotNull(idx.getLastSeenPubTime());
             tg.verify(() -> TgHelper.sendMsg(anyString()), never());
         }
     }
 
     @Test
-    void 上轮游标仍在本轮结果中_不告警() throws Exception {
-        PtIndexerPlus idx = indexer(1, 600, null, 0);
-        idx.setLastSeenGuidHash(com.osr.openliststrm.pt.indexer.GuidHasher.hash("guid-old"));
-        when(torznabClient.fetch(any())).thenReturn(List.of(torrent("t1", "guid-new"), torrent("t0", "guid-old")));
+    void 窗口下沿早于上轮游标_两轮首尾相接_不告警() throws Exception {
+        PtIndexerPlus idx = indexer(1, 300, null, 0);
+        idx.setLastSeenPubTime(minutesAgo(5));
+        // 本页覆盖到 30 分钟前，远早于上轮游标（5 分钟前）→ 中间没有断档
+        when(torznabClient.fetch(any())).thenReturn(List.of(aged("新", 1), aged("中", 10), aged("老", 30)));
 
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
             service().pollOne(idx, new java.util.ArrayList<>());
@@ -200,10 +213,11 @@ class RssPollServiceTest {
     }
 
     @Test
-    void 上轮游标未出现在本轮结果中_告警提示可能漏拉() throws Exception {
-        PtIndexerPlus idx = indexer(1, 600, null, 0);
-        idx.setLastSeenGuidHash(com.osr.openliststrm.pt.indexer.GuidHasher.hash("guid-old"));
-        when(torznabClient.fetch(any())).thenReturn(List.of(torrent("t1", "guid-new")));
+    void 窗口下沿晚于上轮游标_中间那段没被看到_告警() throws Exception {
+        PtIndexerPlus idx = indexer(1, 300, null, 0);
+        idx.setLastSeenPubTime(minutesAgo(30));
+        // 本页最老才到 10 分钟前，30~10 分钟前发布的种子一条都没看到
+        when(torznabClient.fetch(any())).thenReturn(List.of(aged("新", 1), aged("次新", 10)));
 
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
             service().pollOne(idx, new java.util.ArrayList<>());
@@ -213,7 +227,82 @@ class RssPollServiceTest {
     }
 
     @Test
-    void 覆盖度校验只认哈希后的游标_不受pubDate缺失影响() throws Exception {
+    void 置顶的远古种子不参与窗口下沿计算_不再恒定压低下沿() throws Exception {
+        // mteam 现场用例：整页最老是一条 2015 年的置顶种子。若拿它当窗口下沿，
+        // 判据恒成立、真漏拉也一起被静音
+        PtIndexerPlus idx = indexer(1, 300, null, 0);
+        idx.setLastSeenPubTime(minutesAgo(30));
+        when(torznabClient.fetch(any())).thenReturn(List.of(
+                aged("新", 1), aged("次新", 10),
+                torrent("置顶", "guid-sticky", "Sat, 07 Nov 2015 15:40:42 +0000")));
+
+        try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
+            service().pollOne(idx, new java.util.ArrayList<>());
+
+            tg.verify(() -> TgHelper.sendMsg(argThat(m -> m.contains("覆盖不全"))));
+        }
+    }
+
+    @Test
+    void 游标取pubDate最新的那条_而不是列表首条() throws Exception {
+        // 置顶种子排在首位时，按下标取游标会把游标记到一条老种子上
+        PtIndexerPlus idx = indexer(1, 300, null, 0);
+        when(torznabClient.fetch(any())).thenReturn(List.of(aged("置顶但不新", 120), aged("真正最新", 2)));
+
+        service().pollOne(idx, new java.util.ArrayList<>());
+
+        long ageSeconds = (System.currentTimeMillis() - idx.getLastSeenPubTime().getTime()) / 1000;
+        assertTrue(ageSeconds < 600, "游标应记在 2 分钟前那条上，实际记的是 " + ageSeconds + " 秒前");
+        // 兜底 guid 游标也应指向同一条，而不是首条
+        assertEquals(com.osr.openliststrm.pt.indexer.GuidHasher.hash("guid-真正最新"), idx.getLastSeenGuidHash());
+    }
+
+    @Test
+    void 未来时间的pubDate被剔除_不会把游标推到未来() throws Exception {
+        // 站点时钟不同步时若让未来时间成为游标，之后每轮判定都恒成立，覆盖度校验静默失效
+        PtIndexerPlus idx = indexer(1, 300, null, 0);
+        when(torznabClient.fetch(any())).thenReturn(List.of(
+                aged("来自未来", -3 * 24 * 60), aged("正常最新", 2)));
+
+        service().pollOne(idx, new java.util.ArrayList<>());
+
+        assertTrue(idx.getLastSeenPubTime().getTime() <= System.currentTimeMillis(),
+                "游标不该被推到未来：" + idx.getLastSeenPubTime());
+    }
+
+    @Test
+    void 整页都在截断线以外_窗口远大于轮询周期_跳过判定不告警() throws Exception {
+        // 发布极慢的站点：一页里连一条 24 小时内的都没有，说明窗口至少覆盖一天，不可能漏
+        PtIndexerPlus idx = indexer(1, 300, null, 0);
+        idx.setLastSeenPubTime(minutesAgo(10));
+        when(torznabClient.fetch(any())).thenReturn(List.of(
+                aged("三天前", 3 * 24 * 60), aged("五天前", 5 * 24 * 60)));
+
+        try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
+            service().pollOne(idx, new java.util.ArrayList<>());
+
+            tg.verify(() -> TgHelper.sendMsg(anyString()), never());
+        }
+    }
+
+    // ---------- 覆盖度校验：pubDate 不可用时的 guid 兜底 ----------
+
+    @Test
+    void pubDate全部不可解析_退回guid游标_未命中时写明是兜底判据() throws Exception {
+        PtIndexerPlus idx = indexer(1, 600, null, 0);
+        idx.setLastSeenGuidHash(com.osr.openliststrm.pt.indexer.GuidHasher.hash("guid-old"));
+        when(torznabClient.fetch(any())).thenReturn(List.of(torrent("t1", "guid-new", null)));
+
+        try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
+            service().pollOne(idx, new java.util.ArrayList<>());
+
+            tg.verify(() -> TgHelper.sendMsg(argThat(m -> m.contains("覆盖不全") && m.contains("兜底判据"))));
+            assertNull(idx.getLastSeenPubTime(), "没有可用 pubDate 时不该写时间游标");
+        }
+    }
+
+    @Test
+    void pubDate全部不可解析_退回guid游标_命中不告警() throws Exception {
         // 诊断日志会去解析 pubDate，全部缺失时不能影响覆盖判定本身，也不能抛
         PtIndexerPlus idx = indexer(1, 600, null, 0);
         idx.setLastSeenGuidHash(com.osr.openliststrm.pt.indexer.GuidHasher.hash("guid-old"));
@@ -233,13 +322,13 @@ class RssPollServiceTest {
         // 回归用例：旧文案"建议缩短轮询间隔"会把用户往反方向引——请求更密更容易撞限流冷却，
         // 冷却期的快速失败又累加 fail_count 触发退避，实际间隔反而被放大
         PtIndexerPlus idx = indexer(1, 300, null, 0);
-        idx.setLastSeenGuidHash(com.osr.openliststrm.pt.indexer.GuidHasher.hash("guid-old"));
-        when(torznabClient.fetch(any())).thenReturn(List.of(torrent("t1", "guid-new")));
+        idx.setLastSeenPubTime(minutesAgo(30));
+        when(torznabClient.fetch(any())).thenReturn(List.of(aged("新", 1), aged("次新", 10)));
 
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
             service().pollOne(idx, new java.util.ArrayList<>());
 
-            tg.verify(() -> TgHelper.sendMsg(argThat(m -> m.contains("覆盖不全") && !m.contains("建议缩短轮询间隔"))));
+            tg.verify(() -> TgHelper.sendMsg(argThat(m -> m.contains("覆盖不全") && m.contains("失败次数"))));
         }
     }
 

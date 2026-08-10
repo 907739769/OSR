@@ -70,9 +70,27 @@ public class PtIndexerPlus extends BaseEntity {
     @TableField("disabled_at")
     private Date disabledAt;
 
-    /** 上一轮拉取到的最新种子 guid 的 SHA-256 哈希，用于校验下一轮拉取窗口是否覆盖完整 */
+    /**
+     * 上一轮拉取到的最新种子 guid 的 SHA-256 哈希。
+     * <p>
+     * <b>只在 pubDate 全部缺失/不可解析时作为兜底游标使用</b>，主判据已换成
+     * {@link #lastSeenPubTime}。它依赖"那条种子下一轮还在且 guid 没变"，
+     * 种子被删、guid 带一次性 token、索引器抽样返回，任一条都会让它恒定误报。
+     * </p>
+     */
     @TableField("last_seen_guid_hash")
     private String lastSeenGuidHash;
+
+    /**
+     * 上一轮拉取到的最新种子发布时间，RSS 覆盖度校验的主游标。
+     * <p>
+     * 只依赖时间戳、不依赖条目身份：下一轮检查"本轮窗口下沿 &le; 本字段"，
+     * 成立说明两轮的窗口首尾相接没有断档。种子被删除、guid 每轮变化、
+     * 置顶条目乱入，都影响不到这个判据。
+     * </p>
+     */
+    @TableField("last_seen_pub_time")
+    private Date lastSeenPubTime;
 
     /**
      * 该站点是否有 H&R（Hit and Run）考核 0-否 1-是。
