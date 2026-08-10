@@ -426,6 +426,16 @@ public class SubscriptionEngine {
                     + describeEpisodes(match) + "\n" + StringUtils.escapeHtml(best.getTitle())
                     + "\n已推送至下载器：" + StringUtils.escapeHtml(downloader.getName())
                     + "\n⚠️ 旧版本不会被自动删除，新版本下载完成后请自行清理", sub);
+        } else if (match.getEpisode() == SubscriptionMatcher.SEASON_PACK) {
+            // 季包的命中通知刻意延后到 DownloadTrackService#trySelectFiles 确认包内确实含目标集之后再发，
+            // 补发点见 DownloadTrackService#notifySeasonPackHit。两边的判据都是「episode == SEASON_PACK」，
+            // 必须保持一致，否则会漏发或重复发。
+            //
+            // 「有季无集」的标题（如 HHWEB 日更剧只写 S01 不带集号）一律被判成季包，而它实际可能只有
+            // 一集，且未必是本次要补的那一集——推送那一刻没有任何信号能分辨，只有下载器给出文件列表
+            // 才知道。原先在这里就发「订阅命中」，于是用户先收到一条命中、紧接着收到一条「种子内不含
+            // 任何目标集，已中止」，一次白跑发两条通知，日更剧每天要刷好几轮。
+            log.info("订阅[{}] 季包已推送，命中通知延后到文件列表确认后：{}", sub.getId(), best.getTitle());
         } else {
             notifySafely(NotificationType.SUBSCRIPTION_HIT, "📌 订阅命中：《" + StringUtils.escapeHtml(sub.getTitle()) + "》"
                     + describeEpisodes(match) + "\n" + StringUtils.escapeHtml(best.getTitle())
@@ -641,6 +651,7 @@ public class SubscriptionEngine {
         torrent.setParsedEpisode(toInt(info.getEpisode()));
         torrent.setParsedEpisodeEnd(toInt(info.getEpisodeEnd()));
         applySeasonPackRange(torrent);
+        applyDescriptionEpisode(torrent);
         torrent.setParsedResolution(info.getResolution());
         torrent.setParsedSource(info.getSource());
         torrent.setParsedReleaseGroup(info.getReleaseGroup());
@@ -671,6 +682,43 @@ public class SubscriptionEngine {
         torrent.setParsedEpisode(range.start());
         torrent.setParsedEpisodeEnd(range.end());
         log.debug("季包标题带集数区间，按 E{}-E{} 处理而非整季：{}", range.start(), range.end(), torrent.getTitle());
+    }
+
+    /**
+     * 标题里既没有集号也没有集数区间时，退而从 {@code description} 里找，见 {@link DescriptionEpisode}。
+     * <p>
+     * 针对的是「同一季每集都发成同一个标题」的发布组（HHWEB 一类日更剧）：集号只存在于
+     * description。不补的话这些种子全部被判成整季包，占位订阅的全部缺失集，推送后才由
+     * {@code DownloadTrackService#trySelectFiles} 从文件列表发现「包里那一集不是要补的集」
+     * 而中止——每天每集白跑一轮，还要按转发站点数乘一遍。
+     * </p>
+     * <p>
+     * 三条约束与 {@link #applySeasonPackRange} 同源：
+     * </p>
+     * <ul>
+     *   <li><b>只在判不出集号时生效</b>，绝不覆盖标题解析出的集号。description 是站点自填的
+     *       自由文本，可靠性低于遵循命名规范的标题；{@code S01E05} 的种子哪怕 description 里
+     *       写着别的数字，也必须以 E05 为准。</li>
+     *   <li><b>要求已解析出季号</b>：{@code SubscriptionMatcher} 对没有季号的剧集种子直接不匹配，
+     *       补出集号也无处可用，平白多一次正则开销和一条误判的可能。</li>
+     *   <li><b>判不出来就维持现状</b>（当整季包处理），由下载器的真实文件列表事后对账兜底。
+     *       本方法只是把「不知道包里是第几集」的窗口期从「推送到元数据解析完成」提前到推送之前。</li>
+     * </ul>
+     */
+    private void applyDescriptionEpisode(TorrentInfo torrent) {
+        if (torrent.getParsedSeason() == null || torrent.getParsedEpisode() != null) {
+            return;
+        }
+        DescriptionEpisode.Episodes episodes = DescriptionEpisode.parse(torrent.getDescription());
+        if (episodes == null) {
+            return;
+        }
+        torrent.setParsedEpisode(episodes.start());
+        // 单集时 episodeEnd 必须留 null：下游多处按「end != null && end > start」判区间，
+        // 填一个等于 start 的值只是把同一件事换个说法，却会让区间展开逻辑多一种要考虑的形态
+        torrent.setParsedEpisodeEnd(episodes.isRange() ? episodes.end() : null);
+        log.debug("标题无集号，已从 description 补出 E{}{}：{}", episodes.start(),
+                episodes.isRange() ? "-E" + episodes.end() : "", torrent.getTitle());
     }
 
     /**
@@ -776,6 +824,13 @@ public class SubscriptionEngine {
      * 重搜多少次都补不回来——集会一直卡在缺失，且没有任何地方说得出为什么。
      * 放行后由 {@link #reusableFailedRecord} 复用原行落库，不会撞唯一索引；
      * 同一集的无限重试则由 {@code pt_subscription_episode.fail_count} 的熔断阈值兜住。
+     * </p>
+     * <p>
+     * <b>不要再加一层"按标题跨索引器剔除"</b>：日更剧的发布组（HHWEB 一类）会把同一季所有集
+     * 发成标题<b>逐字相同</b>的种子，集号只出现在 {@code description} 里。按标题连坐会让一条
+     * {@code NO_TARGET_EPISODE} 把该发布组这一版本的<b>全部后续集</b>永久烧掉，包括还没发布的。
+     * 同一个种子在多站转发造成的重复推送，靠 {@code SubscriptionEngine#fillParsed} 从
+     * description 补出集号来根治——那才是能把它们区分开的判据。
      * </p>
      */
     private List<TorrentInfo> excludeAlreadyRecorded(List<TorrentInfo> candidates) {

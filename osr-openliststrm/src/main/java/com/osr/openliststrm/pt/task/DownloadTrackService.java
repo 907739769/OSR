@@ -20,6 +20,7 @@ import com.osr.openliststrm.pt.downloader.DownloaderClientFactory;
 import com.osr.openliststrm.pt.downloader.model.DownloaderTorrent;
 import com.osr.openliststrm.pt.downloader.model.DownloaderTorrentFile;
 import com.osr.openliststrm.pt.subscription.SubscriptionEpisodeState;
+import com.osr.openliststrm.pt.subscription.SubscriptionMatcher;
 import com.osr.openliststrm.pt.subscription.SubscriptionService;
 import com.osr.openliststrm.pt.upgrade.QualityProfile;
 import com.osr.openliststrm.pt.upgrade.UpgradeState;
@@ -438,6 +439,9 @@ public class DownloadTrackService {
             downloaderClientFactory.get(downloader).resumeTorrent(downloader, matched.getHash());
             reconcileClaims(record, sub, targets, actualEpisodes);
             markFilesSelected(record);
+            // 必须排在 markFilesSelected 之后：那一步失败会走 catch 留给下一轮重试，
+            // 通知抢先发出去的话下一轮会再发一条
+            notifySeasonPackHit(record, sub, downloader, intersect(targetEpisodes, actualEpisodes));
         } catch (Exception e) {
             log.warn("下载记录[{}] 按目标集数过滤文件失败，下一轮重试：{}", record.getId(), e.getMessage());
         }
@@ -669,9 +673,60 @@ public class DownloadTrackService {
                 }
             }
             reconcileClaims(record, sub, targets, actualEpisodes);
+            // 季包的命中通知在推送时被刻意跳过（见 SubscriptionEngine），本该由 trySelectFiles 补发。
+            // 但不暂停加种的季包（磁力链）可能在下一轮轮询前就下完，直接走完成分支、绕过 trySelectFiles，
+            // 那条通知就永远发不出去了。这里是它最后一次机会
+            Set<Integer> targetEpisodes = targets.stream()
+                    .map(PtSubscriptionEpisodePlus::getEpisode)
+                    .filter(java.util.Objects::nonNull)
+                    .collect(Collectors.toSet());
+            notifySeasonPackHit(record, sub, downloader, intersect(targetEpisodes, actualEpisodes));
         } catch (Exception e) {
             log.warn("下载记录[{}] 完成前补对账文件列表失败，该集将按未确认处理：{}", record.getId(), e.getMessage());
         }
+    }
+
+    /**
+     * 补发季包的「订阅命中」通知——{@code SubscriptionEngine} 推送季包时刻意没发，等的就是这一刻。
+     * <p>
+     * 「有季无集」的标题（HHWEB 一类日更剧只写 {@code S01}、不带集号）一律被判成季包，可它实际
+     * 可能只含一集，且未必是本次要补的那一集。推送那一刻没有任何信号能分辨，只有下载器给出文件
+     * 列表才知道。在推送时就报「订阅命中」，用户下一分钟就会收到「种子内不含任何目标集，已中止」，
+     * 一次白跑两条通知；等确认之后再报，没补到货的那些轮次就只剩一条中止通知。
+     * </p>
+     * <p>
+     * 判据 {@code episode == SEASON_PACK} 必须与 {@code SubscriptionEngine} 里跳过通知的条件
+     * <b>逐字一致</b>：那边多跳一种情况这边就漏发，这边多发一种那边就重复发。洗版与单集/区间包的
+     * {@code episode} 都是具体集号，走不到这里，它们的命中通知仍在推送时立即发出。
+     * </p>
+     * <p>
+     * 幂等由调用点保证，不靠额外的落库标记：两个调用点都在 {@code files_selected} 为 false 时才
+     * 到得了，而 {@code trySelectFiles} 一旦成功就把它置为 true，之后既不再进 {@code trySelectFiles}，
+     * {@code confirmEpisodesIfNeeded} 也会在开头直接返回。
+     * </p>
+     */
+    private void notifySeasonPackHit(PtDownloadRecordPlus record, PtSubscriptionPlus sub,
+                                     PtDownloaderPlus downloader, Set<Integer> confirmedEpisodes) {
+        Integer episode = record.getEpisode();
+        if (sub == null || episode == null || episode != SubscriptionMatcher.SEASON_PACK) {
+            return;
+        }
+        // 一个集号都没确认下来（文件名解析不出集号，如整季压成单文件）时不写这一行，
+        // 免得通知里出现「包内已确认第  集」这种空洞的说法
+        String confirmed = confirmedEpisodes.isEmpty()
+                ? "" : "\n包内已确认第 " + joinEpisodes(confirmedEpisodes) + " 集";
+        notifySafely(NotificationType.SUBSCRIPTION_HIT, "📌 订阅命中：《"
+                + StringUtils.escapeHtml(sub.getTitle()) + "》 S" + sub.getSeason() + " 全季\n"
+                + StringUtils.escapeHtml(record.getTitle())
+                + "\n已推送至下载器：" + StringUtils.escapeHtml(downloader.getName())
+                + confirmed, sub.getOwnerUserId());
+    }
+
+    /** 两个集号集合的交集：本次真正会下载的集（占位的 ∩ 包内实际有的） */
+    private Set<Integer> intersect(Set<Integer> targetEpisodes, Set<Integer> actualEpisodes) {
+        Set<Integer> confirmed = new HashSet<>(targetEpisodes);
+        confirmed.retainAll(actualEpisodes);
+        return confirmed;
     }
 
     /**

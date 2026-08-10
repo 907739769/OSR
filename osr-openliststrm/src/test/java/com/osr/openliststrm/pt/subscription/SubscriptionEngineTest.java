@@ -40,6 +40,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
@@ -1227,6 +1228,74 @@ class SubscriptionEngineTest {
 
         long atmosCount = t.getParsedTags().stream().filter("ATMOS"::equalsIgnoreCase).count();
         assertEquals(1, atmosCount);
+    }
+
+    // ---------- fillParsed 从 description 补集号 ----------
+
+    @Test
+    void fillParsed_标题只有季号时_从description补出集号() {
+        // 实测样本：HHWEB 日更剧把同一季每一集都发成这一个标题，集号只在 description 里。
+        // 不补的话它会被判成整季包，占位订阅全部缺失集，推送后才由文件列表发现「包里那一集
+        // 不是要补的集」而中止——每天每集白跑一轮，还要按转发站点数乘一遍
+        TorrentInfo t = new TorrentInfo();
+        t.setTitle("Mystic Nine S01 2026 2160p YK WEB-DL H265 DTS5.1-HHWEB");
+        t.setDescription("九门 / 老九门2 / 老九门贰 | 第21集 | 4K 高码 杜比视界 | 类型: 剧情/奇幻/冒险");
+
+        engine.fillParsed(t);
+
+        assertEquals(1, t.getParsedSeason());
+        assertEquals(21, t.getParsedEpisode());
+        assertNull(t.getParsedEpisodeEnd(), "单集的 episodeEnd 必须留 null，下游按它判是不是区间");
+    }
+
+    @Test
+    void fillParsed_标题已有集号时_description不得覆盖它() {
+        // description 是站点自填的自由文本，可靠性低于遵循命名规范的标题。
+        // 覆盖的话，同一条种子会去认领一个它没有的集
+        TorrentInfo t = new TorrentInfo();
+        t.setTitle("Mystic Nine S01E05 2026 2160p WEB-DL-HHWEB");
+        t.setDescription("九门 | 第21集 | 4K");
+
+        engine.fillParsed(t);
+
+        assertEquals(5, t.getParsedEpisode());
+    }
+
+    @Test
+    void fillParsed_description带集数区间时_按区间而非整季处理() {
+        TorrentInfo t = new TorrentInfo();
+        t.setTitle("Some Show S01 2026 1080p WEB-DL-GROUP");
+        t.setDescription("某剧 | 第01-12集 | 1080p");
+
+        engine.fillParsed(t);
+
+        assertEquals(1, t.getParsedEpisode());
+        assertEquals(12, t.getParsedEpisodeEnd());
+    }
+
+    @Test
+    void fillParsed_description没有集号时_维持整季包的既有行为() {
+        // 判不出来就当整季包，由 DownloadTrackService 拿下载器的真实文件列表事后对账兜底
+        TorrentInfo t = new TorrentInfo();
+        t.setTitle("Some Show S01 2026 1080p WEB-DL-GROUP");
+        t.setDescription("某剧 | 1080p | 类型: 剧情");
+
+        engine.fillParsed(t);
+
+        assertEquals(1, t.getParsedSeason());
+        assertNull(t.getParsedEpisode());
+    }
+
+    @Test
+    void fillParsed_没有季号时_不从description补集号() {
+        // SubscriptionMatcher 对没有季号的剧集种子直接不匹配，补出集号也无处可用
+        TorrentInfo t = new TorrentInfo();
+        t.setTitle("Some Show 2026 1080p WEB-DL-GROUP");
+        t.setDescription("某剧 | 第21集 | 1080p");
+
+        engine.fillParsed(t);
+
+        assertNull(t.getParsedEpisode());
     }
 
     @Test
