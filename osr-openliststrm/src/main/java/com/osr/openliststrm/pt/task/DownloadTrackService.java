@@ -130,8 +130,22 @@ public class DownloadTrackService {
 
     /**
      * 追踪一个下载器：拉回来的种子已按公共标签过滤过，这里只做状态推进。
+     * <p>
+     * 不带其它下载器快照的重载，等价于"整套系统只有这一个下载器"。
+     * </p>
      */
     public void track(PtDownloaderPlus downloader, List<DownloaderTorrent> torrents) {
+        track(downloader, torrents, List.of());
+    }
+
+    /**
+     * 追踪一个下载器，并带上本轮其余下载器的种子快照。
+     *
+     * @param otherSnapshots 本轮其余下载器的快照，供 H&R 追踪判断"种子是被删了还是被转移走了"。
+     *                       传空列表即退化为只看本下载器
+     */
+    public void track(PtDownloaderPlus downloader, List<DownloaderTorrent> torrents,
+                      List<DownloaderSnapshot> otherSnapshots) {
         List<PtDownloadRecordPlus> active = recordService.list(
                 new QueryWrapper<PtDownloadRecordPlus>()
                         .eq("downloader_id", downloader.getId())
@@ -139,7 +153,7 @@ public class DownloadTrackService {
         if (!active.isEmpty()) {
             trackActive(downloader, torrents, active);
         }
-        trackSeeding(downloader, torrents);
+        trackSeeding(downloader, torrents, otherSnapshots);
     }
 
     /** 在途记录（PUSHED/DOWNLOADING）的状态推进 */
@@ -206,7 +220,8 @@ public class DownloadTrackService {
      * 哪些种子还不能删，也不知道自己什么时候已经踩了雷。
      * </p>
      */
-    private void trackSeeding(PtDownloaderPlus downloader, List<DownloaderTorrent> torrents) {
+    private void trackSeeding(PtDownloaderPlus downloader, List<DownloaderTorrent> torrents,
+                              List<DownloaderSnapshot> otherSnapshots) {
         List<PtDownloadRecordPlus> seeding = recordService.listSeedingPending(downloader.getId());
         if (seeding == null || seeding.isEmpty()) {
             return;
@@ -214,12 +229,19 @@ public class DownloadTrackService {
         Map<Integer, PtIndexerPlus> indexerCache = loadIndexers(seeding);
         for (PtDownloadRecordPlus record : seeding) {
             PtIndexerPlus indexer = indexerCache.get(record.getIndexerId());
-            DownloaderTorrent matched = findByTag(torrents, record.getTrackingTag());
+            DownloaderTorrent matched = findForRecord(torrents, record);
             if (matched == null) {
-                // OSR 自己从不删种，走到这里说明是用户手动删了、或下载器的自动管理把它清掉了。
-                // 无法补救，只能如实告知，让用户去站点申诉或重新做种。
-                violate(record);
-                continue;
+                // 本下载器里找不到了，但不一定就是"被删了"：用户可能用 IYUU 把它转移到了保种机上。
+                // 先去本轮其余下载器的快照里找一遍，找到就把追踪跟过去，找不到才判 H&R
+                TransferredMatch transferred = findTransferred(record, otherSnapshots, downloader.getId());
+                if (transferred == null) {
+                    // OSR 自己从不删种，走到这里说明是用户手动删了、或下载器的自动管理把它清掉了。
+                    // 无法补救，只能如实告知，让用户去站点申诉或重新做种。
+                    violate(record);
+                    continue;
+                }
+                adoptTransferred(record, transferred);
+                matched = transferred.torrent();
             }
             if (indexer == null) {
                 // 索引器被删了，考核标准无从谈起。保持 PENDING 只会每轮空转，
@@ -844,6 +866,97 @@ public class DownloadTrackService {
             }
         }
         return null;
+    }
+
+    /**
+     * 保种阶段的种子匹配：标签 → hash → 种子名，逐级降级。
+     * <p>
+     * <b>只用在 {@link #trackSeeding}，不用在 {@link #trackActive}。</b>在途记录必须严格按
+     * 跟踪标签认领——那是 OSR 自己推送时打的、一条记录一个，认错就会把进度写到别人头上；
+     * 而保种阶段面对的是"种子可能已经被第三方工具搬走了"，标签未必还在（IYUU 转移不保证
+     * 保留标签），此时宁可用弱一点的判据认回来，也不要误判成 H&R。
+     * </p>
+     * <p>
+     * 种子名相同的候选可能不止一个（辅种的兄弟种子名字往往逐字一致），取做种时间最长的那个：
+     * 这里只用来读做种时长与分享率，取最长的一方不会让考核提前"达标"以外的方向出错，
+     * 而它们本来就在共享同一份文件、同时在做种。
+     * </p>
+     */
+    private DownloaderTorrent findForRecord(List<DownloaderTorrent> torrents, PtDownloadRecordPlus record) {
+        DownloaderTorrent byTag = findByTag(torrents, record.getTrackingTag());
+        if (byTag != null) {
+            return byTag;
+        }
+        String hash = record.getTorrentHash();
+        if (StringUtils.isNotBlank(hash)) {
+            for (DownloaderTorrent torrent : torrents) {
+                if (hash.equalsIgnoreCase(torrent.getHash())) {
+                    return torrent;
+                }
+            }
+        }
+        String title = record.getTitle();
+        if (StringUtils.isBlank(title)) {
+            return null;
+        }
+        DownloaderTorrent best = null;
+        for (DownloaderTorrent torrent : torrents) {
+            if (!title.trim().equalsIgnoreCase(StringUtils.trim(torrent.getName()))) {
+                continue;
+            }
+            if (best == null || torrent.getSeedingSeconds() > best.getSeedingSeconds()) {
+                best = torrent;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * 在本轮其余下载器的快照里找这条记录的种子，判断它是"被删了"还是"被转移走了"。
+     */
+    private TransferredMatch findTransferred(PtDownloadRecordPlus record, List<DownloaderSnapshot> otherSnapshots,
+                                             Integer currentDownloaderId) {
+        if (otherSnapshots == null || otherSnapshots.isEmpty()) {
+            return null;
+        }
+        for (DownloaderSnapshot snapshot : otherSnapshots) {
+            // 调用方传的是本轮全部快照（含当前这个），跳过当前的那份：它刚刚才匹配失败
+            if (snapshot.downloader() == null
+                    || snapshot.downloader().getId().equals(currentDownloaderId)) {
+                continue;
+            }
+            DownloaderTorrent found = findForRecord(snapshot.torrents(), record);
+            if (found != null) {
+                return new TransferredMatch(snapshot.downloader(), found);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 把记录的归属下载器改成种子实际所在的那个，之后的轮次直接在新下载器里追踪。
+     * <p>
+     * 必须落库而不是每轮重新搜一遍：{@code listSeedingPending} 是按 downloader_id 查的，
+     * 不改的话这条记录永远只在原下载器那一轮被处理，每轮都要把所有下载器的快照翻一遍；
+     * 更要紧的是自动删种的 H&R 保护名单也按记录取，归属对不上会让保护落空。
+     * </p>
+     * <p>
+     * 只记日志不发通知：转移是用户自己用 IYUU 做的，他知道这件事，
+     * 一条"种子换了个下载器"的推送只是噪音。
+     * </p>
+     */
+    private void adoptTransferred(PtDownloadRecordPlus record, TransferredMatch transferred) {
+        Integer newId = transferred.downloader().getId();
+        recordService.update(null, new UpdateWrapper<PtDownloadRecordPlus>()
+                .eq("id", record.getId())
+                .set("downloader_id", newId));
+        log.info("下载记录[{}] 的种子已不在原下载器，但在下载器[{}]中找到（多为 IYUU 转移/辅种），"
+                + "H&R 考核继续跟进：{}", record.getId(), transferred.downloader().getName(), record.getTitle());
+        record.setDownloaderId(newId);
+    }
+
+    /** 在别的下载器里找到的同一个种子 */
+    private record TransferredMatch(PtDownloaderPlus downloader, DownloaderTorrent torrent) {
     }
 
     /**

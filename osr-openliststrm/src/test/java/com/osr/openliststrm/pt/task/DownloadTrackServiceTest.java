@@ -323,6 +323,60 @@ class DownloadTrackServiceTest {
         assertEquals("VIOLATED", captor.getValue().getHrState());
     }
 
+    // ---------- IYUU 转移后的跨下载器 H&R 追踪 ----------
+
+    @Test
+    void 种子被转移到另一个下载器_不判违规而是跟过去继续考核() {
+        // IYUU 转移会让种子从原下载器彻底消失。不去别处找一遍就判 VIOLATED 的话，
+        // 每一条被转移的记录都会收到一条"可能已产生 H&R"的假告警
+        when(recordService.listSeedingPending(1)).thenReturn(List.of(seedingRecord(200, "osr-pt-bbb", 100)));
+        when(indexerService.listByIds(any())).thenReturn(List.of(hrIndexer(7, 72, 0.0)));
+        when(recordService.update(any(), any(Wrapper.class))).thenReturn(true);
+
+        PtDownloaderPlus seedBox = seedOnlyDownloader();
+        // 保种机上的那个种子已经不带 OSR 的跟踪标签了，靠种子名认回来
+        DownloaderTorrent moved = seedingTorrent("", 300_000, 0.5);
+        moved.setName("Some.Show.S01E01");
+
+        service().track(downloader(), List.of(),
+                List.of(new DownloaderSnapshot(downloader(), List.of()),
+                        new DownloaderSnapshot(seedBox, List.of(moved))));
+
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService, atLeastOnce()).update(captor.capture(), any(Wrapper.class));
+        // 没有任何一次更新把状态改成 VIOLATED；72 小时已满，应当直接转达标
+        assertTrue(captor.getAllValues().stream().noneMatch(v -> v != null && "VIOLATED".equals(v.getHrState())),
+                "转移走的种子不该被判成 H&R 违规");
+        assertTrue(captor.getAllValues().stream().anyMatch(v -> v != null && "SATISFIED".equals(v.getHrState())),
+                "跟到新下载器后应当按新下载器的做种时长判达标");
+    }
+
+    @Test
+    void 所有下载器里都找不到种子_仍判违规() {
+        when(recordService.listSeedingPending(1)).thenReturn(List.of(seedingRecord(200, "osr-pt-bbb", 100)));
+        when(indexerService.listByIds(any())).thenReturn(List.of(hrIndexer(7, 72, 0.0)));
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+
+        DownloaderTorrent unrelated = seedingTorrent("", 300_000, 0.5);
+        unrelated.setName("Other.Show.S01E01");
+
+        service().track(downloader(), List.of(),
+                List.of(new DownloaderSnapshot(seedOnlyDownloader(), List.of(unrelated))));
+
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService).update(captor.capture(), any(Wrapper.class));
+        assertEquals("VIOLATED", captor.getValue().getHrState());
+    }
+
+    private PtDownloaderPlus seedOnlyDownloader() {
+        PtDownloaderPlus d = new PtDownloaderPlus();
+        d.setId(2);
+        d.setName("保种机");
+        d.setTag("osr-pt");
+        d.setRole("SEED_ONLY");
+        return d;
+    }
+
     @Test
     void 保种记录的索引器已被删除_按达标收尾而不是永远空转() {
         when(recordService.listSeedingPending(1)).thenReturn(List.of(seedingRecord(200, "osr-pt-bbb", 100)));

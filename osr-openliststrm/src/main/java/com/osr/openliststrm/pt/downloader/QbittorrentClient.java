@@ -154,7 +154,17 @@ public class QbittorrentClient implements IDownloaderClient {
 
     @Override
     public List<DownloaderTorrent> listByTag(PtDownloaderPlus config, String tag) throws IOException {
-        String json = get(config, "/api/v2/torrents/info", Map.of("tag", tag));
+        return listInfo(config, Map.of("tag", tag));
+    }
+
+    @Override
+    public List<DownloaderTorrent> listAll(PtDownloaderPlus config) throws IOException {
+        return listInfo(config, Map.of());
+    }
+
+    /** {@code /torrents/info} 的公共映射：两个查询口径唯一的差别就是带不带 tag 过滤参数 */
+    private List<DownloaderTorrent> listInfo(PtDownloaderPlus config, Map<String, String> query) throws IOException {
+        String json = get(config, "/api/v2/torrents/info", query);
         List<DownloaderTorrent> result = new ArrayList<>();
         if (StringUtils.isBlank(json)) {
             return result;
@@ -175,6 +185,10 @@ public class QbittorrentClient implements IDownloaderClient {
             torrent.setRatio(Math.max(0.0, item.getDoubleValue("ratio")));
             torrent.setSeedingSeconds(Math.max(0L, item.getLongValue("seeding_time")));
             torrent.setUploaded(Math.max(0L, item.getLongValue("uploaded")));
+            // size 是"已选中文件的体积"，total_size 才是种子声明的总体积。清理关心的是
+            // 删掉它能腾出多少空间，而 OSR 会给多集包排除非目标集文件，因此必须用 size
+            torrent.setSize(Math.max(0L, item.getLongValue("size")));
+            torrent.setContentPath(item.getString("content_path"));
             result.add(torrent);
         }
         return result;

@@ -972,9 +972,26 @@ public class SubscriptionEngine {
         return record;
     }
 
-    /** 查询当前启用的下载器列表，供批内缓存复用 */
+    /**
+     * 查询当前<b>参与订阅下载</b>的启用下载器列表，供批内缓存复用。
+     * <p>
+     * {@code role=SEED_ONLY} 的下载器必须在这一步就被排除干净。它的用途是接收 IYUU
+     * 转移/辅种过来的种子，往它上面推订阅意味着：种子下到了一台配了自动删种的机器上，
+     * 而那台机器的清理规则是按"保种"设计的（做满 N 小时就删），和"正在补的剧集要留着上传网盘"
+     * 完全不是一回事。
+     * </p>
+     * <p>
+     * 过滤刻意放在 Java 侧而不是写进 SQL 的 {@code eq("role", "DOWNLOAD")}：role 是后加的列，
+     * 存量行可能为 NULL，SQL 等值比较对 NULL 恒为假，会把用户原本唯一的那台下载器整个滤掉，
+     * 升级后订阅直接全部停摆。{@link PtDownloaderPlus#participatesInDownload()} 对 NULL
+     * 退化成 DOWNLOAD，升级前后行为一致。
+     * </p>
+     */
     private List<PtDownloaderPlus> loadEnabledDownloaders() {
-        return downloaderService.list(new QueryWrapper<PtDownloaderPlus>().eq("enabled", "1"));
+        return downloaderService.list(new QueryWrapper<PtDownloaderPlus>().eq("enabled", "1"))
+                .stream()
+                .filter(PtDownloaderPlus::participatesInDownload)
+                .toList();
     }
 
     /** 统计每个启用下载器当前 PUSHED/DOWNLOADING 的在途记录数，供负载均衡使用 */
@@ -1009,7 +1026,11 @@ public class SubscriptionEngine {
                     return downloader;
                 }
             }
-            log.warn("订阅[{}] 指定的下载器 {} 不可用，改用负载最低的启用下载器", sub.getId(), sub.getDownloaderId());
+            // 走到这里说明订阅指定的下载器已停用、已删除、或被改成了 SEED_ONLY（见
+            // loadEnabledDownloaders）。后一种不是配置事故而是用户的分工意图，同样只能改派——
+            // 把订阅推到只做种的机器上，比换一台下载器糟得多
+            log.warn("订阅[{}] 指定的下载器 {} 不在订阅下载池中（已停用/已删除/已改为仅做种），"
+                    + "改用负载最低的下载器", sub.getId(), sub.getDownloaderId());
         }
         PtDownloaderPlus best = enabled.get(0);
         long bestLoad = loadCache.getOrDefault(best.getId(), 0L);

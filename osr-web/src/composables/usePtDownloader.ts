@@ -39,7 +39,11 @@ export function usePtDownloader() {
       tag: 'osr-pt',
       maxConcurrent: 0,
       enabled: '1',
-      smartClassifyLevel: 'NONE'
+      smartClassifyLevel: 'NONE',
+      role: 'DOWNLOAD',
+      autoDeleteEnabled: '0',
+      autoDeleteExcludeTags: undefined,
+      autoDeleteMaxPerRound: 20
     }),
     rules: {
       name: [{ required: true, message: '名称不能为空', trigger: 'blur' }],
@@ -174,6 +178,17 @@ export function usePtDownloader() {
     base.getList()
   }
 
+  // ---------- 自动删种规则弹窗 ----------
+  /** 当前正在管理删种规则的下载器；null 表示弹窗未打开过 */
+  const cleanRuleTarget = ref<{ id: number; name: string } | null>(null)
+  const cleanRuleOpen = ref(false)
+
+  const openCleanRules = (row: any) => {
+    if (!row?.id) return
+    cleanRuleTarget.value = { id: row.id, name: row.name }
+    cleanRuleOpen.value = true
+  }
+
   // ---------- 移动端 - 搜索面板折叠 ----------
   const searchCollapsed = ref(true)
 
@@ -182,6 +197,7 @@ export function usePtDownloader() {
   return {
     ...base, testLoading, handleTest, savePathWarning, handleSavePathBlur, handleAdd, handleUpdate,
     toggleSelect, handleCardClick, clearSelection,
+    cleanRuleTarget, cleanRuleOpen, openCleanRules,
     totalPages, prevPage, nextPage, handleSizeChange,
     searchCollapsed
   }

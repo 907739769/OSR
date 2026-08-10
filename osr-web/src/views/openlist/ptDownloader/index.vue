@@ -97,10 +97,21 @@
               <span class="label">智能分类</span>
               <span class="value">{{ smartClassifyLabel(item.smartClassifyLevel) }}</span>
             </div>
+            <div class="card-row">
+              <span class="label">分工</span>
+              <span class="value">{{ roleLabel(item.role) }}</span>
+            </div>
+            <div class="card-row">
+              <span class="label">自动删种</span>
+              <span class="value">{{ item.autoDeleteEnabled === '1' ? '已开启' : '未开启' }}</span>
+            </div>
           </div>
           <div class="card-footer">
             <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(item, '修改下载器')">
               修改
+            </v-btn>
+            <v-btn variant="text" size="small" prepend-icon="mdi-broom" @click="openCleanRules(item)">
+              删种规则
             </v-btn>
             <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(item)">
               删除
@@ -237,6 +248,43 @@
                 variant="outlined"
               />
             </FormField>
+            <FormField tip="「仅做种」的下载器不参与订阅下载的负载均衡，用于接收 IYUU 转移/辅种过来的种子">
+              <v-select
+                v-model="form.role"
+                label="分工"
+                :items="ROLE_OPTIONS"
+                density="comfortable"
+                variant="outlined"
+              />
+            </FormField>
+            <FormField label="自动删种"
+                       tip="按「删种规则」定期清理已达标的种子。仍在 H&R 考核中的种子永远不删；辅种整组同删。开启后请先用规则弹窗里的「预览」确认判定结果">
+              <v-radio-group v-model="form.autoDeleteEnabled" inline hide-details>
+                <v-radio label="关闭" value="0" />
+                <v-radio label="开启" value="1" />
+              </v-radio-group>
+            </FormField>
+            <template v-if="form.autoDeleteEnabled === '1'">
+              <FormField tip="逗号分隔。带其中任一标签的种子及其辅种组永不删除">
+                <v-text-field
+                  v-model="form.autoDeleteExcludeTags"
+                  label="删种排除标签"
+                  placeholder="如：keep,手动保留"
+                  density="comfortable"
+                  variant="outlined"
+                />
+              </FormField>
+              <FormField tip="0 表示不限。规则配错时最多损失一轮的量，不会一次清空整个保种盘">
+                <v-text-field
+                  v-model.number="form.autoDeleteMaxPerRound"
+                  label="单轮最多删除组数"
+                  type="number"
+                  min="0"
+                  density="comfortable"
+                  variant="outlined"
+                />
+              </FormField>
+            </template>
           </v-form>
         </v-card-text>
         <v-card-actions>
@@ -247,6 +295,9 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <!-- 自动删种规则 -->
+    <PtCleanRuleDialog v-model="cleanRuleOpen" :downloader="cleanRuleTarget" />
   </div>
 </template>
 
@@ -255,6 +306,7 @@ import StatusChip from '@/components/StatusChip.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { ref } from 'vue'
 import FormField from '@/components/FormField.vue'
+import PtCleanRuleDialog from '@/components/PtCleanRuleDialog.vue'
 import { usePtDownloader } from '@/composables/usePtDownloader'
 
 const showSearch = ref(window.innerWidth >= 768)
@@ -273,12 +325,21 @@ const SMART_CLASSIFY_LEVEL_OPTIONS = [
 const smartClassifyLabel = (value: string) =>
   SMART_CLASSIFY_LEVEL_OPTIONS.find(o => o.value === value)?.title || '不分类'
 
+const ROLE_OPTIONS = [
+  { title: '订阅下载', value: 'DOWNLOAD' },
+  { title: '仅做种（不接订阅）', value: 'SEED_ONLY' }
+]
+// role 是后加的列，存量下载器为空，按「订阅下载」显示——与后端的退化口径一致
+const roleLabel = (value: string) =>
+  ROLE_OPTIONS.find(o => o.value === value)?.title || '订阅下载'
+
 const {
   taskList, loading, total, queryParams, getList, handleQuery, resetQuery, queryRef,
   selectedIds, single, multiple, toggleSelect,
   open, dialogTitle, submitLoading, formRef, form, rules,
   handleAdd, handleUpdate, submitForm, handleDelete,
-  testLoading, handleTest, savePathWarning, handleSavePathBlur
+  testLoading, handleTest, savePathWarning, handleSavePathBlur,
+  cleanRuleOpen, cleanRuleTarget, openCleanRules
 } = usePtDownloader()
 
 // 表单规则是 { required, message, trigger }/{ type, min, max } 对象格式（composable 返回），

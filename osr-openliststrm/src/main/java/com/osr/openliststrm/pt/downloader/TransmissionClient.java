@@ -124,9 +124,24 @@ public class TransmissionClient implements IDownloaderClient {
 
     @Override
     public List<DownloaderTorrent> listByTag(PtDownloaderPlus config, String tag) throws IOException {
+        return listTorrents(config, tag);
+    }
+
+    @Override
+    public List<DownloaderTorrent> listAll(PtDownloaderPlus config) throws IOException {
+        return listTorrents(config, null);
+    }
+
+    /**
+     * {@code torrent-get} 的公共映射。
+     *
+     * @param tag 只保留带该 label 的种子；传 null 表示不过滤（Transmission RPC 没有服务端
+     *            按 label 过滤的参数，两种口径都是拉全量后在本地筛）
+     */
+    private List<DownloaderTorrent> listTorrents(PtDownloaderPlus config, String tag) throws IOException {
         JSONObject args = new JSONObject();
         args.put("fields", List.of("id", "name", "percentDone", "status", "downloadDir", "labels", "hashString",
-                "uploadRatio", "secondsSeeding", "uploadedEver"));
+                "uploadRatio", "secondsSeeding", "uploadedEver", "sizeWhenDone"));
         JSONObject result = call(config, "torrent-get", args);
 
         List<DownloaderTorrent> list = new ArrayList<>();
@@ -135,11 +150,10 @@ public class TransmissionClient implements IDownloaderClient {
         if (torrents == null) {
             return list;
         }
-        // Transmission RPC 没有服务端按 label 过滤的参数，本地按返回的 labels 数组过滤
         for (int i = 0; i < torrents.size(); i++) {
             JSONObject item = torrents.getJSONObject(i);
             JSONArray labels = item.getJSONArray("labels");
-            if (labels == null || !containsLabel(labels, tag)) {
+            if (tag != null && (labels == null || !containsLabel(labels, tag))) {
                 continue;
             }
             DownloaderTorrent torrent = new DownloaderTorrent();
@@ -149,12 +163,16 @@ public class TransmissionClient implements IDownloaderClient {
             torrent.setProgress(item.getDoubleValue("percentDone"));
             torrent.setRawState(String.valueOf(item.getIntValue("status")));
             torrent.setSavePath(item.getString("downloadDir"));
-            torrent.setTags(joinLabels(labels));
+            torrent.setTags(labels == null ? "" : joinLabels(labels));
             // H&R 保种考核用：Transmission 无法计算分享率时返回 -1，必须归一到 0，
             // 否则"分享率 >= 阈值"在阈值为 0 时会被 -1 意外满足
             torrent.setRatio(Math.max(0.0, item.getDoubleValue("uploadRatio")));
             torrent.setSeedingSeconds(Math.max(0L, item.getLongValue("secondsSeeding")));
             torrent.setUploaded(Math.max(0L, item.getLongValue("uploadedEver")));
+            // sizeWhenDone = 已选中文件下完后的体积，语义与 qB 的 size 一致（都排除了未选中的文件）
+            torrent.setSize(Math.max(0L, item.getLongValue("sizeWhenDone")));
+            // Transmission 没有 content_path 字段，交给 DownloaderTorrent#contentKey
+            // 用 downloadDir + name 退化推导——对辅种而言这两项同样是一致的
             list.add(torrent);
         }
         return list;

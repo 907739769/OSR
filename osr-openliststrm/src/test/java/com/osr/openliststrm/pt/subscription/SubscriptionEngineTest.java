@@ -552,6 +552,72 @@ class SubscriptionEngineTest {
     }
 
     @Test
+    void 仅做种的下载器不参与订阅推送() throws Exception {
+        // 保种机（接收 IYUU 转移/辅种）绝不能被负载均衡选中：那台机器多半开着自动删种，
+        // 规则是按"保种"设计的，正在补的剧集下到它上面会被按做种时长清理掉
+        PtDownloaderPlus download = new PtDownloaderPlus();
+        download.setId(1); download.setType("QBITTORRENT"); download.setSavePath("/data/downloads");
+        download.setTag("osr-pt"); download.setEnabled("1"); download.setRole("DOWNLOAD");
+        PtDownloaderPlus seedBox = new PtDownloaderPlus();
+        seedBox.setId(2); seedBox.setType("QBITTORRENT"); seedBox.setSavePath("/data/seed");
+        seedBox.setTag("osr-pt2"); seedBox.setEnabled("1"); seedBox.setRole("SEED_ONLY");
+        when(downloaderService.list(any(Wrapper.class))).thenReturn(List.of(download, seedBox));
+        when(recordService.list(argThat((Wrapper<PtDownloadRecordPlus> w) -> w != null && w.getSqlSegment() != null && w.getSqlSegment().contains("guid_hash"))))
+                .thenReturn(List.of());
+        PtDownloadRecordPlus loadForD1 = new PtDownloadRecordPlus();
+        loadForD1.setDownloaderId(1);
+        when(recordService.list(argThat((Wrapper<PtDownloadRecordPlus> w) -> w != null && w.getSqlSegment() != null && w.getSqlSegment().contains("downloader_id"))))
+                .thenReturn(List.of(loadForD1)); // 保种机负载 0，比下载机低——不排除的话会被选中
+        when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Some Show", 1, 1)));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "MISSING")));
+
+        engine.process(List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p")));
+
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService).save(captor.capture());
+        assertEquals(1, captor.getValue().getDownloaderId());
+    }
+
+    @Test
+    void 订阅显式指定了仅做种的下载器_仍改派给下载池() throws Exception {
+        // role 是用户后来改的分工意图，不是配置事故，但把订阅推到只做种的机器上更糟，只能改派
+        PtDownloaderPlus download = new PtDownloaderPlus();
+        download.setId(1); download.setType("QBITTORRENT"); download.setSavePath("/data/downloads");
+        download.setTag("osr-pt"); download.setEnabled("1"); download.setRole("DOWNLOAD");
+        PtDownloaderPlus seedBox = new PtDownloaderPlus();
+        seedBox.setId(2); seedBox.setType("QBITTORRENT"); seedBox.setSavePath("/data/seed");
+        seedBox.setTag("osr-pt2"); seedBox.setEnabled("1"); seedBox.setRole("SEED_ONLY");
+        when(downloaderService.list(any(Wrapper.class))).thenReturn(List.of(download, seedBox));
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of());
+        PtSubscriptionPlus sub = tvSub(10, "Some Show", 1, 1);
+        sub.setDownloaderId(2);
+        when(subscriptionService.listActive()).thenReturn(List.of(sub));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "MISSING")));
+
+        engine.process(List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p")));
+
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService).save(captor.capture());
+        assertEquals(1, captor.getValue().getDownloaderId());
+    }
+
+    @Test
+    void role为空的存量下载器_仍参与订阅推送() throws Exception {
+        // role 是后加的列，存量行为 NULL。若按"不是 DOWNLOAD 就排除"处理，
+        // 升级后用户唯一那台下载器会被整个滤掉，订阅直接全部停摆
+        PtDownloaderPlus legacy = new PtDownloaderPlus();
+        legacy.setId(1); legacy.setType("QBITTORRENT"); legacy.setSavePath("/data/downloads");
+        legacy.setTag("osr-pt"); legacy.setEnabled("1"); legacy.setRole(null);
+        when(downloaderService.list(any(Wrapper.class))).thenReturn(List.of(legacy));
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of());
+        when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Some Show", 1, 1)));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "MISSING")));
+
+        assertEquals(1, engine.process(List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p"))));
+        verify(recordService).save(any());
+    }
+
+    @Test
     void 订阅指定下载器_即使负载更高_仍选择指定的() throws Exception {
         PtDownloaderPlus d1 = new PtDownloaderPlus();
         d1.setId(1); d1.setType("QBITTORRENT"); d1.setSavePath("/data/downloads"); d1.setTag("osr-pt"); d1.setEnabled("1");

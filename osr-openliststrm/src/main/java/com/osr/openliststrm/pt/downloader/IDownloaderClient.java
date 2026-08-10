@@ -56,9 +56,14 @@ public interface IDownloaderClient {
     /**
      * 从下载器移除种子。
      * <p>
-     * <b>调用它之前先读根目录 AGENTS.md 的「OSR 从不删种」。</b>目前唯一的例外是
-     * {@code DownloadTrackService#removeUselessTorrent}：种子从未下载完成、也从未做种，
-     * 站点的 H&R 考核根本没开始计，删它不可能记过。任何其它场景都不要调用本方法。
+     * <b>调用它之前先读根目录 AGENTS.md 的「OSR 从不删种」。</b>只有两个受控例外：
+     * <ul>
+     *   <li>{@code DownloadTrackService#removeUselessTorrent}：种子从未下载完成、也从未做种，
+     *       站点的 H&R 考核根本没开始计，删它不可能记过。</li>
+     *   <li>{@code TorrentCleanService}：用户为某个下载器<b>显式开启</b>了自动删种并配了规则，
+     *       且该种子已过 H&R 考核、辅种组内所有兄弟种子同时达标。</li>
+     * </ul>
+     * 任何其它场景都不要调用本方法。
      * </p>
      *
      * @param deleteFiles 是否连同已下载的文件一起删除
@@ -72,6 +77,17 @@ public interface IDownloaderClient {
      * @throws IOException 网络异常
      */
     List<DownloaderTorrent> listByTag(PtDownloaderPlus config, String tag) throws IOException;
+
+    /**
+     * 查询下载器里的<b>全部</b>种子，不按标签过滤。
+     * <p>
+     * 自动删种与「IYUU 转移后继续追踪 H&R」都必须用它：IYUU 转移/辅种加进来的种子不带
+     * OSR 的标签，{@link #listByTag} 一条都看不见，据此判断"种子不见了"会得出完全错误的结论。
+     * </p>
+     *
+     * @throws IOException 网络异常
+     */
+    List<DownloaderTorrent> listAll(PtDownloaderPlus config) throws IOException;
 
     /**
      * 列出种子内的全部文件。种子刚添加、元数据尚未解析完成时应返回空列表（不抛异常），

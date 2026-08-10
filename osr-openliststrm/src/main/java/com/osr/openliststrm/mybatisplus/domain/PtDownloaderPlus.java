@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.osr.common.mybatisplus.BaseEntity;
+import com.osr.openliststrm.enums.PtDownloaderRoleEnum;
 import com.osr.openliststrm.mybatisplus.handler.EncryptedStringTypeHandler;
 import lombok.Getter;
 import lombok.Setter;
@@ -75,6 +76,37 @@ public class PtDownloaderPlus extends BaseEntity {
     /** 保存路径智能分类级别，见 {@link com.osr.openliststrm.enums.PtSmartClassifyLevelEnum}，默认 NONE */
     @TableField("smart_classify_level")
     private String smartClassifyLevel;
+
+    /** 分工，见 {@link com.osr.openliststrm.enums.PtDownloaderRoleEnum}，默认 DOWNLOAD */
+    @TableField("role")
+    private String role;
+
+    /** 自动删种总开关 0-否 1-是 */
+    @TableField("auto_delete_enabled")
+    private String autoDeleteEnabled;
+
+    /** 自动删种排除标签，逗号分隔；种子带其中任一标签则整组永不删除 */
+    @TableField("auto_delete_exclude_tags")
+    private String autoDeleteExcludeTags;
+
+    /** 单轮最多删除多少个辅种组，0 表示不限 */
+    @TableField("auto_delete_max_per_round")
+    private Integer autoDeleteMaxPerRound;
+
+    /**
+     * 是否参与订阅下载的负载均衡。
+     * <p>
+     * {@code SEED_ONLY} 的下载器只接收 IYUU 转移/辅种过来的种子，绝不能被订阅推送选中。
+     * </p>
+     */
+    public boolean participatesInDownload() {
+        return PtDownloaderRoleEnum.getByCode(role) == PtDownloaderRoleEnum.DOWNLOAD;
+    }
+
+    /** 自动删种是否已开启 */
+    public boolean autoDeleteOn() {
+        return "1".equals(autoDeleteEnabled);
+    }
 
     /**
      * 拼装下载器 Web UI 基地址，如 http://192.168.1.10:8080。

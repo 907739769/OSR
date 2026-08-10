@@ -19,6 +19,7 @@ declare module 'vue' {
     MobileSidebarMenuItem: typeof import('./components/MobileSidebarMenuItem.vue')['default']
     OpenListTree: typeof import('./components/OpenListTree.vue')['default']
     PageHeader: typeof import('./components/PageHeader.vue')['default']
+    PtCleanRuleDialog: typeof import('./components/PtCleanRuleDialog.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     SidebarMenuItem: typeof import('./components/SidebarMenuItem.vue')['default']

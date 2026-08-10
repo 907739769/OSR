@@ -45,6 +45,7 @@ com/osr/openliststrm/
 | 重命名一致性检查 | `orphan/` | RenameOrphanScanServiceImpl（双向扫描）, OrphanReconciler, OrphanReason |
 | 重命名产物清理 | `rename/cleanup/` | RenameCleanupService（purge/purgeRelocated/回收空目录）, ArtifactPaths |
 | PT 订阅管理 | `pt/` | Downloader/Indexer/Subscription/MediaServer |
+| PT 自动删种 | `pt/clean/` | TorrentCleanService（判定+执行）, TorrentCleanTask（默认每 60 分钟） |
 | 文件刮削 | `scrape/` | ScrapeService, TMDb 刮削/文件删除 |
 | 任务监控 | `monitor/` | MediaRenameProcessor 等处理器 |
 | 任务配置 | `mybatisplus/domain/` + `controller/` | 所有 *Plus 实体 |
@@ -100,7 +101,12 @@ com/osr/openliststrm/
 - **`deleteTorrent` 是「OSR 从不删种」唯一的例外，边界必须可证明**：`DownloadTrackService#removeUselessTorrent` 只删 `!isCompleted() && seedingSeconds == 0` 的种子。H&R 考核从下载完成才开始计，这样的种子根本不在考核范围内。两个条件任一不成立就留着让用户处置——留一个垃圾任务的代价，远小于误删一个正在保种的种子。别处一律不要调用 `IDownloaderClient#deleteTorrent`
 - **qB 5.0 把 `resume`/`paused` 改名成 `start`/`stopped`**：add 时两个参数都发（qB 忽略不认识的字段），启动则先试 `/torrents/resume`、404 再试 `/torrents/start`，成功的端点按 downloaderId 缓存下来，避免之后每次都先撞一个 404。Transmission 没有这个问题（`paused` + `torrent-start` 跨版本稳定）
 - **回退集时 `download_id` 必须走 `UpdateWrapper.set("download_id", null)`**：实体字段的 `null` 会被 MyBatis-Plus 当作「不更新」跳过，`set.setDownloadId(null)` 是一句空操作。漏掉的话退回 MISSING/IN_LIBRARY 的集仍指着那条 FAILED 记录，用户在下载记录页手动重试它时会把这些集又拖回在途。四处回退路径（`reconcileClaims`、`releaseInFlightEpisodes`、`revertUpgradingEpisodes`、`StuckEpisodeSweepService#sweep`）口径必须一致
-- **OSR 从不删种**。`hr_state=VIOLATED` 是"已经发生"的事实（用户手删或下载器自动管理清掉了），只发告警，系统不会也无法自动补救。主动防线只有推送后按站点规则下发 `setShareLimits`——**Transmission 的 RPC 没有"最短做种时长"概念**（`seedIdleLimit` 是"空闲多久后停"，语义不同，不能拿来充数），该维度对 Transmission 只能靠 OSR 侧追踪告警兜底
+- **OSR 默认从不删种，只有两个受控例外**：`DownloadTrackService#removeUselessTorrent`（从未下完也从未做种的废种）与 `pt/clean/TorrentCleanService`（用户逐个下载器显式开启的自动删种）。除此之外一律不要调用 `IDownloaderClient#deleteTorrent`。`hr_state=VIOLATED` 是"已经发生"的事实（用户手删或下载器自动管理清掉了），只发告警，系统不会也无法自动补救。主动防线只有推送后按站点规则下发 `setShareLimits`——**Transmission 的 RPC 没有"最短做种时长"概念**（`seedIdleLimit` 是"空闲多久后停"，语义不同，不能拿来充数），该维度对 Transmission 只能靠 OSR 侧追踪告警兜底
+- **`pt_downloader.role` 把"订阅下载池"与"只做种的机器"分开，过滤必须在 Java 侧做**（`SubscriptionEngine#loadEnabledDownloaders` 用 `PtDownloaderPlus#participatesInDownload()`）。`resolveDownloader` 在订阅没指定下载器时会在**所有**启用下载器之间做负载均衡，用户加一台"接 IYUU 转移+辅种、开着自动删种"的保种机后，订阅会开始往它上面推种——而那台机器的清理规则是按"保种"设计的（做满 N 小时就删），正在补的剧集下上去会被当保种种子清掉。**不要改写成 SQL 的 `eq("role","DOWNLOAD")`**：role 是后加的列，存量行为 NULL，等值比较对 NULL 恒为假，会把用户原本唯一那台下载器整个滤掉、订阅全部停摆；`participatesInDownload()` 对 NULL 退化成 DOWNLOAD。订阅显式指定了 SEED_ONLY 的下载器同样只能改派（那是分工意图不是配置事故，但推上去更糟）
+- **自动删种以「辅种组」为最小单位，不是以种子为单位**（`TorrentCleanService`）。按 `DownloaderTorrent#contentKey()`（qB 的 `content_path`，缺失时退化为 `savePath + name`）分组，**组内每个种子都达标才整组删，任一个不达标整组保留**。删掉一个种子的文件会让共用这份文件的其余种子立刻变成"文件丢失"，那是在**其它站**上记 H&R，而 OSR 连它们属于哪个站都不知道。执行顺序也是硬要求：**先删不带文件的兄弟，最后一个才连文件一起删**——反过来的话文件在第一步就没了，剩下的兄弟会先进入错误态；而且中途失败时现在这个顺序保证文件还在，整组下一轮可原样重来。五条护栏一条都不能省：总开关默认关且逐下载器显式开启、**没有启用规则就一个都不删**（空规则集的语义是"没有任何规则说该删它"）、`hr_state=PENDING` 的记录按 hash/跟踪标签/种子名三路匹配一律保护、**还有集停在 `IN_FLIGHT`/`UPGRADING` 的记录同样保护**（种子下完 ≠ 活干完，文件还要传网盘，大文件跨天是常态；删早了会造出"下载记录显示成功、媒体库里永远不出现"的集，判据与 `file_confirmed` 同源）、每轮有删除上限（超出的组改判 `ROUND_LIMIT` 并打日志，静默截断会被读成"已经清干净了"）。后两类保护**必须分成两份名单**而不是合并：预览里的跳过原因是用户唯一的解释来源，报成"H&R 考核未达标"会让他去站点查考核进度，而实际该看的是复制记录页的上传进度
+- **删种规则的体积区间是左闭右开的**（`PtCleanRulePlus#sizeMatches`），按 `sort_order` 升序取**第一条命中**的规则，命中后不再往后看——分级删除（>50GB 做满 3 天删、其余做满 7 天删）就是这样表达的。体积落不进任何区间时不删。判定与执行分成 `evaluate` / `clean` 两步，**预览接口与真正的清理走同一份判定**，分叉一次就会出现"预览里说不删的、实际删了"
+- **`IDownloaderClient#listAll` 与 `listByTag` 的分工是硬的**：IYUU 转移/辅种加进来的种子**不带 OSR 标签**，`listByTag` 一条都看不见。自动删种、以及"种子是被删了还是被转移走了"的判断都必须用 `listAll`。`DownloadTrackTask#fetchTorrents` 据此按 role 分流：SEED_ONLY 拉全量，DOWNLOAD 仍按标签拉（避免把用户手工添加的一大堆无关种子拉进来）
+- **H&R 追踪必须跨下载器看，否则 IYUU 转移会产生成批假告警**。`trackSeeding` 原本把"在本下载器里找不到"直接判成 VIOLATED，而 IYUU 转移会让种子从原下载器彻底消失——每条被转移的记录都会收到一条"可能已产生 H&R"。现在 `DownloadTrackTask` 先把**全部**下载器的快照拉齐（`DownloaderSnapshot`）再逐个推进状态，`trackSeeding` 在本下载器找不到时会去其余快照里找一遍，找到就把 `downloader_id` 改成种子实际所在的那个并继续考核。**匹配的降级链（标签 → hash → 种子名）只用在 `trackSeeding`，绝不能用在 `trackActive`**：在途记录必须严格按跟踪标签认领，认错就是把进度写到别人头上；而保种阶段面对的是"种子可能已被第三方工具搬走"，标签未必还在，宁可用弱判据认回来也不要误判成 H&R
 - **洗版判定绝不能引入 SEEDERS / SIZE / FREE 维度**（`UpgradeDimension` 只有 RESOLUTION/SOURCE/TAG/RELEASE_GROUP）。那些取值随时间连续变化：同分辨率但做种更多的种子会被判成"更优"，下完之后下一轮又冒出别的做种更多的，于是无限洗版。现有四个维度取值都来自有限集合，字典序比较构成全预序，数学上不存在 A 优于 B 且 B 优于 A 的环——这是"不会来回洗"的唯一保证，`UpgradeEvaluatorTest.比较关系无环_任意两个画像至多一个方向成立` 守着它
 - **cutoff（`pt_upgrade_config.target_*`）不是可选优化**：没有终止条件的话，每一集都会永远搜下去把索引器配额烧干。三项全空时 `hasTarget()` 为 false、洗版不激活，这是刻意的安全默认
 - **`UPGRADING → IN_LIBRARY` 只能由下载完成驱动，不能交给 Emby 对账**。`SubscriptionService#refresh` 判"在不在库里"靠 Emby 查询，而旧版本本来就在库里、查询恒命中，对账分不出同一集的新旧版本——所以 refresh 刻意跳过 UPGRADING，收尾在 `DownloadTrackService#finishUpgrade`，并在那里同步刷新 `quality` 基线（不刷的话下一轮扫描仍按旧画像判断，会反复洗同一集）
@@ -126,4 +132,4 @@ com/osr/openliststrm/
 - Telegram Bot handler 不要超过 50 行，复杂逻辑抽到独立方法
 - PT 订阅 RSS 轮询不要逐条查 TMDb (配额爆炸)，用 `parseLocal()` 仅本地正则
 - 孤儿扫描不要重复提醒已忽略项 (`status=2` 直接 SKIP)
-- 不要提供「删除源文件」的入口。目标库里的主文件是 `Files.copy` 出来的副本，删了重跑任务就回来；源目录（`original_path`）是网盘挂载或下载器保种目录，删它等于毁保种
+- 不要提供「删除源文件」的入口。目标库里的主文件是 `Files.copy` 出来的副本，删了重跑任务就回来；源目录（`original_path`）是网盘挂载或下载器保种目录，删它等于毁保种。**`pt/clean` 的自动删种不是这条的例外而是它的补集**：那条路径由下载器的 `deleteTorrent` 执行、只动已过 H&R 考核的保种文件、且要用户逐个下载器显式开启；重命名/孤儿/刮削这些模块一律不许自己去删源文件
