@@ -110,6 +110,8 @@ public class CopyRecoveryTask {
     @Autowired
     private OpenListHelper openListHelper;
     @Autowired
+    private CopyHelper copyHelper;
+    @Autowired
     private CopyMonitorRegistry monitorRegistry;
 
     private final TaskScheduler scheduler = SpringUtils.getBean("virtualScheduledExecutor");
@@ -126,6 +128,8 @@ public class CopyRecoveryTask {
         SUCCESS,
         /** 已判定失败 */
         FAILED,
+        /** 复制失败但源文件已不在（下载器删种），记录已丢弃——不算失败，也不进通知 */
+        DISCARDED,
         /** 超时或证据不足，强制收敛为未知 */
         UNKNOWN,
         /** 本轮不下结论，留给下一轮 */
@@ -242,6 +246,7 @@ public class CopyRecoveryTask {
         AtomicInteger failed = new AtomicInteger();
         AtomicInteger unknown = new AtomicInteger();
         AtomicInteger pending = new AtomicInteger();
+        AtomicInteger discarded = new AtomicInteger();
         Map<String, String> samples = new ConcurrentHashMap<>();
 
         runBounded(orphans, copy -> {
@@ -251,6 +256,7 @@ public class CopyRecoveryTask {
                     failed.incrementAndGet();
                     collectSample(samples, copy);
                 }
+                case DISCARDED -> discarded.incrementAndGet();
                 case UNKNOWN -> {
                     unknown.incrementAndGet();
                     collectSample(samples, copy);
@@ -259,8 +265,8 @@ public class CopyRecoveryTask {
             }
         });
 
-        log.info("兜底扫描完成：成功 {}，失败 {}，未知 {}，本轮未决 {}",
-                success.get(), failed.get(), unknown.get(), pending.get());
+        log.info("兜底扫描完成：成功 {}，失败 {}，源已消失丢弃 {}，未知 {}，本轮未决 {}",
+                success.get(), failed.get(), discarded.get(), unknown.get(), pending.get());
         notifySummary(success.get(), failed.get(), unknown.get(), samples);
     }
 
@@ -295,6 +301,10 @@ public class CopyRecoveryTask {
             return markSuccess(copy);
         }
         if (state != null && state == 7) {
+            // 与 AsynHelper 同一口径：源在复制期间被下载器删掉的，丢记录而不是记失败
+            if (copyHelper.discardIfSourceGone(copy)) {
+                return Outcome.DISCARDED;
+            }
             markStatus(copy, "2");
             log.info("兜底扫描判定复制失败: {}/{}", copy.getCopySrcPath(), copy.getCopySrcFileName());
             return Outcome.FAILED;

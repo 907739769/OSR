@@ -169,6 +169,14 @@ public class CopyServiceImpl implements ICopyService {
                     continue;
                 }
 
+                // Transmission 删种时会先把内容挪进一个 <种子名>__<mkdtemp 6位随机> 的临时目录再删掉，
+                // 遍历撞上它就会在网盘上建出空目录、并给注定要消失的文件提交复制任务。
+                // 判据只能是名字，见 OpenListHelper#isTransientDir
+                if (isDir && openListHelper.isTransientDir(name)) {
+                    log.info("跳过疑似删种临时目录（内容正被下载器删除）: {}/{}", srcPath, name);
+                    continue;
+                }
+
                 // 增量同步：跳过修改时间早于基准的文件
                 if (!isDir && incrementalAfter != null) {
                     Date modified = parseModified(content.getString("modified"));

@@ -182,6 +182,20 @@ public class MediaRenameProcessor implements FileProcessor {
             List<Path> pendingFiles = new ArrayList<>();
             Files.walkFileTree(sourceDir, new SimpleFileVisitor<Path>() {
                 @Override
+                public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs) {
+                    // Transmission 删种时挪出来的临时目录整棵跳过：里面的文件正在被删，
+                    // 处理它们只会得到一批半截产物和失败记录。见 OpenListHelper#isTransientDir。
+                    // 起始目录永远不跳——它要是碰巧长得像临时目录，跳过等于静默取消整次扫描
+                    if (!dir.equals(sourceDir) && openListHelper != null
+                            && dir.getFileName() != null
+                            && openListHelper.isTransientDir(dir.getFileName().toString())) {
+                        log.info("processOnce 跳过疑似删种临时目录: {}", dir);
+                        return FileVisitResult.SKIP_SUBTREE;
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+
+                @Override
                 public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) {
                     Path p = file.toAbsolutePath().normalize();
                     String key = p.getParent().toString() + " " + p.getFileName().toString();

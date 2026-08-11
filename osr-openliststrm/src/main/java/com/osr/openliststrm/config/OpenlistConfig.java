@@ -255,6 +255,18 @@ public class OpenlistConfig {
     }
 
     /**
+     * 同步遍历时要跳过的「临时目录」识别规则：逗号分隔的正则，<b>整体匹配目录名</b>（不是子串匹配）。
+     * <p>
+     * 默认一条 {@code .+__[0-9A-Za-z]{6}}，对应下载器删种时产生的
+     * {@code <原目录名>__<6位随机字符>} 临时目录（见 {@code OpenListHelper#isTransientDir}）。
+     * 未配置或留空时用默认值；填 {@code off}（不区分大小写）关闭整个过滤。
+     */
+    public String getCopyTransientDirPatterns() {
+        String value = sysConfigService.selectConfigByKey("openlist.copy.transientdirs");
+        return (value != null && !value.isBlank()) ? value.trim() : ".+__[0-9A-Za-z]{6}";
+    }
+
+    /**
      * 复制任务状态监控的最长持续时间（分钟）。超过该时长仍未结束的任务会被强制标记为异常，
      * 停止继续调度，避免下游长期卡在非终态时，调度任务无限期堆积。
      * 未配置或配置非法时默认 600 分钟。
