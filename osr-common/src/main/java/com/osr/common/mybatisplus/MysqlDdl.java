@@ -94,7 +94,8 @@ public class MysqlDdl extends SimpleDdl {
                 "sql/20260769-copy-recovery-index.sql",
                 "sql/20260770-pt-indexer-pubtime-cursor.sql",
                 "sql/20260771-pt-downloader-role-and-clean.sql",
-                "sql/20260772-copy-transient-dir-filter.sql"
+                "sql/20260772-copy-transient-dir-filter.sql",
+                "sql/20260773-add-create-time-indexes.sql"
         );
     }
 }
