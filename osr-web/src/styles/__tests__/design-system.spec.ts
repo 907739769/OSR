@@ -90,7 +90,6 @@ describe('共享样式单源', () => {
     '.card-grid', '.item-card',
     '.mobile-page', '.task-list', '.task-card', '.fab-add', '.batch-bar',
     '.card-actions', '.drawer-actions', '.date-range-fields',
-    '.select-all-checkbox', '.select-all-bar',
     '.mobile-card', '.mobile-card-list'
   ]
 

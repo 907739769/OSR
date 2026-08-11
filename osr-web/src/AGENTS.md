@@ -88,8 +88,6 @@ src/
 | `.log-search-form` | `views/monitor/job/index.vue` | 日志弹窗内嵌搜索行（布局已复用 `.inline-fields`，此私有类只留分隔线与 select 宽度） |
 | `.path-box/.path-row/.path-label--src\|dst\|mon/.path-text/.path-name` | `styles/list.scss` | 表格里的「源/目标/监控」路径对照 |
 | `.card-grid` `.item-card`（`--failed/--selectable/--compact`）+ `.card-header/body/row/footer` | `styles/list.scss` | PC 卡片网格（PT 配置类页面） |
-| `.select-all-checkbox` | `styles/list.scss` + `styles/mobile-list.scss` | 「全选本页」勾选框，PC 的 `.batch-toolbar`/`.action-bar` 与移动端的 `.batch-bar`/`.select-all-bar` 共用 |
-| `.select-all-bar` | `styles/mobile-list.scss` | 移动端列表上方的独立全选行（`MobileSelectAll` 用它） |
 | `.mobile-page` `.task-list` `.task-card` `.fab-add` `.batch-bar` `.card-actions` `.drawer-actions` `.date-range-fields` | `styles/mobile-list.scss` | 移动端页面骨架与卡片 |
 | `.mobile-card*` | `styles/mobile-list.scss` | PC 页在 <768px 时的表格降级卡片（monitor/job、dict/*） |
 
@@ -113,11 +111,22 @@ src/
   **禁止再手写 `.form-item` / `.form-label` / `.field-label` / `.rule-field-label`**（那是 `el-form-item` 的复刻）。
 - **`StatusChip`**：所有状态徽章走它。二元开关用 `<StatusChip :value="row.enabled" />`，
   开=success 关=error 全站一致；自定义状态用 `<StatusChip type="warning" text="下载中" />`。
+- **不作为表单字段的勾选框一律用 `v-checkbox-btn`，不要用 `v-checkbox`**。
+  后者是**表单字段**：内部套一层 `VInput`，带来 min-height、label 的 `opacity: .6`、
+  以及 details/hint 行的预留空间。把它放进批量工具条、卡片角标、全选行这类紧凑位置，
+  就得写 `.v-selection-control { min-height: auto }` + `.v-label { opacity: 1 }` 去压——
+  **需要写覆盖样式本身就是选错组件的信号**。`v-checkbox-btn` 直接渲染 `VSelectionControl`，
+  没有那层外壳（`v-data-table` 表头的全选用的就是它），`label` / `indeterminate` /
+  `density` 一样都不少，且没有 `hide-details`（那是 `VInput` 的 prop，不需要）。
 - **`PageHeader`**：每个业务页顶部都要有。
-- **`MobileSelectAll`**（`components/mobile/`）：移动端列表上方的「全选本页」行。
-  用于**卡片勾选框常驻、没有批量模式开关**的页面——那类页面的 `.batch-bar` 要选中一项才出现，
-  全选框塞进批量条里就永远够不着。带批量模式开关的页面（ptSubscription / ptDownloadRecord）
-  不用它，全选框直接嵌在 `.batch-bar` 里。
+- **「全选」是操作栏里的一个文字按钮，不是勾选框，也不单独占一行**。
+  位置固定在**「取消」的正前面**（PC 的 `.batch-toolbar`、移动端的 `.batch-bar`；
+  卡片网格页没有「取消」时放在 `.action-left` 末尾），样式与同一条栏里的「取消」完全一致
+  （`variant="text"`，尺寸跟随该栏——批量条 `size="small"`，卡片网格页的操作栏用默认尺寸），
+  统一挂 `.batch-select-all-btn`。文案随 `isAllPageSelected` 在「全选」/「取消全选」之间切换。
+  走过两版弯路：先是 `v-checkbox`（表单字段，得写一堆覆盖样式压 `VInput` 外壳），
+  再是列表上方单独一行 `v-card` 包着的勾选框——两版都因为「与周围操作按钮不是一种东西」而显得突兀。
+  结论是**批量操作区里只有按钮**，不要混进表单控件。
 - 卡片一律用 `<v-card>`，不要手写 `background: var(--osr-surface) + border-radius + box-shadow`。
 
 ### 弹窗

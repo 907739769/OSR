@@ -54,15 +54,6 @@
 
       <div class="batch-toolbar" v-if="selectionMode">
         已选 {{ selectedIds.length }} 项
-        <v-checkbox
-          :model-value="isAllPageSelected"
-          :indeterminate="isIndeterminate"
-          density="compact"
-          hide-details
-          class="select-all-checkbox"
-          label="全选本页"
-          @update:model-value="(v: boolean | null) => toggleSelectAllPage(!!v)"
-        />
         <!-- 重试只对失败记录成立，按钮上直接标出生效条数，免得点完才发现大半被跳过 -->
         <v-btn
           variant="text"
@@ -76,6 +67,9 @@
         </v-btn>
         <v-btn variant="text" color="warning" size="small" class="batch-blacklist-guid-btn" :disabled="!selectedIds.length" @click="handleBatchBlacklistGuid">批量拉黑种子</v-btn>
         <v-btn variant="text" color="error" size="small" class="batch-blacklist-group-btn" :disabled="!selectedIds.length" @click="handleBatchBlacklistReleaseGroup">批量拉黑发布组</v-btn>
+        <v-btn variant="text" size="small" class="batch-select-all-btn" @click="toggleSelectAllPage(!isAllPageSelected)">
+          {{ isAllPageSelected ? '取消全选' : '全选' }}
+        </v-btn>
         <v-btn variant="text" size="small" class="batch-cancel-btn" @click="toggleSelectionMode">取消</v-btn>
       </div>
 
@@ -239,7 +233,7 @@ const {
   taskList, loading, total, queryParams, getList, handleQuery, resetQuery, queryRef,
   retryingIds, handleRetry,
   selectionMode, toggleSelectionMode, selectedIds, toggleRecordSelect, handleCardClick,
-  isAllPageSelected, isIndeterminate, toggleSelectAllPage,
+  isAllPageSelected, toggleSelectAllPage,
   retryableSelectedIds, handleBatchRetry,
   handleBatchBlacklistGuid, handleBatchBlacklistReleaseGroup,
   blacklistingIds, handleBlacklistGuid, handleBlacklistReleaseGroup

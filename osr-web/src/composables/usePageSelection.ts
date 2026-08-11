@@ -43,11 +43,6 @@ export function usePageSelection(list: Ref<any[]>, idField: string) {
     pageIds.value.length > 0 && pageIds.value.every((id) => selectedIds.value.includes(id))
   )
 
-  /** 当前页部分选中，用于全选框的半选态 */
-  const isIndeterminate = computed(() =>
-    !isAllPageSelected.value && pageIds.value.some((id) => selectedIds.value.includes(id))
-  )
-
   /** v-checkbox 的 model-value 可能是 boolean | null，调用处统一转成 boolean 再传 */
   const toggleSelectAllPage = (checked: boolean) => {
     if (checked) {
@@ -62,6 +57,6 @@ export function usePageSelection(list: Ref<any[]>, idField: string) {
 
   return {
     selectedIds, toggleSelect, handleCardClick, clearSelection,
-    isAllPageSelected, isIndeterminate, toggleSelectAllPage
+    isAllPageSelected, toggleSelectAllPage
   }
 }

@@ -63,7 +63,7 @@ export function useTaskList<TQuery extends SearchParams = SearchParams>(config: 
   // --- 选择 ---
   const {
     selectedIds, toggleSelect, handleCardClick, clearSelection,
-    isAllPageSelected, isIndeterminate, toggleSelectAllPage
+    isAllPageSelected, toggleSelectAllPage
   } = usePageSelection(taskList, idField)
   // 「未选中恰好一条 / 一条都没选」的按钮禁用态。派生自 selectedIds 而不是各处手动同步——
   // 早先卡片勾选是在每个业务 composable 里自己改这两个 ref 的，漏改一处就会出现
@@ -203,7 +203,7 @@ export function useTaskList<TQuery extends SearchParams = SearchParams>(config: 
     // 选择
     selectedIds, single, multiple, handleSelectionChange,
     toggleSelect, handleCardClick, clearSelection,
-    isAllPageSelected, isIndeterminate, toggleSelectAllPage,
+    isAllPageSelected, toggleSelectAllPage,
     // 对话框
     open, dialogTitle, submitLoading, formRef, form, rules,
     handleAdd, handleUpdate, submitForm,

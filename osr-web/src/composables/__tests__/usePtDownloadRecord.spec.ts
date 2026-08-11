@@ -218,16 +218,26 @@ describe('usePtDownloadRecord 的全选本页', () => {
 
     expect(composable.selectedIds.value).toEqual([1, 2])
     expect(composable.isAllPageSelected.value).toBe(true)
-    expect(composable.isIndeterminate.value).toBe(false)
   })
 
-  it('只选中一部分时是半选态', () => {
+  // isAllPageSelected 同时决定按钮文案（全选 / 取消全选），只选中一部分时仍是「全选」
+  it('只选中一部分时不算全选', () => {
     const composable = usePtDownloadRecord()
     composable.taskList.value = [{ id: 1, state: 'FAILED' }, { id: 2, state: 'COMPLETED' }]
     composable.selectedIds.value = [1]
 
     expect(composable.isAllPageSelected.value).toBe(false)
-    expect(composable.isIndeterminate.value).toBe(true)
+  })
+
+  it('再次点全选（此时是取消全选）把当前页整批摘掉', () => {
+    const composable = usePtDownloadRecord()
+    composable.taskList.value = [{ id: 1, state: 'FAILED' }, { id: 2, state: 'COMPLETED' }]
+    composable.toggleSelectAllPage(true)
+
+    composable.toggleSelectAllPage(false)
+
+    expect(composable.selectedIds.value).toEqual([])
+    expect(composable.isAllPageSelected.value).toBe(false)
   })
 
   it('退出批量模式时清空选中', () => {

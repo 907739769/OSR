@@ -107,7 +107,6 @@ function baseComposable(overrides: Record<string, any> = {}) {
     handleResetEpisode: vi.fn(),
     searchManualSelect: ref(false),
     isAllPageSelected: ref(false),
-    isIndeterminate: ref(false),
     toggleSelectAllPage: vi.fn(),
     searchAllMissingLoading: ref(false),
     handleSearchAllMissing: vi.fn(),

@@ -40,13 +40,6 @@
       />
     </MobileSearchPanel>
 
-    <!-- 全选本页：卡片上的勾选框常驻，但批量条要选中一项才出现，全选框只能放在列表上方 -->
-    <MobileSelectAll
-      :all-selected="isAllPageSelected"
-      :indeterminate="isIndeterminate"
-      @toggle="toggleSelectAllPage"
-    />
-
     <!-- Batch Actions -->
     <div class="batch-bar" v-if="selectedIds.length > 0">
       <span class="selected-count">已选 {{ selectedIds.length }} 项</span>
@@ -55,6 +48,9 @@
       </v-btn>
       <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(undefined, `是否确认删除选中的 ${selectedIds.length} 个文件同步任务？`)">
         批量删除
+      </v-btn>
+      <v-btn variant="text" size="small" class="batch-select-all-btn" @click="toggleSelectAllPage(!isAllPageSelected)">
+        {{ isAllPageSelected ? '取消全选' : '全选' }}
       </v-btn>
       <v-btn variant="text" size="small" @click="clearSelection">
         取消
@@ -184,7 +180,6 @@ import DirectoryTreeSelect from '@/components/DirectoryTreeSelect/index.vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import FullTextDialog from '@/components/mobile/FullTextDialog.vue'
-import MobileSelectAll from '@/components/mobile/MobileSelectAll.vue'
 import { useCopyTask } from '@/composables/useCopyTask'
 import { useDebounce } from '@/composables/useDebounce'
 import { message } from '@/composables/useMessage'
@@ -197,7 +192,7 @@ const {
   handleAdd, handleUpdate, submitForm,
   handleDelete, handleExecuteOne,
   toggleSelect, handleCardClick, clearSelection,
-  isAllPageSelected, isIndeterminate, toggleSelectAllPage,
+  isAllPageSelected, toggleSelectAllPage,
   totalPages, prevPage, nextPage, handleSizeChange,
   searchCollapsed, handleBatchExecute
 } = useCopyTask()

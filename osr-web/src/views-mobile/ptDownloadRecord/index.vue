@@ -35,15 +35,6 @@
 
     <div class="batch-bar" v-if="selectionMode">
       <span class="selected-count">已选 {{ selectedIds.length }} 项</span>
-      <v-checkbox
-        :model-value="isAllPageSelected"
-        :indeterminate="isIndeterminate"
-        density="compact"
-        hide-details
-        label="全选本页"
-        class="select-all-checkbox"
-        @update:model-value="(v: boolean | null) => toggleSelectAllPage(!!v)"
-      />
       <!-- 重试只对失败记录成立，按钮上直接标出生效条数 -->
       <v-btn
         variant="text"
@@ -57,6 +48,9 @@
       </v-btn>
       <v-btn variant="text" color="warning" size="small" class="batch-blacklist-guid-btn" :disabled="!selectedIds.length" @click="handleBatchBlacklistGuid">批量拉黑种子</v-btn>
       <v-btn variant="text" color="error" size="small" class="batch-blacklist-group-btn" :disabled="!selectedIds.length" @click="handleBatchBlacklistReleaseGroup">批量拉黑发布组</v-btn>
+      <v-btn variant="text" size="small" class="batch-select-all-btn" @click="toggleSelectAllPage(!isAllPageSelected)">
+        {{ isAllPageSelected ? '取消全选' : '全选' }}
+      </v-btn>
       <v-btn variant="text" size="small" class="batch-cancel-btn" @click="toggleSelectionMode">取消</v-btn>
     </div>
 
@@ -210,7 +204,7 @@ const {
   handleQuery, resetQuery,
   retryingIds, handleRetry,
   selectionMode, toggleSelectionMode, selectedIds, toggleRecordSelect, handleCardClick,
-  isAllPageSelected, isIndeterminate, toggleSelectAllPage,
+  isAllPageSelected, toggleSelectAllPage,
   retryableSelectedIds, handleBatchRetry,
   handleBatchBlacklistGuid, handleBatchBlacklistReleaseGroup,
   totalPages, prevPage, nextPage, handleSizeChange,

@@ -173,7 +173,7 @@ export function useRecordList<TQuery extends SearchParams = SearchParams>(config
   // --- 选择 ---
   const {
     selectedIds, toggleSelect, handleCardClick, clearSelection,
-    isAllPageSelected, isIndeterminate, toggleSelectAllPage
+    isAllPageSelected, toggleSelectAllPage
   } = usePageSelection(recordList, idField)
   const multiple = computed(() => !selectedIds.value.length)
 
@@ -247,7 +247,7 @@ export function useRecordList<TQuery extends SearchParams = SearchParams>(config
     queryRef, dateRange, dateStart, dateEnd, handleQuery, resetQuery,
     // 选择
     selectedIds, multiple, toggleSelect, handleCardClick, clearSelection, handleSelectionChange,
-    isAllPageSelected, isIndeterminate, toggleSelectAllPage,
+    isAllPageSelected, toggleSelectAllPage,
     // 操作
     handleRetryOne, handleBatchRetry, handleDeleteOne, handleBatchDelete,
     handleRemoveNetDiskOne, handleBatchRemoveNetDisk

@@ -82,18 +82,12 @@
 
       <div v-if="selectionMode" class="batch-toolbar">
         已选 {{ selectedIds.length }} 项
-        <v-checkbox
-          :model-value="isAllPageSelected"
-          :indeterminate="isIndeterminate"
-          density="compact"
-          hide-details
-          class="select-all-checkbox"
-          label="全选本页"
-          @update:model-value="(v: boolean | null) => toggleSelectAllPage(!!v)"
-        />
         <v-btn variant="text" color="warning" size="small" class="batch-pause-btn" :disabled="!selectedIds.length" @click="handleBatchPause">批量暂停</v-btn>
         <v-btn variant="text" color="success" size="small" class="batch-resume-btn" :disabled="!selectedIds.length" @click="handleBatchResume">批量恢复</v-btn>
         <v-btn variant="text" color="error" size="small" class="batch-delete-btn" :disabled="!selectedIds.length" @click="handleDelete()">批量删除</v-btn>
+        <v-btn variant="text" size="small" class="batch-select-all-btn" @click="toggleSelectAllPage(!isAllPageSelected)">
+          {{ isAllPageSelected ? '取消全选' : '全选' }}
+        </v-btn>
         <v-btn variant="text" size="small" class="batch-cancel-btn" @click="selectionMode = false">取消</v-btn>
       </div>
 
@@ -679,7 +673,7 @@ const {
   handleRefresh, handlePause, handleResume, handleRemove, handleDelete,
   selectedIds, selectionMode, toggleSubSelect, isSubSelected,
   handleBatchPause, handleBatchResume,
-  isAllPageSelected, isIndeterminate, toggleSelectAllPage,
+  isAllPageSelected, toggleSelectAllPage,
   searchAllMissingLoading, handleSearchAllMissing,
   candidateDialogOpen, candidates, pushingSelected, pushSelectedCandidate, formatSize
 } = usePtSubscription()

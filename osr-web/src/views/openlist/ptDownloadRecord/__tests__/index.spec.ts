@@ -30,7 +30,6 @@ function baseComposable(overrides: Record<string, any> = {}) {
     toggleRecordSelect: vi.fn(),
     handleCardClick: vi.fn(),
     isAllPageSelected: computed(() => false),
-    isIndeterminate: computed(() => false),
     toggleSelectAllPage: vi.fn(),
     retryableSelectedIds: computed(() => [] as number[]),
     handleBatchRetry: vi.fn(),
@@ -147,17 +146,40 @@ describe('PtDownloadRecord 批量重试', () => {
     expect(wrapper.findAll('.item-card-checkbox').length).toBe(2)
   })
 
-  it('批量工具条有全选本页勾选框，勾上时调用 toggleSelectAllPage', async () => {
+  // 全选是一个文字按钮（与「取消」同样式），不是勾选框；文案随当前页是否全选切换
+  it('批量工具条里的全选按钮：未全选时点它全选本页', async () => {
     const toggleSelectAllPage = vi.fn()
     ;(usePtDownloadRecord as any).mockReturnValue(baseComposable({
       selectionMode: ref(true),
+      isAllPageSelected: computed(() => false),
       toggleSelectAllPage
     }))
     const wrapper = mount(PtDownloadRecordPage)
-    const selectAll = wrapper.find('.batch-toolbar .select-all-checkbox input')
+    const selectAll = wrapper.find('.batch-toolbar .batch-select-all-btn')
     expect(selectAll.exists()).toBe(true)
-    await selectAll.setValue(true)
+    expect(selectAll.text()).toBe('全选')
+    await selectAll.trigger('click')
     expect(toggleSelectAllPage).toHaveBeenCalledWith(true)
+  })
+
+  it('已全选时按钮变成「取消全选」，点它整批摘掉', async () => {
+    const toggleSelectAllPage = vi.fn()
+    ;(usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      selectionMode: ref(true),
+      isAllPageSelected: computed(() => true),
+      toggleSelectAllPage
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    const selectAll = wrapper.find('.batch-toolbar .batch-select-all-btn')
+    expect(selectAll.text()).toBe('取消全选')
+    await selectAll.trigger('click')
+    expect(toggleSelectAllPage).toHaveBeenCalledWith(false)
+  })
+
+  it('批量工具条里没有勾选框', () => {
+    (usePtDownloadRecord as any).mockReturnValue(baseComposable({ selectionMode: ref(true) }))
+    const wrapper = mount(PtDownloadRecordPage)
+    expect(wrapper.find('.batch-toolbar .v-selection-control').exists()).toBe(false)
   })
 
   it('选中项里没有失败记录时批量重试按钮禁用，有则标出生效条数', () => {

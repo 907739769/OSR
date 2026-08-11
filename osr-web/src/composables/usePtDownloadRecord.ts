@@ -30,7 +30,7 @@ export function usePtDownloadRecord() {
     totalPages, prevPage, nextPage, handleSizeChange,
     queryRef, handleQuery, resetQuery,
     selectedIds, toggleSelect, handleCardClick, clearSelection,
-    isAllPageSelected, isIndeterminate, toggleSelectAllPage,
+    isAllPageSelected, toggleSelectAllPage,
     getList
   } = useRecordList<PtDownloadRecordQuery>({
     listApi: getPtDownloadRecordListApi,
@@ -179,7 +179,7 @@ export function usePtDownloadRecord() {
     taskList, loading, total, queryParams, getList, handleQuery, resetQuery, queryRef,
     retryingIds, handleRetry,
     selectionMode, toggleSelectionMode, selectedIds, toggleRecordSelect, handleCardClick, clearSelection,
-    isAllPageSelected, isIndeterminate, toggleSelectAllPage,
+    isAllPageSelected, toggleSelectAllPage,
     retryableSelectedIds, handleBatchRetry,
     handleBatchBlacklistGuid, handleBatchBlacklistReleaseGroup,
     blacklistingIds, handleBlacklistGuid, handleBlacklistReleaseGroup,
