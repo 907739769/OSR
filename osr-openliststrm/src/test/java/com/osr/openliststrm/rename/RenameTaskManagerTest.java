@@ -12,6 +12,7 @@ import org.mockito.MockitoAnnotations;
 import org.springframework.scheduling.TaskScheduler;
 
 import java.lang.reflect.Field;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -95,6 +96,46 @@ class RenameTaskManagerTest {
         assertEquals(2, outcome.retried());
         verify(renameDetailService).getById(5);
         verify(renameDetailService).getById(3);
+    }
+
+    @Test
+    void retryAllFailed_超过异步阈值_不在调用线程上执行() throws Exception {
+        // 唯一调用方是 TG 的 /retry，它要等本方法返回才发汇总回复。
+        // 同步跑 200 条（每条查 TMDb + 复制 + 刮削）会让用户静默等几十分钟。
+        RenameTaskManager service = spy(newService());
+        doNothing().when(service).submitAsync(any());
+
+        when(renameDetailService.count(any())).thenReturn(50L);
+        List<RenameDetailPlus> failed = new ArrayList<>();
+        for (int i = 1; i <= 21; i++) {
+            RenameDetailPlus d = new RenameDetailPlus();
+            d.setId(i);
+            failed.add(d);
+        }
+        when(renameDetailService.list(any(Wrapper.class))).thenReturn(failed);
+
+        RenameTaskManager.RetryOutcome outcome = service.retryAllFailed();
+
+        assertEquals(21, outcome.retried(), "retried 是「已提交」条数，不是「已完成」");
+        assertEquals(29, outcome.remaining());
+        verify(service).submitAsync(any());
+        verify(renameDetailService, never()).getById(any());
+    }
+
+    @Test
+    void retryAllFailed_未超过异步阈值_仍在调用线程上同步跑完() throws Exception {
+        // 小批量留在调用线程上，TG 回复反映的才是真实完成情况
+        RenameTaskManager service = spy(newService());
+        when(renameDetailService.count(any())).thenReturn(2L);
+        RenameDetailPlus a = new RenameDetailPlus();
+        a.setId(5);
+        when(renameDetailService.list(any(Wrapper.class))).thenReturn(List.of(a));
+        when(renameDetailService.getById(any())).thenReturn(null);
+
+        service.retryAllFailed();
+
+        verify(service, never()).submitAsync(any());
+        verify(renameDetailService).getById(5);
     }
 
     @Test

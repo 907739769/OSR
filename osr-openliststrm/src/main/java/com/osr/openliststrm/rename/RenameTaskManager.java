@@ -5,6 +5,7 @@ import com.osr.common.utils.StringUtils;
 import com.osr.common.utils.ThreadTraceIdUtil;
 import com.osr.common.utils.Threads;
 import com.osr.common.utils.spring.SpringUtils;
+import com.osr.framework.manager.AsyncManager;
 import com.osr.openliststrm.config.OpenlistConfig;
 import com.osr.openliststrm.helper.OpenListHelper;
 import com.osr.openliststrm.monitor.processor.MediaRenameProcessor;
@@ -157,9 +158,30 @@ public class RenameTaskManager {
     }
 
     /**
+     * 超过这个条数就转异步执行，与 {@code StrmServiceImpl#retryStrm} / {@code CopyServiceImpl#retryCopy}
+     * 的阈值保持一致。小批量留在调用线程上，好让 TG 的回复消息反映的是真实完成情况。
+     */
+    private static final int ASYNC_THRESHOLD = 20;
+
+    /**
      * 批量重试所有失败的重命名记录（最多重试最新 200 条）。
-     * executeRenameDetails 本身只在内部处理了 IOException，其他运行时异常会往外抛，
-     * 这里必须对每条记录单独 try/catch，避免一条异常中断整批。
+     * <p>
+     * 超过 {@link #ASYNC_THRESHOLD} 条时转异步：唯一的调用方是 Telegram 的 {@code /retry} 指令
+     * （{@code StrmBot#retry}），而它串行调三个 retryAllFailed 之后才发那条汇总回复。本方法原先
+     * 是同步的——200 条 {@code executeRenameDetails} 各要查 TMDb、复制文件、刮削，全部串在
+     * Telegram 的 Ability action 里跑完，用户看到「开始重试所有失败任务」之后要静默等几十分钟
+     * 才能等到结果。STRM 与同步那两条早就是异步的，只有这里漏了。
+     * <p>
+     * <b>刻意不并发化</b>，只是挪出调用线程：executeRenameDetails 会查 TMDb（有配额）、
+     * 写刮削文件（{@code ScrapeService} 的兄弟计数依赖 rename_detail 的当前状态），并发跑
+     * 是另一个量级的改动，不该混在"别阻塞 TG"这件事里。
+     * <p>
+     * 异步执行本身是安全的：{@code RenameDetailRestController} 早就在用
+     * {@code AsyncManager.me().execute(() -> renameTaskManager.executeRenameDetails(...))}，
+     * 这条路径不是新引入的线程模型。
+     * <p>
+     * executeRenameDetails 只在内部处理了 IOException，其他运行时异常会往外抛，
+     * 所以必须对每条记录单独 try/catch，避免一条异常中断整批。
      */
     public RetryOutcome retryAllFailed() {
         QueryWrapper<RenameDetailPlus> countWrapper = new QueryWrapper<>();
@@ -175,19 +197,37 @@ public class RenameTaskManager {
                 .orderByDesc("create_time")
                 .last("LIMIT 200");
         List<RenameDetailPlus> failed = renameDetailService.list(wrapper);
-        for (RenameDetailPlus detail : failed) {
-            try {
-                executeRenameDetails(detail.getId(), null, null, null, null);
-            } catch (Exception e) {
-                log.warn("retryAllFailed: 重试重命名明细失败 id={}", detail.getId(), e);
+        List<Integer> ids = failed.stream().map(RenameDetailPlus::getId).toList();
+
+        Runnable action = () -> {
+            for (Integer id : ids) {
+                try {
+                    executeRenameDetails(id, null, null, null, null);
+                } catch (Exception e) {
+                    log.warn("retryAllFailed: 重试重命名明细失败 id={}", id, e);
+                }
             }
+        };
+        if (ids.size() > ASYNC_THRESHOLD) {
+            submitAsync(action);
+        } else {
+            action.run();
         }
-        return new RetryOutcome(failed.size(), (int) total - failed.size());
+        return new RetryOutcome(ids.size(), (int) total - ids.size());
     }
 
     /**
-     * @param retried   本次提交重试的记录数
-     * @param remaining 超出 200 条上限、未处理的剩余失败记录数
+     * 提交异步执行。抽成包级可见的方法是为了让单测能验证「超过阈值不在调用线程上跑」这条分支——
+     * {@code AsyncManager} 是静态单例，它的静态初始化就会调 {@code SpringUtils.getBean}，
+     * 在纯单测里 mockStatic 它的成败取决于该类此前有没有被别的用例加载过，判据不稳。
+     */
+    void submitAsync(Runnable action) {
+        AsyncManager.me().execute(action);
+    }
+
+    /**
+     * @param retried   本次<b>提交</b>重试的记录数（超过 {@link #ASYNC_THRESHOLD} 时为已提交、尚未完成）
+     * @param remaining 超出 200 条上限、本次完全没被捞起来的剩余失败记录数
      */
     public record RetryOutcome(int retried, int remaining) {}
 }
