@@ -13,6 +13,7 @@ import com.osr.openliststrm.mybatisplus.domain.OpenlistCopyPlus;
 import com.osr.openliststrm.mybatisplus.domain.OpenlistStrmPlus;
 import com.osr.openliststrm.mybatisplus.service.IOpenlistCopyPlusService;
 import com.osr.openliststrm.mybatisplus.service.IOpenlistStrmPlusService;
+import com.osr.openliststrm.rename.cleanup.ArtifactPaths;
 import com.osr.openliststrm.service.IStrmService;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
@@ -306,25 +307,26 @@ public class StrmServiceImpl implements IStrmService {
         int fileEntryCount = fileEntries.size();
         log.info("BFS遍历完成，共收集到 {} 个待处理文件", fileEntryCount);
 
-        // 一次性批量查出该目录树下已有的 strm 记录（含所有状态），用途两个：
-        // 1) existingKeys（仅成功记录）用于处理阶段跳过已成功的文件；
-        // 2) existingIdByKey（全部记录）用于批量落库阶段判断 insert 还是 update——
+        // 一次性批量查出该目录树下已有的 strm 记录，用途两个：
+        // 1) successKeys（仅成功记录）用于处理阶段跳过已成功的文件；
+        // 2) failedIdByKey（仅非成功记录）用于批量落库阶段判断 insert 还是 update——
         //    openlist_strm 表 (strm_path, strm_file_name) 无唯一约束，无法用 ON DUPLICATE KEY UPSERT，
         //    需要显式知道已存在记录的主键才能走 updateBatchById。
+        //
+        // 前缀匹配补路径分隔符 + 转义 LIKE 通配符，口径与 ScrapeService#hasSiblingInSameShow 一致：
+        // 不补分隔符时 /电视剧/三体 会连 /电视剧/三体2 一起捞；不转义时路径里的 _（发布组命名的常态）
+        // 在 LIKE 里是"任意单字符"。两者都只造成过取（recordKey 是精确匹配，多捞的行 key 对不上，
+        // 不会误跳过文件也不会判错 insert/update），但白读的行会实打实占住内存。
+        String rootDir = normalizedRoot(rootPath);
         List<OpenlistStrmPlus> existingList = openlistStrmPlusService.lambdaQuery()
-                .likeRight(OpenlistStrmPlus::getStrmPath, rootPath)
+                .and(w -> w.eq(OpenlistStrmPlus::getStrmPath, rootDir)
+                        .or().likeRight(OpenlistStrmPlus::getStrmPath, subtreeLikePrefix(rootPath)))
                 .select(OpenlistStrmPlus::getStrmId, OpenlistStrmPlus::getStrmPath,
                         OpenlistStrmPlus::getStrmFileName, OpenlistStrmPlus::getStrmStatus)
                 .list();
-        Set<String> existingKeys = existingList.stream()
-                .filter(s -> "1".equals(s.getStrmStatus()))
-                .map(s -> StrmHelper.recordKey(s.getStrmPath(), s.getStrmFileName()))
-                .collect(java.util.stream.Collectors.toSet());
-        Map<String, Integer> existingIdByKey = existingList.stream()
-                .collect(java.util.stream.Collectors.toMap(
-                        s -> StrmHelper.recordKey(s.getStrmPath(), s.getStrmFileName()),
-                        OpenlistStrmPlus::getStrmId,
-                        (a, b) -> a));
+        ExistingIndex existing = indexExisting(existingList);
+        Set<String> existingKeys = existing.successKeys();
+        Map<String, Integer> existingIdByKey = existing.failedIdByKey();
 
         // 第二阶段：虚拟线程并行处理文件，处理结果（待写入的DB记录）先收集，处理完成后统一批量落库，
         // 避免每文件各自调度一次异步单行查询+insert/update（N 次数据库往返）
@@ -356,6 +358,79 @@ public class StrmServiceImpl implements IStrmService {
         }
         strmHelper.batchAddStrm(pendingRecords, existingIdByKey);
         log.info("STRM文件并行处理完成，共处理 {} 个文件", fileEntryCount);
+    }
+
+    /**
+     * 子树内已有记录的索引，由 {@link #indexExisting} 一次遍历建好。
+     *
+     * @param successKeys  已成功记录的 key，处理阶段据此跳过
+     * @param failedIdByKey 非成功记录的 key -> 主键，落库阶段据此判断 insert 还是 update
+     */
+    record ExistingIndex(Set<String> successKeys, Map<String, Integer> failedIdByKey) {
+    }
+
+    /**
+     * 把子树内已有的记录拆成"已成功"和"未成功"两个索引。
+     * <p>
+     * <b>failedIdByKey 刻意不装成功记录</b>，这是这里最省内存的一处：能走到 pendingRecords 的文件，
+     * 一定不在 successKeys 里（{@link #processFileEntry} 开头就把它们跳过了），所以落库阶段
+     * 永远不会拿一个成功记录的 key 去查 id。健康的库里失败记录是极少数，这个 map 因此从
+     * "整个库" 缩到 "几十条"，同时省掉一次全量的 recordKey 拼接——两个索引原先各拼一遍，
+     * 产生两批内容相同的独立 String。
+     * <p>
+     * 未成功的判据用 {@code !"1".equals(status)} 而不是 {@code "0".equals(status)}：
+     * strm_status 允许为 NULL（建表时就是 {@code NULL DEFAULT NULL}），历史行可能没有状态值。
+     * 按 "0" 收的话这些行会被漏掉，落库时当成"没有记录"走 insert，凭空多出一行重复记录。
+     * 反过来漏收成功记录是安全的——它们本来就用不到。
+     */
+    static ExistingIndex indexExisting(List<OpenlistStrmPlus> rows) {
+        Set<String> successKeys = new java.util.HashSet<>();
+        Map<String, Integer> failedIdByKey = new java.util.HashMap<>();
+        if (rows == null) {
+            return new ExistingIndex(successKeys, failedIdByKey);
+        }
+        for (OpenlistStrmPlus row : rows) {
+            String key = StrmHelper.recordKey(row.getStrmPath(), row.getStrmFileName());
+            if ("1".equals(row.getStrmStatus())) {
+                successKeys.add(key);
+            } else {
+                failedIdByKey.putIfAbsent(key, row.getStrmId());
+            }
+        }
+        return new ExistingIndex(successKeys, failedIdByKey);
+    }
+
+    /** 去掉末尾斜杠的根路径；记录里的 strm_path 也是这个形态（listDirCollect 做过同样的 removeEnd） */
+    static String normalizedRoot(String rootPath) {
+        return StringUtils.removeEnd(rootPath == null ? "" : rootPath, "/");
+    }
+
+    /**
+     * 子树前缀匹配用的 LIKE 值：规范化根路径 + 路径分隔符，值本身过 {@code escapeLike}。
+     * <p>
+     * 根路径为 {@code /} 时规范化成空串，前缀退化为 {@code /}，配合 likeRight 就是
+     * {@code LIKE '/%'}——匹配全部记录，正是"整库任务"应有的语义。
+     */
+    static String subtreeLikePrefix(String rootPath) {
+        return ArtifactPaths.escapeLike(normalizedRoot(rootPath)) + "/";
+    }
+
+    /**
+     * 这个文件值不值得进 {@code fileEntries}。
+     * <p>
+     * 判据必须与 {@link #processFileEntry} 的开头两个分支等价：不是视频也不是字幕的直接不收，
+     * 关掉字幕下载时字幕也不收（那种情况下 processFileEntry 对字幕产出的是空列表，纯白跑）。
+     * <p>
+     * 刮削过的库里每个影片目录还躺着 poster.jpg / fanart.jpg / .nfo / logo.png，
+     * 实际文件数是视频数的好几倍。原先它们全部进了队列、各自占一个 FileEntry、
+     * 还各自被调度一次 CompletableFuture，只为在 processFileEntry 第一行 return 掉。
+     * 判定成本没有变化——本来也是每文件判一次，只是挪早了。
+     */
+    private boolean isCollectible(String rawName, StrmCtx ctx) {
+        if (openListHelper.isVideo(rawName)) {
+            return true;
+        }
+        return ctx.downloadSub() && openListHelper.isSrt(rawName);
     }
 
     /**
@@ -399,7 +474,7 @@ public class StrmServiceImpl implements IStrmService {
 
                 if (isDir) {
                     childDirs.add(currentPath + "/" + rawName);
-                } else {
+                } else if (isCollectible(rawName, ctx)) {
                     fileEntries.add(new FileEntry(currentPath, currentLocalPath, rawName, size));
                 }
             }
