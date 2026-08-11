@@ -1,13 +1,20 @@
 package com.osr.openliststrm.rename.cleanup;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.osr.openliststrm.config.OpenlistConfig;
+import com.osr.openliststrm.helper.OpenListHelper;
+import com.osr.openliststrm.mybatisplus.domain.OpenlistStrmPlus;
 import com.osr.openliststrm.mybatisplus.domain.RenameDetailPlus;
+import com.osr.openliststrm.mybatisplus.service.IOpenlistStrmPlusService;
 import com.osr.openliststrm.mybatisplus.service.IRenameDetailPlusService;
+import com.osr.openliststrm.orphan.StrmSourcePathResolver;
 import com.osr.openliststrm.scrape.ScrapeService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -43,6 +50,25 @@ public class RenameCleanupService {
 
     @Autowired
     private IRenameDetailPlusService renameDetailService;
+
+    @Autowired
+    private IOpenlistStrmPlusService openlistStrmService;
+
+    @Autowired
+    private OpenlistConfig config;
+
+    @Autowired
+    private OpenListHelper openListHelper;
+
+    /**
+     * {@link #purgeStrmSource} 的结果。
+     *
+     * @param fileDeleted 中间 .strm 是否真的被删掉（原本就不存在时为 false）
+     * @param records     删除的 openlist_strm 生成记录数
+     */
+    public record StrmSourceResult(boolean fileDeleted, int records) {
+        public static final StrmSourceResult EMPTY = new StrmSourceResult(false, 0);
+    }
 
     /**
      * @param mainFiles   删除的主文件（STRM / 视频副本）数
@@ -225,6 +251,100 @@ public class RenameCleanupService {
         }
         int dirs = reclaimEmptyDirs(target);
         return new PurgeResult(0, deleted, dirs, 0);
+    }
+
+    /**
+     * 清理一条 {@code source_missing} 记录对应的<b>中间产物</b>：{@code source_folder} 里那个
+     * {@code .strm}，以及它在 {@code openlist_strm} 里的生成记录。
+     * <p>
+     * 存在的理由是 {@link #purge} 只删目标库产物和 {@code rename_detail} 行，中间产物原样留着，
+     * 于是构成一个每天一轮的复发闭环：用户清理 → 次日 02:00 的 rename 定时任务
+     * （{@code OpenListStrmTask#rename} → {@code MediaRenameProcessor#processOnce}）全量重扫
+     * {@code source_folder} → {@code processedKeys} 从 {@code rename_detail} 重建（那行刚被删）
+     * → 中间 {@code .strm} 被当成没处理过（且 {@code .strm} 不受 {@code minFileSizeBytes} 门槛约束）
+     * → 重新刮削、重新复制回目标库 → 死链复活 → 次日 06:00 孤儿扫描再报同一条。
+     * 用户看到的就是"明明删了怎么又冒出来"，每轮还白烧一次 TMDb 配额。
+     * <p>
+     * <b>必须在 {@link #purge} 之前调用。</b>闭环成立的两个条件是「{@code rename_detail} 行没了」
+     * 加「中间 {@code .strm} 还在」，先断掉后者，任何一步失败都落不进闭环；反过来的话，
+     * purge 成功而本方法失败就正好把两个条件凑齐了。
+     * <p>
+     * <b>只动 {@code .strm}，非 {@code .strm} 一律不碰。</b>那是网盘挂载或下载器保种目录里的
+     * 真实文件，删它等于毁保种（见类注释）；{@code .strm} 是 OSR 自己生成的纯派生物，
+     * 删错了重跑 STRM 任务就回来。构造上 {@code source_missing} 也只可能出现在 {@code .strm} 上
+     * （{@code RenameOrphanScanServiceImpl#scanForward} 对非 STRM 记录直接跳过网盘核对），
+     * 这里再判一次是防御性的。
+     * <p>
+     * 不回收空目录：{@link #reclaimEmptyDirs} 锚定 {@code 电影}/{@code 电视剧} 那一层，
+     * 而中间目录树是网盘路径的镜像、没有这个锚点，调了也是空转；况且暂存目录里留几个空目录
+     * 不会被任何媒体库扫到，不值得为它放宽那道边界。
+     */
+    public StrmSourceResult purgeStrmSource(RenameDetailPlus detail) {
+        if (detail == null || detail.getOriginalPath() == null || detail.getOriginalName() == null
+                || detail.getOriginalPath().isBlank() || detail.getOriginalName().isBlank()) {
+            return StrmSourceResult.EMPTY;
+        }
+        String originalName = detail.getOriginalName();
+        if (!openListHelper.isStrm(originalName)) {
+            log.debug("源文件不是 .strm，不动它: {}/{}", detail.getOriginalPath(), originalName);
+            return StrmSourceResult.EMPTY;
+        }
+        Path strmFile = Paths.get(detail.getOriginalPath()).resolve(originalName)
+                .toAbsolutePath().normalize();
+
+        // 先读内容解析网盘路径：文件一旦删掉，就再也定位不到它对应的那条 openlist_strm 记录了
+        String netdiskPath = null;
+        if (Files.isRegularFile(strmFile)) {
+            try {
+                netdiskPath = StrmSourcePathResolver.resolve(
+                        Files.readString(strmFile, StandardCharsets.UTF_8),
+                        config.getOpenListUrl(),
+                        "1".equals(config.getOpenListStrmEncode()));
+            } catch (IOException e) {
+                log.warn("读取中间 .strm 内容失败，只删文件、保留生成记录: {}", strmFile, e);
+            }
+        }
+
+        boolean fileDeleted = deleteFile(strmFile);
+        int records = netdiskPath == null ? 0 : removeStrmRecords(netdiskPath);
+        if (fileDeleted || records > 0) {
+            log.info("已清理中间产物 {}：文件={} 生成记录={}", strmFile, fileDeleted ? 1 : 0, records);
+        }
+        return new StrmSourceResult(fileDeleted, records);
+    }
+
+    /**
+     * 按网盘路径删除 {@code openlist_strm} 的生成记录。
+     * <p>
+     * 这一步不能省：记录留着的话，网盘上同路径的文件<b>日后重新出现</b>（重新下载、辅种回来）时，
+     * {@code StrmServiceImpl#getData} 的 {@code existingKeys} 会认定它"已成功处理过"而跳过，
+     * 于是 {@code .strm} 再也不会重新生成 —— 文件明明在网盘上，最终库里却永远缺这一集，
+     * 且全程没有任何失败记录可查。
+     * <p>
+     * 先查后删而不是直接 {@code remove(wrapper)}：{@code (strm_path, strm_file_name)} 上没有唯一约束，
+     * 直接删只能拿到布尔值，日志里报不出真实条数。这是低频清理路径，多一次查询无所谓。
+     */
+    private int removeStrmRecords(String netdiskPath) {
+        int idx = netdiskPath.lastIndexOf('/');
+        String dir = idx > 0 ? netdiskPath.substring(0, idx) : "/";
+        String name = idx >= 0 ? netdiskPath.substring(idx + 1) : netdiskPath;
+        if (name.isBlank()) {
+            return 0;
+        }
+        // 只用 eq（惰性），不用 select —— 后者会立刻解析实体 lambda 缓存，纯单测里必炸
+        LambdaQueryWrapper<OpenlistStrmPlus> wrapper = new LambdaQueryWrapper<>();
+        wrapper.eq(OpenlistStrmPlus::getStrmPath, dir)
+                .eq(OpenlistStrmPlus::getStrmFileName, name);
+        List<OpenlistStrmPlus> rows = openlistStrmService.list(wrapper);
+        if (rows == null || rows.isEmpty()) {
+            return 0;
+        }
+        List<Integer> ids = rows.stream().map(OpenlistStrmPlus::getStrmId)
+                .filter(java.util.Objects::nonNull).toList();
+        if (ids.isEmpty()) {
+            return 0;
+        }
+        return openlistStrmService.removeByIds(ids) ? ids.size() : 0;
     }
 
     /**

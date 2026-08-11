@@ -1,6 +1,11 @@
 package com.osr.openliststrm.rename.cleanup;
 
+import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.osr.openliststrm.config.OpenlistConfig;
+import com.osr.openliststrm.helper.OpenListHelper;
+import com.osr.openliststrm.mybatisplus.domain.OpenlistStrmPlus;
 import com.osr.openliststrm.mybatisplus.domain.RenameDetailPlus;
+import com.osr.openliststrm.mybatisplus.service.IOpenlistStrmPlusService;
 import com.osr.openliststrm.mybatisplus.service.IRenameDetailPlusService;
 import com.osr.openliststrm.scrape.ScrapeService;
 import org.junit.jupiter.api.BeforeEach;
@@ -29,6 +34,12 @@ class RenameCleanupServiceTest {
     private ScrapeService scrapeService;
     @Mock
     private IRenameDetailPlusService renameDetailService;
+    @Mock
+    private IOpenlistStrmPlusService openlistStrmService;
+    @Mock
+    private OpenlistConfig config;
+    @Mock
+    private OpenListHelper openListHelper;
 
     private RenameCleanupService service;
 
@@ -46,6 +57,11 @@ class RenameCleanupServiceTest {
         service = new RenameCleanupService();
         inject("scrapeService", scrapeService);
         inject("renameDetailService", renameDetailService);
+        inject("openlistStrmService", openlistStrmService);
+        inject("config", config);
+        inject("openListHelper", openListHelper);
+        // 真实实现按扩展名判定，这里照抄同样的语义，避免测试依赖字典表
+        when(openListHelper.isStrm(any())).thenAnswer(i -> i.getArgument(0, String.class).toLowerCase().endsWith(".strm"));
 
         mediaRoot = tempDir.resolve("电视剧");
         showRoot = mediaRoot.resolve("国产剧").resolve("某剧 (2024)");
@@ -70,6 +86,74 @@ class RenameCleanupServiceTest {
         d.setNewName(name);
         d.setMediaType("tv");
         return d;
+    }
+
+    // ------------------------------------------------------------------
+    // 中间产物清理（source_missing 专用）
+    // ------------------------------------------------------------------
+
+    /** 造一条源在 <temp>/staging、目标在 seasonDir 的记录 */
+    private RenameDetailPlus withSource(Path srcDir, String srcName) {
+        RenameDetailPlus d = detail(1, seasonDir, "S01E01.strm");
+        d.setOriginalPath(srcDir.toString());
+        d.setOriginalName(srcName);
+        return d;
+    }
+
+    @Test
+    void 清理中间产物_删strm文件并按网盘路径删掉生成记录() throws IOException {
+        Path staging = tempDir.resolve("staging");
+        Files.createDirectories(staging);
+        Path intermediate = staging.resolve("foo.strm");
+        Files.writeString(intermediate, "http://alist:5244/d/媒体/剧集/foo.mkv");
+        when(config.getOpenListUrl()).thenReturn("http://alist:5244");
+        when(config.getOpenListStrmEncode()).thenReturn("0");
+
+        OpenlistStrmPlus row = new OpenlistStrmPlus();
+        row.setStrmId(77);
+        // list 有 Wrapper / IPage 两个重载，裸 any() 定不了型
+        when(openlistStrmService.list(any(Wrapper.class))).thenReturn(List.of(row));
+        when(openlistStrmService.removeByIds(any())).thenReturn(true);
+
+        var result = service.purgeStrmSource(withSource(staging, "foo.strm"));
+
+        assertTrue(result.fileDeleted());
+        assertEquals(1, result.records());
+        assertFalse(Files.exists(intermediate), "中间 .strm 必须被删掉，否则次日全量扫描会把死链复活");
+        verify(openlistStrmService).removeByIds(List.of(77));
+    }
+
+    @Test
+    void 清理中间产物_源文件不是strm时一个字节都不碰() throws IOException {
+        Path seedDir = tempDir.resolve("downloads");
+        Files.createDirectories(seedDir);
+        Path realVideo = seedDir.resolve("foo.mkv");
+        Files.writeString(realVideo, "假装这是几十G的保种文件");
+
+        var result = service.purgeStrmSource(withSource(seedDir, "foo.mkv"));
+
+        assertFalse(result.fileDeleted());
+        assertEquals(0, result.records());
+        assertTrue(Files.exists(realVideo), "源目录是网盘挂载或下载器保种目录，删它等于毁保种");
+        verify(openlistStrmService, never()).removeByIds(any());
+    }
+
+    @Test
+    void 清理中间产物_内容解析不出网盘路径时仍删文件但保留生成记录() throws IOException {
+        Path staging = tempDir.resolve("staging");
+        Files.createDirectories(staging);
+        Path intermediate = staging.resolve("old.strm");
+        // 历史文件用的是旧域名，前缀对不上，StrmSourcePathResolver 会返回 null
+        Files.writeString(intermediate, "http://old-domain:5244/d/媒体/剧集/old.mkv");
+        when(config.getOpenListUrl()).thenReturn("http://alist:5244");
+        when(config.getOpenListStrmEncode()).thenReturn("0");
+
+        var result = service.purgeStrmSource(withSource(staging, "old.strm"));
+
+        assertTrue(result.fileDeleted(), "文件本身是死的中间产物，解析不出来也该删");
+        assertEquals(0, result.records());
+        // 定位不到是哪一条记录时宁可留着：删错记录会让日后重新出现的同路径文件永远生不出 .strm
+        verify(openlistStrmService, never()).removeByIds(any());
     }
 
     @Test

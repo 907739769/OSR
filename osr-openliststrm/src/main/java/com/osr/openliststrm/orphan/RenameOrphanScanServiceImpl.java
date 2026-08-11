@@ -589,9 +589,20 @@ public class RenameOrphanScanServiceImpl implements IRenameOrphanScanService {
             return;
         }
         RenameDetailPlus detail = renameDetailService.getById(orphan.getDetailId());
-        if (detail != null) {
-            cleanupService.purge(List.of(detail), true);
+        if (detail == null) {
+            return;
         }
+        // source_missing 额外清掉中间产物（source_folder 里那个 .strm + openlist_strm 生成记录），
+        // 且必须排在 purge 之前：purge 会删掉 rename_detail 行，而"行没了 + 中间 .strm 还在"
+        // 正是复发闭环的两个条件——下一次 rename 全量扫描会把它当成新文件重新处理，
+        // 死链原样复活。先断中间产物，任何一步失败都落不进闭环。详见 purgeStrmSource 注释。
+        //
+        // local_missing 不做这件事：那是"网盘源还在、只是本地产物没了"，
+        // 中间产物该留着让重命名任务重新产出。
+        if (OrphanReason.SOURCE_MISSING.equals(reason)) {
+            cleanupService.purgeStrmSource(detail);
+        }
+        cleanupService.purge(List.of(detail), true);
     }
 
     @Override

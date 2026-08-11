@@ -30,6 +30,19 @@ export const REASON_META: Record<string, { text: string; type: 'warning' | 'erro
 
 export const REASON_OPTIONS = Object.entries(REASON_META).map(([value, meta]) => ({ title: meta.text, value }))
 
+/**
+ * 每种 reason 的清理会删掉什么，逐条对齐后端 `RenameOrphanScanServiceImpl#cleanOne` 的分派分支。
+ * 后端改了删除范围，这里必须跟着改——两边说的不是同一件事，比不给提示更糟。
+ */
+export const CLEAN_EFFECTS: Record<string, string> = {
+  local_missing: '目标库里残留的刮削文件、回收空目录，以及这条重命名记录（本地主文件本来就已经不在了）',
+  source_missing: '目标库产物（主文件 + 刮削文件）、这条重命名记录，'
+    + '以及暂存目录里那个 .strm 中间产物和它在 STRM 记录表里的生成记录',
+  local_extra: '这个媒体文件本身、它的同名 NFO，以及回收空目录',
+  metadata_only: '该目录里剩下的元数据文件，并回收这个目录',
+  empty_dir: '回收这个空目录'
+}
+
 /** 目录级发现（metadata_only / empty_dir）没有 newName，拼路径时不能带出一个尾斜杠 */
 export const fullPath = (row: any) => (row?.newName ? `${row.newPath}/${row.newName}` : row?.newPath || '')
 
@@ -43,8 +56,7 @@ export function useRenameOrphanList() {
     recordList, loading, total, queryParams, totalPages,
     getList, silentRefresh, prevPage, nextPage, handleSizeChange,
     queryRef, dateRange, dateStart, dateEnd, handleQuery, resetQuery,
-    selectedIds, multiple, toggleSelect, handleCardClick, clearSelection, handleSelectionChange,
-    handleDeleteOne: handleCleanOne, handleBatchDelete: handleBatchClean
+    selectedIds, multiple, toggleSelect, handleCardClick, clearSelection, handleSelectionChange
   } = useRecordList<RenameOrphanQuery>({
     listApi: getRenameOrphanListApi,
     batchDeleteApi: batchCleanRenameOrphanApi,
@@ -66,6 +78,36 @@ export function useRenameOrphanList() {
     } finally {
       scanning.value = false
     }
+  }
+
+  // --- 清理 ---
+  // 不复用 useRecordList 的通用删除文案（"是否确认删除孤儿记录xxx？"）：清理动作按 reason
+  // 分派到完全不同的删除范围，而确认框是用户唯一的解释来源。尤其 source_missing 现在还会
+  // 删掉暂存目录里的 .strm 中间产物，不写出来等于让用户在不知情的情况下同意了一次删除。
+  const handleCleanOne = async (row: any) => {
+    try {
+      await confirm({
+        message: `确认清理"${fullPath(row)}"？将删除：${CLEAN_EFFECTS[row?.reason] || '相关的残留文件与记录'}。`,
+        title: '警告', type: 'warning'
+      })
+      await batchCleanRenameOrphanApi([row.id])
+      message.success('清理成功')
+      getList()
+    } catch (e) { if (e !== 'cancel') console.error(e) }
+  }
+
+  const handleBatchClean = async () => {
+    try {
+      await confirm({
+        message: `确认清理选中的 ${selectedIds.value.length} 条？将按各自的原因删除对应的残留文件与记录。`
+          + '其中「网盘源丢失」会连暂存目录里的 .strm 中间产物一起删掉——不删它的话，'
+          + '下一次重命名任务会把这条死链原样重新生成出来。',
+        title: '警告', type: 'warning'
+      })
+      await batchCleanRenameOrphanApi(selectedIds.value)
+      message.success('清理成功')
+      getList()
+    } catch (e) { if (e !== 'cancel') console.error(e) }
   }
 
   // --- 忽略 ---

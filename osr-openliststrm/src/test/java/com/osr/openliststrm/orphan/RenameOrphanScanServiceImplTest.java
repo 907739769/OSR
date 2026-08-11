@@ -15,6 +15,7 @@ import com.osr.openliststrm.rename.cleanup.RenameCleanupService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
@@ -98,6 +99,55 @@ class RenameOrphanScanServiceImplTest {
             RenameOrphanPlus updated = list.iterator().next();
             return "1".equals(updated.getStatus()) && updated.getCleanTime() != null;
         }));
+    }
+
+    @Test
+    void clean_网盘源丢失_中间产物必须在purge之前清掉() {
+        RenameOrphanPlus orphan = new RenameOrphanPlus();
+        orphan.setId(1);
+        orphan.setDetailId(42);
+        orphan.setReason(OrphanReason.SOURCE_MISSING);
+        when(renameOrphanService.listByIds(List.of(1))).thenReturn(List.of(orphan));
+
+        RenameDetailPlus detail = new RenameDetailPlus();
+        detail.setId(42);
+        detail.setOriginalPath("/data/strm/剧集");
+        detail.setOriginalName("foo.strm");
+        detail.setNewPath("/nonexistent/dir/for/test");
+        detail.setNewName("S01E01.strm");
+        when(renameDetailService.getById(42)).thenReturn(detail);
+
+        service.clean(List.of(1));
+
+        // 顺序是硬要求：purge 会删掉 rename_detail 行，而「行没了 + 中间 .strm 还在」
+        // 正是复发闭环的两个条件。反过来调的话，purge 成功而 purgeStrmSource 失败
+        // 就正好把闭环凑齐，次日 rename 全量扫描会把死链原样复活。
+        InOrder inOrder = inOrder(cleanupService);
+        inOrder.verify(cleanupService).purgeStrmSource(detail);
+        inOrder.verify(cleanupService).purge(List.of(detail), true);
+    }
+
+    @Test
+    void clean_本地产物丢失_不碰中间产物() {
+        RenameOrphanPlus orphan = new RenameOrphanPlus();
+        orphan.setId(2);
+        orphan.setDetailId(43);
+        orphan.setReason(OrphanReason.LOCAL_MISSING);
+        when(renameOrphanService.listByIds(List.of(2))).thenReturn(List.of(orphan));
+
+        RenameDetailPlus detail = new RenameDetailPlus();
+        detail.setId(43);
+        detail.setOriginalPath("/data/strm/剧集");
+        detail.setOriginalName("foo.strm");
+        detail.setNewPath("/nonexistent/dir/for/test");
+        detail.setNewName("S01E01.strm");
+        when(renameDetailService.getById(43)).thenReturn(detail);
+
+        service.clean(List.of(2));
+
+        verify(cleanupService).purge(List.of(detail), true);
+        // local_missing 是「网盘源还在、只是本地产物没了」，中间产物要留着让重命名重新产出
+        verify(cleanupService, never()).purgeStrmSource(any());
     }
 
     @Test
