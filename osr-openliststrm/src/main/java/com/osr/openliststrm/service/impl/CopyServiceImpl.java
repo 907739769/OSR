@@ -3,6 +3,7 @@ package com.osr.openliststrm.service.impl;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.osr.common.utils.Threads;
 import com.osr.framework.manager.AsyncManager;
 import com.osr.openliststrm.api.OpenlistApi;
 import com.osr.openliststrm.config.OpenlistConfig;
@@ -100,8 +101,8 @@ public class CopyServiceImpl implements ICopyService {
 
             while (!currentLevel.isEmpty()) {
                 List<CompletableFuture<List<String>>> futures = currentLevel.stream()
-                        .map(rel -> CompletableFuture.supplyAsync(
-                                () -> syncOneDir(rootSrcDir, rootDstDir, rel, incrementalAfter, dirSemaphore, minSize), executor))
+                        .map(rel -> CompletableFuture.supplyAsync(Threads.wrapSupplier(
+                                () -> syncOneDir(rootSrcDir, rootDstDir, rel, incrementalAfter, dirSemaphore, minSize)), executor))
                         .toList();
 
                 List<String> nextLevel = new java.util.ArrayList<>();
@@ -428,7 +429,7 @@ public class CopyServiceImpl implements ICopyService {
         Runnable action = () -> {
             try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
                 List<CompletableFuture<Void>> futures = copyList.stream()
-                    .map(copy -> CompletableFuture.runAsync(() -> {
+                    .map(copy -> CompletableFuture.runAsync(Threads.wrap(() -> {
                         try {
                             COPY_SEMAPHORE.acquire();
                             try {
@@ -439,7 +440,7 @@ public class CopyServiceImpl implements ICopyService {
                         } catch (InterruptedException e) {
                             Thread.currentThread().interrupt();
                         }
-                    }, executor))
+                    }), executor))
                     .toList();
                 CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
             }

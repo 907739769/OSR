@@ -2,6 +2,7 @@ package com.osr.openliststrm.upload;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.osr.common.utils.ThreadTraceIdUtil;
+import com.osr.common.utils.Threads;
 import com.osr.common.utils.spring.SpringUtils;
 import com.osr.openliststrm.mybatisplus.domain.OpenlistCopyTaskPlus;
 import com.osr.openliststrm.mybatisplus.service.IOpenlistCopyTaskPlusService;
@@ -40,7 +41,7 @@ public class UploadTaskManager {
     @EventListener(ApplicationReadyEvent.class)
     public void start() {
         ThreadTraceIdUtil.initTraceId();
-        scheduler.scheduleAtFixedRate(this::poll, Instant.now().plusSeconds(10), Duration.ofSeconds(10));
+        scheduler.scheduleAtFixedRate(Threads.wrap(this::poll), Instant.now().plusSeconds(10), Duration.ofSeconds(10));
         log.info("UploadTaskManager started");
     }
 

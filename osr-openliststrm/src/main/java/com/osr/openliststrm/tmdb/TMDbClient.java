@@ -3,6 +3,7 @@ package com.osr.openliststrm.tmdb;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.osr.common.utils.StringUtils;
+import com.osr.common.utils.Threads;
 import com.osr.openliststrm.rename.model.MediaInfo;
 import com.osr.common.utils.spring.SpringUtils;
 import lombok.extern.slf4j.Slf4j;
@@ -646,7 +647,7 @@ public class TMDbClient {
     private static void runConcurrently(List<Runnable> tasks) {
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             List<CompletableFuture<Void>> futures = tasks.stream()
-                    .map(t -> CompletableFuture.runAsync(t, executor))
+                    .map(t -> CompletableFuture.runAsync(Threads.wrap(t), executor))
                     .toList();
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
         }

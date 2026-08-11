@@ -3,6 +3,7 @@ package com.osr.openliststrm.scrape;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.osr.common.utils.Threads;
 import com.osr.openliststrm.config.OpenlistConfig;
 import com.osr.openliststrm.rename.model.MediaInfo;
 import lombok.extern.slf4j.Slf4j;
@@ -88,7 +89,7 @@ public class MediaImageDownloader {
         );
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             List<CompletableFuture<Void>> futures = tasks.stream()
-                    .map(t -> CompletableFuture.runAsync(t, executor))
+                    .map(t -> CompletableFuture.runAsync(Threads.wrap(t), executor))
                     .toList();
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
         }

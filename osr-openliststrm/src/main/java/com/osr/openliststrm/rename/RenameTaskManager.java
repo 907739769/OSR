@@ -3,6 +3,7 @@ package com.osr.openliststrm.rename;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.osr.common.utils.StringUtils;
 import com.osr.common.utils.ThreadTraceIdUtil;
+import com.osr.common.utils.Threads;
 import com.osr.common.utils.spring.SpringUtils;
 import com.osr.openliststrm.config.OpenlistConfig;
 import com.osr.openliststrm.helper.OpenListHelper;
@@ -56,7 +57,7 @@ public class RenameTaskManager {
     @EventListener(ApplicationReadyEvent.class)
     public void start() {
         ThreadTraceIdUtil.initTraceId();
-        scheduler.scheduleAtFixedRate(this::poll, Instant.now().plusSeconds(10), Duration.ofSeconds(10));
+        scheduler.scheduleAtFixedRate(Threads.wrap(this::poll), Instant.now().plusSeconds(10), Duration.ofSeconds(10));
         log.info("RenameTaskManager started");
     }
 

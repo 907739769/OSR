@@ -1,6 +1,7 @@
 package com.osr.openliststrm.monitor.processor;
 
 import com.osr.common.utils.StringUtils;
+import com.osr.common.utils.Threads;
 import com.osr.common.utils.spring.SpringUtils;
 import com.osr.openliststrm.config.OpenlistConfig;
 import com.osr.openliststrm.helper.OpenListHelper;
@@ -209,7 +210,7 @@ public class MediaRenameProcessor implements FileProcessor {
             Semaphore semaphore = new Semaphore(PROCESS_ONCE_CONCURRENCY);
             try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
                 List<CompletableFuture<Void>> futures = pendingFiles.stream()
-                        .map(p -> CompletableFuture.runAsync(() -> {
+                        .map(p -> CompletableFuture.runAsync(Threads.wrap(() -> {
                             try {
                                 semaphore.acquire();
                             } catch (InterruptedException e) {
@@ -228,7 +229,7 @@ public class MediaRenameProcessor implements FileProcessor {
                             } finally {
                                 semaphore.release();
                             }
-                        }, executor))
+                        }), executor))
                         .toList();
                 CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
             }

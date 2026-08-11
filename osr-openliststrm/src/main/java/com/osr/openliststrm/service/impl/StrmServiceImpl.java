@@ -3,6 +3,7 @@ package com.osr.openliststrm.service.impl;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.osr.common.utils.Threads;
 import com.osr.framework.manager.AsyncManager;
 import com.osr.openliststrm.api.OpenlistApi;
 import com.osr.openliststrm.config.OpenlistConfig;
@@ -231,7 +232,7 @@ public class StrmServiceImpl implements IStrmService {
         Runnable action = () -> {
             try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
                 List<CompletableFuture<Void>> futures = strmList.stream()
-                    .map(strm -> CompletableFuture.runAsync(() -> {
+                    .map(strm -> CompletableFuture.runAsync(Threads.wrap(() -> {
                         try {
                             STRM_SEMAPHORE.acquire();
                             try {
@@ -242,7 +243,7 @@ public class StrmServiceImpl implements IStrmService {
                         } catch (InterruptedException e) {
                             Thread.currentThread().interrupt();
                         }
-                    }, executor))
+                    }), executor))
                     .toList();
                 CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
             }
@@ -290,8 +291,8 @@ public class StrmServiceImpl implements IStrmService {
 
             while (!currentLevel.isEmpty()) {
                 List<CompletableFuture<List<String>>> futures = currentLevel.stream()
-                        .map(path -> CompletableFuture.supplyAsync(
-                                () -> listDirCollect(path, localRootPath, fileEntries, dirSemaphore, ctx), executor))
+                        .map(path -> CompletableFuture.supplyAsync(Threads.wrapSupplier(
+                                () -> listDirCollect(path, localRootPath, fileEntries, dirSemaphore, ctx)), executor))
                         .toList();
 
                 List<String> nextLevel = new java.util.ArrayList<>();
@@ -330,7 +331,7 @@ public class StrmServiceImpl implements IStrmService {
         List<OpenlistStrmPlus> pendingRecords;
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             List<CompletableFuture<List<OpenlistStrmPlus>>> futures = fileEntries.stream()
-                .map(entry -> CompletableFuture.supplyAsync(() -> {
+                .map(entry -> CompletableFuture.supplyAsync(Threads.wrapSupplier(() -> {
                     try {
                         STRM_SEMAPHORE.acquire();
                         try {
@@ -342,7 +343,7 @@ public class StrmServiceImpl implements IStrmService {
                         Thread.currentThread().interrupt();
                         return Collections.<OpenlistStrmPlus>emptyList();
                     }
-                }, executor).exceptionally(ex -> {
+                }), executor).exceptionally(ex -> {
                     // 单个文件处理异常不应导致整批已收集的记录全部无法落库，兜底为空列表后继续
                     log.error("处理文件条目异常 {} / {}", entry.path(), entry.name(), ex);
                     return Collections.emptyList();
