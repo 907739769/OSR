@@ -132,30 +132,6 @@ export function usePtDownloader() {
     }
   })
 
-  // ---------- 卡片勾选（PC 卡片网格 / 移动端卡片列表共用） ----------
-  const toggleSelect = (id: number) => {
-    const idx = base.selectedIds.value.indexOf(id)
-    if (idx > -1) {
-      base.selectedIds.value.splice(idx, 1)
-    } else {
-      base.selectedIds.value.push(id)
-    }
-    base.single.value = base.selectedIds.value.length !== 1
-    base.multiple.value = !base.selectedIds.value.length
-  }
-
-  const handleCardClick = (event: Event, id: number) => {
-    const target = event.target as HTMLElement
-    if (target.closest('.card-checkbox') || target.closest('.card-footer')) return
-    toggleSelect(id)
-  }
-
-  const clearSelection = () => {
-    base.selectedIds.value = []
-    base.single.value = true
-    base.multiple.value = true
-  }
-
   // ---------- 移动端 - 分页辅助 ----------
   const totalPages = computed(() => Math.ceil(base.total.value / base.queryParams.pageSize) || 1)
 
@@ -196,7 +172,6 @@ export function usePtDownloader() {
 
   return {
     ...base, testLoading, handleTest, savePathWarning, handleSavePathBlur, handleAdd, handleUpdate,
-    toggleSelect, handleCardClick, clearSelection,
     cleanRuleTarget, cleanRuleOpen, openCleanRules,
     totalPages, prevPage, nextPage, handleSizeChange,
     searchCollapsed

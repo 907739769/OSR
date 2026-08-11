@@ -8,11 +8,14 @@ import com.osr.openliststrm.mybatisplus.domain.PtTorrentBlacklistPlus;
 import com.osr.openliststrm.mybatisplus.mapper.PtTorrentBlacklistPlusMapper;
 import com.osr.openliststrm.mybatisplus.service.IPtDownloadRecordPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtTorrentBlacklistPlusService;
+import com.osr.openliststrm.pt.task.dto.BatchBlacklistResult;
 import com.osr.openliststrm.rename.MediaParser;
 import com.osr.openliststrm.rename.model.MediaInfo;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.Locale;
+import java.util.function.Predicate;
 
 /**
  * <p>
@@ -85,6 +88,38 @@ public class PtTorrentBlacklistPlusServiceImpl extends ServiceImpl<PtTorrentBlac
         entity.setDisplayValue(group);
         entity.setReason(StringUtils.isNotBlank(reason) ? reason : DEFAULT_REASON_GROUP);
         return super.save(entity);
+    }
+
+    @Override
+    public BatchBlacklistResult blockRecordGuidBatch(List<Integer> recordIds, String reason) {
+        return batchApply(recordIds, id -> blockRecordGuid(id, reason));
+    }
+
+    @Override
+    public BatchBlacklistResult blockRecordReleaseGroupBatch(List<Integer> recordIds, String reason) {
+        return batchApply(recordIds, id -> blockRecordReleaseGroup(id, reason));
+    }
+
+    /**
+     * 批量拉黑的公共骨架：逐条调用单条拉黑，用 try/catch 隔离预期内的失败
+     * （记录不存在、标题解析不出发布组），一条不满足条件不中断整批。
+     */
+    private BatchBlacklistResult batchApply(List<Integer> recordIds, Predicate<Integer> action) {
+        int added = 0;
+        int duplicate = 0;
+        int failed = 0;
+        for (Integer id : recordIds) {
+            try {
+                if (action.test(id)) {
+                    added++;
+                } else {
+                    duplicate++;
+                }
+            } catch (IllegalArgumentException e) {
+                failed++;
+            }
+        }
+        return new BatchBlacklistResult(recordIds.size(), added, duplicate, failed);
     }
 
     @Override

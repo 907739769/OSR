@@ -88,6 +88,8 @@ src/
 | `.log-search-form` | `views/monitor/job/index.vue` | 日志弹窗内嵌搜索行（布局已复用 `.inline-fields`，此私有类只留分隔线与 select 宽度） |
 | `.path-box/.path-row/.path-label--src\|dst\|mon/.path-text/.path-name` | `styles/list.scss` | 表格里的「源/目标/监控」路径对照 |
 | `.card-grid` `.item-card`（`--failed/--selectable/--compact`）+ `.card-header/body/row/footer` | `styles/list.scss` | PC 卡片网格（PT 配置类页面） |
+| `.select-all-checkbox` | `styles/list.scss` + `styles/mobile-list.scss` | 「全选本页」勾选框，PC 的 `.batch-toolbar`/`.action-bar` 与移动端的 `.batch-bar`/`.select-all-bar` 共用 |
+| `.select-all-bar` | `styles/mobile-list.scss` | 移动端列表上方的独立全选行（`MobileSelectAll` 用它） |
 | `.mobile-page` `.task-list` `.task-card` `.fab-add` `.batch-bar` `.card-actions` `.drawer-actions` `.date-range-fields` | `styles/mobile-list.scss` | 移动端页面骨架与卡片 |
 | `.mobile-card*` | `styles/mobile-list.scss` | PC 页在 <768px 时的表格降级卡片（monitor/job、dict/*） |
 
@@ -112,6 +114,10 @@ src/
 - **`StatusChip`**：所有状态徽章走它。二元开关用 `<StatusChip :value="row.enabled" />`，
   开=success 关=error 全站一致；自定义状态用 `<StatusChip type="warning" text="下载中" />`。
 - **`PageHeader`**：每个业务页顶部都要有。
+- **`MobileSelectAll`**（`components/mobile/`）：移动端列表上方的「全选本页」行。
+  用于**卡片勾选框常驻、没有批量模式开关**的页面——那类页面的 `.batch-bar` 要选中一项才出现，
+  全选框塞进批量条里就永远够不着。带批量模式开关的页面（ptSubscription / ptDownloadRecord）
+  不用它，全选框直接嵌在 `.batch-bar` 里。
 - 卡片一律用 `<v-card>`，不要手写 `background: var(--osr-surface) + border-radius + box-shadow`。
 
 ### 弹窗
@@ -132,6 +138,17 @@ src/
 - 移动端页面不要使用 PC 端组件 (Vuetify PC 组件)
 - 每个页面都要考虑H5端的适配
 - 列表页不要各自实现分页/搜索逻辑，复用 `useTaskList`/`useRecordList`
+- **勾选逻辑只有一份：`composables/usePageSelection.ts`**，`useTaskList` / `useRecordList` 都内置了它，
+  业务 composable 不要再自己写 `toggleSelect` / `handleCardClick` / `clearSelection` / 全选本页。
+  曾经这四个函数在 7 个业务 composable 里各抄一份，其中三份还顺手手动同步 `single`/`multiple`
+  两个 ref——漏改一处就是「明明选中了，修改按钮还是灰的」。现在 `single`/`multiple` 由
+  `selectedIds` 派生（computed），没有可漏改的同步点。选择集**跨页累加**，全选/半选只判当前页，
+  取消全选也只摘当前页那批。
+- **批量操作里「能勾选的范围」与「动作生效的范围」是两件事，不要用「不给勾选框」来表达后者**。
+  PT 下载记录踩过：批量重试只对 FAILED 成立，于是勾选框只渲染在 FAILED 卡片上——用户点开
+  「批量操作」看到一页全是没有勾选框的卡片，只会读成「批量操作坏了」。正确做法是勾选放开到
+  全部记录（拉黑这类动作对任意状态都成立），受限的那个动作自己把范围收回来，
+  并在按钮上标出生效条数（`retryableSelectedIds`）。
 - **搜索区的「重置」不要靠 `queryRef.value?.reset?.()`**。Vuetify 的 `v-form.reset()` 是把注册在
   表单里的输入框置为 `null`，不是还原默认值——`defaultQuery` 里的非空默认值（订阅页 `status: 'ACTIVE'`、
   孤儿页 `status: '0'`）会被清成"全部"，没渲染成表单控件的条件（路由带进来的 `subId`、日期区间写出的

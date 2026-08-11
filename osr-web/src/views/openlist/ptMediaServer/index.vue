@@ -52,6 +52,15 @@
           <v-btn color="error" prepend-icon="mdi-delete-outline" :disabled="multiple" @click="handleDelete(undefined, `是否确认删除编号为“${selectedIds}”的媒体服务器？`)">
             批量删除
           </v-btn>
+          <v-checkbox
+            :model-value="isAllPageSelected"
+            :indeterminate="isIndeterminate"
+            density="compact"
+            hide-details
+            class="select-all-checkbox"
+            label="全选本页"
+            @update:model-value="(v: boolean | null) => toggleSelectAllPage(!!v)"
+          />
         </div>
         <v-btn variant="text" prepend-icon="mdi-filter-outline" @click="showSearch = !showSearch">
           {{ showSearch ? '隐藏搜索' : '显示搜索' }}
@@ -186,6 +195,7 @@ const showSearch = ref(window.innerWidth >= 768)
 const {
   taskList, loading, total, queryParams, getList, handleQuery, resetQuery,
   selectedIds, single, multiple, toggleSelect,
+  isAllPageSelected, isIndeterminate, toggleSelectAllPage,
   open, dialogTitle, submitLoading, formRef, form, rules,
   handleAdd, handleUpdate, submitForm, handleDelete,
   testLoading, handleTest

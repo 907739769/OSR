@@ -109,6 +109,25 @@
   position: sticky;
   top: 0;
   z-index: 2;
+  flex-wrap: wrap;
+}
+
+/* 「全选本页」勾选框。批量工具条（.batch-toolbar）与卡片网格页的 .action-bar 共用：
+   flex:none + min-height 复位，免得它把整条工具条撑高。
+   全局样式表里不需要 :deep()，直接命中 Vuetify 内部节点 */
+.select-all-checkbox {
+  flex: none;
+  margin-left: 4px;
+  font-size: 13px;
+
+  .v-selection-control {
+    min-height: auto;
+  }
+
+  .v-label {
+    font-size: 13px;
+    opacity: 1;
+  }
 }
 
 /* margin-top:auto 让分页条贴在 .table-card 底部（table-card 是 flex column） */

@@ -16,6 +16,7 @@ declare module 'vue' {
     MiniTrend: typeof import('./components/MiniTrend.vue')['default']
     MobilePager: typeof import('./components/mobile/MobilePager.vue')['default']
     MobileSearchPanel: typeof import('./components/mobile/MobileSearchPanel.vue')['default']
+    MobileSelectAll: typeof import('./components/mobile/MobileSelectAll.vue')['default']
     MobileSidebarMenuItem: typeof import('./components/MobileSidebarMenuItem.vue')['default']
     OpenListTree: typeof import('./components/OpenListTree.vue')['default']
     PageHeader: typeof import('./components/PageHeader.vue')['default']

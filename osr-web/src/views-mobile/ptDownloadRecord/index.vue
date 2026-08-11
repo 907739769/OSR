@@ -28,15 +28,36 @@
 
     <!-- 批量选择 -->
     <div class="list-toolbar">
-      <v-btn variant="text" size="small" class="batch-toggle-btn" @click="selectionMode = !selectionMode">
+      <v-btn variant="text" size="small" class="batch-toggle-btn" @click="toggleSelectionMode">
         {{ selectionMode ? '退出批量操作' : '批量操作' }}
       </v-btn>
     </div>
 
     <div class="batch-bar" v-if="selectionMode">
       <span class="selected-count">已选 {{ selectedIds.length }} 项</span>
-      <v-btn variant="text" color="primary" size="small" class="batch-retry-btn" :disabled="!selectedIds.length" @click="handleBatchRetry">批量重试</v-btn>
-      <v-btn variant="text" size="small" @click="selectionMode = false">取消</v-btn>
+      <v-checkbox
+        :model-value="isAllPageSelected"
+        :indeterminate="isIndeterminate"
+        density="compact"
+        hide-details
+        label="全选本页"
+        class="select-all-checkbox"
+        @update:model-value="(v: boolean | null) => toggleSelectAllPage(!!v)"
+      />
+      <!-- 重试只对失败记录成立，按钮上直接标出生效条数 -->
+      <v-btn
+        variant="text"
+        color="primary"
+        size="small"
+        class="batch-retry-btn"
+        :disabled="!retryableSelectedIds.length"
+        @click="handleBatchRetry"
+      >
+        批量重试{{ retryableSelectedIds.length ? `（${retryableSelectedIds.length}）` : '' }}
+      </v-btn>
+      <v-btn variant="text" color="warning" size="small" class="batch-blacklist-guid-btn" :disabled="!selectedIds.length" @click="handleBatchBlacklistGuid">批量拉黑种子</v-btn>
+      <v-btn variant="text" color="error" size="small" class="batch-blacklist-group-btn" :disabled="!selectedIds.length" @click="handleBatchBlacklistReleaseGroup">批量拉黑发布组</v-btn>
+      <v-btn variant="text" size="small" class="batch-cancel-btn" @click="toggleSelectionMode">取消</v-btn>
     </div>
 
     <!-- 列表 -->
@@ -46,9 +67,10 @@
         v-for="item in taskList"
         :key="item.id"
         class="task-card"
-        :class="{ selected: selectionMode && item.state === 'FAILED' && selectedIds.includes(item.id) }"
+        :class="{ selected: selectionMode && selectedIds.includes(item.id) }"
+        @click="selectionMode && handleCardClick($event, item.id)"
       >
-        <div class="card-checkbox" v-if="selectionMode && item.state === 'FAILED'">
+        <div class="card-checkbox" v-if="selectionMode">
           <v-checkbox
             :model-value="selectedIds.includes(item.id)"
             density="compact"
@@ -187,7 +209,10 @@ const {
   taskList, loading, total, queryParams, queryRef,
   handleQuery, resetQuery,
   retryingIds, handleRetry,
-  selectionMode, selectedIds, toggleRecordSelect, handleBatchRetry,
+  selectionMode, toggleSelectionMode, selectedIds, toggleRecordSelect, handleCardClick,
+  isAllPageSelected, isIndeterminate, toggleSelectAllPage,
+  retryableSelectedIds, handleBatchRetry,
+  handleBatchBlacklistGuid, handleBatchBlacklistReleaseGroup,
   totalPages, prevPage, nextPage, handleSizeChange,
   searchCollapsed,
   blacklistingIds, handleBlacklistGuid, handleBlacklistReleaseGroup

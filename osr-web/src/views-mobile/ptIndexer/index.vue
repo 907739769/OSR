@@ -22,6 +22,13 @@
       />
     </MobileSearchPanel>
 
+    <!-- 全选本页：卡片上的勾选框常驻，但批量条要选中一项才出现，全选框只能放在列表上方 -->
+    <MobileSelectAll
+      :all-selected="isAllPageSelected"
+      :indeterminate="isIndeterminate"
+      @toggle="toggleSelectAllPage"
+    />
+
     <!-- 批量操作 -->
     <div class="batch-bar" v-if="selectedIds.length > 0">
       <span class="selected-count">已选 {{ selectedIds.length }} 项</span>
@@ -188,12 +195,14 @@ import StatusChip from '@/components/StatusChip.vue'
 import { computed } from 'vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
+import MobileSelectAll from '@/components/mobile/MobileSelectAll.vue'
 import { usePtIndexer } from '@/composables/usePtIndexer'
 
 const {
   taskList, loading, total, queryParams,
   handleQuery, resetQuery,
   selectedIds, toggleSelect, handleCardClick, clearSelection,
+  isAllPageSelected, isIndeterminate, toggleSelectAllPage,
   open, dialogTitle, submitLoading, formRef, form, rules,
   handleAdd, handleUpdate, submitForm, handleDelete,
   testLoading, handleTest,

@@ -11,6 +11,7 @@ import com.osr.openliststrm.mybatisplus.service.IPtDownloadRecordPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtTorrentBlacklistPlusService;
 import com.osr.openliststrm.pt.subscription.dto.SupplementResult;
 import com.osr.openliststrm.pt.task.DownloadRecordAdminService;
+import com.osr.openliststrm.pt.task.dto.BatchBlacklistResult;
 import com.osr.openliststrm.pt.task.dto.BatchRetryResult;
 import com.osr.openliststrm.pt.task.dto.DownloadRecordView;
 import com.osr.openliststrm.req.BlacklistReq;
@@ -83,8 +84,35 @@ public class PtDownloadRecordRestController extends BaseController {
         if (StringUtils.isBlank(ids)) {
             return Result.error("请选择要重试的下载记录");
         }
-        List<Integer> idList = Arrays.stream(Convert.toStrArray(ids)).map(Integer::valueOf).toList();
-        return Result.success(adminService.retryBatch(idList));
+        return Result.success(adminService.retryBatch(parseIds(ids)));
+    }
+
+    /**
+     * 批量拉黑选中记录对应的种子（GUID 维度）。单条已拉黑或记录不存在都只计数，不影响其余条目。
+     */
+    @PostMapping("/batchBlacklistGuid")
+    public Result<BatchBlacklistResult> batchBlacklistGuid(@RequestParam("ids") String ids,
+                                                            @RequestBody(required = false) BlacklistReq req) {
+        if (StringUtils.isBlank(ids)) {
+            return Result.error("请选择要拉黑的下载记录");
+        }
+        return Result.success(blacklistService.blockRecordGuidBatch(parseIds(ids), req == null ? null : req.getReason()));
+    }
+
+    /**
+     * 批量拉黑选中记录标题解析出的发布组。选中的记录多来自同一发布组时只会真正落库一条。
+     */
+    @PostMapping("/batchBlacklistReleaseGroup")
+    public Result<BatchBlacklistResult> batchBlacklistReleaseGroup(@RequestParam("ids") String ids,
+                                                                    @RequestBody(required = false) BlacklistReq req) {
+        if (StringUtils.isBlank(ids)) {
+            return Result.error("请选择要拉黑的下载记录");
+        }
+        return Result.success(blacklistService.blockRecordReleaseGroupBatch(parseIds(ids), req == null ? null : req.getReason()));
+    }
+
+    private List<Integer> parseIds(String ids) {
+        return Arrays.stream(Convert.toStrArray(ids)).map(Integer::valueOf).toList();
     }
 
     /**

@@ -29,11 +29,18 @@ vi.mock('../usePtStatusSocket', () => ({
 vi.mock('@/api/openlist/ptDownloadRecord', () => ({
   getPtDownloadRecordListApi: vi.fn().mockResolvedValue({ records: [], total: 0 }),
   retryPtDownloadRecordApi: vi.fn(),
-  batchRetryPtDownloadRecordApi: vi.fn()
+  batchRetryPtDownloadRecordApi: vi.fn(),
+  blacklistGuidApi: vi.fn(),
+  blacklistReleaseGroupApi: vi.fn(),
+  batchBlacklistGuidApi: vi.fn(),
+  batchBlacklistReleaseGroupApi: vi.fn()
 }))
 
 import { usePtDownloadRecord } from '../usePtDownloadRecord'
-import { batchRetryPtDownloadRecordApi, getPtDownloadRecordListApi } from '@/api/openlist/ptDownloadRecord'
+import {
+  batchRetryPtDownloadRecordApi, getPtDownloadRecordListApi,
+  batchBlacklistGuidApi, batchBlacklistReleaseGroupApi
+} from '@/api/openlist/ptDownloadRecord'
 import { usePtStatusSocket } from '../usePtStatusSocket'
 
 describe('usePtDownloadRecord 的批量重试', () => {
@@ -52,8 +59,16 @@ describe('usePtDownloadRecord 的批量重试', () => {
     vi.restoreAllMocks()
   })
 
+  /** 勾选放开到全部记录，重试只对 FAILED 生效，所以夹具要同时给出两种状态 */
+  const mixedList = [
+    { id: 1, state: 'FAILED' },
+    { id: 2, state: 'FAILED' },
+    { id: 3, state: 'COMPLETED' }
+  ]
+
   it('没有选中项时不发起确认框也不调用接口', async () => {
     const composable = usePtDownloadRecord()
+    composable.taskList.value = mixedList
     composable.selectedIds.value = []
 
     await composable.handleBatchRetry()
@@ -62,9 +77,22 @@ describe('usePtDownloadRecord 的批量重试', () => {
     expect(batchRetryPtDownloadRecordApi).not.toHaveBeenCalled()
   })
 
+  it('选中项里没有失败记录时只给提示，不发起确认框也不调用接口', async () => {
+    const composable = usePtDownloadRecord()
+    composable.taskList.value = mixedList
+    composable.selectedIds.value = [3]
+
+    await composable.handleBatchRetry()
+
+    expect(message.warning).toHaveBeenCalledWith('选中的记录里没有失败记录，只有失败记录才能重试')
+    expect(confirmSpy).not.toHaveBeenCalled()
+    expect(batchRetryPtDownloadRecordApi).not.toHaveBeenCalled()
+  })
+
   it('用户取消确认框时不调用批量重试接口', async () => {
     confirmSpy.mockRejectedValue('cancel')
     const composable = usePtDownloadRecord()
+    composable.taskList.value = mixedList
     composable.selectedIds.value = [1]
 
     await composable.handleBatchRetry()
@@ -72,10 +100,11 @@ describe('usePtDownloadRecord 的批量重试', () => {
     expect(batchRetryPtDownloadRecordApi).not.toHaveBeenCalled()
   })
 
-  it('有选中项时确认后调用批量重试接口并提示结果，随后清空选中并刷新列表', async () => {
+  it('只把选中项里的失败记录送去重试，非失败记录不进请求', async () => {
     (batchRetryPtDownloadRecordApi as any).mockResolvedValue({ total: 2, pushedCount: 1, skippedCount: 1 })
     const composable = usePtDownloadRecord()
-    composable.selectedIds.value = [1, 2]
+    composable.taskList.value = mixedList
+    composable.selectedIds.value = [1, 2, 3]
 
     await composable.handleBatchRetry()
 
@@ -118,5 +147,98 @@ describe('usePtDownloadRecord 实时状态推送', () => {
 
     const handlers = (usePtStatusSocket as any).mock.calls[0][0]
     expect(() => handlers.onDownload({ type: 'download', downloadId: 999, subId: 5, episode: 1, state: 'FAILED', failReason: '超时' })).not.toThrow()
+  })
+})
+
+describe('usePtDownloadRecord 的批量拉黑', () => {
+  let confirmSpy: any
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(getPtDownloadRecordListApi as any).mockResolvedValue({ records: [], total: 0 })
+    confirmSpy = confirm as any
+    confirmSpy.mockResolvedValue(undefined)
+  })
+
+  it('批量拉黑种子对任意状态的选中记录都成立，确认后清空选中', async () => {
+    (batchBlacklistGuidApi as any).mockResolvedValue({ total: 2, addedCount: 2, duplicateCount: 0, failedCount: 0 })
+    const composable = usePtDownloadRecord()
+    composable.taskList.value = [{ id: 1, state: 'COMPLETED' }, { id: 2, state: 'PUSHED' }]
+    composable.selectedIds.value = [1, 2]
+
+    await composable.handleBatchBlacklistGuid()
+
+    expect(batchBlacklistGuidApi).toHaveBeenCalledWith([1, 2])
+    expect(message.success).toHaveBeenCalledWith('已拉黑 2 项')
+    expect(composable.selectedIds.value).toEqual([])
+  })
+
+  it('提示里带上已在黑名单中与未能拉黑的条数', async () => {
+    (batchBlacklistReleaseGroupApi as any).mockResolvedValue({ total: 3, addedCount: 1, duplicateCount: 1, failedCount: 1 })
+    const composable = usePtDownloadRecord()
+    composable.selectedIds.value = [1, 2, 3]
+
+    await composable.handleBatchBlacklistReleaseGroup()
+
+    expect(message.success).toHaveBeenCalledWith('已拉黑 1 项，1 项已在黑名单中，1 项未能拉黑')
+  })
+
+  it('用户取消确认框时不调用批量拉黑接口', async () => {
+    confirmSpy.mockRejectedValue('cancel')
+    const composable = usePtDownloadRecord()
+    composable.selectedIds.value = [1]
+
+    await composable.handleBatchBlacklistGuid()
+
+    expect(batchBlacklistGuidApi).not.toHaveBeenCalled()
+  })
+
+  it('没有选中项时不发起确认框', async () => {
+    const composable = usePtDownloadRecord()
+    composable.selectedIds.value = []
+
+    await composable.handleBatchBlacklistGuid()
+
+    expect(confirmSpy).not.toHaveBeenCalled()
+    expect(batchBlacklistGuidApi).not.toHaveBeenCalled()
+  })
+})
+
+describe('usePtDownloadRecord 的全选本页', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(getPtDownloadRecordListApi as any).mockResolvedValue({ records: [], total: 0 })
+  })
+
+  it('全选本页把当前页所有记录（含非失败记录）加入选中', () => {
+    const composable = usePtDownloadRecord()
+    composable.taskList.value = [{ id: 1, state: 'FAILED' }, { id: 2, state: 'COMPLETED' }]
+
+    composable.toggleSelectAllPage(true)
+
+    expect(composable.selectedIds.value).toEqual([1, 2])
+    expect(composable.isAllPageSelected.value).toBe(true)
+    expect(composable.isIndeterminate.value).toBe(false)
+  })
+
+  it('只选中一部分时是半选态', () => {
+    const composable = usePtDownloadRecord()
+    composable.taskList.value = [{ id: 1, state: 'FAILED' }, { id: 2, state: 'COMPLETED' }]
+    composable.selectedIds.value = [1]
+
+    expect(composable.isAllPageSelected.value).toBe(false)
+    expect(composable.isIndeterminate.value).toBe(true)
+  })
+
+  it('退出批量模式时清空选中', () => {
+    const composable = usePtDownloadRecord()
+    composable.taskList.value = [{ id: 1, state: 'FAILED' }]
+    composable.toggleSelectionMode()
+    composable.selectedIds.value = [1]
+
+    composable.toggleSelectionMode()
+
+    expect(composable.selectionMode.value).toBe(false)
+    expect(composable.selectedIds.value).toEqual([])
   })
 })

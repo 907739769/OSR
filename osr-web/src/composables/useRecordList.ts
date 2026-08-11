@@ -2,6 +2,7 @@ import { ref, reactive, computed, onActivated } from 'vue'
 import { message } from '@/composables/useMessage'
 import { confirm } from '@/composables/useConfirm'
 import { resetQueryParams } from '@/composables/queryParams'
+import { usePageSelection } from '@/composables/usePageSelection'
 import type { SearchParams, PageResult } from '@/types'
 
 export interface RecordListConfig<TQuery extends SearchParams = SearchParams> {
@@ -170,28 +171,11 @@ export function useRecordList<TQuery extends SearchParams = SearchParams>(config
   }
 
   // --- 选择 ---
-  const selectedIds = ref<number[]>([])
+  const {
+    selectedIds, toggleSelect, handleCardClick, clearSelection,
+    isAllPageSelected, isIndeterminate, toggleSelectAllPage
+  } = usePageSelection(recordList, idField)
   const multiple = computed(() => !selectedIds.value.length)
-
-  const toggleSelect = (id: number) => {
-    const idx = selectedIds.value.indexOf(id)
-    if (idx > -1) {
-      selectedIds.value.splice(idx, 1)
-    } else {
-      selectedIds.value.push(id)
-    }
-  }
-
-  /** 移动端整卡点击切换选中；点在 checkbox 上时交给它自己的 change 处理，避免切换两次 */
-  const handleCardClick = (event: Event, id: number) => {
-    const target = event.target as HTMLElement
-    if (target.closest('.card-checkbox')) return
-    toggleSelect(id)
-  }
-
-  const clearSelection = () => {
-    selectedIds.value = []
-  }
 
   /** PC 端 v-data-table-server 的选择变化 */
   const handleSelectionChange = (selection: any[]) => {
@@ -263,6 +247,7 @@ export function useRecordList<TQuery extends SearchParams = SearchParams>(config
     queryRef, dateRange, dateStart, dateEnd, handleQuery, resetQuery,
     // 选择
     selectedIds, multiple, toggleSelect, handleCardClick, clearSelection, handleSelectionChange,
+    isAllPageSelected, isIndeterminate, toggleSelectAllPage,
     // 操作
     handleRetryOne, handleBatchRetry, handleDeleteOne, handleBatchDelete,
     handleRemoveNetDiskOne, handleBatchRemoveNetDisk

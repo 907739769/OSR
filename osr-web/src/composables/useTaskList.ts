@@ -1,7 +1,8 @@
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { message } from '@/composables/useMessage'
 import { confirm } from '@/composables/useConfirm'
 import { resetQueryParams } from '@/composables/queryParams'
+import { usePageSelection } from '@/composables/usePageSelection'
 import type { SearchParams, PageResult } from '@/types'
 
 export interface TaskListApiConfig<TQuery extends SearchParams = SearchParams> {
@@ -60,13 +61,17 @@ export function useTaskList<TQuery extends SearchParams = SearchParams>(config: 
   }
 
   // --- 选择 ---
-  const selectedIds = ref<number[]>([])
-  const single = ref(true)
-  const multiple = ref(true)
+  const {
+    selectedIds, toggleSelect, handleCardClick, clearSelection,
+    isAllPageSelected, isIndeterminate, toggleSelectAllPage
+  } = usePageSelection(taskList, idField)
+  // 「未选中恰好一条 / 一条都没选」的按钮禁用态。派生自 selectedIds 而不是各处手动同步——
+  // 早先卡片勾选是在每个业务 composable 里自己改这两个 ref 的，漏改一处就会出现
+  // 「明明选中了，修改按钮还是灰的」
+  const single = computed(() => selectedIds.value.length !== 1)
+  const multiple = computed(() => !selectedIds.value.length)
 
   const handleSelectionChange = (selection: any[]) => {
-    single.value = selection.length !== 1
-    multiple.value = !selection.length
     selectedIds.value = selection.map((item: any) => item[idField])
   }
 
@@ -197,6 +202,8 @@ export function useTaskList<TQuery extends SearchParams = SearchParams>(config: 
     getList, handleQuery, resetQuery, queryRef,
     // 选择
     selectedIds, single, multiple, handleSelectionChange,
+    toggleSelect, handleCardClick, clearSelection,
+    isAllPageSelected, isIndeterminate, toggleSelectAllPage,
     // 对话框
     open, dialogTitle, submitLoading, formRef, form, rules,
     handleAdd, handleUpdate, submitForm,

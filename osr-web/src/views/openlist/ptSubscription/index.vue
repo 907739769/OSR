@@ -752,15 +752,6 @@ const searchLogHeaders = [
 </script>
 
 <style scoped lang="scss">
-.select-all-checkbox {
-  margin-left: 4px;
-  font-size: 13px;
-
-  :deep(.v-selection-control) {
-    min-height: auto;
-  }
-}
-
 /* ============================================
    订阅卡片网格（带海报）
    ============================================ */

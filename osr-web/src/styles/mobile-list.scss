@@ -357,3 +357,28 @@
     white-space: nowrap;
   }
 }
+
+/* 「全选本页」勾选框，批量条与列表上方的独立全选行共用。
+   全局样式表里不需要 :deep()，直接命中 Vuetify 内部节点 */
+.select-all-checkbox {
+  flex: none;
+
+  .v-selection-control {
+    min-height: auto;
+  }
+
+  .v-label {
+    font-size: 13px;
+    opacity: 1;
+  }
+}
+
+/* 列表上方的独立全选行。用于「卡片常驻勾选框、没有批量模式开关」的页面——
+   那类页面的 .batch-bar 要选中一项后才出现，全选框放进去就永远够不着 */
+.select-all-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 32px;
+}

@@ -51,26 +51,6 @@ export function useCopyTask() {
     }
   })
 
-  // 移动端 - 全选卡片逻辑
-  const toggleSelect = (id: number) => {
-    const idx = base.selectedIds.value.indexOf(id)
-    if (idx > -1) {
-      base.selectedIds.value.splice(idx, 1)
-    } else {
-      base.selectedIds.value.push(id)
-    }
-  }
-
-  const handleCardClick = (event: Event, id: number) => {
-    const target = event.target as HTMLElement
-    if (target.closest('.card-checkbox')) return
-    toggleSelect(id)
-  }
-
-  const clearSelection = () => {
-    base.selectedIds.value = []
-  }
-
   // 移动端 - 分页辅助
   const totalPages = computed(() => Math.ceil(base.total.value / base.queryParams.pageSize) || 1)
 
@@ -114,8 +94,6 @@ export function useCopyTask() {
 
   return {
     ...base,
-    // 移动端卡片选择
-    toggleSelect, handleCardClick, clearSelection,
     // 移动端分页
     totalPages, prevPage, nextPage, handleSizeChange,
     // 搜索面板

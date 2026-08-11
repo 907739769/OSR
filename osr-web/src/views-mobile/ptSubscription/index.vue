@@ -53,6 +53,24 @@
       </v-btn>
     </div>
 
+    <!-- 批量操作 -->
+    <div v-if="selectionMode" class="batch-bar">
+      <span class="selected-count">已选 {{ selectedIds.length }} 项</span>
+      <v-checkbox
+        :model-value="isAllPageSelected"
+        :indeterminate="isIndeterminate"
+        density="compact"
+        hide-details
+        label="全选本页"
+        class="select-all-checkbox"
+        @update:model-value="(v: boolean | null) => toggleSelectAllPage(!!v)"
+      />
+      <v-btn variant="text" color="warning" size="small" :disabled="!selectedIds.length" @click="handleBatchPause">批量暂停</v-btn>
+      <v-btn variant="text" color="success" size="small" :disabled="!selectedIds.length" @click="handleBatchResume">批量恢复</v-btn>
+      <v-btn variant="text" color="error" size="small" :disabled="!selectedIds.length" @click="handleDelete()">批量删除</v-btn>
+      <v-btn variant="text" size="small" @click="toggleSelectionMode">取消</v-btn>
+    </div>
+
     <!-- 列表 -->
     <div class="task-list">
       <v-progress-linear v-if="loading" indeterminate color="primary" />
@@ -164,24 +182,6 @@
         </v-card-text>
       </v-card>
     </v-bottom-sheet>
-
-    <!-- 批量操作 -->
-    <div v-if="selectionMode" class="batch-bar">
-      <span class="selected-count">已选 {{ selectedIds.length }} 项</span>
-      <v-checkbox
-        :model-value="isAllPageSelected"
-        :indeterminate="isIndeterminate"
-        density="compact"
-        hide-details
-        label="全选本页"
-        class="select-all-checkbox"
-        @update:model-value="(v: boolean | null) => toggleSelectAllPage(!!v)"
-      />
-      <v-btn variant="text" color="warning" size="small" :disabled="!selectedIds.length" @click="handleBatchPause">批量暂停</v-btn>
-      <v-btn variant="text" color="success" size="small" :disabled="!selectedIds.length" @click="handleBatchResume">批量恢复</v-btn>
-      <v-btn variant="text" color="error" size="small" :disabled="!selectedIds.length" @click="handleDelete()">批量删除</v-btn>
-      <v-btn variant="text" size="small" @click="toggleSelectionMode">取消</v-btn>
-    </div>
 
     <!-- 分页 -->
     <MobilePager
@@ -677,18 +677,6 @@ onMounted(() => {
 .list-toolbar {
   display: flex;
   justify-content: flex-end;
-}
-
-.batch-bar .select-all-checkbox {
-  flex: none;
-
-  :deep(.v-selection-control) {
-    min-height: auto;
-  }
-
-  :deep(.v-label) {
-    font-size: 13px;
-  }
 }
 
 /* ---- 进度弹窗：每集明细 ---- */

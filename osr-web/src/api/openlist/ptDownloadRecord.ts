@@ -38,3 +38,27 @@ export function blacklistReleaseGroupApi(id: number, reason?: string) {
     `/openliststrm/pt-download-records/${id}/blacklist-release-group`, reason ? { reason } : {}
   )
 }
+
+/** 批量拉黑的执行结果：已在黑名单中计 duplicateCount，解析不出发布组等计 failedCount */
+export interface BatchBlacklistResult {
+  total: number
+  addedCount: number
+  duplicateCount: number
+  failedCount: number
+}
+
+/** 批量拉黑选中记录对应的种子（GUID 维度） */
+export function batchBlacklistGuidApi(ids: number[], reason?: string) {
+  return request.post<any, BatchBlacklistResult>(
+    '/openliststrm/pt-download-records/batchBlacklistGuid', reason ? { reason } : {},
+    { params: { ids: ids.join(',') } }
+  )
+}
+
+/** 批量拉黑选中记录标题解析出的发布组（多条同组时只会真正落库一条） */
+export function batchBlacklistReleaseGroupApi(ids: number[], reason?: string) {
+  return request.post<any, BatchBlacklistResult>(
+    '/openliststrm/pt-download-records/batchBlacklistReleaseGroup', reason ? { reason } : {},
+    { params: { ids: ids.join(',') } }
+  )
+}

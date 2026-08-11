@@ -54,6 +54,13 @@
       </v-form>
     </MobileSearchPanel>
 
+    <!-- 全选本页：卡片上的勾选框常驻，但批量条要选中一项才出现，全选框只能放在列表上方 -->
+    <MobileSelectAll
+      :all-selected="isAllPageSelected"
+      :indeterminate="isIndeterminate"
+      @toggle="toggleSelectAllPage"
+    />
+
     <!-- Batch Actions -->
     <div class="batch-bar" v-if="selectedIds.length > 0">
       <span class="selected-count">已选 {{ selectedIds.length }} 项</span>
@@ -150,6 +157,7 @@ import { ref } from 'vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import FullTextDialog from '@/components/mobile/FullTextDialog.vue'
+import MobileSelectAll from '@/components/mobile/MobileSelectAll.vue'
 import StatusChip from '@/components/StatusChip.vue'
 import { useStrmRecord } from '@/composables/useStrmRecord'
 
@@ -160,6 +168,7 @@ const {
   getList, prevPage, nextPage, handleSizeChange,
   queryRef, dateStart, dateEnd, handleQuery, resetQuery,
   selectedIds, toggleSelect, handleCardClick, clearSelection,
+  isAllPageSelected, isIndeterminate, toggleSelectAllPage,
   handleRetryOne, handleBatchRetry, handleDeleteOne, handleBatchDelete,
   handleRemoveNetDiskOne, handleBatchRemoveNetDisk
 } = useStrmRecord()

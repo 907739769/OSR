@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
 
 // usePtDownloadRecord 内部会发起真实请求 (getList 在 setup 阶段自动调用)，
 // 组件测试只关心模板渲染，因此整体 mock 掉这个 composable。
@@ -25,9 +25,17 @@ function baseComposable(overrides: Record<string, any> = {}) {
     retryingIds: reactive(new Set<number>()),
     handleRetry: vi.fn(),
     selectionMode: ref(false),
+    toggleSelectionMode: vi.fn(),
     selectedIds: ref<number[]>([]),
     toggleRecordSelect: vi.fn(),
+    handleCardClick: vi.fn(),
+    isAllPageSelected: computed(() => false),
+    isIndeterminate: computed(() => false),
+    toggleSelectAllPage: vi.fn(),
+    retryableSelectedIds: computed(() => [] as number[]),
     handleBatchRetry: vi.fn(),
+    handleBatchBlacklistGuid: vi.fn(),
+    handleBatchBlacklistReleaseGroup: vi.fn(),
     blacklistingIds: reactive(new Set<number>()),
     handleBlacklistGuid: vi.fn(),
     handleBlacklistReleaseGroup: vi.fn(),
@@ -125,7 +133,9 @@ describe('PtDownloadRecord 批量重试', () => {
     expect(wrapper.find('.item-card-checkbox').exists()).toBe(false)
   })
 
-  it('selectionMode 为 true 时仅 FAILED 卡片显示 checkbox', () => {
+  // 勾选放开到全部状态：拉黑对任意记录都成立，只有重试限失败记录，
+  // 那道限制改由「批量重试」按钮的生效条数承担
+  it('selectionMode 为 true 时所有卡片都显示 checkbox，不再只有 FAILED', () => {
     (usePtDownloadRecord as any).mockReturnValue(baseComposable({
       selectionMode: ref(true),
       taskList: ref([
@@ -134,7 +144,52 @@ describe('PtDownloadRecord 批量重试', () => {
       ])
     }))
     const wrapper = mount(PtDownloadRecordPage)
-    expect(wrapper.findAll('.item-card-checkbox').length).toBe(1)
+    expect(wrapper.findAll('.item-card-checkbox').length).toBe(2)
+  })
+
+  it('批量工具条有全选本页勾选框，勾上时调用 toggleSelectAllPage', async () => {
+    const toggleSelectAllPage = vi.fn()
+    ;(usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      selectionMode: ref(true),
+      toggleSelectAllPage
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    const selectAll = wrapper.find('.batch-toolbar .select-all-checkbox input')
+    expect(selectAll.exists()).toBe(true)
+    await selectAll.setValue(true)
+    expect(toggleSelectAllPage).toHaveBeenCalledWith(true)
+  })
+
+  it('选中项里没有失败记录时批量重试按钮禁用，有则标出生效条数', () => {
+    (usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      selectionMode: ref(true),
+      selectedIds: ref([2]),
+      retryableSelectedIds: computed(() => [] as number[])
+    }))
+    expect(mount(PtDownloadRecordPage).find('.batch-retry-btn').attributes('disabled')).toBeDefined()
+
+    ;(usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      selectionMode: ref(true),
+      selectedIds: ref([1, 2]),
+      retryableSelectedIds: computed(() => [1])
+    }))
+    expect(mount(PtDownloadRecordPage).find('.batch-retry-btn').text()).toContain('1 条失败')
+  })
+
+  it('点击批量拉黑按钮调用对应处理函数', async () => {
+    const handleBatchBlacklistGuid = vi.fn()
+    const handleBatchBlacklistReleaseGroup = vi.fn()
+    ;(usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      selectionMode: ref(true),
+      selectedIds: ref([1]),
+      handleBatchBlacklistGuid,
+      handleBatchBlacklistReleaseGroup
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    await wrapper.find('.batch-blacklist-guid-btn').trigger('click')
+    await wrapper.find('.batch-blacklist-group-btn').trigger('click')
+    expect(handleBatchBlacklistGuid).toHaveBeenCalled()
+    expect(handleBatchBlacklistReleaseGroup).toHaveBeenCalled()
   })
 
   it('批量工具条展示已选数量', () => {
@@ -151,6 +206,7 @@ describe('PtDownloadRecord 批量重试', () => {
     ;(usePtDownloadRecord as any).mockReturnValue(baseComposable({
       selectionMode: ref(true),
       selectedIds: ref([1]),
+      retryableSelectedIds: computed(() => [1]),
       handleBatchRetry
     }))
     const wrapper = mount(PtDownloadRecordPage)
@@ -158,15 +214,17 @@ describe('PtDownloadRecord 批量重试', () => {
     expect(handleBatchRetry).toHaveBeenCalled()
   })
 
-  it('点击取消按钮退出批量操作模式，隐藏工具条', async () => {
-    (usePtDownloadRecord as any).mockReturnValue(baseComposable({
+  it('点击取消按钮调用 toggleSelectionMode 退出批量操作模式', async () => {
+    const toggleSelectionMode = vi.fn()
+    ;(usePtDownloadRecord as any).mockReturnValue(baseComposable({
       selectionMode: ref(true),
-      selectedIds: ref([1])
+      selectedIds: ref([1]),
+      toggleSelectionMode
     }))
     const wrapper = mount(PtDownloadRecordPage)
     expect(wrapper.find('.batch-toolbar').exists()).toBe(true)
     await wrapper.find('.batch-cancel-btn').trigger('click')
-    expect(wrapper.find('.batch-toolbar').exists()).toBe(false)
+    expect(toggleSelectionMode).toHaveBeenCalled()
   })
 
   it('勾选下载记录调用 toggleRecordSelect', async () => {
@@ -181,31 +239,30 @@ describe('PtDownloadRecord 批量重试', () => {
     expect(toggleRecordSelect).toHaveBeenCalled()
   })
 
-  it('批量模式下点击 FAILED 卡片调用 toggleRecordSelect', async () => {
-    const toggleRecordSelect = vi.fn()
+  it('批量模式下点击卡片调用 handleCardClick（非失败记录同样可选）', async () => {
+    const handleCardClick = vi.fn()
     ;(usePtDownloadRecord as any).mockReturnValue(baseComposable({
       selectionMode: ref(true),
-      taskList: ref([{ id: 1, title: 'A', state: 'FAILED', failReason: 'boom' }]),
-      toggleRecordSelect
+      taskList: ref([{ id: 1, title: 'A', state: 'COMPLETED' }]),
+      handleCardClick
     }))
     const wrapper = mount(PtDownloadRecordPage)
     await wrapper.find('.item-card').trigger('click')
-    expect(toggleRecordSelect).toHaveBeenCalled()
+    expect(handleCardClick).toHaveBeenCalled()
   })
 
-  it('批量模式下 FAILED 卡片带有 item-card--selectable class', () => {
+  it('批量模式下所有卡片都带 item-card--selectable class', () => {
     (usePtDownloadRecord as any).mockReturnValue(baseComposable({
       selectionMode: ref(true),
-      taskList: ref([{ id: 1, title: 'A', state: 'FAILED', failReason: 'boom' }])
+      taskList: ref([{ id: 1, title: 'A', state: 'COMPLETED' }])
     }))
     const wrapper = mount(PtDownloadRecordPage)
     expect(wrapper.find('.item-card').classes()).toContain('item-card--selectable')
   })
 
-  it('批量模式下非 FAILED 卡片不带 item-card--selectable class', () => {
+  it('非批量模式下卡片不带 item-card--selectable class', () => {
     (usePtDownloadRecord as any).mockReturnValue(baseComposable({
-      selectionMode: ref(true),
-      taskList: ref([{ id: 1, title: 'A', state: 'COMPLETED' }])
+      taskList: ref([{ id: 1, title: 'A', state: 'FAILED', failReason: 'boom' }])
     }))
     const wrapper = mount(PtDownloadRecordPage)
     expect(wrapper.find('.item-card').classes()).not.toContain('item-card--selectable')

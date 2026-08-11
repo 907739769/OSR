@@ -43,7 +43,7 @@
     <v-card class="table-card">
       <div class="action-bar">
         <div class="action-left">
-          <v-btn variant="text" size="small" @click="selectionMode = !selectionMode">
+          <v-btn variant="text" size="small" class="selection-mode-btn" @click="toggleSelectionMode">
             {{ selectionMode ? '退出批量操作' : '批量操作' }}
           </v-btn>
         </div>
@@ -54,8 +54,29 @@
 
       <div class="batch-toolbar" v-if="selectionMode">
         已选 {{ selectedIds.length }} 项
-        <v-btn variant="text" color="primary" size="small" class="batch-retry-btn" :disabled="!selectedIds.length" @click="handleBatchRetry">批量重试</v-btn>
-        <v-btn variant="text" size="small" class="batch-cancel-btn" @click="selectionMode = false">取消</v-btn>
+        <v-checkbox
+          :model-value="isAllPageSelected"
+          :indeterminate="isIndeterminate"
+          density="compact"
+          hide-details
+          class="select-all-checkbox"
+          label="全选本页"
+          @update:model-value="(v: boolean | null) => toggleSelectAllPage(!!v)"
+        />
+        <!-- 重试只对失败记录成立，按钮上直接标出生效条数，免得点完才发现大半被跳过 -->
+        <v-btn
+          variant="text"
+          color="primary"
+          size="small"
+          class="batch-retry-btn"
+          :disabled="!retryableSelectedIds.length"
+          @click="handleBatchRetry"
+        >
+          批量重试{{ retryableSelectedIds.length ? `（${retryableSelectedIds.length} 条失败）` : '' }}
+        </v-btn>
+        <v-btn variant="text" color="warning" size="small" class="batch-blacklist-guid-btn" :disabled="!selectedIds.length" @click="handleBatchBlacklistGuid">批量拉黑种子</v-btn>
+        <v-btn variant="text" color="error" size="small" class="batch-blacklist-group-btn" :disabled="!selectedIds.length" @click="handleBatchBlacklistReleaseGroup">批量拉黑发布组</v-btn>
+        <v-btn variant="text" size="small" class="batch-cancel-btn" @click="toggleSelectionMode">取消</v-btn>
       </div>
 
       <div class="card-grid" v-if="loading && taskList.length === 0">
@@ -71,13 +92,13 @@
           class="item-card item-card--compact"
           :class="{
             'item-card--failed': item.state === 'FAILED',
-            'item-card--selectable': selectionMode && item.state === 'FAILED'
+            'item-card--selectable': selectionMode
           }"
-          @click="selectionMode && item.state === 'FAILED' && toggleRecordSelect(item)"
+          @click="selectionMode && handleCardClick($event, item.id)"
         >
           <v-checkbox
-            v-if="selectionMode && item.state === 'FAILED'"
-            class="item-card-checkbox"
+            v-if="selectionMode"
+            class="item-card-checkbox card-checkbox"
             :model-value="selectedIds.includes(item.id)"
             density="compact"
             hide-details
@@ -217,7 +238,10 @@ onUnmounted(() => { window.removeEventListener('resize', updateSkeletonCount) })
 const {
   taskList, loading, total, queryParams, getList, handleQuery, resetQuery, queryRef,
   retryingIds, handleRetry,
-  selectionMode, selectedIds, toggleRecordSelect, handleBatchRetry,
+  selectionMode, toggleSelectionMode, selectedIds, toggleRecordSelect, handleCardClick,
+  isAllPageSelected, isIndeterminate, toggleSelectAllPage,
+  retryableSelectedIds, handleBatchRetry,
+  handleBatchBlacklistGuid, handleBatchBlacklistReleaseGroup,
   blacklistingIds, handleBlacklistGuid, handleBlacklistReleaseGroup
 } = usePtDownloadRecord()
 

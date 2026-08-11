@@ -1,12 +1,13 @@
-import { ref, reactive } from 'vue'
+import { ref, reactive, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import { message } from '@/composables/useMessage'
 import { confirm } from '@/composables/useConfirm'
 import {
   getPtDownloadRecordListApi, retryPtDownloadRecordApi, batchRetryPtDownloadRecordApi,
-  blacklistGuidApi, blacklistReleaseGroupApi
+  blacklistGuidApi, blacklistReleaseGroupApi,
+  batchBlacklistGuidApi, batchBlacklistReleaseGroupApi
 } from '@/api/openlist/ptDownloadRecord'
-import type { PtDownloadRecordQuery } from '@/api/openlist/ptDownloadRecord'
+import type { BatchBlacklistResult, PtDownloadRecordQuery } from '@/api/openlist/ptDownloadRecord'
 import { useRecordList } from './useRecordList'
 import { usePtStatusSocket } from './usePtStatusSocket'
 
@@ -28,7 +29,8 @@ export function usePtDownloadRecord() {
     recordList: taskList, loading, total, queryParams,
     totalPages, prevPage, nextPage, handleSizeChange,
     queryRef, handleQuery, resetQuery,
-    selectedIds, toggleSelect,
+    selectedIds, toggleSelect, handleCardClick, clearSelection,
+    isAllPageSelected, isIndeterminate, toggleSelectAllPage,
     getList
   } = useRecordList<PtDownloadRecordQuery>({
     listApi: getPtDownloadRecordListApi,
@@ -71,21 +73,75 @@ export function usePtDownloadRecord() {
   // ---------- 批量操作 ----------
   const selectionMode = ref(false)
 
+  /** 退出批量模式时清掉选择集，免得下次进来还挂着上次的选中项 */
+  const toggleSelectionMode = () => {
+    selectionMode.value = !selectionMode.value
+    if (!selectionMode.value) clearSelection()
+  }
+
   /** 卡片选中（兼容原接口签名：入参是行对象，内部取 id） */
   const toggleRecordSelect = (row: any) => toggleSelect(row.id)
 
+  /**
+   * 选中项里真正能重试的那部分。
+   * 拉黑对任何状态的记录都成立，重试只对 FAILED 成立——所以勾选放开到全部记录，
+   * 由这里把范围收回来，按钮上直接标出生效条数，不让用户点完才发现大半被跳过。
+   */
+  const retryableSelectedIds = computed(() =>
+    taskList.value
+      .filter((item: any) => item.state === 'FAILED' && selectedIds.value.includes(item.id))
+      .map((item: any) => item.id)
+  )
+
   const handleBatchRetry = async () => {
-    if (!selectedIds.value.length) return
+    const ids = retryableSelectedIds.value
+    if (!ids.length) {
+      message.warning('选中的记录里没有失败记录，只有失败记录才能重试')
+      return
+    }
     try {
-      await confirm({ message: `确认批量重试选中的 ${selectedIds.value.length} 条失败记录？`, title: '提示', type: 'warning' })
-      const result = await batchRetryPtDownloadRecordApi(selectedIds.value)
+      await confirm({ message: `确认批量重试选中的 ${ids.length} 条失败记录？`, title: '提示', type: 'warning' })
+      const result = await batchRetryPtDownloadRecordApi(ids)
       message.success(`已重新推送 ${result.pushedCount} 条，${result.skippedCount} 条未搜到或已跳过`)
-      selectedIds.value = []
+      clearSelection()
       getList()
     } catch (e) {
       if (e !== 'cancel') console.error(e)
     }
   }
+
+  /** 批量拉黑结果提示：新增 / 已存在 / 失败三段，后两段为 0 时不啰嗦 */
+  const formatBlacklistResult = (result: BatchBlacklistResult) => {
+    const parts = [`已拉黑 ${result.addedCount} 项`]
+    if (result.duplicateCount) parts.push(`${result.duplicateCount} 项已在黑名单中`)
+    if (result.failedCount) parts.push(`${result.failedCount} 项未能拉黑`)
+    return parts.join('，')
+  }
+
+  const runBatchBlacklist = async (
+    confirmMessage: string,
+    api: (ids: number[]) => Promise<BatchBlacklistResult>
+  ) => {
+    if (!selectedIds.value.length) return
+    try {
+      await confirm({ message: confirmMessage, title: '警告', type: 'warning' })
+      const result = await api(selectedIds.value)
+      message.success(formatBlacklistResult(result))
+      clearSelection()
+    } catch (e) {
+      if (e !== 'cancel') console.error(e)
+    }
+  }
+
+  const handleBatchBlacklistGuid = () => runBatchBlacklist(
+    `确认拉黑选中的 ${selectedIds.value.length} 个种子？拉黑后订阅不会再推送这些种子。`,
+    batchBlacklistGuidApi
+  )
+
+  const handleBatchBlacklistReleaseGroup = () => runBatchBlacklist(
+    `确认拉黑选中记录对应的发布组？该发布组之后的所有种子都不会再被推送（选中 ${selectedIds.value.length} 条，同组只会拉黑一次）。`,
+    batchBlacklistReleaseGroupApi
+  )
 
   // ---------- 拉黑 ----------
   const blacklistingIds = reactive(new Set<number>())
@@ -122,7 +178,10 @@ export function usePtDownloadRecord() {
   return {
     taskList, loading, total, queryParams, getList, handleQuery, resetQuery, queryRef,
     retryingIds, handleRetry,
-    selectionMode, selectedIds, toggleRecordSelect, handleBatchRetry,
+    selectionMode, toggleSelectionMode, selectedIds, toggleRecordSelect, handleCardClick, clearSelection,
+    isAllPageSelected, isIndeterminate, toggleSelectAllPage,
+    retryableSelectedIds, handleBatchRetry,
+    handleBatchBlacklistGuid, handleBatchBlacklistReleaseGroup,
     blacklistingIds, handleBlacklistGuid, handleBlacklistReleaseGroup,
     totalPages, prevPage, nextPage, handleSizeChange, searchCollapsed
   }

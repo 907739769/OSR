@@ -35,6 +35,9 @@ const PAIRS = [
 const SHELL_ONLY = new Set([
   'handleSelectionChange', // PC 表格选中回调
   'toggleSelect', 'handleCardClick', 'clearSelection', // 移动端卡片选中
+  // 全选本页：PC 走 v-data-table 表头自带的全选框，不经过 composable；只有卡片网格型
+  // 页面（ptIndexer/ptDownloader/ptMediaServer/ptSubscription/ptDownloadRecord）两端都用它
+  'toggleSelectAllPage',
   'handleSizeChange' // 移动端 MobilePager 换页大小（PC 由表格内置分页处理）
 ])
 

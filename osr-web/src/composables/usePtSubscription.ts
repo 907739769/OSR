@@ -578,36 +578,8 @@ export function usePtSubscription() {
 
   const selectionMode = ref(false)
 
-  /** 当前页所有项是否全部已选 */
-  const isAllPageSelected = computed(() =>
-    base.taskList.value.length > 0 && base.taskList.value.every((item: any) => base.selectedIds.value.includes(item.id))
-  )
-  /** 当前页部分选中（有选中的但不全） */
-  const isIndeterminate = computed(() =>
-    !isAllPageSelected.value && base.taskList.value.some((item: any) => base.selectedIds.value.includes(item.id))
-  )
-
-  const toggleSelectAllPage = (checked: string | number | boolean) => {
-    if (checked) {
-      for (const item of base.taskList.value) {
-        if (!base.selectedIds.value.includes(item.id)) {
-          base.selectedIds.value.push(item.id)
-        }
-      }
-    } else {
-      const pageIds = new Set(base.taskList.value.map((item: any) => item.id))
-      base.selectedIds.value = base.selectedIds.value.filter((id: number) => !pageIds.has(id))
-    }
-  }
-
-  const toggleSubSelect = (row: any) => {
-    const idx = base.selectedIds.value.indexOf(row.id)
-    if (idx === -1) {
-      base.selectedIds.value.push(row.id)
-    } else {
-      base.selectedIds.value.splice(idx, 1)
-    }
-  }
+  /** 卡片选中（兼容原接口签名：入参是行对象，内部取 id）。全选/半选判定走 useTaskList 内置的 usePageSelection */
+  const toggleSubSelect = (row: any) => base.toggleSelect(row.id)
 
   const isSubSelected = (id: number) => base.selectedIds.value.includes(id)
 
@@ -696,7 +668,7 @@ export function usePtSubscription() {
     // 行操作
     handleRefresh, handlePause, handleResume, handleRemove,
     // 批量操作
-    selectionMode, isAllPageSelected, isIndeterminate, toggleSelectAllPage,
+    selectionMode,
     toggleSubSelect, isSubSelected, handleBatchPause, handleBatchResume,
     // 移动端分页 & 搜索面板
     totalPages, prevPage, nextPage, handleSizeChange, searchCollapsed
