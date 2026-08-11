@@ -115,8 +115,10 @@ public class RenameMonitorRegistry {
             );
 
 
+            // 源目录通常就是下载目录：Transmission 删种时挪出来的临时目录不能注册，
+            // 否则会对着一批正在被删除的文件跑重命名，见 OpenListHelper#isTransientDir
             FileMonitorCoordinator svc = new FileMonitorCoordinator(
-                    new WatchServiceMonitor(Paths.get(task.getSourceFolder())),
+                    new WatchServiceMonitor(Paths.get(task.getSourceFolder()), helper::isTransientDir),
                     processor
             );
             svc.start();

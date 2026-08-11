@@ -126,11 +126,15 @@ public class AsynHelper {
                 if (200 == code && state != 2) {
                     // 状态1是运行中，状态8是等待重试，状态7是失败
                     if (state == 7) {
-                        // 失败不重试了
-                        updateCopyStatus(copy, "2");
-                        TgHelper.sendMsg("<b>复制任务失败</b>\n" +
-                                "源目录：" + StringUtils.escapeHtml(copy.getCopySrcPath()) + "\n" +
-                                "源文件名：" + StringUtils.escapeHtml(copy.getCopySrcFileName()));
+                        // 源在复制期间被下载器删掉（删种/转移）不是"复制失败"，记成失败只会留下一条
+                        // 永远重试不成功的记录 + 一条无从解释的告警，直接丢弃
+                        if (!copyHelper.discardIfSourceGone(copy)) {
+                            // 失败不重试了
+                            updateCopyStatus(copy, "2");
+                            TgHelper.sendMsg("<b>复制任务失败</b>\n" +
+                                    "源目录：" + StringUtils.escapeHtml(copy.getCopySrcPath()) + "\n" +
+                                    "源文件名：" + StringUtils.escapeHtml(copy.getCopySrcFileName()));
+                        }
                         iterator.remove(); // 移除失败任务
                     }
                     // 其他状态（如1运行中）则保留在列表中继续监控
@@ -258,11 +262,13 @@ public class AsynHelper {
                 }
                 return; // 任务完成，退出递归
             } else if (state == 7) {
-                // 失败状态
-                updateCopyStatus(copy, "2");
-                TgHelper.sendMsg("<b>复制任务失败</b>\n" +
-                        "源目录：" + StringUtils.escapeHtml(copy.getCopySrcPath()) + "\n" +
-                        "源文件名：" + StringUtils.escapeHtml(copy.getCopySrcFileName()));
+                // 失败状态。源已被删掉的情况直接丢记录，理由见 CopyHelper#discardIfSourceGone
+                if (!copyHelper.discardIfSourceGone(copy)) {
+                    updateCopyStatus(copy, "2");
+                    TgHelper.sendMsg("<b>复制任务失败</b>\n" +
+                            "源目录：" + StringUtils.escapeHtml(copy.getCopySrcPath()) + "\n" +
+                            "源文件名：" + StringUtils.escapeHtml(copy.getCopySrcFileName()));
+                }
                 return; // 任务失败，退出递归
             }
 

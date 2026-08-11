@@ -1,5 +1,7 @@
 package com.osr.openliststrm.upload;
 
+import com.osr.common.utils.spring.SpringUtils;
+import com.osr.openliststrm.helper.OpenListHelper;
 import com.osr.openliststrm.monitor.WatchServiceMonitor;
 import com.osr.openliststrm.monitor.processor.MediaUploadProcessor;
 import com.osr.openliststrm.monitor.service.FileMonitorCoordinator;
@@ -78,8 +80,11 @@ public class UploadMonitorRegistry {
         try {
             MediaUploadProcessor processor = new MediaUploadProcessor(task.getCopyTaskSrc(), task.getCopyTaskDst(), task.getMonitorDir(), copyService);
 
+            // 监控目录通常就是下载目录：Transmission 删种挪出来的临时目录不能注册，否则会给一批
+            // 正在被删除的文件提交 fs/copy，留下永远重试不成功的失败记录（与同步任务遍历同一个坑）
+            OpenListHelper helper = SpringUtils.getBean(OpenListHelper.class);
             FileMonitorCoordinator svc = new FileMonitorCoordinator(
-                    new WatchServiceMonitor(Paths.get(task.getMonitorDir())),
+                    new WatchServiceMonitor(Paths.get(task.getMonitorDir()), helper::isTransientDir),
                     processor
             );
             svc.start();
