@@ -72,7 +72,7 @@
         </v-btn>
       </div>
 
-      <div class="card-grid">
+      <div class="card-grid" ref="gridRef">
         <v-progress-linear v-if="loading" indeterminate color="primary" />
         <div v-for="item in taskList" :key="item.id" class="item-card">
           <div class="card-header">
@@ -114,12 +114,12 @@
         <span class="total-text">共 {{ total }} 条</span>
         <v-select
           :model-value="queryParams.pageSize"
-          :items="[12, 24, 48]"
+          :items="pageSizeOptions"
           density="compact"
           variant="outlined"
           hide-details
           class="page-size-select"
-          @update:model-value="(v: number) => { queryParams.pageSize = v; queryParams.pageNum = 1; getList() }"
+          @update:model-value="setPageSize"
         />
         <v-pagination
           v-model="queryParams.pageNum"
@@ -173,6 +173,7 @@ import PageHeader from '@/components/PageHeader.vue'
 import StatusChip from '@/components/StatusChip.vue'
 import { ref } from 'vue'
 import { useWecomUser } from '@/composables/useWecomUser'
+import { useGridPageSize } from '@/composables/useGridPageSize'
 
 const showSearch = ref(window.innerWidth >= 768)
 
@@ -181,7 +182,14 @@ const {
   open, dialogTitle, submitLoading, formRef, form, rules, userOptions,
   handleAdd, handleUpdate, submitForm, handleDelete,
   syncingMenu, handleSyncMenu
-} = useWecomUser()
+} = useWecomUser({ autoLoad: false })
+
+// 每页条数按网格实际列数取整到整行，窗口宽度变了跟着重算
+const { gridRef, pageSizeOptions, setPageSize } = useGridPageSize((size) => {
+  queryParams.pageSize = size
+  queryParams.pageNum = 1
+  getList()
+})
 
 // 表单规则是 { required, message, trigger } 对象格式（composable 返回），
 // Vuetify 的 :rules 需要函数格式，这里就地转换，不改动 composable

@@ -10,6 +10,7 @@ import {
 import type { BatchBlacklistResult, PtDownloadRecordQuery } from '@/api/openlist/ptDownloadRecord'
 import { useRecordList } from './useRecordList'
 import { usePtStatusSocket } from './usePtStatusSocket'
+import type { ListLoadOptions } from './useGridPageSize'
 
 /**
  * PT 下载记录 composable：只读列表 + 失败重试 + 拉黑，没有增删改。
@@ -19,7 +20,8 @@ import { usePtStatusSocket } from './usePtStatusSocket'
  * 带逐行 loading 与「已推送/未搜到」的结果提示、批量重试带 pushedCount 统计——
  * 因此这几块保留自定义实现，不为复用而改变用户交互。
  */
-export function usePtDownloadRecord() {
+export function usePtDownloadRecord(options: ListLoadOptions = {}) {
+  const { autoLoad = true } = options
   const route = useRoute()
 
   // 支持从订阅页"下载记录"按钮带 subId 跳转过来，直接筛出该订阅的记录
@@ -39,7 +41,10 @@ export function usePtDownloadRecord() {
     batchDeleteApi: async () => { throw new Error('下载记录不支持删除操作') },
     idField: 'id',
     recordLabel: '下载记录',
-    defaultQuery: { subId: initialSubId, state: undefined, title: undefined }
+    // 每页 12 条是移动端（单列）的值，也是 PC 量出列数之前的兜底；
+    // PC 端挂载后由 useGridPageSize 按实际列数改成整行的条数。
+    // 用 useRecordList 的默认 10 会多出半行空位，用户会误以为「没填满 = 没有下一页」
+    defaultQuery: { subId: initialSubId, state: undefined, title: undefined, pageSize: 12 }
   })
 
   // ---------- 实时状态推送：状态/进度原地更新，不用整页刷新 ----------
@@ -173,7 +178,7 @@ export function usePtDownloadRecord() {
   // ---------- 移动端 - 搜索面板折叠 ----------
   const searchCollapsed = ref(true)
 
-  getList()
+  if (autoLoad) getList()
 
   return {
     taskList, loading, total, queryParams, getList, handleQuery, resetQuery, queryRef,

@@ -73,12 +73,13 @@
         <v-btn variant="text" size="small" class="batch-cancel-btn" @click="toggleSelectionMode">取消</v-btn>
       </div>
 
-      <div class="card-grid" v-if="loading && taskList.length === 0">
+      <!-- 两个分支都要挂 gridRef：每页条数按网格实际列数取整到整行，骨架屏阶段就得量得到 -->
+      <div class="card-grid" ref="gridRef" v-if="loading && taskList.length === 0">
         <div v-for="n in skeletonCount" :key="n" class="item-card-skeleton">
           <v-skeleton-loader type="article" />
         </div>
       </div>
-      <div class="card-grid" v-else>
+      <div class="card-grid" ref="gridRef" v-else>
         <v-progress-linear v-if="loading" indeterminate color="primary" class="list-loading" />
         <div
           v-for="item in taskList"
@@ -192,12 +193,12 @@
         <span class="total-text">共 {{ total }} 条</span>
         <v-select
           :model-value="queryParams.pageSize"
-          :items="[12, 24, 48]"
+          :items="pageSizeOptions"
           density="compact"
           variant="outlined"
           hide-details
           class="page-size-select"
-          @update:model-value="onSizeChange"
+          @update:model-value="setPageSize"
         />
         <v-pagination
           v-model="queryParams.pageNum"
@@ -215,6 +216,7 @@ import PageHeader from '@/components/PageHeader.vue'
 import StatusChip from '@/components/StatusChip.vue'
 import { ref, onMounted, onUnmounted } from 'vue'
 import { usePtDownloadRecord } from '@/composables/usePtDownloadRecord'
+import { useGridPageSize } from '@/composables/useGridPageSize'
 
 const showSearch = ref(window.innerWidth >= 768)
 
@@ -229,6 +231,8 @@ function updateSkeletonCount() {
 onMounted(() => { updateSkeletonCount(); window.addEventListener('resize', updateSkeletonCount) })
 onUnmounted(() => { window.removeEventListener('resize', updateSkeletonCount) })
 
+// 首次加载交给 useGridPageSize（autoLoad: false）：每页条数要按网格实际列数取整到整行，
+// 列数得挂载后才量得准，先按兜底值发一次再改口是白跑一趟请求
 const {
   taskList, loading, total, queryParams, getList, handleQuery, resetQuery, queryRef,
   retryingIds, handleRetry,
@@ -237,7 +241,14 @@ const {
   retryableSelectedIds, handleBatchRetry,
   handleBatchBlacklistGuid, handleBatchBlacklistReleaseGroup,
   blacklistingIds, handleBlacklistGuid, handleBlacklistReleaseGroup
-} = usePtDownloadRecord()
+} = usePtDownloadRecord({ autoLoad: false })
+
+// 每页条数按网格实际列数取整到整行，窗口宽度变了跟着重算
+const { gridRef, pageSizeOptions, setPageSize } = useGridPageSize((size) => {
+  queryParams.pageSize = size
+  queryParams.pageNum = 1
+  getList()
+})
 
 const stateOptions = [
   { title: '已推送', value: 'PUSHED' },
@@ -245,12 +256,6 @@ const stateOptions = [
   { title: '已完成', value: 'COMPLETED' },
   { title: '失败', value: 'FAILED' }
 ]
-
-const onSizeChange = (size: number) => {
-  queryParams.pageSize = size
-  queryParams.pageNum = 1
-  getList()
-}
 
 const stateLabel = (state: string) => {
   switch (state) {

@@ -252,3 +252,37 @@ describe('usePtDownloadRecord 的全选本页', () => {
     expect(composable.selectedIds.value).toEqual([])
   })
 })
+
+describe('usePtDownloadRecord 的默认分页', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(getPtDownloadRecordListApi as any).mockResolvedValue({ records: [], total: 0 })
+  })
+
+  // 移动端是单列，12 条正好；PC 端挂载后由 useGridPageSize 按实际列数改成整行的条数。
+  // 落回 useRecordList 的默认 10 会让最后一行空半截，用户读成「没填满 = 没有下一页」
+  it('默认每页 12 条（移动端与 PC 量出列数前的兜底）', () => {
+    const composable = usePtDownloadRecord()
+
+    expect(composable.queryParams.pageSize).toBe(12)
+    expect(getPtDownloadRecordListApi).toHaveBeenCalledWith(
+      expect.objectContaining({ pageNum: 1, pageSize: 12 })
+    )
+  })
+
+  it('重置查询条件不会把每页条数改回默认值', async () => {
+    const composable = usePtDownloadRecord()
+    composable.queryParams.pageSize = 48
+
+    composable.resetQuery()
+
+    expect(composable.queryParams.pageSize).toBe(48)
+  })
+
+  // PC 端把首次加载交给 useGridPageSize，免得先按兜底值发一次再按真实列数重发
+  it('autoLoad: false 时 setup 阶段不发请求', () => {
+    usePtDownloadRecord({ autoLoad: false })
+
+    expect(getPtDownloadRecordListApi).not.toHaveBeenCalled()
+  })
+})

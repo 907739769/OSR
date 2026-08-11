@@ -10,6 +10,7 @@ import {
 } from '@/api/system/wecomUser'
 import { message } from '@/composables/useMessage'
 import type { SelectableUser, WecomUserQuery } from '@/api/system/wecomUser'
+import type { ListLoadOptions } from './useGridPageSize'
 
 /**
  * 企业微信成员绑定 composable，PC 与移动端共用。
@@ -17,7 +18,7 @@ import type { SelectableUser, WecomUserQuery } from '@/api/system/wecomUser'
  * 绑定关系决定了「企微里发指令的这个人是 OSR 的谁」以及「订阅通知推给谁」，
  * 所以选人一律走后端下发的用户列表，不让用户手填 userId。
  */
-export function useWecomUser() {
+export function useWecomUser(options: ListLoadOptions = {}) {
   const base = useTaskList<WecomUserQuery>({
     listApi: getWecomUserListApi,
     addApi: addWecomUserApi,
@@ -104,7 +105,8 @@ export function useWecomUser() {
     base.getList()
   }
 
-  base.getList()
+  // PC 端卡片网格页把首次加载交给 useGridPageSize（要先量出列数）
+  if (options.autoLoad !== false) base.getList()
   loadSelectableUsers()
 
   return {

@@ -10,6 +10,7 @@ import {
   getPtIndexerCategoriesApi
 } from '@/api/openlist/ptIndexer'
 import type { SearchParams } from '@/types'
+import type { ListLoadOptions } from './useGridPageSize'
 
 interface PtIndexerQuery extends SearchParams {
   name?: string
@@ -25,7 +26,7 @@ interface CategoryOption {
 /**
  * PT Torznab 索引器配置 composable
  */
-export function usePtIndexer() {
+export function usePtIndexer(options: ListLoadOptions = {}) {
   const base = useTaskList<PtIndexerQuery>({
     listApi: getPtIndexerListApi,
     addApi: addPtIndexerApi,
@@ -145,7 +146,8 @@ export function usePtIndexer() {
   // ---------- 移动端 - 搜索面板折叠 ----------
   const searchCollapsed = ref(true)
 
-  base.getList()
+  // PC 端卡片网格页把首次加载交给 useGridPageSize（要先量出列数）
+  if (options.autoLoad !== false) base.getList()
 
   return {
     ...base, testLoading, handleTest,

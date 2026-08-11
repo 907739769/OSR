@@ -25,6 +25,7 @@ import {
   getPtSubscriptionByIdApi
 } from '@/api/openlist/ptSubscription'
 import type { SearchParams } from '@/types'
+import type { ListLoadOptions } from './useGridPageSize'
 
 interface PtSubscriptionQuery extends SearchParams {
   title?: string
@@ -36,7 +37,7 @@ interface PtSubscriptionQuery extends SearchParams {
 /**
  * PT 订阅 composable
  */
-export function usePtSubscription() {
+export function usePtSubscription(options: ListLoadOptions = {}) {
   const base = useTaskList<PtSubscriptionQuery>({
     listApi: getPtSubscriptionListApi,
     addApi: addPtSubscriptionApi,
@@ -640,7 +641,8 @@ export function usePtSubscription() {
   // ---------- 移动端 - 搜索面板折叠 ----------
   const searchCollapsed = ref(true)
 
-  base.getList()
+  // PC 端卡片网格页把首次加载交给 useGridPageSize（要先量出列数）
+  if (options.autoLoad !== false) base.getList()
 
   return {
     ...base,

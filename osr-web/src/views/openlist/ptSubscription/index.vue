@@ -91,7 +91,7 @@
         <v-btn variant="text" size="small" class="batch-cancel-btn" @click="selectionMode = false">取消</v-btn>
       </div>
 
-      <div v-if="loading && taskList.length === 0" class="card-grid card-grid--wide">
+      <div v-if="loading && taskList.length === 0" class="card-grid card-grid--wide" ref="gridRef">
         <div v-for="n in skeletonCount" :key="n" class="sub-card-skeleton">
           <v-skeleton-loader type="image" class="sub-card-skeleton__poster" width="72" height="108" />
           <div class="sub-card-skeleton__info">
@@ -102,7 +102,7 @@
           </div>
         </div>
       </div>
-      <div v-else class="card-grid card-grid--wide">
+      <div v-else class="card-grid card-grid--wide" ref="gridRef">
         <v-progress-linear v-if="loading" indeterminate color="primary" />
         <div v-for="item in taskList" :key="item.id" class="sub-card" :class="{ selectable: selectionMode }" @click="selectionMode && toggleSubSelect(item)">
           <v-checkbox-btn
@@ -198,12 +198,12 @@
         <span class="total-text">共 {{ total }} 条</span>
         <v-select
           :model-value="queryParams.pageSize"
-          :items="[12, 24, 48]"
+          :items="pageSizeOptions"
           density="compact"
           variant="outlined"
           hide-details
           class="page-size-select"
-          @update:model-value="(v: number) => { queryParams.pageSize = v; getList() }"
+          @update:model-value="setPageSize"
         />
         <v-pagination
           v-model="queryParams.pageNum"
@@ -648,6 +648,7 @@ import PageHeader from '@/components/PageHeader.vue'
 import { ref, reactive, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { usePtSubscription } from '@/composables/usePtSubscription'
+import { useGridPageSize } from '@/composables/useGridPageSize'
 
 const router = useRouter()
 const route = useRoute()
@@ -676,7 +677,14 @@ const {
   isAllPageSelected, toggleSelectAllPage,
   searchAllMissingLoading, handleSearchAllMissing,
   candidateDialogOpen, candidates, pushingSelected, pushSelectedCandidate, formatSize
-} = usePtSubscription()
+} = usePtSubscription({ autoLoad: false })
+
+// 每页条数按网格实际列数取整到整行，窗口宽度变了跟着重算
+const { gridRef, pageSizeOptions, setPageSize } = useGridPageSize((size) => {
+  queryParams.pageSize = size
+  queryParams.pageNum = 1
+  getList()
+})
 
 // 列表数据变化（刷新/翻页/重新查询）后清除海报失败集合，海报恢复或 TMDb 修复后能重新加载
 watch(taskList, () => posterErrorIds.clear())

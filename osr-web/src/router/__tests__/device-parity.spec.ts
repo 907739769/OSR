@@ -64,10 +64,14 @@ function readPage(kind: 'views' | 'views-mobile', name: string): string | null {
   return key ? map[key] : null
 }
 
-/** 取出 `const { a, b, c } = useXxx()` 里解构出来的标识符 */
+/**
+ * 取出 `const { a, b, c } = useXxx(...)` 里解构出来的标识符。
+ * 右括号不参与匹配：composable 允许带参数（如 PC 端 `usePtDownloadRecord({ autoLoad: false })`），
+ * 只认空括号会让那一端整个解构块被漏读，测试报成「这一端什么动作都没有」。
+ */
 function destructuredFromComposable(src: string): Set<string> {
   const out = new Set<string>()
-  for (const m of src.matchAll(/const\s*\{([\s\S]*?)\}\s*=\s*use[A-Z]\w*\(\)/g)) {
+  for (const m of src.matchAll(/const\s*\{([\s\S]*?)\}\s*=\s*use[A-Z]\w*\(/g)) {
     for (const raw of m[1].split(',')) {
       const id = raw.split(':')[0].replace(/\/\/.*$/gm, '').trim()
       if (/^[a-zA-Z_$][\w$]*$/.test(id)) out.add(id)

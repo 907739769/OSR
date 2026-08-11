@@ -103,6 +103,25 @@ src/
     .card-actions > … + .action-more
 ```
 
+### 卡片网格页的分页尺寸
+`.card-grid` 是 `repeat(auto-fill, minmax(300px, 1fr))`，列数随窗口宽度在 1~8 之间变化，
+**任何写死的每页条数都会在某个宽度上让最后一行只填一半**——用户把「没填满」读成「没有下一页」。
+PC 端一律用 `composables/useGridPageSize.ts`：把 `gridRef` 绑到 `.card-grid`（`v-if`/`v-else`
+两个分支都要绑，骨架屏阶段就得量得到），它数 `grid-template-columns` 的轨道数得到真实列数，
+每页条数取 `max(3 行, 12 条)` 并向上取整到整行；分页器 `:items` 用它给的 `pageSizeOptions`
+（基准的 1/2/4 倍），换档存的是**倍数**不是绝对条数，窗口变宽后档位跟着换算，
+不会出现「select 的值不在 items 里」的空白。业务 composable 传 `autoLoad: false`
+（`ListLoadOptions`），首次加载由 `useGridPageSize` 挂载后触发，避免先按兜底值发一次
+再按真实列数重发。移动端是单列，保持 `defaultQuery.pageSize: 12` 即可。
+
+数轨道数对 `auto-fill` 和 `card-grid--wide` 的 `auto-fit` 都成立：实测 Chrome 对 auto-fit
+会把折叠掉的空轨道以 `0px` 报出来（3 张卡 / 6 列时是 `790px 790px 790px 0px 0px 0px`），
+所以卡片数少于列数时也数得对。拿到的还是没展开的 `repeat()/minmax()`（jsdom、元素未渲染）
+时保持兜底值，不瞎猜。
+
+已接入：ptDownloadRecord / ptSubscription / ptIndexer / ptDownloader / ptMediaServer /
+ptTorrentBlacklist / wecomUser（即全部 `.card-grid` 页面）。新增卡片网格页照抄即可。
+
 ### 组件
 - **`FormField`**：外置 label + 控件 + 下方说明。用于控件自身没有 label 的场景
   （DirectoryTreeSelect / v-radio-group / v-switch / 输入框+按钮组合），或需要补说明文字时。

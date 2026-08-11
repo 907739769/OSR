@@ -9,6 +9,7 @@ import {
   testPtMediaServerApi
 } from '@/api/openlist/ptMediaServer'
 import type { SearchParams } from '@/types'
+import type { ListLoadOptions } from './useGridPageSize'
 
 interface PtMediaServerQuery extends SearchParams {
   name?: string
@@ -18,7 +19,7 @@ interface PtMediaServerQuery extends SearchParams {
 /**
  * PT 媒体服务器（Emby/Jellyfin）配置 composable
  */
-export function usePtMediaServer() {
+export function usePtMediaServer(options: ListLoadOptions = {}) {
   const base = useTaskList<PtMediaServerQuery>({
     listApi: getPtMediaServerListApi,
     addApi: addPtMediaServerApi,
@@ -98,7 +99,8 @@ export function usePtMediaServer() {
   // ---------- 移动端 - 搜索面板折叠 ----------
   const searchCollapsed = ref(true)
 
-  base.getList()
+  // PC 端卡片网格页把首次加载交给 useGridPageSize（要先量出列数）
+  if (options.autoLoad !== false) base.getList()
 
   return {
     ...base, testLoading, handleTest,

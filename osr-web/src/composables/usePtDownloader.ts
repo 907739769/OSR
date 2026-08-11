@@ -10,6 +10,7 @@ import {
   validateSavePathApi
 } from '@/api/openlist/ptDownloader'
 import type { SearchParams } from '@/types'
+import type { ListLoadOptions } from './useGridPageSize'
 
 interface PtDownloaderQuery extends SearchParams {
   name?: string
@@ -19,7 +20,7 @@ interface PtDownloaderQuery extends SearchParams {
 /**
  * PT 下载器配置 composable
  */
-export function usePtDownloader() {
+export function usePtDownloader(options: ListLoadOptions = {}) {
   const base = useTaskList<PtDownloaderQuery>({
     listApi: getPtDownloaderListApi,
     addApi: addPtDownloaderApi,
@@ -168,7 +169,8 @@ export function usePtDownloader() {
   // ---------- 移动端 - 搜索面板折叠 ----------
   const searchCollapsed = ref(true)
 
-  base.getList()
+  // PC 端卡片网格页把首次加载交给 useGridPageSize（要先量出列数）
+  if (options.autoLoad !== false) base.getList()
 
   return {
     ...base, testLoading, handleTest, savePathWarning, handleSavePathBlur, handleAdd, handleUpdate,
