@@ -70,7 +70,7 @@ test.describe('Mobile Responsive', () => {
     page.on('request', r => { if (r.url().includes('/copy-records')) listRequests++ })
 
     await page.goto('/openliststrm/copy')
-    await expect(page.locator('.record-card').first()).toBeVisible()
+    await expect(page.locator('.task-card').first()).toBeVisible()
     expect(listRequests).toBe(1)
 
     await page.locator('.search-panel-header').click()
