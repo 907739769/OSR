@@ -86,6 +86,36 @@ public class EmbyClient implements IMediaServerClient {
     }
 
     @Override
+    public Set<Integer> listAllEpisodeNumbers(PtMediaServerPlus config, String tmdbId) throws IOException {
+        Set<Integer> result = new HashSet<>();
+
+        String seriesId = findItemId(config, "Series", tmdbId);
+        if (seriesId == null) {
+            return result;
+        }
+
+        // 不带 season 参数即返回全剧条目。只取 IndexNumber，季号在这里刻意不看——
+        // 这个方法存在的前提就是「库的分季方式和订阅对不上」
+        Map<String, String> query = new LinkedHashMap<>();
+        if (StringUtils.isNotBlank(config.getUserId())) {
+            query.put("userId", config.getUserId());
+        }
+
+        String body = get(config, "/Shows/" + seriesId + "/Episodes", query);
+        JSONArray items = parseJsonObject(body).getJSONArray("Items");
+        if (items == null) {
+            return result;
+        }
+        for (int i = 0; i < items.size(); i++) {
+            Integer index = items.getJSONObject(i).getInteger("IndexNumber");
+            if (index != null) {
+                result.add(index);
+            }
+        }
+        return result;
+    }
+
+    @Override
     public boolean hasMovie(PtMediaServerPlus config, String tmdbId) throws IOException {
         return findItemId(config, "Movie", tmdbId) != null;
     }

@@ -51,6 +51,18 @@ public class PtSubscriptionEpisodePlus extends BaseEntity {
     @TableField("air_date")
     private Date airDate;
 
+    /**
+     * 该集在 TMDb 上的集号。普通剧集与 {@link #episode} 相同；长篇动画是绝对集号
+     * （航海王第 23 季第 13 集 = 1168）。
+     * <p>
+     * 存在的意义是与媒体库对账：媒体库按刮削结果组织，绝对编号的动画库里这一集是
+     * S01E1168，拿本地的「第 23 季第 13 集」去问永远查不到。见
+     * {@code SubscriptionService#queryLibrary}。
+     * </p>
+     */
+    @TableField("tmdb_episode_number")
+    private Integer tmdbEpisodeNumber;
+
     /** 连续失败次数，达到阈值后状态转 BLOCKED 停止自动重试，成功入库前不清零 */
     @TableField("fail_count")
     private Integer failCount;

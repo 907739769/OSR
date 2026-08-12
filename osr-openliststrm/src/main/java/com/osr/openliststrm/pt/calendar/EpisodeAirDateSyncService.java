@@ -89,11 +89,12 @@ public class EpisodeAirDateSyncService {
         return updated;
     }
 
-    /** 还有集没拿到播出日期的订阅，这些无论状态都要拉一次 */
+    /** 还有集没拿到播出日期或 TMDb 集号的订阅，这些无论状态都要拉一次 */
     private Set<Integer> subIdsMissingAirDate() {
         return episodeService.list(new LambdaQueryWrapper<PtSubscriptionEpisodePlus>()
                         .select(PtSubscriptionEpisodePlus::getSubId)
-                        .isNull(PtSubscriptionEpisodePlus::getAirDate))
+                        .and(w -> w.isNull(PtSubscriptionEpisodePlus::getAirDate)
+                                .or().isNull(PtSubscriptionEpisodePlus::getTmdbEpisodeNumber)))
                 .stream()
                 .map(PtSubscriptionEpisodePlus::getSubId)
                 .filter(Objects::nonNull)
@@ -117,25 +118,31 @@ public class EpisodeAirDateSyncService {
         List<PtSubscriptionEpisodePlus> episodes = episodeService.list(
                 new LambdaQueryWrapper<PtSubscriptionEpisodePlus>().eq(PtSubscriptionEpisodePlus::getSubId, sub.getId()));
 
-        // TMDb 的集号未必与本地同一套（长篇动画用绝对集号），交给 AirDateResolver 对齐
-        Map<Integer, LocalDate> resolved = AirDateResolver.resolve(
+        // TMDb 的集号未必与本地同一套（长篇动画用绝对集号），交给 TmdbEpisodeAligner 对齐
+        Map<Integer, TmdbEpisodeAligner.TmdbEpisodeRef> aligned = TmdbEpisodeAligner.align(
                 episodes.stream().map(PtSubscriptionEpisodePlus::getEpisode).filter(Objects::nonNull).toList(),
                 airDates);
 
         List<PtSubscriptionEpisodePlus> changed = new ArrayList<>();
         for (PtSubscriptionEpisodePlus episode : episodes) {
-            LocalDate fresh = resolved.get(episode.getEpisode());
-            if (fresh == null) {
+            TmdbEpisodeAligner.TmdbEpisodeRef ref = aligned.get(episode.getEpisode());
+            if (ref == null) {
                 // TMDb 撤掉了日期（改回未定档）时不清空已有值：撤档信息本身不可靠，
                 // 清掉会让这集从日历上凭空消失，比留着一个旧日期更让人困惑
                 continue;
             }
-            if (Objects.equals(toLocalDate(episode.getAirDate()), fresh)) {
+            boolean dateChanged = ref.airDate() != null
+                    && !Objects.equals(toLocalDate(episode.getAirDate()), ref.airDate());
+            boolean numberChanged = !Objects.equals(episode.getTmdbEpisodeNumber(), ref.episodeNumber());
+            if (!dateChanged && !numberChanged) {
                 continue;
             }
             PtSubscriptionEpisodePlus patch = new PtSubscriptionEpisodePlus();
             patch.setId(episode.getId());
-            patch.setAirDate(Date.from(fresh.atStartOfDay(ZoneId.systemDefault()).toInstant()));
+            if (dateChanged) {
+                patch.setAirDate(Date.from(ref.airDate().atStartOfDay(ZoneId.systemDefault()).toInstant()));
+            }
+            patch.setTmdbEpisodeNumber(ref.episodeNumber());
             changed.add(patch);
         }
         if (changed.isEmpty()) {

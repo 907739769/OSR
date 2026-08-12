@@ -6,7 +6,8 @@ import com.osr.openliststrm.helper.TgHelper;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloadRecordPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtMediaServerPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
-import com.osr.openliststrm.pt.calendar.AirDateResolver;
+import com.osr.openliststrm.pt.calendar.TmdbEpisodeAligner;
+import com.osr.openliststrm.pt.media.IMediaServerClient;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtDownloadRecordPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtMediaServerPlusService;
@@ -33,6 +34,7 @@ import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -136,7 +138,10 @@ public class SubscriptionService {
                     "获取 TMDb 详情失败（TMDb 服务可能暂时不可用，或该 ID/季号有误），请稍后重试：" + e.getMessage(), e);
         }
 
-        Set<Integer> inLibrary = queryLibrary(request.getMediaType(), request.getTmdbId(), season);
+        List<Integer> numbers = episodeNumbers(movie, totalEpisodes);
+        Map<Integer, TmdbEpisodeAligner.TmdbEpisodeRef> aligned =
+                alignTmdbEpisodes(movie, request.getTmdbId(), season, numbers);
+        Set<Integer> inLibrary = queryLibrary(request.getMediaType(), request.getTmdbId(), season, numbers, aligned);
 
         PtSubscriptionPlus sub = new PtSubscriptionPlus();
         sub.setTmdbId(request.getTmdbId());
@@ -158,15 +163,13 @@ public class SubscriptionService {
         sub.setStatus(coversAll(inLibrary, movie, totalEpisodes) ? STATUS_COMPLETED : STATUS_ACTIVE);
         subscriptionService.save(sub);
 
-        List<Integer> numbers = episodeNumbers(movie, totalEpisodes);
-        Map<Integer, LocalDate> airDates = resolveAirDates(movie, request.getTmdbId(), season, numbers);
         List<PtSubscriptionEpisodePlus> episodes = new ArrayList<>();
         for (int number : numbers) {
             PtSubscriptionEpisodePlus ep = new PtSubscriptionEpisodePlus();
             ep.setSubId(sub.getId());
             ep.setEpisode(number);
             ep.setState(inLibrary.contains(number) ? STATE_IN_LIBRARY : STATE_MISSING);
-            ep.setAirDate(toDate(airDates.get(number)));
+            applyTmdbRef(ep, aligned.get(number));
             episodes.add(ep);
         }
         episodeService.saveBatch(episodes);
@@ -204,7 +207,14 @@ public class SubscriptionService {
             appendNewEpisodes(sub, episodes, totalEpisodes);
         }
 
-        Set<Integer> inLibrary = queryLibrary(sub.getMediaType(), sub.getTmdbId(), sub.getSeason());
+        Set<Integer> inLibrary = queryLibrary(sub.getMediaType(), sub.getTmdbId(), sub.getSeason(),
+                episodes.stream().map(PtSubscriptionEpisodePlus::getEpisode).toList(),
+                // 对账用已落库的 TMDb 集号，不再打一次 TMDb：同步任务负责保持它是新的
+                episodes.stream()
+                        .filter(e -> e.getTmdbEpisodeNumber() != null)
+                        .collect(Collectors.toMap(PtSubscriptionEpisodePlus::getEpisode,
+                                e -> new TmdbEpisodeAligner.TmdbEpisodeRef(e.getTmdbEpisodeNumber(), null),
+                                (a, b) -> a)));
         List<PtSubscriptionEpisodePlus> upgraded = new ArrayList<>();
         for (PtSubscriptionEpisodePlus ep : episodes) {
             // UPGRADING 的集必须跳过：它的旧版本本来就在 Emby 里，inLibrary 恒命中，
@@ -422,18 +432,68 @@ public class SubscriptionService {
      * 未配置媒体服务器或查询失败时返回空集合并记 warn——媒体服务器是加分项不是前置依赖。
      * </p>
      */
-    private Set<Integer> queryLibrary(String mediaType, String tmdbId, int season) {
+    /**
+     * 查媒体库里这部剧已有哪些集，返回<b>本地集号</b>的集合。
+     * <p>
+     * 难点在于本地集号与媒体库里的集号不一定是同一套。媒体库按刮削结果组织，
+     * 而长篇动画常被整部平铺在第 1 季、用绝对集号编号（实测用户的 Emby 里
+     * 航海王 1172 集全在 Season 1，第 23 季查出来是空的，导致 26 集里 11 集
+     * 明明下载完成却一直卡在 MISSING）。因此按三条规则依次判定，命中任一即算入库：
+     * </p>
+     * <ol>
+     *   <li>本季里有该<b>本地集号</b> —— 普通剧集走这条，行为与改动前一致</li>
+     *   <li>本季里有该集的 <b>TMDb 集号</b> —— 库按 TMDb 编号刮削时走这条</li>
+     *   <li>整部剧的任意季里有该集的 <b>TMDb 集号</b> —— 绝对编号平铺的动画库走这条</li>
+     * </ol>
+     * <p>
+     * 第 3 条<b>仅在 TMDb 集号与本地集号不同时启用</b>。两者相同说明这部剧本来就是
+     * 常规编号，前两条已经够用；此时若再放开全剧匹配，第 2 季第 17 集会把第 1 季第 17 集
+     * 误判成已入库。而航海王的 1168 与 13 差得足够远，不存在这种碰撞。
+     * </p>
+     */
+    private Set<Integer> queryLibrary(String mediaType, String tmdbId, int season,
+                                      List<Integer> localEpisodes,
+                                      Map<Integer, TmdbEpisodeAligner.TmdbEpisodeRef> aligned) {
         PtMediaServerPlus server = mediaServerService.getActive();
         if (server == null) {
             log.warn("未配置启用中的媒体服务器，订阅 {} 的已入库集数按 0 处理", tmdbId);
             return Collections.emptySet();
         }
         try {
+            IMediaServerClient client = mediaServerClientFactory.get(server);
             if (TYPE_MOVIE.equalsIgnoreCase(mediaType)) {
-                return mediaServerClientFactory.get(server).hasMovie(server, tmdbId)
-                        ? Set.of(MOVIE_EPISODE) : Collections.emptySet();
+                return client.hasMovie(server, tmdbId) ? Set.of(MOVIE_EPISODE) : Collections.emptySet();
             }
-            return mediaServerClientFactory.get(server).listEpisodes(server, tmdbId, season);
+
+            Set<Integer> inSeason = client.listEpisodes(server, tmdbId, season);
+            Set<Integer> result = new HashSet<>();
+            Set<Integer> wholeSeries = null;
+
+            for (Integer episode : localEpisodes) {
+                if (episode == null) {
+                    continue;
+                }
+                if (inSeason.contains(episode)) {
+                    result.add(episode);
+                    continue;
+                }
+                TmdbEpisodeAligner.TmdbEpisodeRef ref = aligned.get(episode);
+                if (ref == null || ref.episodeNumber() == episode) {
+                    continue;
+                }
+                if (inSeason.contains(ref.episodeNumber())) {
+                    result.add(episode);
+                    continue;
+                }
+                // 整部剧的编号只在确有需要时拉一次，普通剧集根本走不到这里
+                if (wholeSeries == null) {
+                    wholeSeries = client.listAllEpisodeNumbers(server, tmdbId);
+                }
+                if (wholeSeries.contains(ref.episodeNumber())) {
+                    result.add(episode);
+                }
+            }
+            return result;
         } catch (Exception e) {
             log.warn("查询媒体库失败，订阅 {} 的已入库集数按 0 处理：{}", tmdbId, e.getMessage());
             return Collections.emptySet();
@@ -449,14 +509,15 @@ public class SubscriptionService {
         // 对齐要拿整季的集号（1..totalEpisodes）而不只是新增的那几集：
         // 位置兜底靠「两边集数相等」判断，只传新增集会让集数对不上，兜底永远不启用
         List<Integer> allNumbers = episodeNumbers(false, totalEpisodes);
-        Map<Integer, LocalDate> airDates = resolveAirDates(false, sub.getTmdbId(), sub.getSeason(), allNumbers);
+        Map<Integer, TmdbEpisodeAligner.TmdbEpisodeRef> aligned =
+                alignTmdbEpisodes(false, sub.getTmdbId(), sub.getSeason(), allNumbers);
         List<PtSubscriptionEpisodePlus> added = new ArrayList<>();
         for (int number = maxExisting + 1; number <= totalEpisodes; number++) {
             PtSubscriptionEpisodePlus ep = new PtSubscriptionEpisodePlus();
             ep.setSubId(sub.getId());
             ep.setEpisode(number);
             ep.setState(STATE_MISSING);
-            ep.setAirDate(toDate(airDates.get(number)));
+            applyTmdbRef(ep, aligned.get(number));
             added.add(ep);
         }
         episodeService.saveBatch(added);
@@ -472,17 +533,26 @@ public class SubscriptionService {
      * （季端点是 TV 专用），留给同步任务从详情里取。
      * </p>
      */
-    private Map<Integer, LocalDate> resolveAirDates(boolean movie, String tmdbId, Integer season,
-                                                    List<Integer> localEpisodes) {
+    private Map<Integer, TmdbEpisodeAligner.TmdbEpisodeRef> alignTmdbEpisodes(
+            boolean movie, String tmdbId, Integer season, List<Integer> localEpisodes) {
         if (movie || tmdbId == null || season == null) {
             return Map.of();
         }
         try {
-            return AirDateResolver.resolve(localEpisodes, tmdbSearchService.getSeasonEpisodeAirDates(tmdbId, season));
+            return TmdbEpisodeAligner.align(localEpisodes, tmdbSearchService.getSeasonEpisodeAirDates(tmdbId, season));
         } catch (Exception e) {
             log.warn("取剧集 {} 第 {} 季的播出日期失败，本次留空待同步任务补齐：{}", tmdbId, season, e.getMessage());
             return Map.of();
         }
+    }
+
+    /** 把对齐结果写进集行；对不上时两个字段都留空，等同步任务下一轮再补 */
+    private static void applyTmdbRef(PtSubscriptionEpisodePlus ep, TmdbEpisodeAligner.TmdbEpisodeRef ref) {
+        if (ref == null) {
+            return;
+        }
+        ep.setTmdbEpisodeNumber(ref.episodeNumber());
+        ep.setAirDate(toDate(ref.airDate()));
     }
 
     private static Date toDate(LocalDate date) {
