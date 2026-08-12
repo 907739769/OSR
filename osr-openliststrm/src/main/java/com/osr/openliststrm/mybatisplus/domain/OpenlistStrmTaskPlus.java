@@ -40,4 +40,11 @@ public class OpenlistStrmTaskPlus extends BaseEntity {
      */
     @TableField("strm_task_status")
     private String strmTaskStatus;
+
+    /**
+     * 任务级配置覆盖（JSON），为空表示全部沿用全局配置。
+     * 键：outputDir / downloadSub / minFileSize，语义见 StrmSettingsFactory。
+     */
+    @TableField("strm_override")
+    private String strmOverride;
 }

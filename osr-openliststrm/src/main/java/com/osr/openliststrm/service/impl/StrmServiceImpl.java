@@ -11,10 +11,14 @@ import com.osr.openliststrm.helper.OpenListHelper;
 import com.osr.openliststrm.helper.StrmHelper;
 import com.osr.openliststrm.mybatisplus.domain.OpenlistCopyPlus;
 import com.osr.openliststrm.mybatisplus.domain.OpenlistStrmPlus;
+import com.osr.openliststrm.mybatisplus.domain.OpenlistStrmTaskPlus;
 import com.osr.openliststrm.mybatisplus.service.IOpenlistCopyPlusService;
 import com.osr.openliststrm.mybatisplus.service.IOpenlistStrmPlusService;
+import com.osr.openliststrm.mybatisplus.service.IOpenlistStrmTaskPlusService;
 import com.osr.openliststrm.rename.cleanup.ArtifactPaths;
 import com.osr.openliststrm.service.IStrmService;
+import com.osr.openliststrm.service.StrmSettings;
+import com.osr.openliststrm.service.StrmSettingsFactory;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.Dns;
@@ -104,6 +108,9 @@ public class StrmServiceImpl implements IStrmService {
     private IOpenlistCopyPlusService openlistCopyPlusService;
 
     @Autowired
+    private IOpenlistStrmTaskPlusService openlistStrmTaskPlusService;
+
+    @Autowired
     private TransactionTemplate transactionTemplate;
 
     private static final Pattern ILLEGAL_PATTERN = Pattern.compile("[\\\\/:*?\"<>|]");
@@ -111,24 +118,98 @@ public class StrmServiceImpl implements IStrmService {
     /** STRM文件处理并发度控制，最多10个虚拟线程同时处理 */
     private static final Semaphore STRM_SEMAPHORE = new Semaphore(10);
 
-    private String getOutputDir() {
-        String dir = config.getOpenListStrmOutputDir();
-        return StringUtils.isNotBlank(dir) ? dir : "/data/strm";
-    }
-
     private boolean shouldEncode() {
         return "1".equals(config.getOpenListStrmEncode());
     }
 
-    private boolean shouldDownloadSub() {
-        return "1".equals(config.getOpenListStrmDownloadSub());
+    /**
+     * 解析该路径生效的 STRM 设置：全局配置叠加「覆盖该路径的任务」的任务级覆盖。
+     * <p>
+     * <b>按路径反查而不是让调用方传任务</b>：strmDir/strmOneFile 有一半调用方手里根本没有任务
+     * 对象——复制完成后的 {@code AsynHelper}、兜底恢复的 {@code CopyRecoveryTask}、
+     * TG 的 {@code /strm <路径>} 指令，它们只拿得到一个路径。这些入口若退回全局配置，
+     * 同一个目录就会因为「谁触发的」而输出到不同根目录，长出两棵 STRM 树，
+     * 一致性检查还会把其中一棵报成孤儿。按路径解析保证同一路径的生成规则唯一。
+     * </p>
+     * <p>
+     * 任务表只有个位数到几十行，每次生成查一次可忽略——而每次生成本身都要打网络 IO。
+     * </p>
+     */
+    private StrmSettings resolveSettings(String path) {
+        OpenlistStrmTaskPlus task = null;
+        try {
+            task = pickCoveringTask(openlistStrmTaskPlusService.list(), path);
+        } catch (Exception e) {
+            // 查不到任务不该让生成本身失败，退回全局配置即可
+            log.warn("查询 STRM 任务级覆盖失败，本次使用全局配置: {}", e.getMessage());
+        }
+        StrmSettings settings = StrmSettingsFactory.build(config, task == null ? null : task.getStrmOverride());
+        if (task != null && StringUtils.isNotBlank(task.getStrmOverride())) {
+            // 明确打出「哪条任务的覆盖、最终生效成什么」——否则用户看到 STRM 写去了别处，
+            // 只能靠翻数据库里的 JSON 反推
+            log.info("STRM 生成套用任务级覆盖: path={}, 任务#{}({}), 生效: 输出目录={} 下字幕={} 最小体积={}字节",
+                    path, task.getStrmTaskId(), task.getStrmTaskPath(),
+                    settings.outputDir(), settings.downloadSub(), settings.minSize());
+        }
+        return settings;
+    }
+
+    /**
+     * 从任务列表里挑出覆盖 {@code path} 的那个，多个都覆盖时取路径最长（最具体）的。
+     * <p>
+     * 匹配必须落在路径分隔符上：{@code /电视剧} 覆盖 {@code /电视剧/三体}，
+     * 但不能覆盖 {@code /电视剧2}——与 {@code subtreeLikePrefix} 是同一个坑。
+     * </p>
+     * <p>
+     * <b>停用的任务同样参与匹配</b>：status 管的是「定时任务要不要自动跑它」，
+     * 而覆盖描述的是「这个目录该怎么生成」。停用后被 TG 手动触发一次就写到另一个根目录，
+     * 正是本方法要避免的那种不一致。
+     * </p>
+     */
+    static OpenlistStrmTaskPlus pickCoveringTask(List<OpenlistStrmTaskPlus> tasks, String path) {
+        if (tasks == null || path == null) {
+            return null;
+        }
+        String target = trimTrailingSlash(path);
+        OpenlistStrmTaskPlus best = null;
+        int bestLen = -1;
+        for (OpenlistStrmTaskPlus task : tasks) {
+            if (task == null || task.getStrmTaskPath() == null) {
+                continue;
+            }
+            String taskPath = trimTrailingSlash(task.getStrmTaskPath());
+            boolean covers = target.equals(taskPath) || target.startsWith(taskPath + "/");
+            if (!covers) {
+                continue;
+            }
+            int len = taskPath.length();
+            // 路径同样长时按 id 取小，保证同一份数据每次挑出同一个任务（配置重复时不至于忽左忽右）
+            if (len > bestLen || (len == bestLen && idOf(task) < idOf(best))) {
+                best = task;
+                bestLen = len;
+            }
+        }
+        return best;
+    }
+
+    /** 末尾斜杠规范化。根路径 "/" 归一成空串，于是它对任何绝对路径都成立前缀匹配，且长度最短、优先级最低 */
+    private static String trimTrailingSlash(String path) {
+        String trimmed = path.trim();
+        while (trimmed.length() > 1 && trimmed.endsWith("/")) {
+            trimmed = trimmed.substring(0, trimmed.length() - 1);
+        }
+        return "/".equals(trimmed) ? "" : trimmed;
+    }
+
+    private static int idOf(OpenlistStrmTaskPlus task) {
+        return (task == null || task.getStrmTaskId() == null) ? Integer.MAX_VALUE : task.getStrmTaskId();
     }
 
     @Override
     public void strmDir(String path) {
         log.info("开始执行指定路径strm任务: {}", path);
         try {
-            getData(path, getOutputDir());
+            getData(path, resolveSettings(path));
         } catch (Exception e) {
             log.error("strm任务执行异常: {}", path, e);
         } finally {
@@ -154,10 +235,11 @@ public class StrmServiceImpl implements IStrmService {
         String relative = filePath.startsWith("/")
                 ? filePath.substring(1)
                 : filePath;
-        Path outputBase = Paths.get(getOutputDir()).normalize();
+        StrmSettings settings = resolveSettings(path);
+        Path outputBase = Paths.get(settings.outputDir()).normalize();
         Path targetDir = resolveWithinBase(outputBase, relative.replace("/", File.separator));
         if (targetDir == null) {
-            log.error("拒绝路径穿越：strm目标目录超出输出根目录 {}, path={}", getOutputDir(), path);
+            log.error("拒绝路径穿越：strm目标目录超出输出根目录 {}, path={}", settings.outputDir(), path);
             strmHelper.addStrm(filePath, name, "0");
             return;
         }
@@ -275,10 +357,13 @@ public class StrmServiceImpl implements IStrmService {
         return new RetryOutcome(idList.size(), (int) total - idList.size());
     }
 
-    public void getData(String rootPath, String localRootPath) {
-        // 单次任务配置快照，避免每文件热循环重复取配置
-        StrmCtx ctx = new StrmCtx(config.getOpenListUrl(), shouldEncode(), shouldDownloadSub(),
-                config.getMinFileSizeBytes(), config.getTraversalRefresh());
+    public void getData(String rootPath, StrmSettings settings) {
+        // 单次任务配置快照，避免每文件热循环重复取配置。
+        // 输出根目录 / downloadSub / minSize 来自 settings（全局配置叠加任务级覆盖），
+        // encode 仍取全局：它有解码侧消费者，理由见 StrmSettingsFactory 的类注释
+        String localRootPath = settings.outputDir();
+        StrmCtx ctx = new StrmCtx(config.getOpenListUrl(), shouldEncode(), settings.downloadSub(),
+                settings.minSize(), config.getTraversalRefresh());
 
         // 第一阶段：并行 BFS 遍历收集所有待处理文件。
         // 目录列举是网络 IO（每目录一次 fs/list），逐层并发列举可显著缩短大目录树的遍历耗时。
