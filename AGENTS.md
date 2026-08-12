@@ -126,6 +126,18 @@ docker compose up -d --build --no-deps backend
   
   入库判定 `SubscriptionService#queryLibrary` 因此有三条规则：本季有本地集号 → 本季有 TMDb 集号 → 整部剧任意季有 TMDb 集号。**第三条仅在两个集号不同时启用**，否则第 2 季第 17 集会把第 1 季第 17 集误判成已入库。全剧编号 (`listAllEpisodeNumbers`) 每次对账最多拉一次。
   
+  **搜索侧同理**：PT 站上同一集常有两种命名并存——`One Piece S23E18`（季内相对号）与
+  `One Piece S01E1173`（绝对号、季号写死 1）。匹配器原本一见季号不等就淘汰，后者整批搜不到。
+  现在 `SubscriptionMatcher#matchByAbsolute` 与 `SearchSupplementService#absoluteEpisodeOf`
+  共用同一套判据兜底（约束：订阅确实用绝对编号 + 种子季号缺失或为 1 + 该绝对号属于本季 +
+  季包不参与，否则会去拉一千多集）。检索侧还要对这类订阅补一次**不带季号**的外部 ID 搜索，
+  否则 `season=23` 会在索引器那一层就把 S01 的资源过滤掉，匹配再宽松也无米下锅。
+  
+  **已知缺口**：字幕组的 `[Sakurato] One Piece - 1173 [2160p]` 这类裸数字命名仍匹配不上，
+  但卡点不在集号——`YearSeasonEpisodeExtractor` 会把标题解析成
+  `[ Sakurato ] One Piece - 1173 [ ] [ - ]`，在标题匹配那步就淘汰了。要支持得先修标题截断，
+  `AbsoluteEpisodeMatchTest` 里有一条用例把这个现状钉住了。
+  
   这个 bug 的症状很隐蔽：下载记录明明 COMPLETED，集状态却永远 MISSING，订阅进度一直卡着。**TMDb 的「剧集组」(episode_groups) 暂时用不上**——航海王那 18 个组没有一个对得上种子的 S23 编号，而主数据里已经有需要的绝对号了。等真碰到「发布组用的编号主数据表达不了」的剧（比如按 Netflix 分季）再考虑加 `pt_subscription.episode_group_id` 让用户手选，那种情况 TMDb 自己也推断不出来。
 - **追剧日历的数据来自 `pt_subscription_episode.air_date`，由 `EpisodeAirDateSyncTask` 每 12 小时同步**（首轮兼做存量回填，所以升级上来的库不需要单独迁移动作）。播出日期本来就会变——改档、提前放送、季中休播——一次性回填脚本解决不了，定期同步是必需的而不是图省事。查询侧 `PtCalendarService` 是纯 SQL 范围查询，不打 TMDb。两条容易踩的：TMDb 撤掉日期时**不清空**已有值（撤档信息本身不可靠，清掉会让这集从日历上凭空消失）；同步只写日期确实变了的行，否则每 12 小时把整表 `update_time` 刷一遍，看起来像天天都有变化。
 - **STRM 生成的「输出根目录 / 是否下字幕 / 最小体积」可按任务覆盖**，存在 `openlist_strm_task.strm_override`（JSON），合并规则见 `StrmSettingsFactory`——照 `pt_subscription.filter_override` 的约定，只有出现在 JSON 里的键才覆盖，该列为空时行为与引入前完全一致。两条不要改坏的约定：

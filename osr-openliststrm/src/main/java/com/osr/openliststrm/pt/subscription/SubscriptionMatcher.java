@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -34,6 +35,15 @@ public class SubscriptionMatcher {
      * @return 匹配结果；匹配不上返回 null
      */
     public MatchResult match(TorrentInfo torrent, List<PtSubscriptionPlus> subscriptions) {
+        return match(torrent, subscriptions, Map.of());
+    }
+
+    /**
+     * @param absoluteMaps 订阅ID → 绝对集号映射，用于识别按绝对编号命名的种子
+     *                     （见 {@link AbsoluteEpisodeMap}）。传空 Map 即退回纯季集匹配
+     */
+    public MatchResult match(TorrentInfo torrent, List<PtSubscriptionPlus> subscriptions,
+                             Map<Integer, AbsoluteEpisodeMap> absoluteMaps) {
         // parsedTitle/parsedTitleEn 都解析失败（特殊命名格式）时回退到种子原始标题，避免漏判；
         // 与 SearchSupplementService#titleMatches 的兜底策略保持一致，否则会出现
         // RSS 自动匹配漏掉、手动搜索补集却能补回来的不一致体验。
@@ -49,7 +59,8 @@ public class SubscriptionMatcher {
             if (Collections.disjoint(torrentTitles, subTitles)) {
                 continue;
             }
-            MatchResult result = matchEpisode(torrent, sub);
+            MatchResult result = matchEpisode(torrent, sub,
+                    absoluteMaps.getOrDefault(sub.getId(), AbsoluteEpisodeMap.EMPTY));
             if (result != null) {
                 return result;
             }
@@ -57,7 +68,7 @@ public class SubscriptionMatcher {
         return null;
     }
 
-    private MatchResult matchEpisode(TorrentInfo torrent, PtSubscriptionPlus sub) {
+    private MatchResult matchEpisode(TorrentInfo torrent, PtSubscriptionPlus sub, AbsoluteEpisodeMap absolutes) {
         // 判断电影只看 media_type：剧集的特别篇在 TMDb 里也是第 0 季，用 season==0 判断会串台
         if (TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType())) {
             // 带季集信息的一定是剧集，不该匹配电影订阅
@@ -73,7 +84,9 @@ public class SubscriptionMatcher {
 
         if (torrent.getParsedSeason() == null || sub.getSeason() == null
                 || !torrent.getParsedSeason().equals(sub.getSeason())) {
-            return null;
+            // 季号对不上不代表不是这部剧的资源：长篇动画按绝对号发布时季号恒为 1
+            // （One Piece S01E1173 其实是第 23 季第 18 集）
+            return matchByAbsolute(torrent, sub, absolutes);
         }
         // 有季无集 = 季包
         if (torrent.getParsedEpisode() == null) {
@@ -85,6 +98,55 @@ public class SubscriptionMatcher {
             return new MatchResult(sub, torrent.getParsedEpisode(), episodeEnd);
         }
         return new MatchResult(sub, torrent.getParsedEpisode());
+    }
+
+    /**
+     * 绝对集号兜底匹配。标题已经确认是这部剧，这里只解决「集号用的不是同一套编号」。
+     * <p>
+     * 三个约束，缺一不可：
+     * </p>
+     * <ol>
+     *   <li><b>该订阅确实使用绝对编号</b>（{@link AbsoluteEpisodeMap} 非空）。普通剧集绝不走这条路，
+     *       否则 S01E05 会被任意一季的第 5 集认领</li>
+     *   <li><b>种子季号缺失或为 1</b>。绝对编号发布的约定俗成写法就这两种；
+     *       写着 S02 却想按绝对号解释的，多半是真的第 2 季，不该猜</li>
+     *   <li><b>该绝对号确实属于本订阅这一季</b>。映射里只有本季的集，
+     *       别季的绝对号查不到，自然落空</li>
+     * </ol>
+     * <p>
+     * 季包（有季无集）不走绝对匹配：一个标着 S01 的季包对绝对编号的剧来说是「整部剧」，
+     * 认成本季季包会让下载器去拉一千多集。
+     * </p>
+     */
+    private MatchResult matchByAbsolute(TorrentInfo torrent, PtSubscriptionPlus sub, AbsoluteEpisodeMap absolutes) {
+        if (absolutes == null || absolutes.isEmpty()) {
+            return null;
+        }
+        Integer season = torrent.getParsedSeason();
+        if (season != null && season != 1) {
+            return null;
+        }
+
+        Integer parsed = torrent.getParsedEpisode();
+        if (parsed == null) {
+            // 有季无集 = 季包，见方法注释；无季无集则根本判不出是哪一集
+            return null;
+        }
+
+        Integer local = absolutes.toLocal(parsed);
+        if (local == null) {
+            return null;
+        }
+        Integer parsedEnd = torrent.getParsedEpisodeEnd();
+        if (parsedEnd != null && parsedEnd > parsed) {
+            Integer localEnd = absolutes.toLocal(parsedEnd);
+            // 区间两端都要能落回本季，否则跨季的绝对号区间会被截成一段假区间
+            if (localEnd != null && localEnd > local) {
+                return new MatchResult(sub, local, localEnd);
+            }
+            return null;
+        }
+        return new MatchResult(sub, local);
     }
 
     /**

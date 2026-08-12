@@ -2,6 +2,7 @@ package com.osr.openliststrm.pt.subscription;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloadRecordPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloaderPlus;
@@ -152,9 +153,12 @@ public class SubscriptionEngine {
         // 匹配+分组：纯内存计算，保持串行
         Map<String, List<TorrentInfo>> groups = new LinkedHashMap<>();
         Map<String, MatchResult> groupMatch = new LinkedHashMap<>();
+        // 绝对编号映射按订阅一次性建好：RSS 一轮要过几百条种子，不能每条都查一次集表
+        Map<Integer, AbsoluteEpisodeMap> absoluteMaps = buildAbsoluteMaps(subscriptions);
+
         for (TorrentInfo torrent : torrents) {
             fillParsed(torrent);
-            MatchResult match = matcher.match(torrent, subscriptions);
+            MatchResult match = matcher.match(torrent, subscriptions, absoluteMaps);
             if (match == null) {
                 log.debug("种子未匹配到任何订阅：{}", torrent.getTitle());
                 continue;
@@ -639,6 +643,37 @@ public class SubscriptionEngine {
      * "这个候选对不对应目标集"与"它是不是更好"，而那些判断必须发生在推送之前。
      * </p>
      */
+    /**
+     * 为这批订阅建「绝对集号 → 本地集号」映射，只有真用绝对编号的订阅会进结果。
+     * <p>
+     * 一次查出全部相关集行再按订阅分组，避免 N 个订阅打 N 次库。
+     * </p>
+     */
+    private Map<Integer, AbsoluteEpisodeMap> buildAbsoluteMaps(List<PtSubscriptionPlus> subscriptions) {
+        List<Integer> subIds = subscriptions.stream()
+                .map(PtSubscriptionPlus::getId)
+                .filter(java.util.Objects::nonNull)
+                .toList();
+        if (subIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Integer, List<PtSubscriptionEpisodePlus>> bySub = episodeService.list(
+                        new LambdaQueryWrapper<PtSubscriptionEpisodePlus>()
+                                .in(PtSubscriptionEpisodePlus::getSubId, subIds)
+                                .isNotNull(PtSubscriptionEpisodePlus::getTmdbEpisodeNumber))
+                .stream()
+                .collect(java.util.stream.Collectors.groupingBy(PtSubscriptionEpisodePlus::getSubId));
+
+        Map<Integer, AbsoluteEpisodeMap> result = new HashMap<>();
+        bySub.forEach((subId, episodes) -> {
+            AbsoluteEpisodeMap map = AbsoluteEpisodeMap.from(episodes);
+            if (!map.isEmpty()) {
+                result.put(subId, map);
+            }
+        });
+        return result;
+    }
+
     public void fillParsed(TorrentInfo torrent) {
         MediaInfo info = mediaParser.parseLocal(torrent.getTitle());
         // 注意：parseLocal 不做 TMDb 富化，MediaInfo.title 恒为 null

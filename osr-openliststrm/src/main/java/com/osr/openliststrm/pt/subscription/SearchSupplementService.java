@@ -1,5 +1,6 @@
 package com.osr.openliststrm.pt.subscription;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.osr.common.utils.Threads;
 import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.helper.TgHelper;
@@ -510,6 +511,15 @@ public class SearchSupplementService {
         fillParsedAll(idCandidates);
         addDeduped(merged, seenGuids, idCandidates);
 
+        // 绝对编号的剧要再搜一次「不带季号」：上面那次把 season=23 传给了索引器，
+        // 而这类资源在站上标的是 S01（One Piece S01E1173），带季号过滤直接就被排除在结果之外，
+        // 后面的匹配再宽松也无米下锅。只对确实用绝对编号的订阅多打这一次请求
+        if (!absoluteMapOf(sub).isEmpty()) {
+            List<TorrentInfo> absCandidates = searchByExternalIdWithoutSeason(sub);
+            fillParsedAll(absCandidates);
+            addDeduped(merged, seenGuids, absCandidates);
+        }
+
         String keyword = sub.getTitle() + " S" + pad(sub.getSeason());
         List<TorrentInfo> kwCandidates = searchAcrossIndexers(keyword);
         fillParsedAll(kwCandidates);
@@ -599,13 +609,28 @@ public class SearchSupplementService {
      * TMDB ID（订阅无 IMDb ID 或索引器不支持 imdbid 时）发起精确搜索；两者都不满足的索引器
      * 直接跳过，不发请求（也不占并发名额——resolveIdParam 在拿许可证之前判定）。
      */
+    /**
+     * 不带季号的外部 ID 检索，供绝对编号的剧使用。
+     * <p>
+     * 走 {@link #searchByExternalId} 的电影分支：那条分支恰好就是「season/ep 都传 null」，
+     * 语义上等价于「这部作品的全部资源」。不新写一份并发检索逻辑。
+     * </p>
+     */
+    private List<TorrentInfo> searchByExternalIdWithoutSeason(PtSubscriptionPlus sub) {
+        return searchByExternalId(sub, SubscriptionMatcher.SEASON_PACK, true);
+    }
+
     private List<TorrentInfo> searchByExternalId(PtSubscriptionPlus sub, int episode) {
+        return searchByExternalId(sub, episode, false);
+    }
+
+    private List<TorrentInfo> searchByExternalId(PtSubscriptionPlus sub, int episode, boolean ignoreSeason) {
         List<PtIndexerPlus> indexers = indexerService.listEnabled();
         if (indexers.isEmpty()) {
             return List.of();
         }
         boolean movie = SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType());
-        Integer season = movie ? null : sub.getSeason();
+        Integer season = (movie || ignoreSeason) ? null : sub.getSeason();
         Integer ep = (movie || episode == SubscriptionMatcher.SEASON_PACK) ? null : episode;
 
         List<TorrentInfo> merged = new CopyOnWriteArrayList<>();
@@ -758,13 +783,21 @@ public class SearchSupplementService {
         }
         Integer subSeason = sub.getSeason();
         Set<String> subTitles = matcher.normalizeAll(sub.getTitle(), sub.getOriginalTitle(), sub.getEnglishTitle());
+        AbsoluteEpisodeMap absolutes = absoluteMapOf(sub);
         List<TorrentInfo> matched = new ArrayList<>();
         for (TorrentInfo candidate : candidates) {
-            Integer parsedSeason = candidate.getParsedSeason();
-            if (parsedSeason == null || !parsedSeason.equals(subSeason)) {
+            if (!titleMatches(subTitles, candidate)) {
                 continue;
             }
-            if (!titleMatches(subTitles, candidate)) {
+            Integer parsedSeason = candidate.getParsedSeason();
+            if (parsedSeason == null || !parsedSeason.equals(subSeason)) {
+                // 季号对不上时再看绝对编号：One Piece S01E1173 其实是第 23 季第 18 集。
+                // 判据与 RSS 链路的 SubscriptionMatcher#matchByAbsolute 保持一致
+                Integer localEpisode = absoluteEpisodeOf(candidate, sub, absolutes);
+                if (localEpisode != null && episode != SubscriptionMatcher.SEASON_PACK
+                        && localEpisode == episode) {
+                    matched.add(candidate);
+                }
                 continue;
             }
             Integer parsedEpisode = candidate.getParsedEpisode();
@@ -777,6 +810,33 @@ public class SearchSupplementService {
             }
         }
         return matched;
+    }
+
+    /** 该订阅的绝对编号映射，非绝对编号的剧返回空对象 */
+    private AbsoluteEpisodeMap absoluteMapOf(PtSubscriptionPlus sub) {
+        if (sub.getId() == null) {
+            return AbsoluteEpisodeMap.EMPTY;
+        }
+        return AbsoluteEpisodeMap.from(episodeService.list(
+                new LambdaQueryWrapper<PtSubscriptionEpisodePlus>()
+                        .eq(PtSubscriptionEpisodePlus::getSubId, sub.getId())
+                        .isNotNull(PtSubscriptionEpisodePlus::getTmdbEpisodeNumber)));
+    }
+
+    /** 候选按绝对编号解释时对应的本地集号，解释不通返回 null。约束同 SubscriptionMatcher#matchByAbsolute */
+    private Integer absoluteEpisodeOf(TorrentInfo candidate, PtSubscriptionPlus sub, AbsoluteEpisodeMap absolutes) {
+        if (absolutes.isEmpty()) {
+            return null;
+        }
+        Integer season = candidate.getParsedSeason();
+        if (season != null && season != 1) {
+            return null;
+        }
+        Integer parsed = candidate.getParsedEpisode();
+        if (parsed == null) {
+            return null;
+        }
+        return absolutes.toLocal(parsed);
     }
 
     /**
