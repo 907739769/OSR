@@ -54,6 +54,17 @@ services:
         condition: service_healthy
     volumes:
       - /data:/data
+    # 探针打在 /api/health（匿名端点，只探数据库连通性）。
+    # 没有它时 frontend 的 depends_on 只等「容器已启动」，Nginx 会在后端就绪前先开始转发，
+    # 用户看到的是一段时间的 502；容器崩在 bean 装配上时 docker ps 也只显示 Up。
+    # start_period 给足 3 分钟：首次启动要跑完 MysqlDdl 里 70 多个迁移脚本。
+    # 镜像是 alpine，wget 由 busybox 提供，无需额外安装 curl。
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:6895/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 180s
 
   frontend:
     build:
@@ -66,7 +77,8 @@ services:
     environment:
       VITE_APP_BASE_API: /api
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
 volumes:
   mysql-data:
