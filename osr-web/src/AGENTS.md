@@ -155,6 +155,15 @@ ptTorrentBlacklist / wecomUser（即全部 `.card-grid` 页面）。新增卡片
 
 ### PC / 移动端对齐
 - 新增功能必须同时改 `views/` 和 `views-mobile/`。
+- **但「一份响应式实现」是这几个页面的正规做法，不是漏做**：`ptFilterConfig` /
+  `ptUpgradeConfig` / `system/config` / `monitor/job` / `monitor/log` 只有 `views/` 一份，
+  在移动端靠 `@media (max-width: 768px)` 适配（`monitor/job` 走 `.mobile-card*` 表格降级）。
+  一屏表单和一个日志终端拆两套只会把还在正常工作的代码复制一遍，此后每处改动都要改两遍。
+  **看到它们没有 `views-mobile/` 对应文件不要去补**——先在移动视口打开看一眼，
+  实测 393px 与 320px 下都无横向溢出、功能完整。
+  它们由 `e2e/mobile.spec.ts` 的 `Responsive-only pages` 两个用例守着
+  （渲染在 MobileLayout 里 + 无横向溢出 + 各自的内容标记可见），
+  改这几个页面前后跑一下：`npx playwright test e2e/mobile.spec.ts --project="Mobile Chrome"`。
 - 两端功能差异由 `device-parity.spec.ts` 比对 composable 解构出的动作集合；
   确有差异要在该 spec 的 `ALLOWED_GAPS` 里登记原因（登记本身就是一次评审）。
 - 选择/分页这层交互外壳按设备不同是正常的，已在 spec 的 `SHELL_ONLY` 里排除。
