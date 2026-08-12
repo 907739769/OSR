@@ -286,11 +286,66 @@ public class SearchSupplementService {
         torrent.setPubDate(request.getPubDate());
 
         subscriptionEngine.fillParsed(torrent);
-        boolean pushed = subscriptionEngine.pushBest(sub, episode, List.of(torrent));
+        int target = resolvePushTarget(sub, episode, torrent);
+        boolean pushed = subscriptionEngine.pushBest(sub, target, List.of(torrent));
 
-        log.info("订阅[{}] {} 手动选择推送[{}]：{}",
-                sub.getId(), sub.getTitle(), torrent.getTitle(), pushed ? "已推送" : "推送失败");
+        log.info("订阅[{}] {} 手动选择推送[{}] 目标{}：{}",
+                sub.getId(), sub.getTitle(), torrent.getTitle(),
+                target == SubscriptionMatcher.SEASON_PACK ? "整季" : "第" + target + "集",
+                pushed ? "已推送" : "推送失败");
         return pushed;
+    }
+
+    /**
+     * 校正手动推送的占位目标：以<b>用户选中的这个种子实际覆盖哪几集</b>为准，而不是发起搜索时的那个目标。
+     * <p>
+     * 手动模式的候选列表是季包/区间包/单集混排的（{@link #filterByTargetManual} 刻意放宽，
+     * 否则连载剧集完结前用户看不到任何候选），而 {@code pushBest} 原样信任调用方传入的集号去占位，
+     * 两者之间此前没有任何校验，于是出现过这样的链路：以整季为目标搜索时列表里出现了单集种子
+     * （当时它对应的那一集确实还缺），用户点推送前那一集已被 RSS 补掉，
+     * {@code resolveTargets} 的季包分支便把<b>当时剩下的全部缺失集</b>占给了这个单集种子——
+     * 它们先被标成 IN_FLIGHT（页面显示"在途"，实际没有任何东西在下），
+     * 直到下载器返回文件列表，{@code DownloadTrackService#trySelectFiles} 才发现包内一个目标集都没有，
+     * 判失败、删种、把集退回缺失，白跑一轮还发一条"种子内不含任何目标集"的通知。
+     * </p>
+     * <p>
+     * 三条规则：季号对不上直接拒绝；种子解析不出集号（真季包 / 只写 S08 不写集号）时维持原目标，
+     * 包内到底有哪几集只有文件列表才知道，交给 {@code trySelectFiles} 兜底；
+     * 种子有明确集号时，整季目标改按它的实际集号占位，具体集目标则要求它确实覆盖该集，否则拒绝。
+     * </p>
+     * <p>电影没有季集号可比对，原样放行（年份/标题校验由手动列表侧的过滤负责）。</p>
+     *
+     * @return 实际用于占位的目标集号
+     * @throws IllegalArgumentException 种子与目标明显不符，拒绝推送（原因会原样回给前端）
+     */
+    private int resolvePushTarget(PtSubscriptionPlus sub, int episode, TorrentInfo torrent) {
+        if (SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType())) {
+            return episode;
+        }
+        Integer parsedSeason = torrent.getParsedSeason();
+        if (parsedSeason != null && !parsedSeason.equals(sub.getSeason())) {
+            throw new IllegalArgumentException("该种子是第 " + parsedSeason + " 季的资源，本订阅是第 "
+                    + sub.getSeason() + " 季，已拒绝推送");
+        }
+        Integer parsedEpisode = torrent.getParsedEpisode();
+        if (parsedEpisode == null) {
+            return episode;
+        }
+        if (episode == SubscriptionMatcher.SEASON_PACK) {
+            return parsedEpisode;
+        }
+        if (!episodeInRange(episode, parsedEpisode, torrent.getParsedEpisodeEnd())) {
+            throw new IllegalArgumentException("该种子是" + describeParsedEpisodes(torrent)
+                    + "的资源，不含第 " + episode + " 集，已拒绝推送");
+        }
+        return episode;
+    }
+
+    /** 候选解析出的集号范围，用于拒绝推送时把原因说清楚 */
+    private String describeParsedEpisodes(TorrentInfo torrent) {
+        Integer start = torrent.getParsedEpisode();
+        Integer end = torrent.getParsedEpisodeEnd();
+        return (end != null && end > start) ? "第 " + start + "-" + end + " 集" : "第 " + start + " 集";
     }
 
     /**

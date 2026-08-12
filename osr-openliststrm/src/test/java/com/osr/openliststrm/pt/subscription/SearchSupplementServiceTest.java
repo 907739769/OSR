@@ -17,6 +17,7 @@ import com.osr.openliststrm.pt.indexer.IndexerCapabilityCache;
 import com.osr.openliststrm.pt.indexer.TorznabClient;
 import com.osr.openliststrm.pt.model.TorrentInfo;
 import com.osr.openliststrm.pt.subscription.TmdbSearchService;
+import com.osr.openliststrm.pt.subscription.dto.PushSelectedRequest;
 import com.osr.openliststrm.pt.subscription.dto.SupplementResult;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
@@ -1121,5 +1122,100 @@ class SearchSupplementServiceTest {
             service.supplementOnCreate(10);
             tg.verify(() -> TgHelper.sendMsg(any(), anyString(), any()), never());
         }
+    }
+
+    // ---------- pushSelected：占位目标必须与选中的种子对得上 ----------
+
+    /** 让 mock 的 fillParsed 把解析结果写进候选，模拟真实 SubscriptionEngine 的行为 */
+    private void stubFillParsed(Integer season, Integer ep, Integer epEnd) {
+        org.mockito.Mockito.doAnswer(inv -> {
+            TorrentInfo t = inv.getArgument(0);
+            t.setParsedSeason(season);
+            t.setParsedEpisode(ep);
+            t.setParsedEpisodeEnd(epEnd);
+            return null;
+        }).when(subscriptionEngine).fillParsed(any());
+    }
+
+    private PushSelectedRequest pushRequest(String title, int episode) {
+        PushSelectedRequest req = new PushSelectedRequest();
+        req.setTitle(title);
+        req.setEpisode(episode);
+        req.setIndexerId(1);
+        req.setGuid(title);
+        req.setDownloadUrl("http://x/" + title);
+        return req;
+    }
+
+    @Test
+    void pushSelected_整季目标选中单集种子_按种子实际集号占位而非占全部缺失集() {
+        PtSubscriptionPlus sub = tvSub(10, 8, 10);
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        stubFillParsed(8, 7, null);
+        when(subscriptionEngine.pushBest(same(sub), eq(7), anyList())).thenReturn(true);
+
+        assertTrue(service.pushSelected(10, SubscriptionMatcher.SEASON_PACK,
+                pushRequest("Great Escape S08E07 2026 1080p WEB-DL", SubscriptionMatcher.SEASON_PACK)));
+
+        // 关键：不能再用 -1 去占位——那会把当前所有缺失集都标成在途，而包里只有第 7 集
+        verify(subscriptionEngine, never()).pushBest(any(), eq(SubscriptionMatcher.SEASON_PACK), anyList());
+    }
+
+    @Test
+    void pushSelected_指定集目标选中别的集_直接拒绝并说明原因() {
+        PtSubscriptionPlus sub = tvSub(10, 8, 10);
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        stubFillParsed(8, 7, null);
+
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> service.pushSelected(10, 8, pushRequest("Great Escape S08E07 2026 1080p WEB-DL", 8)));
+
+        assertTrue(e.getMessage().contains("第 7 集"), e.getMessage());
+        assertTrue(e.getMessage().contains("不含第 8 集"), e.getMessage());
+        verify(subscriptionEngine, never()).pushBest(any(), anyInt(), anyList());
+    }
+
+    @Test
+    void pushSelected_区间包覆盖目标集_放行且沿用目标集号() {
+        PtSubscriptionPlus sub = tvSub(10, 8, 10);
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        stubFillParsed(8, 7, 9);
+        when(subscriptionEngine.pushBest(same(sub), eq(8), anyList())).thenReturn(true);
+
+        assertTrue(service.pushSelected(10, 8, pushRequest("Great Escape S08E07-E09 1080p", 8)));
+    }
+
+    @Test
+    void pushSelected_季包解析不出集号_维持原目标交给文件列表兜底() {
+        PtSubscriptionPlus sub = tvSub(10, 8, 10);
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        stubFillParsed(8, null, null);
+        when(subscriptionEngine.pushBest(same(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList())).thenReturn(true);
+
+        assertTrue(service.pushSelected(10, SubscriptionMatcher.SEASON_PACK,
+                pushRequest("Great Escape S08 2026 1080p WEB-DL", SubscriptionMatcher.SEASON_PACK)));
+    }
+
+    @Test
+    void pushSelected_季号不符_拒绝推送() {
+        PtSubscriptionPlus sub = tvSub(10, 8, 10);
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        stubFillParsed(7, 7, null);
+
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> service.pushSelected(10, 7, pushRequest("Great Escape S07E07 1080p", 7)));
+
+        assertTrue(e.getMessage().contains("第 7 季"), e.getMessage());
+        verify(subscriptionEngine, never()).pushBest(any(), anyInt(), anyList());
+    }
+
+    @Test
+    void pushSelected_电影_不做季集校验() {
+        PtSubscriptionPlus sub = movieSub(20, "Some Movie", "2026");
+        when(subscriptionService.getById(20)).thenReturn(sub);
+        stubFillParsed(null, null, null);
+        when(subscriptionEngine.pushBest(same(sub), eq(0), anyList())).thenReturn(true);
+
+        assertTrue(service.pushSelected(20, 0, pushRequest("Some Movie 2026 2160p WEB-DL", 0)));
     }
 }
