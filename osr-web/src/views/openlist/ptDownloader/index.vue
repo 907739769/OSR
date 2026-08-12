@@ -260,8 +260,10 @@
                 variant="outlined"
               />
             </FormField>
-            <FormField label="自动删种"
-                       tip="按「删种规则」定期清理已达标的种子。仍在 H&R 考核中的种子永远不删；辅种整组同删。开启后请先用规则弹窗里的「预览」确认判定结果">
+            <FormField
+              label="自动删种"
+              tip="按「删种规则」定期清理已达标的种子。仍在 H&R 考核中的种子永远不删；辅种整组同删。开启后请先用规则弹窗里的「预览」确认判定结果"
+            >
               <v-radio-group v-model="form.autoDeleteEnabled" inline hide-details>
                 <v-radio label="关闭" value="0" />
                 <v-radio label="开启" value="1" />

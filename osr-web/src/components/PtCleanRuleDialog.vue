@@ -1,6 +1,8 @@
 <template>
-  <v-dialog :model-value="modelValue" :max-width="mobile ? undefined : 900" :width="mobile ? '92%' : undefined"
-            @update:model-value="(v: boolean) => emit('update:modelValue', v)">
+  <v-dialog
+    :model-value="modelValue" :max-width="mobile ? undefined : 900" :width="mobile ? '92%' : undefined"
+    @update:model-value="(v: boolean) => emit('update:modelValue', v)"
+  >
     <v-card :title="`自动删种规则 - ${downloaderName}`">
       <v-card-text>
         <div class="clean-hint">
@@ -49,17 +51,25 @@
           <v-card-text>
             <v-text-field v-model="form.name" label="规则名" placeholder="如：大包快删" density="comfortable" variant="outlined" />
             <div class="inline-fields">
-              <v-text-field v-model.number="form.minSizeGb" label="体积下界(GB，含)" type="number" min="0"
-                            density="comfortable" variant="outlined" />
-              <v-text-field v-model.number="form.maxSizeGb" label="体积上界(GB，不含)" type="number" min="0"
-                            placeholder="留空表示不限" density="comfortable" variant="outlined" clearable />
+              <v-text-field
+                v-model.number="form.minSizeGb" label="体积下界(GB，含)" type="number" min="0"
+                density="comfortable" variant="outlined"
+              />
+              <v-text-field
+                v-model.number="form.maxSizeGb" label="体积上界(GB，不含)" type="number" min="0"
+                placeholder="留空表示不限" density="comfortable" variant="outlined" clearable
+              />
             </div>
             <FormField tip="种子累计做种时长达到该值才允许删除。用的是下载器统计的做种秒数，暂停期间不计入，与站点考核口径一致">
-              <v-text-field v-model.number="form.minSeedHours" label="最短做种时长(小时)" type="number" min="0"
-                            density="comfortable" variant="outlined" />
+              <v-text-field
+                v-model.number="form.minSeedHours" label="最短做种时长(小时)" type="number" min="0"
+                density="comfortable" variant="outlined"
+              />
             </FormField>
-            <FormField label="删除时连同文件一起删"
-                       tip="选「否」只会从下载器移除种子，文件留在盘上——腾不出空间，一般只在临时排查时用">
+            <FormField
+              label="删除时连同文件一起删"
+              tip="选「否」只会从下载器移除种子，文件留在盘上——腾不出空间，一般只在临时排查时用"
+            >
               <v-radio-group v-model="form.deleteFiles" inline hide-details>
                 <v-radio label="是" value="1" />
                 <v-radio label="否" value="0" />
@@ -72,8 +82,10 @@
               </v-radio-group>
             </FormField>
             <FormField tip="值小的先匹配。把「大包」规则的顺序排在「小包」之前，才能实现分级删除">
-              <v-text-field v-model.number="form.sortOrder" label="匹配顺序" type="number" min="0"
-                            density="comfortable" variant="outlined" />
+              <v-text-field
+                v-model.number="form.sortOrder" label="匹配顺序" type="number" min="0"
+                density="comfortable" variant="outlined"
+              />
             </FormField>
             <v-text-field v-model="form.remark" label="备注" density="comfortable" variant="outlined" />
             <div class="rule-form-actions">
