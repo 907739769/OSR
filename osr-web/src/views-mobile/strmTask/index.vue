@@ -72,6 +72,7 @@
               <v-icon class="card-title-icon" icon="mdi-file-video-outline" size="18" />
               <span class="card-title card-title--link" @click.stop="showFullText(task.strmTaskPath, 'STRM目录')">{{ task.strmTaskPath }}</span>
             </div>
+            <v-chip v-if="hasOverride(task)" size="x-small" color="primary" variant="tonal">已覆盖</v-chip>
             <StatusChip :value="task.strmTaskStatus" />
           </div>
           <div class="card-time">
@@ -128,6 +129,50 @@
                 <v-radio label="启用" value="1" />
               </v-radio-group>
             </FormField>
+
+            <div class="section-divider"><span>任务级覆盖</span></div>
+            <p class="override-tip">只勾选需要覆盖的项，不勾选的沿用全局配置。</p>
+
+            <div class="override-row">
+              <v-checkbox-btn v-model="overrideForm.outputDir.enabled" label="输出根目录" />
+              <v-text-field
+                v-model="overrideForm.outputDir.value"
+                placeholder="如 /data/strm-anime"
+                density="compact"
+                variant="outlined"
+                hide-details
+                :disabled="!overrideForm.outputDir.enabled"
+              />
+            </div>
+
+            <div class="override-row">
+              <v-checkbox-btn v-model="overrideForm.downloadSub.enabled" label="下载字幕" />
+              <v-radio-group
+                v-model="overrideForm.downloadSub.value"
+                inline
+                hide-details
+                density="compact"
+                :disabled="!overrideForm.downloadSub.enabled"
+              >
+                <v-radio label="否" value="0" />
+                <v-radio label="是" value="1" />
+              </v-radio-group>
+            </div>
+
+            <div class="override-row">
+              <v-checkbox-btn v-model="overrideForm.minFileSize.enabled" label="最小文件体积" />
+              <v-text-field
+                v-model.number="overrideForm.minFileSize.value"
+                type="number"
+                min="0"
+                suffix="MB"
+                density="compact"
+                variant="outlined"
+                hide-details
+                :disabled="!overrideForm.minFileSize.enabled"
+              />
+            </div>
+            <p class="override-tip">填 0 表示不限。小于该体积的视频不生成 STRM，常用来滤掉花絮和预告。</p>
           </v-form>
         </v-card-text>
         <v-card-actions>
@@ -157,8 +202,9 @@ const {
   getList, handleQuery, resetQuery,
   selectedIds,
   open, dialogTitle, submitLoading, formRef, form,
-  handleAdd, handleUpdate, submitForm,
+  handleAdd, handleUpdate,
   handleDelete, handleExecuteOne,
+  overrideForm, hasOverride, submitFormWithOverride,
   toggleSelect, handleCardClick, clearSelection,
   isAllPageSelected, toggleSelectAllPage,
   totalPages, prevPage, nextPage, handleSizeChange,
@@ -182,7 +228,7 @@ const handleSubmitClick = () => {
     message.warning('STRM目录不能为空')
     return
   }
-  submitForm()
+  submitFormWithOverride()
 }
 
 // 搜索输入防抖：输入停止 300ms 后自动触发搜索
@@ -196,3 +242,41 @@ watch(
   () => debouncedSearch()
 )
 </script>
+
+<style scoped>
+.section-divider {
+  display: flex;
+  align-items: center;
+  margin: 18px 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--osr-text-primary);
+
+  span {
+    padding-right: 12px;
+  }
+
+  &::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--osr-border-light);
+  }
+}
+
+.override-tip {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--osr-text-secondary);
+  line-height: 1.5;
+}
+
+/* 移动端一行放不下「勾选框 + 控件」，改成纵向堆叠 */
+.override-row {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  margin-bottom: 12px;
+}
+</style>

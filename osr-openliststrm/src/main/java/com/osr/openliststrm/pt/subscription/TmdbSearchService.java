@@ -10,8 +10,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.TreeMap;
 
 /**
  * 把 TMDb 返回的原始 JSON 转成结构化 DTO。
@@ -311,6 +315,49 @@ public class TmdbSearchService {
             }
         }
         throw new IllegalArgumentException("TMDb 中剧集 " + tmdbId + " 不存在第 " + season + " 季");
+    }
+
+    /**
+     * 取剧集指定季「集号 -> 播出日期」的映射，供追剧日历使用。
+     * <p>
+     * 走 TMDb 的季端点 {@code /tv/{id}/season/{n}}（{@code TMDbApiService#getSeasonEpisodes}），
+     * 该响应经 tmdb_cache 缓存，同一季反复取不会真打 TMDb。
+     * </p>
+     * <p>
+     * 没有 air_date 的集直接不进 map（未定档、TMDb 未录入），调用方据此把它们留成 NULL——
+     * 按播出周期推算出来的日期比没有日期更误导人。日期串非法时同样跳过该集而不是整季失败：
+     * TMDb 上偶有 "" 或残缺日期，不该让一整季都排不进日历。
+     * </p>
+     *
+     * @return 集号到播出日期的映射，取不到季信息时返回空 map（不抛异常，日历是只读视图，
+     *         单个订阅取不到不该让整轮同步中断）
+     */
+    public Map<Integer, LocalDate> getSeasonEpisodeAirDates(String tmdbId, int season) {
+        JSONArray episodes = readArray(
+                tmDbApiService.getSeasonEpisodes(openlistConfig.getTmdbApiKey(), Integer.parseInt(tmdbId), season),
+                "episodes");
+        if (episodes == null) {
+            return Map.of();
+        }
+        // TreeMap：按集号升序。位置兜底（AirDateResolver）依赖这个顺序，TMDb 不保证返回有序
+        Map<Integer, LocalDate> result = new TreeMap<>();
+        for (int i = 0; i < episodes.size(); i++) {
+            JSONObject item = episodes.getJSONObject(i);
+            if (item == null) {
+                continue;
+            }
+            Integer number = item.getInteger("episode_number");
+            String airDate = item.getString("air_date");
+            if (number == null || StringUtils.isBlank(airDate)) {
+                continue;
+            }
+            try {
+                result.put(number, LocalDate.parse(airDate));
+            } catch (DateTimeParseException e) {
+                log.debug("TMDb 剧集 {} 第 {} 季第 {} 集的播出日期 \"{}\" 无法解析，跳过", tmdbId, season, number, airDate);
+            }
+        }
+        return result;
     }
 
     /**

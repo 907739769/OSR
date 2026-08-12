@@ -8,6 +8,8 @@ import com.osr.common.mybatisplus.BaseEntity;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.util.Date;
+
 /**
  * <p>
  * PT 订阅每集状态。这张表是「缺集」的唯一真相来源：
@@ -38,6 +40,28 @@ public class PtSubscriptionEpisodePlus extends BaseEntity {
     /** 状态 MISSING/IN_FLIGHT/IN_LIBRARY/UPGRADING/BLOCKED */
     @TableField("state")
     private String state;
+
+    /**
+     * 播出日期（TMDb air_date），追剧日历按它排格子。
+     * <p>
+     * NULL 表示未定档、TMDb 未录入、或存量行尚未被 {@code EpisodeAirDateSyncTask} 同步到。
+     * 日历只展示有日期的集，不做任何推算——按周期猜出来的日期比没有日期更误导人。
+     * </p>
+     */
+    @TableField("air_date")
+    private Date airDate;
+
+    /**
+     * 该集在 TMDb 上的集号。普通剧集与 {@link #episode} 相同；长篇动画是绝对集号
+     * （航海王第 23 季第 13 集 = 1168）。
+     * <p>
+     * 存在的意义是与媒体库对账：媒体库按刮削结果组织，绝对编号的动画库里这一集是
+     * S01E1168，拿本地的「第 23 季第 13 集」去问永远查不到。见
+     * {@code SubscriptionService#queryLibrary}。
+     * </p>
+     */
+    @TableField("tmdb_episode_number")
+    private Integer tmdbEpisodeNumber;
 
     /** 连续失败次数，达到阈值后状态转 BLOCKED 停止自动重试，成功入库前不清零 */
     @TableField("fail_count")

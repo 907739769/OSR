@@ -211,8 +211,10 @@
             <FormField tip="「仅做种」的下载器不参与订阅下载的负载均衡，用于接收 IYUU 转移/辅种过来的种子">
               <v-select v-model="form.role" label="分工" :items="ROLE_OPTIONS" />
             </FormField>
-            <FormField label="自动删种"
-                       tip="按「删种规则」定期清理已达标的种子。仍在 H&R 考核中的种子永远不删；辅种整组同删">
+            <FormField
+              label="自动删种"
+              tip="按「删种规则」定期清理已达标的种子。仍在 H&R 考核中的种子永远不删；辅种整组同删"
+            >
               <v-radio-group v-model="form.autoDeleteEnabled" inline hide-details>
                 <v-radio label="关闭" value="0" />
                 <v-radio label="开启" value="1" />

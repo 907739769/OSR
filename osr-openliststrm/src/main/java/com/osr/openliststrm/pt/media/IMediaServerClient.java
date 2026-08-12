@@ -34,6 +34,21 @@ public interface IMediaServerClient {
     Set<Integer> listEpisodes(PtMediaServerPlus config, String tmdbId, int season) throws IOException;
 
     /**
+     * 查询整部剧在库中出现过的全部集号，不分季。
+     * <p>
+     * 给「媒体库的分季方式与订阅不一致」的情况兜底：长篇动画常被整部平铺在第 1 季、
+     * 用绝对集号编号，此时按季查恒为空。调用方只在按季查不到、且该集的 TMDb 集号
+     * 与本地集号不同时才会用到它，普通剧集不会触发这次请求。
+     * </p>
+     * <p>
+     * 默认返回空集：实现该接口的服务器若没有「全剧查询」的能力，退化成原有的按季匹配即可。
+     * </p>
+     */
+    default Set<Integer> listAllEpisodeNumbers(PtMediaServerPlus config, String tmdbId) throws IOException {
+        return Set.of();
+    }
+
+    /**
      * 查询某电影是否已在库中。
      *
      * @param tmdbId TMDb 电影 ID

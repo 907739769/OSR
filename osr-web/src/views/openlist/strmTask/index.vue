@@ -82,6 +82,9 @@
           <div class="path-text" :title="item.strmTaskPath">
             <v-icon icon="mdi-folder-open-outline" size="16" />
             {{ item.strmTaskPath }}
+            <v-chip v-if="hasOverride(item)" size="x-small" color="primary" variant="tonal" class="override-chip">
+              已覆盖
+            </v-chip>
           </div>
         </template>
         <template #item.strmTaskStatus="{ item }">
@@ -115,6 +118,52 @@
                 <v-radio label="启用" value="1" />
               </v-radio-group>
             </FormField>
+
+            <div class="section-divider"><span>任务级覆盖</span></div>
+            <p class="override-tip">只勾选需要覆盖的项，不勾选的沿用全局配置（参数设置页里的 STRM 相关项）。</p>
+
+            <div class="override-row">
+              <v-checkbox-btn v-model="overrideForm.outputDir.enabled" label="输出根目录" class="override-toggle" />
+              <v-text-field
+                v-model="overrideForm.outputDir.value"
+                placeholder="如 /data/strm-anime"
+                density="compact"
+                variant="outlined"
+                hide-details
+                :disabled="!overrideForm.outputDir.enabled"
+                class="override-input"
+              />
+            </div>
+
+            <div class="override-row">
+              <v-checkbox-btn v-model="overrideForm.downloadSub.enabled" label="下载字幕" class="override-toggle" />
+              <v-radio-group
+                v-model="overrideForm.downloadSub.value"
+                inline
+                hide-details
+                density="compact"
+                :disabled="!overrideForm.downloadSub.enabled"
+              >
+                <v-radio label="否" value="0" />
+                <v-radio label="是" value="1" />
+              </v-radio-group>
+            </div>
+
+            <div class="override-row">
+              <v-checkbox-btn v-model="overrideForm.minFileSize.enabled" label="最小文件体积" class="override-toggle" />
+              <v-text-field
+                v-model.number="overrideForm.minFileSize.value"
+                type="number"
+                min="0"
+                suffix="MB"
+                density="compact"
+                variant="outlined"
+                hide-details
+                :disabled="!overrideForm.minFileSize.enabled"
+                class="override-input override-input--num"
+              />
+            </div>
+            <p class="override-tip">体积填 0 表示不限。小于该体积的视频不生成 STRM，常用来滤掉花絮和预告。</p>
           </v-form>
         </v-card-text>
         <v-card-actions>
@@ -144,8 +193,9 @@ const {
   getList, handleQuery, resetQuery,
   selectedIds, single, multiple, handleSelectionChange,
   open, dialogTitle, submitLoading, formRef, form,
-  handleAdd, handleUpdate, submitForm,
-  handleDelete, handleExecuteOne, handleExecute
+  handleAdd, handleUpdate,
+  handleDelete, handleExecuteOne, handleExecute,
+  overrideForm, hasOverride, submitFormWithOverride
 } = useStrmTask()
 
 // DirectoryTreeSelect 不支持 v-form 的 :rules 校验，改为提交前手动校验必填项
@@ -154,7 +204,7 @@ const handleSubmitClick = () => {
     message.warning('STRM目录不能为空')
     return
   }
-  submitForm()
+  submitFormWithOverride()
 }
 
 const headers = [
@@ -194,3 +244,64 @@ watch(
   () => debouncedSearch()
 )
 </script>
+
+<style scoped>
+.override-chip {
+  margin-left: 8px;
+}
+
+.section-divider {
+  display: flex;
+  align-items: center;
+  margin: 20px 0 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--osr-text-primary);
+
+  span {
+    padding-right: 12px;
+  }
+
+  &::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--osr-border-light);
+  }
+}
+
+.override-tip {
+  margin: 0 0 12px;
+  font-size: 12px;
+  color: var(--osr-text-secondary);
+  line-height: 1.5;
+}
+
+.override-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+/* 勾选框用 v-checkbox-btn 而不是 v-checkbox：后者是表单字段，内部套一层 VInput，
+   放进这种紧凑行里就得写 min-height/label opacity 去压（ptSubscription 的
+   .override-checkbox 正是那样），需要覆盖样式本身就是选错组件的信号 */
+.override-toggle {
+  flex: none;
+  /* 130px 是「最小文件体积」这个最长标签不折行的宽度 */
+  width: 130px;
+}
+
+.override-input {
+  flex: 1;
+  min-width: 160px;
+}
+
+.override-input--num {
+  flex: none;
+  width: 140px;
+  min-width: 0;
+}
+</style>

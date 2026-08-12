@@ -521,4 +521,94 @@ class SubscriptionServiceTest {
         ep.setState(state);
         return ep;
     }
+    // ---------- 媒体库编号与本地编号不一致（长篇动画） ----------
+
+    /**
+     * 航海王式的三方编号错位：种子与本地都用「第 23 季第 13 集」，TMDb 主数据用绝对集号
+     * 1156 起，而媒体库把整部剧平铺在第 1 季、按绝对集号编号。
+     * 按季查恒为空，必须靠 TMDb 集号才能对上。
+     */
+    private void stubAbsoluteNumberedAnime() throws Exception {
+        when(tmdbSearchService.getDetail(anyString(), anyString())).thenReturn(detail("航海王", "1999"));
+        when(tmdbSearchService.getSeasonEpisodeCount(anyString(), anyInt())).thenReturn(4);
+        java.util.Map<Integer, java.time.LocalDate> airDates = new java.util.TreeMap<>();
+        for (int i = 0; i < 4; i++) {
+            airDates.put(1156 + i, java.time.LocalDate.parse("2026-04-05").plusWeeks(i));
+        }
+        when(tmdbSearchService.getSeasonEpisodeAirDates(anyString(), anyInt())).thenReturn(airDates);
+        stubSaveAssignsId(84);
+        stubEmbyConfigured();
+    }
+
+    @Test
+    void subscribe_媒体库按绝对集号平铺_靠TMDb集号也能判定已入库() throws Exception {
+        stubAbsoluteNumberedAnime();
+        // 第 23 季在库里是空的（全部条目都挂在第 1 季）
+        when(mediaServerClient.listEpisodes(any(), anyString(), anyInt())).thenReturn(Set.of());
+        // 整部剧里已有绝对号 1156 与 1158，对应本地第 1、3 集
+        when(mediaServerClient.listAllEpisodeNumbers(any(), anyString())).thenReturn(Set.of(1156, 1158));
+
+        service.subscribe(tvRequest());
+
+        ArgumentCaptor<List<PtSubscriptionEpisodePlus>> captor = ArgumentCaptor.forClass(List.class);
+        verify(episodeService).saveBatch(captor.capture());
+        List<PtSubscriptionEpisodePlus> episodes = captor.getValue();
+
+        assertEquals(List.of("IN_LIBRARY", "MISSING", "IN_LIBRARY", "MISSING"),
+                episodes.stream().map(PtSubscriptionEpisodePlus::getState).toList());
+        // 绝对集号要落库，后续对账与日历都靠它
+        assertEquals(List.of(1156, 1157, 1158, 1159),
+                episodes.stream().map(PtSubscriptionEpisodePlus::getTmdbEpisodeNumber).toList());
+    }
+
+    @Test
+    void subscribe_TMDb集号与本地一致时_不做全剧匹配() throws Exception {
+        // 普通剧集：本地 1..3 与 TMDb 1..3 相同。此时若放开全剧匹配，
+        // 第 2 季第 3 集会把第 1 季第 3 集误判成已入库，所以这条路径必须不触发
+        when(tmdbSearchService.getDetail(anyString(), anyString())).thenReturn(detail("绝命毒师", "2008"));
+        when(tmdbSearchService.getSeasonEpisodeCount(anyString(), anyInt())).thenReturn(3);
+        java.util.Map<Integer, java.time.LocalDate> airDates = new java.util.TreeMap<>();
+        airDates.put(1, java.time.LocalDate.parse("2026-08-01"));
+        airDates.put(2, java.time.LocalDate.parse("2026-08-08"));
+        airDates.put(3, java.time.LocalDate.parse("2026-08-15"));
+        when(tmdbSearchService.getSeasonEpisodeAirDates(anyString(), anyInt())).thenReturn(airDates);
+        stubSaveAssignsId(11);
+        stubEmbyConfigured();
+        when(mediaServerClient.listEpisodes(any(), anyString(), anyInt())).thenReturn(Set.of(1));
+
+        service.subscribe(tvRequest());
+
+        ArgumentCaptor<List<PtSubscriptionEpisodePlus>> captor = ArgumentCaptor.forClass(List.class);
+        verify(episodeService).saveBatch(captor.capture());
+        assertEquals(List.of("IN_LIBRARY", "MISSING", "MISSING"),
+                captor.getValue().stream().map(PtSubscriptionEpisodePlus::getState).toList());
+        verify(mediaServerClient, never()).listAllEpisodeNumbers(any(), anyString());
+    }
+
+    @Test
+    void subscribe_库按TMDb编号刮削时_按季即可命中() throws Exception {
+        stubAbsoluteNumberedAnime();
+        // 库按 TMDb 编号刮削：第 23 季里直接有 1156
+        when(mediaServerClient.listEpisodes(any(), anyString(), anyInt())).thenReturn(Set.of(1156));
+        when(mediaServerClient.listAllEpisodeNumbers(any(), anyString())).thenReturn(Set.of());
+
+        service.subscribe(tvRequest());
+
+        ArgumentCaptor<List<PtSubscriptionEpisodePlus>> captor = ArgumentCaptor.forClass(List.class);
+        verify(episodeService).saveBatch(captor.capture());
+        assertEquals(List.of("IN_LIBRARY", "MISSING", "MISSING", "MISSING"),
+                captor.getValue().stream().map(PtSubscriptionEpisodePlus::getState).toList());
+    }
+
+    @Test
+    void subscribe_多集都要兜底时_全剧编号只拉一次() throws Exception {
+        // 整部剧的编号是一次 HTTP 请求，缺 N 集不能就打 N 次
+        stubAbsoluteNumberedAnime();
+        when(mediaServerClient.listEpisodes(any(), anyString(), anyInt())).thenReturn(Set.of());
+        when(mediaServerClient.listAllEpisodeNumbers(any(), anyString())).thenReturn(Set.of(1156));
+
+        service.subscribe(tvRequest());
+
+        verify(mediaServerClient, times(1)).listAllEpisodeNumbers(any(), anyString());
+    }
 }

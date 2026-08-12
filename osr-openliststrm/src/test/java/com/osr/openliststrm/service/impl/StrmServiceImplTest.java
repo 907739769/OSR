@@ -3,6 +3,7 @@ package com.osr.openliststrm.service.impl;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.osr.openliststrm.helper.StrmHelper;
 import com.osr.openliststrm.mybatisplus.domain.OpenlistStrmPlus;
+import com.osr.openliststrm.mybatisplus.domain.OpenlistStrmTaskPlus;
 import com.osr.openliststrm.mybatisplus.service.IOpenlistStrmPlusService;
 import com.osr.openliststrm.service.IStrmService;
 import org.junit.jupiter.api.BeforeEach;
@@ -14,6 +15,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -144,5 +146,91 @@ class StrmServiceImplTest {
 
         assertEquals(1, outcome.retried());
         assertEquals(249, outcome.remaining());
+    }
+    // ------------------------------------------------------------------
+    // 任务级覆盖：按路径挑出生效的任务
+    // ------------------------------------------------------------------
+
+    private static OpenlistStrmTaskPlus task(int id, String path, String override) {
+        OpenlistStrmTaskPlus t = new OpenlistStrmTaskPlus();
+        t.setStrmTaskId(id);
+        t.setStrmTaskPath(path);
+        t.setStrmOverride(override);
+        return t;
+    }
+
+    @Test
+    void 挑任务_没有任务或路径为空时返回null() {
+        assertNull(StrmServiceImpl.pickCoveringTask(null, "/电视剧"));
+        assertNull(StrmServiceImpl.pickCoveringTask(List.of(), "/电视剧"));
+        assertNull(StrmServiceImpl.pickCoveringTask(List.of(task(1, "/电视剧", null)), null));
+    }
+
+    @Test
+    void 挑任务_精确匹配与子目录都算覆盖() {
+        List<OpenlistStrmTaskPlus> tasks = List.of(task(1, "/电视剧", null));
+
+        assertEquals(1, StrmServiceImpl.pickCoveringTask(tasks, "/电视剧").getStrmTaskId());
+        assertEquals(1, StrmServiceImpl.pickCoveringTask(tasks, "/电视剧/三体/S01").getStrmTaskId());
+    }
+
+    @Test
+    void 挑任务_同前缀的兄弟目录不算覆盖() {
+        // 与 subtreeLikePrefix 同一个坑：不补分隔符时 /电视剧 会把 /电视剧2 一起吃掉
+        List<OpenlistStrmTaskPlus> tasks = List.of(task(1, "/电视剧", null));
+
+        assertNull(StrmServiceImpl.pickCoveringTask(tasks, "/电视剧2"));
+        assertNull(StrmServiceImpl.pickCoveringTask(tasks, "/电视剧2/三体"));
+    }
+
+    @Test
+    void 挑任务_多个都覆盖时取最具体的那个() {
+        List<OpenlistStrmTaskPlus> tasks = List.of(
+                task(1, "/", null),
+                task(2, "/电视剧", null),
+                task(3, "/电视剧/日剧", null));
+
+        assertEquals(3, StrmServiceImpl.pickCoveringTask(tasks, "/电视剧/日剧/孤独的美食家").getStrmTaskId());
+        assertEquals(2, StrmServiceImpl.pickCoveringTask(tasks, "/电视剧/三体").getStrmTaskId());
+        // 根任务兜底：能覆盖一切，但长度最短，永远输给更具体的
+        assertEquals(1, StrmServiceImpl.pickCoveringTask(tasks, "/电影/沙丘").getStrmTaskId());
+    }
+
+    @Test
+    void 挑任务_末尾斜杠不影响匹配() {
+        List<OpenlistStrmTaskPlus> tasks = List.of(task(1, "/电视剧/", null));
+
+        assertEquals(1, StrmServiceImpl.pickCoveringTask(tasks, "/电视剧").getStrmTaskId());
+        assertEquals(1, StrmServiceImpl.pickCoveringTask(tasks, "/电视剧/").getStrmTaskId());
+        assertEquals(1, StrmServiceImpl.pickCoveringTask(tasks, "/电视剧/三体").getStrmTaskId());
+    }
+
+    @Test
+    void 挑任务_路径重复配置时按id取小保证结果稳定() {
+        List<OpenlistStrmTaskPlus> tasks = List.of(
+                task(7, "/电视剧", null),
+                task(3, "/电视剧", null));
+
+        assertEquals(3, StrmServiceImpl.pickCoveringTask(tasks, "/电视剧/三体").getStrmTaskId());
+    }
+
+    @Test
+    void 挑任务_停用的任务同样参与匹配() {
+        // status 管的是「定时任务要不要自动跑」，覆盖描述的是「这个目录该怎么生成」。
+        // 停用后被 TG 手动触发一次就写到另一个根目录，正是要避免的不一致
+        OpenlistStrmTaskPlus disabled = task(1, "/电视剧", "{\"outputDir\":\"/data/strm-tv\"}");
+        disabled.setStrmTaskStatus("0");
+
+        assertEquals(1, StrmServiceImpl.pickCoveringTask(List.of(disabled), "/电视剧/三体").getStrmTaskId());
+    }
+
+    @Test
+    void 挑任务_跳过路径为空的脏数据() {
+        List<OpenlistStrmTaskPlus> tasks = new java.util.ArrayList<>();
+        tasks.add(task(1, null, null));
+        tasks.add(null);
+        tasks.add(task(2, "/电视剧", null));
+
+        assertEquals(2, StrmServiceImpl.pickCoveringTask(tasks, "/电视剧/三体").getStrmTaskId());
     }
 }
