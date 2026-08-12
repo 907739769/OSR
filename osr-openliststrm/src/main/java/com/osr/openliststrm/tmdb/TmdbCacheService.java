@@ -20,6 +20,12 @@ public class TmdbCacheService {
     /** 默认缓存有效期（分钟） */
     public static final int DEFAULT_TTL_MINUTES = 1440;
 
+    /** 清理过期缓存时的单批条数 */
+    static final int PURGE_BATCH_SIZE = 1000;
+
+    /** 单轮清理最多执行的批次数，兜住「删除速度赶不上过期速度」时的无限循环 */
+    static final int PURGE_MAX_BATCHES = 100;
+
     @Autowired
     private TmdbCacheMapper tmdbCacheMapper;
 
@@ -70,14 +76,40 @@ public class TmdbCacheService {
     }
 
     /**
-     * 清理所有过期缓存（可由定时任务调用）
+     * 清理所有过期缓存，由 {@link TmdbCachePurgeTask} 定时调用。
+     * <p>
+     * 过期行不会被 {@link #getCachedResponse} 读到，但也不会自己消失：只有同一 (cache_key, cache_type)
+     * 再次被请求时才会被 upsert 覆盖，那些「刮完一次就再没人问过」的 key 会永久留在表里。
+     * 因此必须有人定期删——本方法就是那个人。
+     * </p>
+     * <p>
+     * 分批删除而不是一条 DELETE 删干净：首次启用时表里可能已经积压了几十万行，
+     * 单条语句会长时间持有行锁并撑大 undo log，把刮削链路一起卡住。
+     * </p>
+     *
+     * @return 本轮实际删除的总行数
      */
-    public void purgeExpired() {
-        LambdaQueryWrapper<TmdbCache> wrapper = new LambdaQueryWrapper<>();
-        wrapper.lt(TmdbCache::getExpireTime, new Date());
-        int deleted = tmdbCacheMapper.delete(wrapper);
-        if (deleted > 0) {
-            log.info("已清理{}条过期TMDb缓存", deleted);
+    public int purgeExpired() {
+        Date now = new Date();
+        int total = 0;
+        for (int batch = 0; batch < PURGE_MAX_BATCHES; batch++) {
+            int deleted = tmdbCacheMapper.deleteExpired(now, PURGE_BATCH_SIZE);
+            total += deleted;
+            if (deleted < PURGE_BATCH_SIZE) {
+                // 最后一批没删满，说明已经删完了
+                return logPurged(total);
+            }
         }
+        // 删满了所有批次仍可能有剩余，留给下一轮——这里只是兜住单轮无限循环，不是错误
+        log.warn("TMDb过期缓存单轮清理达到上限{}批（{}条），剩余部分下一轮继续",
+                PURGE_MAX_BATCHES, PURGE_MAX_BATCHES * PURGE_BATCH_SIZE);
+        return total;
+    }
+
+    private int logPurged(int total) {
+        if (total > 0) {
+            log.info("已清理{}条过期TMDb缓存", total);
+        }
+        return total;
     }
 }

@@ -10,4 +10,11 @@
             expire_time = new.expire_time
     </insert>
 
+    <delete id="deleteExpired">
+        DELETE FROM tmdb_cache
+        WHERE expire_time &lt; #{now}
+        ORDER BY expire_time
+        LIMIT #{limit}
+    </delete>
+
 </mapper>
