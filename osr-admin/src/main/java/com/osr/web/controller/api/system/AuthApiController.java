@@ -10,6 +10,7 @@ import com.osr.common.core.domain.entity.SysMenu;
 import com.osr.common.core.domain.entity.SysUser;
 import com.osr.common.utils.*;
 import com.osr.framework.manager.AsyncManager;
+import com.osr.framework.security.LoginAttemptService;
 import com.osr.framework.manager.factory.AsyncFactory;
 import com.osr.common.annotation.Anonymous;
 import com.osr.system.service.ISysConfigService;
@@ -52,6 +53,9 @@ public class AuthApiController extends BaseController {
     @Autowired
     private JwtTokenUtil jwtTokenUtil;
 
+    @Autowired
+    private LoginAttemptService loginAttemptService;
+
     private static final BCryptPasswordEncoder bcryptEncoder = new BCryptPasswordEncoder();
     private static final String SALT_CHARS = "0123456789abcdef";
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -78,19 +82,30 @@ public class AuthApiController extends BaseController {
             return Result.error(401, "用户名长度必须在2到20个字符之间");
         }
 
+        String ip = ServletUtils.getRequest() != null ? IpUtils.getIpAddr(ServletUtils.getRequest()) : "0.0.0.0";
+
         // IP黑名单校验
         String blackStr = sysConfigService.selectConfigByKey("sys.login.blackIPList");
         if (StringUtils.isNotEmpty(blackStr)) {
-            String ip = ServletUtils.getRequest() != null ? IpUtils.getIpAddr(ServletUtils.getRequest()) : "0.0.0.0";
             if (IpUtils.isMatchedIp(blackStr, ip)) {
                 AsyncManager.me().execute(AsyncFactory.recordLogininfor(username, Constants.LOGIN_FAIL, "IP被禁止登录"));
                 return Result.error(403, "您的IP已被禁止登录");
             }
         }
 
+        // 失败次数锁定校验。放在查库之前：锁定期内不该再为爆破流量付出一次用户查询
+        long lockSeconds = loginAttemptService.lockedSecondsRemaining(username, ip);
+        if (lockSeconds > 0) {
+            long lockMinutes = (lockSeconds + 59) / 60;
+            AsyncManager.me().execute(AsyncFactory.recordLogininfor(username, Constants.LOGIN_FAIL, "登录失败次数过多，已临时锁定"));
+            return Result.error(429, "登录失败次数过多，请 " + lockMinutes + " 分钟后再试");
+        }
+
         // 查询用户
         SysUser user = userService.selectUserByLoginName(username);
         if (user == null) {
+            // 用户不存在同样计数：只对真实账号计数，等于给攻击者一个「这个用户名存在」的探针
+            loginAttemptService.recordFailure(username, ip);
             AsyncManager.me().execute(AsyncFactory.recordLogininfor(username, Constants.LOGIN_FAIL, "用户不存在"));
             return Result.error(401, "用户名或密码错误");
         }
@@ -107,13 +122,15 @@ public class AuthApiController extends BaseController {
 
         // 密码校验
         if (!matches(user, password)) {
+            loginAttemptService.recordFailure(username, ip);
             AsyncManager.me().execute(AsyncFactory.recordLogininfor(username, Constants.LOGIN_FAIL, "密码错误"));
             return Result.error(401, "用户名或密码错误");
         }
 
+        loginAttemptService.recordSuccess(username, ip);
         AsyncManager.me().execute(AsyncFactory.recordLogininfor(username, Constants.LOGIN_SUCCESS, MessageUtils.message("user.login.success")));
         // 更新登录信息（IP + 登录时间）
-        userService.updateLoginInfo(user.getUserId(), IpUtils.getIpAddr(getRequest()), DateUtils.getNowDate());
+        userService.updateLoginInfo(user.getUserId(), ip, DateUtils.getNowDate());
 
         Map<String, Object> claims = new HashMap<>();
         claims.put("loginName", user.getLoginName());
