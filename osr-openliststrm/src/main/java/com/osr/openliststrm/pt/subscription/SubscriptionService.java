@@ -219,10 +219,37 @@ public class SubscriptionService {
         String newStatus = allInLibrary ? STATUS_COMPLETED : STATUS_ACTIVE;
         boolean statusChanged = !newStatus.equals(sub.getStatus()) && !STATUS_PAUSED.equals(sub.getStatus());
         boolean totalChanged = totalEpisodes != sub.getTotalEpisodes();
-        if (statusChanged || totalChanged) {
+        boolean titleChanged = refreshChineseTitle(sub);
+        if (statusChanged || totalChanged || titleChanged) {
             sub.setStatus(STATUS_PAUSED.equals(sub.getStatus()) ? STATUS_PAUSED : newStatus);
             sub.setTotalEpisodes(totalEpisodes);
             subscriptionService.updateById(sub);
+        }
+    }
+
+    /**
+     * 存量订阅的标题补中文：早先建的订阅存的是 TMDb 详情返回的标题，缺中文翻译时那就是英文，
+     * 借对账刷新顺手用别名接口把它换成中文名。
+     * <p>
+     * 标题本就含中文时 {@code resolveChineseTitle} 直接返回原值、不发请求；查不到中文别名同样返回原值，
+     * 所以这里只在真的换出新标题时才算改动。TMDb 响应有 10 分钟进程内 + 24 小时数据库两级缓存，
+     * 对账高频调用不会真的高频打 TMDb。
+     * </p>
+     *
+     * @return 标题是否被改写
+     */
+    private boolean refreshChineseTitle(PtSubscriptionPlus sub) {
+        try {
+            String title = tmdbSearchService.resolveChineseTitle(sub.getMediaType(), sub.getTmdbId(), sub.getTitle());
+            if (StringUtils.isBlank(title) || title.equals(sub.getTitle())) {
+                return false;
+            }
+            log.info("订阅[{}] 标题补中文名：{} → {}", sub.getId(), sub.getTitle(), title);
+            sub.setTitle(title);
+            return true;
+        } catch (Exception e) {
+            log.warn("刷新订阅[{}]中文标题失败，沿用原标题：{}", sub.getId(), e.getMessage());
+            return false;
         }
     }
 

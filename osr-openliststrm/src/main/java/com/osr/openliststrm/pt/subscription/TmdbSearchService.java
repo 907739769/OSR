@@ -32,6 +32,9 @@ public class TmdbSearchService {
     /** 媒体类型：电影 */
     public static final String TYPE_MOVIE = "MOVIE";
 
+    /** 中文别名的地区优先级（TMDb alternative_titles 的 iso_3166_1）：大陆 → 台湾 → 香港 → 新加坡 */
+    private static final List<String> CHINESE_REGIONS = List.of("CN", "TW", "HK", "SG");
+
     @Autowired
     private TMDbApiService tmDbApiService;
 
@@ -72,6 +75,7 @@ public class TmdbSearchService {
             throw new IllegalArgumentException("TMDb 未返回 " + tmdbId + " 的详情");
         }
         TmdbSearchItem item = toItem(detail, mediaType);
+        item.setTitle(resolveChineseTitle(mediaType, tmdbId, item.getTitle()));
         item.setImdbId(resolveImdbId(mediaType, tmdbId, detail));
         item.setEnglishTitle(resolveEnglishTitle(mediaType, tmdbId, detail));
         return item;
@@ -127,6 +131,84 @@ public class TmdbSearchService {
      * 网络异常/无 key 等情况静默返回 null，交由调用方按"未知"处理（不阻断建订阅）。
      */
     private String fetchEnglishAlias(String mediaType, String tmdbId) {
+        JSONArray titles = fetchAlternativeTitles(mediaType, tmdbId);
+        if (titles == null) {
+            return null;
+        }
+        String gbTitle = null;
+        for (int i = 0; i < titles.size(); i++) {
+            JSONObject t = titles.getJSONObject(i);
+            String country = t.getString("iso_3166_1");
+            String title = aliasTitle(t);
+            if (StringUtils.isBlank(title)) {
+                continue;
+            }
+            if ("US".equals(country)) {
+                return title;
+            }
+            if ("GB".equals(country) && gbTitle == null) {
+                gbTitle = title;
+            }
+        }
+        return gbTitle;
+    }
+
+    /**
+     * 订阅标题优先用中文。详情接口已经按配置的元数据语言（默认 zh-CN）请求，但 TMDb 缺中文翻译时
+     * name/title 会直接退回英文（冷门日韩剧、纪录片、动画常见），页面上就是一串英文。
+     * 这种情况下查一次 /alternative_titles 取 CN/TW/HK/SG 的中文别名补上；
+     * 别名里也没有中文（或请求失败）就<b>原样返回入参</b>，绝不因为这次锦上添花的请求而阻断建订阅。
+     * <p>
+     * 建订阅时由 {@link #getDetail} 调用；存量订阅在对账刷新时也会调它补齐早先存下的英文标题。
+     * </p>
+     */
+    public String resolveChineseTitle(String mediaType, String tmdbId, String title) {
+        if (containsChinese(title)) {
+            return title;
+        }
+        String alias = fetchChineseAlias(mediaType, tmdbId);
+        return StringUtils.isNotBlank(alias) ? alias : title;
+    }
+
+    /**
+     * 按 {@link #CHINESE_REGIONS} 的地区优先级挑中文别名。
+     * <p>
+     * 必须逐条校验"确实含中文"：alternative_titles 是众包数据，CN 条目里登记罗马音、
+     * 拼音、纯英文副标题的不在少数，只按地区取会把英文换成另一串英文。
+     * </p>
+     */
+    private String fetchChineseAlias(String mediaType, String tmdbId) {
+        JSONArray titles = fetchAlternativeTitles(mediaType, tmdbId);
+        if (titles == null) {
+            return null;
+        }
+        String best = null;
+        int bestRank = Integer.MAX_VALUE;
+        for (int i = 0; i < titles.size(); i++) {
+            JSONObject t = titles.getJSONObject(i);
+            String title = aliasTitle(t);
+            if (!containsChinese(title)) {
+                continue;
+            }
+            int rank = CHINESE_REGIONS.indexOf(t.getString("iso_3166_1"));
+            if (rank < 0 || rank >= bestRank) {
+                continue;
+            }
+            best = title;
+            bestRank = rank;
+            if (rank == 0) {
+                // CN 已是最高优先级，无需再看后面的条目
+                break;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * 取 /alternative_titles 的别名数组（电影是 titles，剧集是 results）。
+     * 网络异常/无 key/响应非法等情况静默返回 null——别名查询是可选增强，失败只降级不报错。
+     */
+    private JSONArray fetchAlternativeTitles(String mediaType, String tmdbId) {
         try {
             String raw = tmDbApiService.getAlternativeTitles(
                     openlistConfig.getTmdbApiKey(), tmdbType(mediaType), Integer.parseInt(tmdbId));
@@ -134,33 +216,22 @@ public class TmdbSearchService {
             if (root == null) {
                 return null;
             }
-            JSONArray titles = TYPE_MOVIE.equalsIgnoreCase(mediaType) ? root.getJSONArray("titles") : root.getJSONArray("results");
-            if (titles == null) {
-                return null;
-            }
-            String gbTitle = null;
-            for (int i = 0; i < titles.size(); i++) {
-                JSONObject t = titles.getJSONObject(i);
-                String country = t.getString("iso_3166_1");
-                String title = t.getString("title");
-                if (StringUtils.isBlank(title)) {
-                    title = t.getString("name");
-                }
-                if (StringUtils.isBlank(title)) {
-                    continue;
-                }
-                if ("US".equals(country)) {
-                    return title;
-                }
-                if ("GB".equals(country) && gbTitle == null) {
-                    gbTitle = title;
-                }
-            }
-            return gbTitle;
+            return TYPE_MOVIE.equalsIgnoreCase(mediaType) ? root.getJSONArray("titles") : root.getJSONArray("results");
         } catch (Exception e) {
-            log.warn("获取 TMDb 英文标题异常（tmdbId={}）：{}", tmdbId, e.getMessage());
+            log.warn("获取 TMDb 别名标题异常（tmdbId={}）：{}", tmdbId, e.getMessage());
             return null;
         }
+    }
+
+    /** 别名条目的标题字段：电影接口给 title，剧集接口给 title 或 name，两个都试。 */
+    private String aliasTitle(JSONObject alias) {
+        String title = alias.getString("title");
+        return StringUtils.isNotBlank(title) ? title : alias.getString("name");
+    }
+
+    /** 是否含 CJK 汉字（简繁都在该区段内）。 */
+    private boolean containsChinese(String text) {
+        return text != null && text.codePoints().anyMatch(c -> c >= 0x4E00 && c <= 0x9FFF);
     }
 
     /**

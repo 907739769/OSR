@@ -228,6 +228,76 @@ class TmdbSearchServiceTest {
     }
 
     @Test
+    void getDetail_标题已是中文_不查别名接口() {
+        when(tmDbApiService.getDetails(anyString(), anyString(), anyInt()))
+                .thenReturn("""
+                        {"id":1396,"name":"绝命毒师","original_name":"Breaking Bad",
+                         "original_language":"en","first_air_date":"2008-01-20"}
+                        """);
+
+        assertEquals("绝命毒师", service.getDetail("TV", "1396").getTitle());
+        verify(tmDbApiService, never()).getAlternativeTitles(anyString(), anyString(), anyInt());
+    }
+
+    @Test
+    void getDetail_标题是英文_取别名接口的CN中文名() {
+        when(tmDbApiService.getDetails(anyString(), anyString(), anyInt()))
+                .thenReturn("""
+                        {"id":1396,"name":"Silent Tokyo","original_name":"サイレント東京",
+                         "original_language":"ja","first_air_date":"2020-01-20"}
+                        """);
+        when(tmDbApiService.getAlternativeTitles(anyString(), eq("tv"), anyInt()))
+                .thenReturn("""
+                        {"results":[
+                          {"iso_3166_1":"US","title":"Silent Tokyo"},
+                          {"iso_3166_1":"TW","title":"寂靜的東京"},
+                          {"iso_3166_1":"CN","title":"寂静的东京"}
+                        ]}
+                        """);
+
+        assertEquals("寂静的东京", service.getDetail("TV", "1396").getTitle());
+    }
+
+    @Test
+    void getDetail_无CN别名_按TW_HK顺序兜底() {
+        when(tmDbApiService.getDetails(anyString(), anyString(), anyInt()))
+                .thenReturn("{\"id\":550,\"title\":\"Some Movie\",\"original_language\":\"en\",\"release_date\":\"1999-10-15\"}");
+        when(tmDbApiService.getAlternativeTitles(anyString(), eq("movie"), anyInt()))
+                .thenReturn("""
+                        {"titles":[
+                          {"iso_3166_1":"HK","title":"某部電影（港）"},
+                          {"iso_3166_1":"TW","title":"某部電影（台）"}
+                        ]}
+                        """);
+
+        assertEquals("某部電影（台）", service.getDetail("MOVIE", "550").getTitle());
+    }
+
+    @Test
+    void getDetail_CN别名登记的是拼音或英文_跳过并保留原标题() {
+        when(tmDbApiService.getDetails(anyString(), anyString(), anyInt()))
+                .thenReturn("{\"id\":550,\"title\":\"Some Movie\",\"original_language\":\"en\",\"release_date\":\"1999-10-15\"}");
+        when(tmDbApiService.getAlternativeTitles(anyString(), eq("movie"), anyInt()))
+                .thenReturn("""
+                        {"titles":[
+                          {"iso_3166_1":"CN","title":"Mou Bu Dian Ying"},
+                          {"iso_3166_1":"JP","title":"某の映画"}
+                        ]}
+                        """);
+
+        assertEquals("Some Movie", service.getDetail("MOVIE", "550").getTitle());
+    }
+
+    @Test
+    void getDetail_别名接口失败_保留原英文标题不抛异常() {
+        when(tmDbApiService.getDetails(anyString(), anyString(), anyInt()))
+                .thenReturn("{\"id\":550,\"title\":\"Some Movie\",\"original_language\":\"en\",\"release_date\":\"1999-10-15\"}");
+        when(tmDbApiService.getAlternativeTitles(anyString(), anyString(), anyInt())).thenReturn(null);
+
+        assertEquals("Some Movie", service.getDetail("MOVIE", "550").getTitle());
+    }
+
+    @Test
     void getDetail_剧集external_ids无imdb_id_imdbId为null() {
         when(tmDbApiService.getDetails(anyString(), anyString(), anyInt()))
                 .thenReturn("{\"id\":1396,\"name\":\"剧\",\"first_air_date\":\"2008-01-20\"}");
