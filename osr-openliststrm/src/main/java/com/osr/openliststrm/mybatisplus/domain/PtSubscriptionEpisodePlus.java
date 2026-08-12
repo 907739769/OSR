@@ -8,6 +8,8 @@ import com.osr.common.mybatisplus.BaseEntity;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.util.Date;
+
 /**
  * <p>
  * PT 订阅每集状态。这张表是「缺集」的唯一真相来源：
@@ -38,6 +40,16 @@ public class PtSubscriptionEpisodePlus extends BaseEntity {
     /** 状态 MISSING/IN_FLIGHT/IN_LIBRARY/UPGRADING/BLOCKED */
     @TableField("state")
     private String state;
+
+    /**
+     * 播出日期（TMDb air_date），追剧日历按它排格子。
+     * <p>
+     * NULL 表示未定档、TMDb 未录入、或存量行尚未被 {@code EpisodeAirDateSyncTask} 同步到。
+     * 日历只展示有日期的集，不做任何推算——按周期猜出来的日期比没有日期更误导人。
+     * </p>
+     */
+    @TableField("air_date")
+    private Date airDate;
 
     /** 连续失败次数，达到阈值后状态转 BLOCKED 停止自动重试，成功入库前不清零 */
     @TableField("fail_count")

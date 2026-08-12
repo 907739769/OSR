@@ -25,7 +25,7 @@ const PAIRS = [
   'strmTask', 'strmRecord', 'copyTask', 'copyRecord',
   'renameTask', 'renameDetail', 'renameOrphan', 'renameConfig',
   'ptIndexer', 'ptDownloader', 'ptMediaServer', 'ptSubscription',
-  'ptDownloadRecord', 'ptStatsDashboard', 'ptTorrentBlacklist', 'ptAutoAddRule'
+  'ptDownloadRecord', 'ptStatsDashboard', 'ptTorrentBlacklist', 'ptAutoAddRule', 'ptCalendar'
 ]
 
 /**

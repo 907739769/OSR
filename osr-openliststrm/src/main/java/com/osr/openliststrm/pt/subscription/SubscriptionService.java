@@ -6,6 +6,7 @@ import com.osr.openliststrm.helper.TgHelper;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloadRecordPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtMediaServerPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
+import com.osr.openliststrm.pt.calendar.AirDateResolver;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtDownloadRecordPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtMediaServerPlusService;
@@ -27,9 +28,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -153,12 +158,15 @@ public class SubscriptionService {
         sub.setStatus(coversAll(inLibrary, movie, totalEpisodes) ? STATUS_COMPLETED : STATUS_ACTIVE);
         subscriptionService.save(sub);
 
+        List<Integer> numbers = episodeNumbers(movie, totalEpisodes);
+        Map<Integer, LocalDate> airDates = resolveAirDates(movie, request.getTmdbId(), season, numbers);
         List<PtSubscriptionEpisodePlus> episodes = new ArrayList<>();
-        for (int number : episodeNumbers(movie, totalEpisodes)) {
+        for (int number : numbers) {
             PtSubscriptionEpisodePlus ep = new PtSubscriptionEpisodePlus();
             ep.setSubId(sub.getId());
             ep.setEpisode(number);
             ep.setState(inLibrary.contains(number) ? STATE_IN_LIBRARY : STATE_MISSING);
+            ep.setAirDate(toDate(airDates.get(number)));
             episodes.add(ep);
         }
         episodeService.saveBatch(episodes);
@@ -438,17 +446,47 @@ public class SubscriptionService {
         if (totalEpisodes <= maxExisting) {
             return;
         }
+        // 对齐要拿整季的集号（1..totalEpisodes）而不只是新增的那几集：
+        // 位置兜底靠「两边集数相等」判断，只传新增集会让集数对不上，兜底永远不启用
+        List<Integer> allNumbers = episodeNumbers(false, totalEpisodes);
+        Map<Integer, LocalDate> airDates = resolveAirDates(false, sub.getTmdbId(), sub.getSeason(), allNumbers);
         List<PtSubscriptionEpisodePlus> added = new ArrayList<>();
         for (int number = maxExisting + 1; number <= totalEpisodes; number++) {
             PtSubscriptionEpisodePlus ep = new PtSubscriptionEpisodePlus();
             ep.setSubId(sub.getId());
             ep.setEpisode(number);
             ep.setState(STATE_MISSING);
+            ep.setAirDate(toDate(airDates.get(number)));
             added.add(ep);
         }
         episodeService.saveBatch(added);
         existing.addAll(added);
         log.info("订阅[{}] 总集数由 {} 增至 {}，已补齐 {} 个新集", sub.getId(), maxExisting, totalEpisodes, added.size());
+    }
+
+    /**
+     * 取该季的播出日期表，供建订阅/补集时填 air_date。
+     * <p>
+     * 取不到只影响日历排格，不该让订阅本身建不起来——因此吞掉异常返回空表，
+     * 剩下的交给 {@code EpisodeAirDateSyncTask} 下一轮补。电影的上映日期不走这里
+     * （季端点是 TV 专用），留给同步任务从详情里取。
+     * </p>
+     */
+    private Map<Integer, LocalDate> resolveAirDates(boolean movie, String tmdbId, Integer season,
+                                                    List<Integer> localEpisodes) {
+        if (movie || tmdbId == null || season == null) {
+            return Map.of();
+        }
+        try {
+            return AirDateResolver.resolve(localEpisodes, tmdbSearchService.getSeasonEpisodeAirDates(tmdbId, season));
+        } catch (Exception e) {
+            log.warn("取剧集 {} 第 {} 季的播出日期失败，本次留空待同步任务补齐：{}", tmdbId, season, e.getMessage());
+            return Map.of();
+        }
+    }
+
+    private static Date toDate(LocalDate date) {
+        return date == null ? null : Date.from(date.atStartOfDay(ZoneId.systemDefault()).toInstant());
     }
 
     private List<Integer> episodeNumbers(boolean movie, int totalEpisodes) {
