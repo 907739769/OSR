@@ -63,6 +63,21 @@ public class OpenlistConfig {
         return sysConfigService.selectConfigByKey("openlist.notify.webhook.types");
     }
 
+    /** Bark 推送地址，形如 https://api.day.app/{key}；留空不启用 */
+    public String getNotifyBarkUrl() {
+        return sysConfigService.selectConfigByKey("openlist.notify.bark.url");
+    }
+
+    /** Gotify 服务地址，形如 https://gotify.example.com；留空不启用 */
+    public String getNotifyGotifyUrl() {
+        return sysConfigService.selectConfigByKey("openlist.notify.gotify.url");
+    }
+
+    /** Gotify 应用 token，与服务地址都非空才会发送 */
+    public String getNotifyGotifyToken() {
+        return sysConfigService.selectConfigByKey("openlist.notify.gotify.token");
+    }
+
     //企业微信-企业ID(corpid)
     public String getWeComCorpId() {
         return sysConfigService.selectConfigByKey("openlist.wecom.corpid");

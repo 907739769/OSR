@@ -100,7 +100,8 @@ public class MysqlDdl extends SimpleDdl {
                 "sql/20260775-strm-task-override.sql",
                 "sql/20260776-pt-episode-air-date.sql",
                 "sql/20260777-pt-episode-tmdb-number.sql",
-                "sql/20260778-notify-route.sql"
+                "sql/20260778-notify-route.sql",
+                "sql/20260779-notify-bark-gotify.sql"
         );
     }
 }
