@@ -281,72 +281,73 @@ const metaOf = (config: SysConfig): ConfigMeta => {
   return CONFIG_META[config.configKey] || { type: 'text' }
 }
 
-// Section definitions with categorization logic
+/**
+ * 配置分组：按<b>配置键前缀</b>归类，而不是按键名/配置名里的关键词猜。
+ *
+ * 旧实现是一串 if-else 匹配子串（含 'tg' 就归 Telegram、含 'strm' 就归复制…），
+ * 最后一条兜底进「基础配置」。问题是新增一类配置必须回来改这个 if-else，漏改不报错、
+ * 也不告警，只是静静地掉进兜底分组——实测 41 个配置里有 15 个掉在那儿，
+ * 通知类（webhook/bark/gotify）和登录安全类全在其中。
+ *
+ * 前缀是这个项目本来就在维护的约定（openlist.notify.* / openlist.wecom.* / sys.login.*），
+ * 让键自己声明归属，新增同前缀的配置零改动就能落到正确分组；
+ * 全新前缀落进「其他」，看得见但不会错放。
+ *
+ * 匹配取最长前缀：openlist.notify.tg.types 归「通知渠道」而不是「Telegram 机器人」，
+ * 它描述的是通知路由而不是机器人本身。
+ */
+const SECTION_RULES: Array<{ key: string; title: string; icon: string; prefixes: string[] }> = [
+  { key: 'openlist', title: 'OpenList 服务', icon: 'mdi-server-network',
+    prefixes: ['openlist.server.', 'openlist.api.', 'openlist.local.'] },
+  { key: 'copy', title: '复制 & STRM 任务', icon: 'mdi-swap-horizontal',
+    prefixes: ['openlist.copy.', 'openlist.strm.'] },
+  { key: 'notify', title: '通知渠道', icon: 'mdi-bell-outline',
+    prefixes: ['openlist.notify.'] },
+  { key: 'tg', title: 'Telegram 机器人', icon: 'mdi-telegram',
+    prefixes: ['openlist.tg.'] },
+  { key: 'wecom', title: '企业微信', icon: 'mdi-wechat',
+    prefixes: ['openlist.wecom.'] },
+  { key: 'tmdb', title: 'TMDb 影视配置', icon: 'mdi-flash-outline',
+    prefixes: ['openlist.tmdb.'] },
+  { key: 'openai', title: 'OpenAI 配置', icon: 'mdi-robot-outline',
+    prefixes: ['openlist.openai.'] },
+  { key: 'security', title: '登录与安全', icon: 'mdi-shield-lock-outline',
+    prefixes: ['sys.login.', 'sys.account.'] },
+  { key: 'other', title: '其他', icon: 'mdi-dots-horizontal', prefixes: [] }
+]
+
+/** 这些配置由专门的页面管理，参数设置页不重复展示 */
+const HIDDEN_KEYS = new Set([
+  // 重命名文件名模板 → /openlist/renameConfig
+  'rename.filename.template'
+])
+
+/** 取最长匹配前缀所属的分组，都不匹配归「其他」 */
+const sectionKeyOf = (configKey: string): string => {
+  let best = 'other'
+  let bestLen = -1
+  for (const rule of SECTION_RULES) {
+    for (const prefix of rule.prefixes) {
+      if (configKey.startsWith(prefix) && prefix.length > bestLen) {
+        best = rule.key
+        bestLen = prefix.length
+      }
+    }
+  }
+  return best
+}
+
 const configSections = computed<ConfigSection[]>(() => {
-  const sections: Record<string, ConfigSection> = {}
-
-  const addSection = (key: string, title: string, icon: any) => {
-    if (!sections[key]) {
-      sections[key] = { key, title, icon, items: [] }
-    }
-  }
-
-  const categorize = (config: SysConfig) => {
+  const buckets: Record<string, SysConfig[]> = {}
+  for (const config of configList.value) {
     const key = config.configKey || ''
-    const name = config.configName || ''
-
-    // 重命名文件名模板已由"重命名规则设置"页面（/openlist/renameConfig）独立管理，此处不再展示
-    if (key === 'rename.filename.template') return
-
-    // OpenAI 相关
-    if (key.includes('openai') || name.includes('openai') || name.includes('OpenAI') || name.includes('gpt') || name.includes('GPT')) {
-      addSection('openai', 'OpenAI 配置', 'mdi-robot-outline')
-      sections['openai'].items.push(config)
-      return
-    }
-
-    // TMDB 相关
-    if (key.includes('tmdb') || name.includes('TMDB') || name.includes('tmdb') || name.includes('TMDb')) {
-      addSection('tmdb', 'TMDb 影视配置', 'mdi-flash-outline')
-      sections['tmdb'].items.push(config)
-      return
-    }
-
-    // 企业微信相关。必须排在 Telegram 判定之前：企微的类型过滤键是
-    // openlist.notify.wecom.types，配置名「企业微信通知类型过滤」不含 tg 字样虽不会误判，
-    // 但把两个通知渠道的判定放在一起、按渠道从具体到宽泛排列更不容易踩坑
-    if (key.includes('wecom') || name.includes('企业微信')) {
-      addSection('wecom', '企业微信', 'mdi-wechat')
-      sections['wecom'].items.push(config)
-      return
-    }
-
-    // Telegram 相关
-    if (key.includes('tg.') || name.includes('tg') || name.includes('TG') || name.includes('Telegram') || name.includes('telegram')) {
-      addSection('tg', 'Telegram 机器人', 'mdi-telegram')
-      sections['tg'].items.push(config)
-      return
-    }
-
-    // Copy / STRM 相关
-    if (key.includes('copy') || key.includes('strm') || name.includes('复制') || name.includes('STRM') || name.includes('strm')) {
-      addSection('copy', '复制 & STRM 任务', 'mdi-swap-horizontal')
-      sections['copy'].items.push(config)
-      return
-    }
-
-    // Openlist 基础配置（默认归入此类）
-    addSection('openlist', 'Openlist 基础配置', 'mdi-monitor')
-    sections['openlist'].items.push(config)
+    if (HIDDEN_KEYS.has(key)) continue
+    ;(buckets[sectionKeyOf(key)] ||= []).push(config)
   }
-
-  configList.value.forEach(categorize)
-
-  // Define display order
-  const order = ['openlist', 'copy', 'tg', 'wecom', 'openai', 'tmdb']
-  return order
-    .filter(k => sections[k])
-    .map(k => sections[k])
+  // 按 SECTION_RULES 的声明顺序展示，空分组不出现
+  return SECTION_RULES
+    .filter((rule) => buckets[rule.key]?.length)
+    .map((rule) => ({ key: rule.key, title: rule.title, icon: rule.icon, items: buckets[rule.key] }))
 })
 
 // 分组变化时确保 activeTab 有效：避免 order 调整后默认 tab 失配导致首屏空白

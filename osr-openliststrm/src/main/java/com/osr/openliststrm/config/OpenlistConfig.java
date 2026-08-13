@@ -53,16 +53,6 @@ public class OpenlistConfig {
         return sysConfigService.selectConfigByKey("openlist.notify.webhook.url");
     }
 
-    //Telegram通知类型过滤，逗号分隔的NotificationType名称，留空=不过滤，全部类型都发
-    public String getNotifyTgTypes() {
-        return sysConfigService.selectConfigByKey("openlist.notify.tg.types");
-    }
-
-    //Webhook通知类型过滤，逗号分隔的NotificationType名称，留空=不过滤，全部类型都发
-    public String getNotifyWebhookTypes() {
-        return sysConfigService.selectConfigByKey("openlist.notify.webhook.types");
-    }
-
     /** Bark 推送地址，形如 https://api.day.app/{key}；留空不启用 */
     public String getNotifyBarkUrl() {
         return sysConfigService.selectConfigByKey("openlist.notify.bark.url");
@@ -134,11 +124,6 @@ public class OpenlistConfig {
     public boolean isWeComAutoCreateUser() {
         String value = sysConfigService.selectConfigByKey("openlist.wecom.autocreate");
         return value == null || value.isBlank() || "1".equals(value.trim());
-    }
-
-    //企业微信通知类型过滤，逗号分隔的NotificationType名称，留空=不过滤，全部类型都发
-    public String getNotifyWeComTypes() {
-        return sysConfigService.selectConfigByKey("openlist.notify.wecom.types");
     }
 
     //Apikey
