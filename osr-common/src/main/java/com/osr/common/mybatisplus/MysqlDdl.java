@@ -99,7 +99,8 @@ public class MysqlDdl extends SimpleDdl {
                 "sql/20260774-login-attempt-limit.sql",
                 "sql/20260775-strm-task-override.sql",
                 "sql/20260776-pt-episode-air-date.sql",
-                "sql/20260777-pt-episode-tmdb-number.sql"
+                "sql/20260777-pt-episode-tmdb-number.sql",
+                "sql/20260778-notify-route.sql"
         );
     }
 }

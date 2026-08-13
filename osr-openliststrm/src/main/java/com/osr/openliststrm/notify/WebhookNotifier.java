@@ -12,7 +12,6 @@ import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
-import java.util.Arrays;
 
 /**
  * 通用 Webhook 通知渠道：POST 一个最简单的 {"text": message} JSON 到配置的地址，
@@ -36,9 +35,24 @@ public class WebhookNotifier implements INotifier {
     }
 
     @Override
+    public String channelKey() {
+        return "WEBHOOK";
+    }
+
+    @Override
+    public String displayName() {
+        return "Webhook";
+    }
+
+    @Override
+    public boolean isConfigured() {
+        return StringUtils.isNotBlank(config.getNotifyWebhookUrl());
+    }
+
+    @Override
     public void send(NotificationType type, String message) {
         String url = config.getNotifyWebhookUrl();
-        if (StringUtils.isBlank(url) || !isTypeEnabled(type)) {
+        if (StringUtils.isBlank(url)) {
             return;
         }
         JSONObject body = new JSONObject();
@@ -56,12 +70,4 @@ public class WebhookNotifier implements INotifier {
         }
     }
 
-    /** {@code openlist.notify.webhook.types} 留空＝不过滤，所有类型都发（向后兼容原始行为） */
-    private boolean isTypeEnabled(NotificationType type) {
-        String types = config.getNotifyWebhookTypes();
-        if (StringUtils.isBlank(types)) {
-            return true;
-        }
-        return Arrays.stream(types.split(",")).map(String::trim).anyMatch(t -> t.equalsIgnoreCase(type.name()));
-    }
 }

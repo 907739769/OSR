@@ -20,11 +20,12 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * 企微通知渠道：分人投递、未绑定回退、类型过滤、未配置静默。
+ * 企微通知渠道：分人投递、未绑定回退、BOTH 档合并投递、未配置静默。
  */
 @ExtendWith(MockitoExtension.class)
 @MockitoSettings(strictness = Strictness.LENIENT)
@@ -97,29 +98,46 @@ class WeComNotifierTest {
         verify(apiClient).sendText("@all", "下载完成");
     }
 
+    /**
+     * 类型过滤已上收到 NotifierManager（查 notify_route 决定发不发），渠道自己不再判断。
+     * 这里钉住「渠道对任何类型都照发」——否则等于同一件事在两个地方判两遍，
+     * 用户在配置页关掉的类型，渠道里那份残留判断还会再拦一次，排查起来非常费劲。
+     */
     @Test
-    void 类型过滤命中_发送() {
-        when(config.getNotifyWeComTypes()).thenReturn("DOWNLOAD_COMPLETE,DOWNLOAD_FAILED");
-
-        notifier.send(NotificationType.DOWNLOAD_COMPLETE, "下载完成");
-
-        verify(apiClient).sendText(eq("@all"), anyString());
-    }
-
-    @Test
-    void 类型过滤未命中_不发送() {
-        when(config.getNotifyWeComTypes()).thenReturn("DOWNLOAD_FAILED");
-
-        notifier.send(NotificationType.DOWNLOAD_COMPLETE, "下载完成");
-
-        verify(apiClient, never()).sendText(anyString(), anyString());
-    }
-
-    @Test
-    void 类型过滤留空_全部类型都发() {
-        when(config.getNotifyWeComTypes()).thenReturn("");
-
+    void 渠道不再自行过滤类型_任何类型都发() {
         notifier.send(NotificationType.EMBY_LIBRARY_SYNC, "已入库");
+        notifier.send(NotificationType.DOWNLOAD_FAILED, "失败了");
+
+        verify(apiClient, times(2)).sendText(eq("@all"), anyString());
+    }
+
+    // ---------- BOTH 档：归属人 + 默认接收人 ----------
+
+    @Test
+    void BOTH档_归属人与默认接收人一起投递() {
+        when(wecomUserService.listEnabledBySysUserId(42L)).thenReturn(List.of(bind("zhangsan")));
+
+        notifier.send(NotificationType.DOWNLOAD_COMPLETE, "done", NotifyTarget.ownerAndDefault(42L));
+
+        verify(apiClient).sendText(eq("zhangsan|@all"), anyString());
+    }
+
+    /** 归属人恰好就是默认接收人时要去重，否则同一个会话里会出现两条一样的通知 */
+    @Test
+    void BOTH档_归属人就是默认接收人时去重() {
+        when(config.getWeComToUser()).thenReturn("zhangsan");
+        when(wecomUserService.listEnabledBySysUserId(42L)).thenReturn(List.of(bind("zhangsan")));
+
+        notifier.send(NotificationType.DOWNLOAD_COMPLETE, "done", NotifyTarget.ownerAndDefault(42L));
+
+        verify(apiClient).sendText(eq("zhangsan"), anyString());
+    }
+
+    @Test
+    void BOTH档_归属人未绑定企微_仍发默认接收人() {
+        when(wecomUserService.listEnabledBySysUserId(42L)).thenReturn(List.of());
+
+        notifier.send(NotificationType.DOWNLOAD_COMPLETE, "done", NotifyTarget.ownerAndDefault(42L));
 
         verify(apiClient).sendText(eq("@all"), anyString());
     }

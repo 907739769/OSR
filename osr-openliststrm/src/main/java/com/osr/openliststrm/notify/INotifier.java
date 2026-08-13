@@ -13,6 +13,33 @@ package com.osr.openliststrm.notify;
 public interface INotifier {
 
     /**
+     * 渠道标识，与 {@code notify_route.channel} 取值一致，如 TELEGRAM / WEBHOOK / WECOM。
+     * <p>
+     * 分发器用它查路由表决定「这个类型要不要走这个渠道、发给谁」，
+     * 因此新增渠道时这个值一旦发布就不能再改——改了等于把用户已有的路由配置全丢了。
+     * </p>
+     */
+    String channelKey();
+
+    /** 页面上展示的渠道名 */
+    String displayName();
+
+    /**
+     * 本渠道是否支持按人投递。
+     * <p>
+     * Telegram 只有一个 chat id、Webhook 只有一个 URL，它们无论如何都只能发到同一个地方，
+     * 返回 false。配置页据此对这些渠道<b>不展示</b>收件人选项——给出一个不生效的开关，
+     * 比缺少这个功能更糟。
+     * </p>
+     */
+    default boolean supportsDirectDelivery() {
+        return false;
+    }
+
+    /** 本渠道是否已完成配置（token/URL 等齐备）。配置页据此提示「尚未配置」 */
+    boolean isConfigured();
+
+    /**
      * 发送一条通知消息。
      * 实现类必须保证：未配置（如 token/url 为空）或该类型未被本渠道启用时静默跳过；
      * 发送失败时内部吞掉异常，只记录 warn 日志。

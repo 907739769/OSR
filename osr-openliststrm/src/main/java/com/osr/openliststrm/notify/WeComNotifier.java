@@ -8,9 +8,9 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Component;
 
-import java.util.Arrays;
 import java.util.List;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * 企业微信通知渠道。与 Telegram/Webhook 的区别是<b>支持按人投递</b>：
@@ -37,13 +37,34 @@ public class WeComNotifier implements INotifier {
     }
 
     @Override
+    public String channelKey() {
+        return "WECOM";
+    }
+
+    @Override
+    public String displayName() {
+        return "企业微信";
+    }
+
+    /** 企微是目前唯一能按人投递的渠道：touser 支持用 | 分隔多个成员 */
+    @Override
+    public boolean supportsDirectDelivery() {
+        return true;
+    }
+
+    @Override
+    public boolean isConfigured() {
+        return apiClient.isConfigured();
+    }
+
+    @Override
     public void send(NotificationType type, String message) {
         send(type, message, NotifyTarget.BROADCAST);
     }
 
     @Override
     public void send(NotificationType type, String message, NotifyTarget target) {
-        if (!apiClient.isConfigured() || StringUtils.isBlank(message) || !isTypeEnabled(type)) {
+        if (!apiClient.isConfigured() || StringUtils.isBlank(message)) {
             return;
         }
         try {
@@ -55,32 +76,32 @@ public class WeComNotifier implements INotifier {
 
     /**
      * 把投递目标翻译成企微的 touser 参数（多个成员用 | 分隔）。
-     * 无归属、归属人未绑定企微、或绑定全部停用时，一律回退默认接收人。
+     * <p>
+     * 无归属、归属人未绑定企微、或绑定全部停用时，一律回退默认接收人——
+     * 归属人收不到不代表这条通知该消失。
+     * </p>
+     * <p>
+     * {@code includeDefaultRecipient}（路由的 BOTH 档）会把默认接收人一并拼进 touser，
+     * 归属人恰好就是默认接收人时靠 distinct 去重，不会在同一个会话里出现两条。
+     * </p>
      */
     private String resolveToUser(NotifyTarget target) {
         if (target == null || !target.isDirected()) {
             return config.getWeComToUser();
         }
         List<WecomUserPlus> binds = wecomUserService.listEnabledBySysUserId(target.ownerUserId());
-        String toUser = binds.stream()
+        Stream<String> owners = binds.stream()
                 .map(WecomUserPlus::getWecomUserid)
-                .filter(StringUtils::isNotBlank)
-                .distinct()
-                .collect(Collectors.joining("|"));
+                .filter(StringUtils::isNotBlank);
+        if (target.includeDefaultRecipient()) {
+            owners = Stream.concat(owners, Stream.of(config.getWeComToUser()).filter(StringUtils::isNotBlank));
+        }
+        String toUser = owners.distinct().collect(Collectors.joining("|"));
         if (StringUtils.isBlank(toUser)) {
             log.debug("OSR 用户[{}]未绑定可用的企微成员，本条通知回退给默认接收人", target.ownerUserId());
             return config.getWeComToUser();
         }
         return toUser;
-    }
-
-    /** {@code openlist.notify.wecom.types} 留空＝不过滤，所有类型都发（与其余渠道一致） */
-    private boolean isTypeEnabled(NotificationType type) {
-        String types = config.getNotifyWeComTypes();
-        if (StringUtils.isBlank(types)) {
-            return true;
-        }
-        return Arrays.stream(types.split(",")).map(String::trim).anyMatch(t -> t.equalsIgnoreCase(type.name()));
     }
 
     /**

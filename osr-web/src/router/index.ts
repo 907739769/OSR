@@ -58,6 +58,10 @@ const componentMap: Record<string, Component | (() => Promise<any>)> = {
   'system/dict/data/index': () => import('@/views/system/dict/data/index.vue'),
   'system/dict/index': () => import('@/views/system/dict/type/index.vue'),
   'system/config/index': () => import('@/views/system/config/index.vue'),
+  'system/notifyRoute/index': createDeviceView(
+    () => import('@/views/system/notifyRoute/index.vue'),
+    () => import('@/views-mobile/notifyRoute/index.vue')
+  ),
   'system/wecomUser/index': createDeviceView(
     () => import('@/views/system/wecomUser/index.vue'),
     () => import('@/views-mobile/wecomUser/index.vue')

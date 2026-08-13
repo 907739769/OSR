@@ -12,9 +12,16 @@ import { describe, it, expect } from 'vitest'
  */
 
 // 用 import.meta.glob 读源码而不是 node:fs —— 项目没装 @types/node
-const pcPages = import.meta.glob('../../views/openlist/*/index.vue', {
-  query: '?raw', import: 'default', eager: true
-}) as Record<string, string>
+// PC 页分散在 views/openlist（业务）与 views/system（系统管理）两处，两边都要扫——
+// 只扫 openlist 的话，system 下的成对页面（wecomUser / notifyRoute）会悄悄漏出检查范围
+const pcPages = {
+  ...import.meta.glob('../../views/openlist/*/index.vue', {
+    query: '?raw', import: 'default', eager: true
+  }),
+  ...import.meta.glob('../../views/system/*/index.vue', {
+    query: '?raw', import: 'default', eager: true
+  })
+} as Record<string, string>
 
 const mobilePages = import.meta.glob('../../views-mobile/*/index.vue', {
   query: '?raw', import: 'default', eager: true
@@ -25,7 +32,7 @@ const PAIRS = [
   'strmTask', 'strmRecord', 'copyTask', 'copyRecord',
   'renameTask', 'renameDetail', 'renameOrphan', 'renameConfig',
   'ptIndexer', 'ptDownloader', 'ptMediaServer', 'ptSubscription',
-  'ptDownloadRecord', 'ptStatsDashboard', 'ptTorrentBlacklist', 'ptAutoAddRule', 'ptCalendar'
+  'ptDownloadRecord', 'ptStatsDashboard', 'ptTorrentBlacklist', 'ptAutoAddRule', 'ptCalendar', 'notifyRoute', 'wecomUser'
 ]
 
 /**
@@ -55,7 +62,10 @@ const EQUIVALENT: Array<[string, string]> = [
  * 新增条目请写清为什么这一端不需要 —— 这份清单就是差异的评审记录。
  */
 const ALLOWED_GAPS: Record<string, string> = {
-  'ptSubscription:handleMoreCommand': 'PC 用「更多」下拉分发，移动端是底部操作抽屉直接调用各动作，功能等价'
+  'ptSubscription:handleMoreCommand': 'PC 用「更多」下拉分发，移动端是底部操作抽屉直接调用各动作，功能等价',
+  'notifyRoute:toggleChannel': 'PC 是「类型×渠道」矩阵，每列一个渠道，故有整列开关；'
+    + '移动端横向放不下矩阵，改成一个通知类型一张卡、卡内逐渠道列出，没有「列」这个概念。'
+    + '按类型整行开关(toggleType)两端都有'
 }
 
 function readPage(kind: 'views' | 'views-mobile', name: string): string | null {
