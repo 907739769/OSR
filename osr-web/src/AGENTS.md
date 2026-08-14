@@ -147,6 +147,15 @@ ptTorrentBlacklist / wecomUser（即全部 `.card-grid` 页面）。新增卡片
   再是列表上方单独一行 `v-card` 包着的勾选框——两版都因为「与周围操作按钮不是一种东西」而显得突兀。
   结论是**批量操作区里只有按钮**，不要混进表单控件。
 - 卡片一律用 `<v-card>`，不要手写 `background: var(--osr-surface) + border-radius + box-shadow`。
+- **表格「操作」列宽度上限 260px，装不下的动作收进「更多」菜单**（`v-menu` + `variant="text"` 的
+  「更多 ▾」按钮，形态照抄 `ptSubscription`）。列表页表格的列宽是加法：勾选 48 + 内容列 + 状态列
+  + 时间列 170 + 操作列，操作列一超标整张表就宽过内容区，页面出现横向滚动条。`renameDetail`
+  曾经把 5 个动作平铺成 460px，整表 1248px，1280 宽的屏幕上必然溢出。**破坏性动作优先进菜单**
+  （删除/清理这类点错了要命的，收起来反而更安全），留在外面的是高频的正向动作。
+- **表格里的「A → B」对照一律竖排，用 `.path-box`**（`.path-row` + `.path-label--src/--dst`
+  + `.path-name` + `.path-text`，见 list.scss）。不要自造左右并排的对照块：并排把一行宽度对半劈，
+  两侧同时触发省略号，同样的信息要多占一倍列宽才看得清。`renameDetail` 的 `.rename-compare`
+  就是这么来的，已删除。
 
 ### 弹窗
 - PC 三档：`max-width="480"`（确认类）/ `600`（表单类）/ `900`（数据表类）

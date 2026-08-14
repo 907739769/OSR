@@ -143,28 +143,16 @@
         @update:items-per-page="onSizeChange"
       >
         <template #item.detail="{ item }">
-          <div class="rename-compare">
-            <!-- Name comparison -->
-            <div class="rename-name-row">
-              <div class="rename-side rename-original">
-                <span class="rename-badge rename-badge-original">原</span>
-                <span class="rename-filename" :title="item.originalName">{{ item.originalName }}</span>
-              </div>
-              <v-icon class="rename-arrow" icon="mdi-arrow-right" size="16" />
-              <div class="rename-side rename-new">
-                <span class="rename-badge rename-badge-new">新</span>
-                <span class="rename-filename" :title="item.newName">{{ item.newName }}</span>
-              </div>
+          <div class="path-box rename-box">
+            <div class="path-row">
+              <span class="path-label path-label--src">原</span>
+              <span class="path-name" :title="item.originalName">{{ item.originalName }}</span>
+              <span class="path-text path-text--muted" :title="item.originalPath">{{ item.originalPath }}</span>
             </div>
-            <!-- Path comparison -->
-            <div class="rename-path-row">
-              <div class="rename-side rename-original">
-                <span class="rename-path-text" :title="item.originalPath">{{ item.originalPath }}</span>
-              </div>
-              <v-icon class="rename-arrow" icon="mdi-arrow-right" size="12" />
-              <div class="rename-side rename-new">
-                <span class="rename-path-text" :title="item.newPath">{{ item.newPath }}</span>
-              </div>
+            <div class="path-row">
+              <span class="path-label path-label--dst">新</span>
+              <span class="path-name" :title="item.newName">{{ item.newName }}</span>
+              <span class="path-text path-text--muted" :title="item.newPath">{{ item.newPath }}</span>
             </div>
           </div>
         </template>
@@ -178,21 +166,40 @@
           <span v-else class="scrape-none">-</span>
         </template>
         <template #item.actions="{ item }">
-          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-refresh" @click="handleScrapeOne(item)">
-            刮削
-          </v-btn>
-          <v-btn v-if="item.scrapeStatus === '1'" variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDeleteScrapeOne(item)">
-            删除刮削
-          </v-btn>
           <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-refresh" @click="handleRetryOne(item)">
             重试
           </v-btn>
-          <v-btn variant="text" color="error" size="small" prepend-icon="mdi-broom" @click="handlePurgeOne(item)">
-            清理产物
+          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-movie-search-outline" @click="handleScrapeOne(item)">
+            刮削
           </v-btn>
-          <v-btn variant="text" color="error" size="small" prepend-icon="mdi-database-remove-outline" @click="handleDeleteOne(item)">
-            仅删记录
-          </v-btn>
+          <v-menu>
+            <template #activator="{ props: menuProps }">
+              <v-btn v-bind="menuProps" variant="text" color="info" size="small" append-icon="mdi-chevron-down">
+                更多
+              </v-btn>
+            </template>
+            <v-list density="compact">
+              <v-list-item
+                v-if="item.scrapeStatus === '1'"
+                base-color="error"
+                prepend-icon="mdi-delete-outline"
+                title="删除刮削"
+                @click="handleDeleteScrapeOne(item)"
+              />
+              <v-list-item
+                base-color="error"
+                prepend-icon="mdi-broom"
+                title="清理产物"
+                @click="handlePurgeOne(item)"
+              />
+              <v-list-item
+                base-color="error"
+                prepend-icon="mdi-database-remove-outline"
+                title="仅删记录"
+                @click="handleDeleteOne(item)"
+              />
+            </v-list>
+          </v-menu>
         </template>
       </v-data-table-server>
 
@@ -351,12 +358,16 @@ const {
 
 getList()
 
+// 表格最小总宽 = 48(勾选) + 340 + 80 + 80 + 170 + 260 ≈ 978，与 strmRecord/copyRecord 同一量级。
+// 「操作」列此前是 460（5 个平铺按钮），把整张表撑到 1248px，1280 宽的屏幕上必然横向溢出——
+// 全站其余列表页的操作列上限就是 260，多出来的动作收进「更多」菜单。
+// detail 是唯一的弹性列，minWidth 只是下限，窗口变宽时多余空间都归它。
 const headers = [
-  { title: '重命名详情', key: 'detail', minWidth: '400' },
+  { title: '重命名详情', key: 'detail', minWidth: '340' },
   { title: '状态', key: 'status', align: 'center' as const, width: '80' },
-  { title: '刮削', key: 'scrapeStatus', align: 'center' as const, width: '90' },
+  { title: '刮削', key: 'scrapeStatus', align: 'center' as const, width: '80' },
   { title: '创建时间', key: 'createTime', width: '170', align: 'center' as const },
-  { title: '操作', key: 'actions', align: 'center' as const, width: '460', sortable: false }
+  { title: '操作', key: 'actions', align: 'center' as const, width: '260', sortable: false }
 ]
 
 // v-data-table-server 的多选需要一个本地 ref 承接当前选中的行对象，
@@ -395,92 +406,16 @@ const episodeRule = (v: string) => !v || /^\d{1,4}$/.test(v) || '集为 1-4 位�
 
 <style scoped lang="scss">
 /* ============================================
-   Rename Comparison (PC Table)
+   重命名详情列
    ============================================ */
-:deep(.rename-compare) {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: 8px 0;
-
-  .rename-name-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    min-height: 28px;
-
-    .rename-side {
-      display: flex;
-      align-items: center;
-      gap: 4px;
-      min-width: 0;
-      flex: 1;
-
-      .rename-badge {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        width: 20px;
-        height: 20px;
-        border-radius: 4px;
-        font-size: 11px;
-        font-weight: 700;
-        flex-shrink: 0;
-
-        &.rename-badge-original {
-          background: var(--osr-error-light);
-          color: var(--osr-error);
-          border: 1px solid color-mix(in srgb, var(--osr-error) 30%, transparent);
-        }
-
-        &.rename-badge-new {
-          background: var(--osr-success-light);
-          color: var(--osr-success);
-          border: 1px solid color-mix(in srgb, var(--osr-success) 30%, transparent);
-        }
-      }
-
-      .rename-filename {
-        font-size: 13px;
-        font-weight: 500;
-        color: var(--osr-text-primary);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        line-height: 1.4;
-      }
-    }
-
-    .rename-arrow {
-      flex-shrink: 0;
-      color: var(--osr-text-disabled);
-    }
-  }
-
-  .rename-path-row {
-    display: flex;
-    align-items: center;
-    gap: 4px;
-    font-size: 11px;
-
-    .rename-side {
-      min-width: 0;
-      flex: 1;
-
-      .rename-path-text {
-        color: var(--osr-text-secondary);
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        display: block;
-        line-height: 1.4;
-      }
-    }
-
-    .rename-arrow {
-      flex-shrink: 0;
-      color: var(--osr-text-disabled);
-    }
+/* 「原 / 新」对照直接复用 list.scss 的 .path-box（copyTask / copyRecord / renameTask 同款），
+   不再自造一套左右并排的 .rename-compare —— 那种排法把一行的宽度对半劈，两侧都得省略，
+   而竖排两行每行都能吃满列宽，是这张表能收窄到 340px 的前提。
+   唯一的私有微调：这两行是「文件名 + 目录」而不是纯路径，文件名比目录重要，
+   把公共类的固定 max-width: 200px 换成按列宽分成，窄屏时也留得住后半截目录。 */
+.rename-box {
+  :deep(.path-name) {
+    max-width: 55%;
   }
 }
 
@@ -534,16 +469,5 @@ const episodeRule = (v: string) => !v || /^\d{1,4}$/.test(v) || '集为 1-4 位�
 
 .purge-hint {
   margin-top: 4px;
-}
-
-.scrape-tag {
-  margin-left: 4px;
-  font-size: 11px;
-}
-
-.mobile-status-row {
-  display: flex;
-  align-items: center;
-  gap: 4px;
 }
 </style>
