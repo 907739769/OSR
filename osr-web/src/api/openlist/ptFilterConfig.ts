@@ -10,6 +10,8 @@ export interface PtFilterConfig {
   freeOnly?: string
   includeKeywords?: string
   excludeKeywords?: string
+  /** 逗号分隔，种子描述命中任一则淘汰；描述为空时放行 */
+  descriptionExcludeKeywords?: string
   /** 分辨率优先级，逗号分隔，只影响排序 */
   resolutionPriority?: string
   /** 分辨率白名单，逗号分隔，硬性过滤；空表示不限 */

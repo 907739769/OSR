@@ -53,6 +53,19 @@ public class PtFilterConfigPlus extends BaseEntity {
     @TableField("exclude_keywords")
     private String excludeKeywords;
 
+    /**
+     * 逗号分隔，<b>种子描述</b>命中任一则淘汰；空表示不限。
+     * <p>
+     * 与 {@link #excludeKeywords} 是同一条语义，只是判定对象换成 description——有一类属性
+     * 标题里根本不写，最典型的是蓝光原盘：国内 PT 站普遍只在描述里标一句「原盘」，
+     * 标题与压制版逐字同构（两者都解析成 {@code source=BluRay}，来源白名单分不开），
+     * 体积上限又会连体积区间重叠的 REMUX 一起切掉。
+     * </p>
+     * <p>描述为空时放行而非淘汰：不少索引器压根不返回 {@code <description>}。</p>
+     */
+    @TableField("description_exclude_keywords")
+    private String descriptionExcludeKeywords;
+
     /** 分辨率优先级，逗号分隔，越靠前越优先 */
     @TableField("resolution_priority")
     private String resolutionPriority;

@@ -173,6 +173,19 @@
             />
           </FormField>
 
+          <FormField>
+            <v-text-field
+              v-model="form.descriptionExcludeKeywords"
+              label="描述排除词"
+              placeholder="如 原盘,BDMV；留空表示不限"
+              density="comfortable"
+              variant="outlined"
+            />
+            <template #tip>
+              逗号分隔，命中任一即淘汰，判定对象是<strong>种子描述</strong>而非标题。用来拦标题里看不出、只在描述中标注的属性——最典型的是蓝光原盘：标题与压制版逐字同构（两者都解析成 BluRay，来源白名单分不开），体积上限又会把体积相近的 REMUX 一起切掉。<strong>描述为空的种子一律放行</strong>，因为不少索引器不返回描述字段
+            </template>
+          </FormField>
+
           <div class="section-divider"><span>择优排序（从存活的候选里挑一个）</span></div>
 
           <FormField>

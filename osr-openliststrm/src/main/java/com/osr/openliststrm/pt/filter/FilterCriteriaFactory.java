@@ -41,6 +41,8 @@ public final class FilterCriteriaFactory {
                 .freeOnly(isTruthy(strOf(patch, "freeOnly", global.getFreeOnly())))
                 .includeKeywords(csvOf(patch, "includeKeywords", global.getIncludeKeywords()))
                 .excludeKeywords(csvOf(patch, "excludeKeywords", global.getExcludeKeywords()))
+                .descriptionExcludeKeywords(csvOf(patch, "descriptionExcludeKeywords",
+                        global.getDescriptionExcludeKeywords()))
                 .resolutionPriority(csvOf(patch, "resolutionPriority", global.getResolutionPriority()))
                 .resolutionWhitelist(csvOf(patch, "resolutionWhitelist", global.getResolutionWhitelist()))
                 .sourceWhitelist(csvOf(patch, "sourceWhitelist", global.getSourceWhitelist()))

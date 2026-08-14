@@ -71,10 +71,12 @@ class FilterCriteriaTest {
         // 位置参数版本仍然是 record 的规范构造器，builder 未设置的分量也恰好走这条路径传 null；
         // null 应归一为空列表，与"空 -> 不限/回退默认"的既有语义保持一致
         FilterCriteria criteria = assertDoesNotThrow(() -> new FilterCriteria(
-                1, 0L, 0L, false, null, null, null, null, null, null, null, null, null, null, 0L, false, false, false));
+                1, 0L, 0L, false, null, null, null, null, null, null, null, null, null, null, null, 0L, false, false,
+                false));
 
         assertTrue(criteria.includeKeywords().isEmpty());
         assertTrue(criteria.excludeKeywords().isEmpty());
+        assertTrue(criteria.descriptionExcludeKeywords().isEmpty());
         assertTrue(criteria.resolutionPriority().isEmpty());
         assertTrue(criteria.resolutionWhitelist().isEmpty());
         assertTrue(criteria.sourceWhitelist().isEmpty());
@@ -91,6 +93,7 @@ class FilterCriteriaTest {
         FilterCriteria criteria = FilterCriteria.builder().build();
 
         assertEquals(0, criteria.minSeeders());
+        assertTrue(criteria.descriptionExcludeKeywords().isEmpty());
         assertTrue(criteria.sourceWhitelist().isEmpty());
         assertTrue(criteria.requiredTags().isEmpty());
         assertTrue(criteria.excludeTags().isEmpty());

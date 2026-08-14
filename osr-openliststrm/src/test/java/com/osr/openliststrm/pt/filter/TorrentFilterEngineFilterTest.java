@@ -390,6 +390,63 @@ class TorrentFilterEngineFilterTest {
         assertTrue(result.isEmpty());
     }
 
+    // ---------- 描述排除词 ----------
+
+    private FilterCriteria descriptionExcludeCriteria(List<String> keywords) {
+        return FilterCriteria.builder()
+                .descriptionExcludeKeywords(keywords)
+                .sortPriority(List.of(SortDimension.SEEDERS))
+                .build();
+    }
+
+    private TorrentInfo torrentWithDescription(String title, String description) {
+        TorrentInfo t = torrent(title, 10, 5_000_000_000L, false);
+        t.setDescription(description);
+        return t;
+    }
+
+    @Test
+    void 描述命中排除词_淘汰并给出描述专属的淘汰码() {
+        // 蓝光原盘的真实形态：标题与压制版逐字同构，只有描述里那句「原盘」能分开
+        List<TorrentFilterEngine.Verdict> verdicts = engine.evaluate(
+                List.of(torrentWithDescription("Some.Movie.2021.1080p.BluRay.x264-GROUP", "蓝光原盘 DIY 简繁字幕")),
+                descriptionExcludeCriteria(List.of("原盘")), TorrentBlacklist.EMPTY, null);
+
+        assertFalse(verdicts.get(0).accepted());
+        // 与 EXCLUDED_KEYWORD 分开：用户要据此判断该去改标题排除词还是描述排除词
+        assertEquals(RejectCode.EXCLUDED_DESCRIPTION_KEYWORD, verdicts.get(0).rejectCode());
+    }
+
+    @Test
+    void 描述排除词大小写不敏感() {
+        List<TorrentInfo> result = engine.filter(
+                List.of(torrentWithDescription("Some.Movie.2021.2160p", "Complete BDMV, 100GB")),
+                descriptionExcludeCriteria(List.of("bdmv")), TorrentBlacklist.EMPTY, null);
+
+        assertTrue(result.isEmpty());
+    }
+
+    @Test
+    void 描述为空_描述排除词一律放行() {
+        // 不少索引器压根不返回 <description>，按"判不出即淘汰"处理会把这些站点的候选整批清光
+        List<TorrentInfo> result = engine.filter(
+                List.of(torrentWithDescription("Some.Movie.2021.1080p", null),
+                        torrentWithDescription("Other.Movie.2021.1080p", "   ")),
+                descriptionExcludeCriteria(List.of("原盘")), TorrentBlacklist.EMPTY, null);
+
+        assertEquals(2, result.size());
+    }
+
+    @Test
+    void 描述排除词只看描述_标题命中不淘汰() {
+        // 判定对象就是描述本身；要拦标题请用标题排除词，两个输入框各管各的
+        List<TorrentInfo> result = engine.filter(
+                List.of(torrentWithDescription("Some.Movie.2021.原盘.1080p", "WEB-DL 内封简繁")),
+                descriptionExcludeCriteria(List.of("原盘")), TorrentBlacklist.EMPTY, null);
+
+        assertEquals(1, result.size());
+    }
+
     @Test
     void 包含词非空_一个都没命中则淘汰() {
         List<TorrentInfo> result = engine.filter(

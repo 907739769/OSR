@@ -602,6 +602,19 @@
               />
             </div>
             <div class="override-row">
+              <span class="override-label">描述排除词</span>
+              <v-checkbox v-model="filterOverrideForm.descriptionExcludeKeywords.enabled" hide-details density="compact" class="override-checkbox" />
+              <v-text-field
+                v-model="filterOverrideForm.descriptionExcludeKeywords.value"
+                placeholder="如 原盘,BDMV；匹配描述而非标题"
+                :disabled="!filterOverrideForm.descriptionExcludeKeywords.enabled"
+                density="compact"
+                variant="outlined"
+                hide-details
+                class="override-input"
+              />
+            </div>
+            <div class="override-row">
               <span class="override-label">分辨率优先级</span>
               <v-checkbox v-model="filterOverrideForm.resolutionPriority.enabled" hide-details density="compact" class="override-checkbox" />
               <v-text-field

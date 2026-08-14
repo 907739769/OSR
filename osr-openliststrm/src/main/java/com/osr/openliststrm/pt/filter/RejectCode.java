@@ -44,6 +44,11 @@ public enum RejectCode {
     MISSING_REQUIRED_TAG("缺少必需标签"),
     /** 标题命中排除词 */
     EXCLUDED_KEYWORD("命中排除词"),
+    /**
+     * 种子描述命中排除词。与 {@link #EXCLUDED_KEYWORD} 分开成两个码而不是合并：
+     * 命中的是标题还是描述，决定了用户该去改哪一个输入框——聚合到一起就分不出来了。
+     */
+    EXCLUDED_DESCRIPTION_KEYWORD("命中描述排除词"),
     /** 标题未命中任何包含词（OR 语义） */
     NO_INCLUDE_KEYWORD("未命中包含词"),
     /** 外语片但标题/描述里检测不到中文字幕标识。索引器不返回 description 时容易整片命中 */

@@ -38,6 +38,7 @@ export function usePtFilterConfig() {
     freeOnly: '0',
     includeKeywords: '',
     excludeKeywords: '',
+    descriptionExcludeKeywords: '',
     resolutionPriority: '',
     resolutionWhitelist: '',
     sourceWhitelist: '',

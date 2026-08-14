@@ -74,6 +74,26 @@ class FilterCriteriaFactoryTest {
     }
 
     @Test
+    void 描述排除词_全局未配置_归一为空列表表示不限() {
+        // 新列对既有部署是 NULL，必须落到"不限"——若反过来当成"描述判不出就淘汰"会清光整站候选
+        FilterCriteria c = FilterCriteriaFactory.build(globalConfig(), null);
+
+        assertTrue(c.descriptionExcludeKeywords().isEmpty());
+    }
+
+    @Test
+    void 描述排除词_可按订阅覆盖() {
+        // 典型场景：全局不收原盘，但这部剧只有原盘资源，单独放开
+        PtFilterConfigPlus global = globalConfig();
+        global.setDescriptionExcludeKeywords("原盘,BDMV");
+
+        assertEquals(List.of("原盘", "BDMV"),
+                FilterCriteriaFactory.build(global, null).descriptionExcludeKeywords());
+        assertTrue(FilterCriteriaFactory.build(global, "{\"descriptionExcludeKeywords\":\"\"}")
+                .descriptionExcludeKeywords().isEmpty());
+    }
+
+    @Test
     void 无覆盖_全部沿用全局配置() {
         FilterCriteria c = FilterCriteriaFactory.build(globalConfig(), null);
 

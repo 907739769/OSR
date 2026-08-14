@@ -265,6 +265,7 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
     requireChineseSubtitle: { enabled: false, value: '0' as string },
     includeKeywords: { enabled: false, value: '' as string },
     excludeKeywords: { enabled: false, value: '' as string },
+    descriptionExcludeKeywords: { enabled: false, value: '' as string },
     resolutionWhitelist: { enabled: false, value: '' as string },
     resolutionPriority: { enabled: false, value: '' as string },
     preferredSize: { enabled: false, value: 0 as number }

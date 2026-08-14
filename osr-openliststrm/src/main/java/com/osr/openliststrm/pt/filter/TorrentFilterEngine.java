@@ -182,7 +182,7 @@ public class TorrentFilterEngine {
     /**
      * 返回淘汰原因；返回 null 表示通过。判定顺序：
      * GUID 黑名单 → 做种数 → 体积上下限 → 免费 → H&R 规避 → 分辨率白名单 → 来源白名单 → 标题为空
-     * → 发布组黑名单 → 排除标签 → 必需标签 → 排除词 → 包含词 → 外语电影中字检查。
+     * → 发布组黑名单 → 排除标签 → 必需标签 → 标题排除词 → 描述排除词 → 包含词 → 外语电影中字检查。
      * <p>
      * GUID 判定放最前：不依赖标题解析、不依赖任何统计字段，是最便宜的判定，
      * 而且"拉黑一个具体种子"是用户的强确定性意图，语义上应该比软性阈值更早生效。
@@ -285,6 +285,21 @@ public class TorrentFilterEngine {
                 return new Rejection(RejectCode.EXCLUDED_KEYWORD, "命中排除词「" + keyword + "」");
             }
         }
+        // 描述排除词紧跟标题排除词：同一条语义、只是判定对象不同，相邻放置让淘汰原因也对称。
+        // 与标题判定的关键差别是描述缺失时的取向——标题为空一律淘汰（上面的 BLANK_TITLE），
+        // 描述为空则放行：标题是索引器必给的字段，描述不是，不少索引器压根不返回 <description>，
+        // 按「判不出即淘汰」处理会把这些站点的候选整批清光。
+        String description = torrent.getDescription();
+        if (StringUtils.isNotBlank(description) && !criteria.descriptionExcludeKeywords().isEmpty()) {
+            String lowerDescription = description.toLowerCase(Locale.ROOT);
+            for (String keyword : criteria.descriptionExcludeKeywords()) {
+                if (lowerDescription.contains(keyword.toLowerCase(Locale.ROOT))) {
+                    return new Rejection(RejectCode.EXCLUDED_DESCRIPTION_KEYWORD,
+                            "描述命中排除词「" + keyword + "」");
+                }
+            }
+        }
+
         if (!criteria.includeKeywords().isEmpty() && !containsAny(lower, criteria.includeKeywords())) {
             return new Rejection(RejectCode.NO_INCLUDE_KEYWORD,
                     "未命中任何包含词 " + criteria.includeKeywords());

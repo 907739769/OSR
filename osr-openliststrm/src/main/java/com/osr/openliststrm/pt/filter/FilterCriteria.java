@@ -24,6 +24,10 @@ import java.util.List;
  * @param freeOnly          是否仅要免费种
  * @param includeKeywords   标题须命中其一，空列表表示不限
  * @param excludeKeywords   标题命中任一则淘汰
+ * @param descriptionExcludeKeywords 种子<b>描述</b>命中任一则淘汰。与 excludeKeywords 同语义、判定对象不同——
+ *                          有一类属性标题里根本不写（最典型是蓝光原盘，国内站只在描述里标「原盘」，
+ *                          标题与压制版同构、来源都解析成 BluRay），只有描述能分开。
+ *                          <b>描述为空时放行</b>：不少索引器不返回 description，按「判不出即淘汰」会清光整站候选
  * @param resolutionPriority 分辨率优先级，越靠前越优先
  * @param resolutionWhitelist 分辨率白名单，非空时硬性过滤——不在白名单里的直接淘汰；空列表表示不限
  * @param sourceWhitelist   媒介来源白名单(WEB-DL/BluRay/REMUX 等)，语义同分辨率白名单；空列表表示不限
@@ -53,6 +57,7 @@ public record FilterCriteria(
         boolean freeOnly,
         List<String> includeKeywords,
         List<String> excludeKeywords,
+        List<String> descriptionExcludeKeywords,
         List<String> resolutionPriority,
         List<String> resolutionWhitelist,
         List<String> sourceWhitelist,
@@ -88,6 +93,7 @@ public record FilterCriteria(
         // 这也是 builder 未设置某个分量时走到的路径，因此不能指望调用方永远传非 null。
         includeKeywords = nullSafeCopy(includeKeywords);
         excludeKeywords = nullSafeCopy(excludeKeywords);
+        descriptionExcludeKeywords = nullSafeCopy(descriptionExcludeKeywords);
         resolutionPriority = nullSafeCopy(resolutionPriority);
         resolutionWhitelist = nullSafeCopy(resolutionWhitelist);
         sourceWhitelist = nullSafeCopy(sourceWhitelist);
