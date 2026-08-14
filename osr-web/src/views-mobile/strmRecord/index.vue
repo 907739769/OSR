@@ -41,7 +41,9 @@
             density="compact"
             variant="outlined"
             hide-details
+            class="date-field"
           />
+          <span class="date-range-sep">-</span>
           <v-text-field
             v-model="dateEnd"
             label="结束日期"
@@ -49,6 +51,7 @@
             density="compact"
             variant="outlined"
             hide-details
+            class="date-field"
           />
         </div>
       </v-form>

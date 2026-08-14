@@ -9,6 +9,7 @@
         clearable
         density="compact"
         variant="outlined"
+        hide-details
         @keyup.enter="handleQuery"
       />
       <v-text-field
@@ -18,6 +19,7 @@
         clearable
         density="compact"
         variant="outlined"
+        hide-details
         @keyup.enter="handleQuery"
       />
       <v-text-field
@@ -27,6 +29,7 @@
         clearable
         density="compact"
         variant="outlined"
+        hide-details
         @keyup.enter="handleQuery"
       />
       <v-text-field
@@ -36,6 +39,7 @@
         clearable
         density="compact"
         variant="outlined"
+        hide-details
         @keyup.enter="handleQuery"
       />
       <v-select
@@ -46,6 +50,7 @@
         clearable
         density="compact"
         variant="outlined"
+        hide-details
       />
       <div class="date-range-fields">
         <v-text-field
@@ -54,6 +59,7 @@
           type="date"
           density="compact"
           variant="outlined"
+          hide-details
           class="date-field"
         />
         <span class="date-range-sep">-</span>
@@ -63,6 +69,7 @@
           type="date"
           density="compact"
           variant="outlined"
+          hide-details
           class="date-field"
         />
       </div>

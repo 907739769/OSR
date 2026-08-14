@@ -9,6 +9,7 @@
           clearable
           density="compact"
           variant="outlined"
+          hide-details
           @keyup.enter="handleQuery"
         />
         <v-select
@@ -19,6 +20,7 @@
           clearable
           density="compact"
           variant="outlined"
+          hide-details
         />
         <v-select
           v-model="queryParams.status"
@@ -28,6 +30,7 @@
           clearable
           density="compact"
           variant="outlined"
+          hide-details
         />
       </v-form>
     </MobileSearchPanel>

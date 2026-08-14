@@ -167,3 +167,52 @@ describe('颜色走令牌', () => {
     expect([...missing]).toEqual([])
   })
 })
+
+describe('搜索区紧凑度', () => {
+  /**
+   * 搜索区的输入框必须写 hide-details。
+   *
+   * 不写的话 Vuetify 会给每个输入框在下方预留 details/hint 行（约 22px），
+   * 移动端搜索面板再叠上 .search-panel-body 的 margin-bottom: 12px，
+   * 四个字段就多出近百像素空白，观感上「过于松散」。
+   * 审计时移动端 10 个页面共 32 处漏写，PC 端一处不漏——差别只在有没有人照着
+   * 已有页面抄，所以这条得由测试守着而不是靠自觉。
+   *
+   * 搜索区的字段都没有校验规则（有 rules 的是弹窗表单，不在这两个片段里），
+   * 因此 hide-details 不会吞掉任何错误提示。
+   */
+  const FIELD = /<(v-text-field|v-select|v-autocomplete|v-combobox)\b/g
+
+  /** 取出 open 与 close 之间的模板片段 */
+  const section = (src: string, open: string, close: string): string => {
+    const a = src.indexOf(open)
+    if (a < 0) return ''
+    const b = src.indexOf(close, a)
+    return b < 0 ? '' : src.slice(a, b)
+  }
+
+  /** 片段里缺 hide-details 的字段（按字段起始位置切块，逐块查属性） */
+  const missingHideDetails = (block: string): string[] => {
+    const starts = [...block.matchAll(FIELD)].map((m) => m.index as number)
+    return starts
+      .map((s, i) => block.slice(s, starts[i + 1] ?? block.length))
+      .filter((chunk) => !chunk.includes('hide-details'))
+      .map((chunk) => chunk.match(/label="([^"]*)"/)?.[1] ?? '(无 label)')
+  }
+
+  const offendersIn = (open: string, close: string) =>
+    pageEntries
+      .map(([name, src]) => {
+        const bad = missingHideDetails(section(src, open, close))
+        return bad.length ? `${name}: ${bad.join(', ')}` : null
+      })
+      .filter(Boolean)
+
+  it('移动端 MobileSearchPanel 里的字段都写了 hide-details', () => {
+    expect(offendersIn('<MobileSearchPanel', '</MobileSearchPanel>')).toEqual([])
+  })
+
+  it('PC 端 .search-fields 里的字段都写了 hide-details', () => {
+    expect(offendersIn('<div class="search-fields">', '</v-form>')).toEqual([])
+  })
+})

@@ -138,6 +138,14 @@ ptTorrentBlacklist / wecomUser（即全部 `.card-grid` 页面）。新增卡片
   没有那层外壳（`v-data-table` 表头的全选用的就是它），`label` / `indeterminate` /
   `density` 一样都不少，且没有 `hide-details`（那是 `VInput` 的 prop，不需要）。
 - **`PageHeader`**：每个业务页顶部都要有。
+- **搜索区的输入框一律写 `hide-details`**（PC 的 `.search-fields`、移动端的 `MobileSearchPanel` 插槽）。
+  不写的话 Vuetify 会给每个输入框在下方预留 details/hint 行（约 22px），移动端再叠上
+  `.search-panel-body` 的 `margin-bottom: 12px`，四个字段就多出近百像素空白，观感上「过于松散」。
+  审计时移动端 10 个页面共 32 处漏写、PC 端一处不漏——差别只在有没有照着已有页面抄，
+  所以这条由 `design-system.spec.ts` 的「搜索区紧凑度」两条用例守着，不靠自觉。
+  搜索区字段没有校验规则（带 `rules` 的都在弹窗表单里），`hide-details` 不会吞掉错误提示。
+- **移动端日期区间**：`.date-range-fields` 里两个字段都要挂 `class="date-field"`（`flex: 1` 挂在这个类上，
+  不写两个日期框不会等分），中间放 `<span class="date-range-sep">-</span>`。
 - **「全选」是操作栏里的一个文字按钮，不是勾选框，也不单独占一行**。
   位置固定在**「取消」的正前面**（PC 的 `.batch-toolbar`、移动端的 `.batch-bar`；
   卡片网格页没有「取消」时放在 `.action-left` 末尾），样式与同一条栏里的「取消」完全一致

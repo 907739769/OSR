@@ -9,6 +9,7 @@
         clearable
         density="compact"
         variant="outlined"
+        hide-details
         @keyup.enter="handleQuery"
       />
       <v-text-field
@@ -18,6 +19,7 @@
         clearable
         density="compact"
         variant="outlined"
+        hide-details
         @keyup.enter="handleQuery"
       />
       <v-text-field
@@ -27,6 +29,7 @@
         clearable
         density="compact"
         variant="outlined"
+        hide-details
         @keyup.enter="handleQuery"
       />
       <v-select
@@ -37,6 +40,7 @@
         clearable
         density="compact"
         variant="outlined"
+        hide-details
       />
     </MobileSearchPanel>
 

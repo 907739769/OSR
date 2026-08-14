@@ -11,6 +11,7 @@
           clearable
           density="compact"
           variant="outlined"
+          hide-details
         />
         <v-text-field
           v-model="queryParams.displayValue"
@@ -19,6 +20,7 @@
           clearable
           density="compact"
           variant="outlined"
+          hide-details
           @keyup.enter="handleQuery"
         />
       </v-form>
