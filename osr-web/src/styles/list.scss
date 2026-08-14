@@ -166,6 +166,21 @@
   }
 }
 
+/* Vuetify 默认 table-layout: auto —— 只标了 minWidth（没标 width）的列会按内容撑开，
+   此时列内 .path-text/.path-name 之类 flex:1 + min-width:0 的子元素拿不到一个「有限的
+   父宽度」去触发省略号，整张表跟着内容被撑宽，页面出现横向溢出。
+   改 fixed 能解决，但 fixed 布局下多个「只标 minWidth」的列会被浏览器按剩余空间
+   **等分**、无视各自 minWidth 的比例（实测两个 minWidth 200/320 的列最终等宽，
+   窄的那个反而超出预期）——只有「唯一一个弹性列」的表格才能安全套用。
+   copyTask/copyRecord/renameTask/renameDetail/strmTask/strmRecord 这 6 张表
+   刚好都只有一列 minWidth-only（源/目标或原/新的路径对照塞进同一个 detail 列），
+   显式挂 .modern-table--fixed 启用；renameOrphan/dict/ptAutoAddRule 等有多个独立
+   minWidth 列的表格不要挂，维持 auto 布局。 */
+.modern-table--fixed table {
+  table-layout: fixed;
+  width: 100%;
+}
+
 /* ============================================
    源 / 目标 / 监控 路径对照块
    copyTask、copyRecord、renameTask 的表格列共用；

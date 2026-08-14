@@ -98,7 +98,7 @@
         item-value="strmId"
         return-object
         :model-value="selectedRows"
-        class="modern-table"
+        class="modern-table modern-table--fixed"
         @update:model-value="onSelectionChange"
         @update:page="onPageChange"
         @update:items-per-page="onSizeChange"
