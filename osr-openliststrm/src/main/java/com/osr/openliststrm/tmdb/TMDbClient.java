@@ -35,6 +35,20 @@ public class TMDbClient {
      */
     private static final int YEAR_CLOSE_TOLERANCE = 1;
 
+    /**
+     * 每次搜索最多检验前几名候选。冠军被否决时继续往下看，而不是整批放弃——
+     * 打分只负责排序，采纳与否由门槛和反证决定，而正确答案常常只是打分上的次席
+     * （中文作品拿英文名去搜时，它的 name/original_name 全是中文，一分标题分都拿不到）。
+     * 取 3 是因为每个被检验的候选最坏会多发一次详情请求，再往后收益迅速衰减。
+     */
+    private static final int MAX_CANDIDATES_EXAMINED = 3;
+
+    /**
+     * 集号超过候选剧总集数的多少倍才判定为「矛盾」。留一倍余量的理由见
+     * {@link #episodeCountContradicts}。
+     */
+    private static final int EPISODE_OVERFLOW_FACTOR = 2;
+
     private final String apiKey;
     private final ObjectMapper mapper;
 
@@ -301,13 +315,25 @@ public class TMDbClient {
     }
 
     /**
-     * 处理 search 返回的 JsonNode（来自 TMDbApiService），在候选结果中打分挑选最佳匹配。
+     * 处理 search 返回的 JsonNode（来自 TMDbApiService），在候选结果中挑选并采纳最佳匹配。
      * <p>
-     * 打分挑出冠军之后还要过一道<b>采纳门槛</b>（{@link #hasEnoughEvidence}）：证据不足就当本次
-     * 未命中返回 null，让 {@code search()} 继续降级到下一个候选标题，全部落空则交给 AI 兜底
-     * （{@code MediaParser#needsAI} 的判据正是 tmdbId 为空）。没有门槛的话，「搜到了正确答案」
-     * 与「搜到了一堆垃圾、靠 TMDb 相关度排序蒙了个第一」走的是同一条路，后者会把整部剧
-     * 安静地刮成另一部作品。
+     * <b>打分只负责排序，采纳与否由两道独立的检验决定</b>：正面的
+     * {@link #hasEnoughEvidence 采纳门槛}（有没有一条独立于 TMDb 相关度排序的正面证据）
+     * 与反面的 {@link #episodeCountContradicts 集号反证}（这个候选是否在集数上根本装不下这一集）。
+     * 没有门槛的话，「搜到了正确答案」与「搜到了一堆垃圾、靠 TMDb 相关度排序蒙了个第一」
+     * 走的是同一条路，后者会把整部剧安静地刮成另一部作品。
+     * </p>
+     * <p>
+     * <b>冠军没通过就往下看次席，而不是整批放弃</b>（最多看
+     * {@value #MAX_CANDIDATES_EXAMINED} 个）。正确答案经常只是打分上的第二名——中文作品拿
+     * 英文名去搜时，它的 name/original_name 全是中文，一分标题分都拿不到，而一个字面同名的
+     * 外国剧能拿满标题分（{@code Perfect World} 事故，详见 {@link #episodeCountContradicts}）。
+     * 早先的实现在冠军被拒时直接返回 null，正确答案明明就在同一批结果里却连被检验的机会都没有。
+     * </p>
+     * <p>
+     * 前 {@value #MAX_CANDIDATES_EXAMINED} 个候选全部落空才返回 null，让 {@code search()}
+     * 继续降级到下一个候选标题，全部落空则交给 AI 兜底（{@code MediaParser#needsAI} 的判据
+     * 正是 tmdbId 为空）。
      * </p>
      */
     private String doSearchOnce(String type, MediaInfo info, com.fasterxml.jackson.databind.JsonNode root, TMDbApiService api) throws IOException {
@@ -316,37 +342,100 @@ public class TMDbClient {
         log.debug("doSearchOnce: {} results: {}", info.getOriginalName(), results);
         if (!results.isArray() || results.isEmpty()) return null;
 
-        JsonNode picked = pickBestCandidate(type, info, results);
+        List<JsonNode> ranked = rankCandidates(type, info, results);
 
-        // 没有可用 id 就没法拉详情（英文规范名也拉不到），此时绝不能写 info：否则 tmdbId/year
-        // 被半途改掉，既让后续候选拿着被污染的年份去判断，又会让 needsAI 误以为已经识别出来了
-        int id = picked.path("id").asInt(-1);
-        if (id <= 0) {
-            log.debug("TMDb 冠军候选缺少 id，跳过：{}", info.getOriginalName());
-            return null;
+        for (int rank = 0; rank < ranked.size() && rank < MAX_CANDIDATES_EXAMINED; rank++) {
+            JsonNode picked = ranked.get(rank);
+
+            // 没有可用 id 就没法拉详情（英文规范名也拉不到），此时绝不能写 info：否则 tmdbId/year
+            // 被半途改掉，既让后续候选拿着被污染的年份去判断，又会让 needsAI 误以为已经识别出来了
+            int id = picked.path("id").asInt(-1);
+            if (id <= 0) {
+                log.debug("TMDb 候选缺少 id，跳过：{}", info.getOriginalName());
+                continue;
+            }
+
+            if (!hasEnoughEvidence(type, info, picked, id, api)) {
+                log.info("TMDb 结果证据不足，跳过：{} —— 第 {} 名候选是「{}（{}）」，"
+                                + "但与解析出的标题「{}」既不匹配（含英文规范名）、年份也不接近（解析年份 {}）",
+                        info.getOriginalName(), rank + 1, describeCandidate(type, picked),
+                        getYearSafe(picked, type), firstNonBlankTitle(info), info.getYear());
+                continue;
+            }
+
+            if (episodeCountContradicts(type, info, id, api)) {
+                log.info("TMDb 候选被集数反证否决，继续看下一位：{} —— 第 {} 名候选「{}（{}）」全剧总集数容不下第 {} 集",
+                        info.getOriginalName(), rank + 1, describeCandidate(type, picked),
+                        getYearSafe(picked, type), info.getEpisode());
+                continue;
+            }
+
+            info.setYear(getYearSafe(picked, type));
+            info.setTmdbId(picked.path("id").asText());
+
+            String best = getBestTitle(type, picked, id, api);
+
+            // fetch details to populate genres, original language and origin countries
+            try {
+                fetchDetails(type, id, info, api);
+            } catch (Exception e) {
+                log.warn("fetchDetails failed: {}", e.getMessage());
+            }
+
+            return best;
         }
 
-        if (!hasEnoughEvidence(type, info, picked, id, api)) {
-            log.info("TMDb 结果证据不足，本次不采纳：{} —— 打分冠军是「{}（{}）」，"
-                            + "但与解析出的标题「{}」既不匹配（含英文规范名）、年份也不接近（解析年份 {}）",
-                    info.getOriginalName(), describeCandidate(type, picked), getYearSafe(picked, type),
-                    firstNonBlankTitle(info), info.getYear());
-            return null;
+        return null;
+    }
+
+    /**
+     * 集号反证：候选剧的<b>全剧总集数</b>连解析出的集号都装不下，那它一定不是这部作品。
+     * <p>
+     * 这是唯一一条既不依赖标题、也不依赖文件名年份的证据，专治「字面同名的另一部作品」：
+     * {@code Perfect.World.S01E282.2021} 里，TMDb 上 2000 年那部英国喜剧 {@code Perfect World}
+     * 的 {@code original_name} 与解析标题<b>逐字相等</b>（+100 分），而正确答案国产动画《完美世界》
+     * 的 name/original_name 都是中文、拿不到任何标题分，只靠年份吻合的加分——打分上毫无胜算。
+     * 于是整部剧被刮成一部 6 集英剧，年份被改写成 2000、{@code origin_country=GB} 还把它分到了「欧美剧」。
+     * 集号这一维是文件名里最硬的信息（发布组不会把第 282 集写成 282），一票就能否掉。
+     * </p>
+     * <p>
+     * <b>为什么是「超过总集数的 {@value #EPISODE_OVERFLOW_FACTOR} 倍」而不是简单的「超过总集数」</b>：
+     * 集号有三套且彼此不一致（见 AGENTS.md「集号有三套」一节）——发布组用绝对集号、TMDb 按季编号时，
+     * {@code One.Piece.S01E1173} 这种命名的集号本来就可能略微超出 TMDb 记录的总集数；
+     * 新集刚播出时 TMDb 数据滞后一两集也是常态。留一倍余量，只否掉「差着数量级」的情况
+     * （282 vs 6），把误否的代价（该文件不重命名）压到最低。
+     * </p>
+     * <p>
+     * <b>正常路径请求数不变</b>：这里用的 {@code getDetails(apiKey, type, id)} 与采纳后
+     * {@link #fetchDetails} 是同一个调用，{@code TMDbApiService} 有 L1+DB 两层缓存，
+     * 候选被采纳时第二次调用直接命中缓存；只有被否决的候选才多一次真实请求。
+     * </p>
+     */
+    private boolean episodeCountContradicts(String type, MediaInfo info, int id, TMDbApiService api) {
+        if (!"tv".equals(type) || StringUtils.isEmpty(info.getEpisode())) {
+            return false;
         }
-
-        info.setYear(getYearSafe(picked, type));
-        info.setTmdbId(picked.path("id").asText());
-
-        String best = getBestTitle(type, picked, id, api);
-
-        // fetch details to populate genres, original language and origin countries
+        int episode;
         try {
-            fetchDetails(type, id, info, api);
-        } catch (Exception e) {
-            log.warn("fetchDetails failed: {}", e.getMessage());
+            episode = Integer.parseInt(info.getEpisode().replaceAll("\\D", ""));
+        } catch (NumberFormatException e) {
+            return false;
         }
-
-        return best;
+        if (episode <= 0) {
+            return false;
+        }
+        try {
+            JsonNode d = mapper.readTree(api.getDetails(apiKey, type, id));
+            if (d == null) {
+                return false;
+            }
+            int total = d.path("number_of_episodes").asInt(0);
+            // 拿不到总集数（字段缺失/请求失败）时不做判断——反证只在证据确凿时生效
+            return total > 0 && episode > total * EPISODE_OVERFLOW_FACTOR;
+        } catch (Exception e) {
+            log.debug("集数反证取详情失败，按不矛盾处理：id={}, {}", id, e.getMessage());
+            return false;
+        }
     }
 
     /**
@@ -541,22 +630,25 @@ public class TMDbClient {
     }
 
     /**
-     * 在多个候选结果中打分挑选最佳匹配，替代"直接取第一条"的粗暴策略。
-     * 打分维度：官方中文标题精确匹配（最高权重）、发行年份接近度、TMDb 热度（popularity）、
+     * 按分数从高到低排出候选顺序，替代"直接取第一条"的粗暴策略。
+     * 打分维度：标题匹配强度（最高权重）、发行年份接近度、TMDb 热度（popularity）、
      * 以及 TMDb 自身相关度排序名次（作为无其他信号时的兜底，保持与旧行为一致）。
+     * <p>
+     * 返回整个有序列表而不是单个冠军：冠军过不了 {@link #doSearchOnce} 里那两道检验时，
+     * 次席仍有机会被采纳。排序是稳定的，同分候选保持 TMDb 的原始相关度顺序。
+     * </p>
      */
-    private JsonNode pickBestCandidate(String type, MediaInfo info, JsonNode results) {
-        JsonNode best = results.get(0);
-        double bestScore = Double.NEGATIVE_INFINITY;
+    private List<JsonNode> rankCandidates(String type, MediaInfo info, JsonNode results) {
+        List<JsonNode> nodes = new ArrayList<>();
+        java.util.Map<JsonNode, Double> scores = new java.util.IdentityHashMap<>();
         for (int i = 0; i < results.size(); i++) {
             JsonNode node = results.get(i);
-            double score = scoreCandidate(type, info, node) - i * 0.5; // TMDb 原始相关度名次作为兜底权重
-            if (score > bestScore) {
-                bestScore = score;
-                best = node;
-            }
+            nodes.add(node);
+            scores.put(node, scoreCandidate(type, info, node) - i * 0.5); // TMDb 原始相关度名次作为兜底权重
         }
-        return best;
+        // List.sort 是稳定排序：同分时保持 TMDb 原始相关度顺序
+        nodes.sort((a, b) -> Double.compare(scores.get(b), scores.get(a)));
+        return nodes;
     }
 
     private double scoreCandidate(String type, MediaInfo info, JsonNode node) {
@@ -580,10 +672,16 @@ public class TMDbClient {
         if (StringUtils.isNotEmpty(targetYear) && StringUtils.isNotEmpty(candidateYear)) {
             try {
                 int diff = Math.abs(Integer.parseInt(targetYear) - Integer.parseInt(candidateYear));
-                if (diff == 0) score += 30;
-                else if (diff == 1) score += 15;
-                else if (diff <= 3) score += 5;
-                else score -= 10;
+                // 差得越离谱扣得越狠。旧档位里「差 21 年」和「差 4 年」同样只扣 10 分，
+                // 一个字面同名的老剧靠 +100 的标题分就能轻松压过年份完全吻合的正确答案。
+                // 但也不能扣到能一票否决的程度——文件名里的年份对剧集常常是本季播出年
+                // 而非首播年（见 search() 注释），差十几年的正常命中（The Office S03E05.2019）
+                // 必须还能靠标题分活下来，真正的否决交给 episodeCountContradicts。
+                if (diff == 0) score += 40;
+                else if (diff == 1) score += 20;
+                else if (diff <= 3) score += 8;
+                else if (diff <= 10) score -= 15;
+                else score -= 45;
             } catch (NumberFormatException ignored) {
             }
         }

@@ -355,4 +355,113 @@ class TMDbClientSearchTest {
         assertEquals("The Truth", client.search("tv", info, api));
         verify(api).search(anyString(), eq("tv"), eq("开始推理吧"), isNull());
     }
+
+    // ---------- 集号反证 + 多候选：字面同名的另一部作品 ----------
+
+    /**
+     * 真实事故：{@code Perfect.World.S01E282.2021.2160p.TX.WEB-DL.H.265.AAC2.0-HHWEB} 被刮成
+     * TMDb 上 2000 年那部 6 集英国喜剧，产出 {@code /电视剧/欧美剧/完美世界 (2000)/Season 01/完美世界 S01E282}。
+     * <p>
+     * 成因是打分上的结构性不对称：英国剧的 {@code original_name} 与解析标题逐字相等（+100），
+     * 正确答案国产动画《完美世界》的 name/original_name 都是中文、一分标题分都拿不到，只有年份吻合的加分。
+     * 冠军又恰好能过采纳门槛（标题全等），于是没有任何环节能拦下它。
+     * </p>
+     */
+    private static final String PERFECT_WORLD = "{\"results\":["
+            + "{\"id\":2000,\"name\":\"完美世界\",\"original_name\":\"Perfect World\","
+            + "\"first_air_date\":\"2000-02-25\",\"popularity\":3},"
+            + "{\"id\":124364,\"name\":\"完美世界\",\"original_name\":\"完美世界\","
+            + "\"first_air_date\":\"2021-04-23\",\"popularity\":25}]}";
+
+    private MediaInfo perfectWorldInfo() {
+        MediaInfo info = new MediaInfo("Perfect.World.S01E282.2021.2160p.TX.WEB-DL.H.265.AAC2.0-HHWEB.strm");
+        info.setOriginalTitle("Perfect World");
+        info.setYear("2021");
+        info.setSeason("01");
+        info.setEpisode("282");
+        return info;
+    }
+
+    @Test
+    void 反证_字面同名的老剧装不下第282集_改采纳年份吻合的次席() throws Exception {
+        TMDbApiService api = mock(TMDbApiService.class);
+        when(api.search(anyString(), anyString(), anyString(), any())).thenReturn(PERFECT_WORLD);
+        // 2000 年的英国喜剧总共 6 集
+        when(api.getDetails(anyString(), eq("tv"), eq(2000)))
+                .thenReturn("{\"id\":2000,\"number_of_episodes\":6,\"origin_country\":[\"GB\"]}");
+        when(api.getDetails(anyString(), eq("tv"), eq(124364)))
+                .thenReturn("{\"id\":124364,\"number_of_episodes\":290,\"origin_country\":[\"CN\"]}");
+
+        MediaInfo info = perfectWorldInfo();
+
+        assertEquals("完美世界", client.search("tv", info, api));
+        assertEquals("124364", info.getTmdbId());
+        // 年份被改写成正确条目的首播年，目录不会再长成「完美世界 (2000)」
+        assertEquals("2021", info.getYear());
+    }
+
+    @Test
+    void 反证_只否决矛盾的那个候选_不整批放弃() throws Exception {
+        TMDbApiService api = mock(TMDbApiService.class);
+        when(api.search(anyString(), anyString(), anyString(), any())).thenReturn(PERFECT_WORLD);
+        when(api.getDetails(anyString(), eq("tv"), eq(2000)))
+                .thenReturn("{\"id\":2000,\"number_of_episodes\":6}");
+        when(api.getDetails(anyString(), eq("tv"), eq(124364)))
+                .thenReturn("{\"id\":124364,\"number_of_episodes\":290}");
+
+        client.search("tv", perfectWorldInfo(), api);
+
+        // 冠军被否决后就地降级到次席，不必再换标题重搜（换了也没有别的标题可换）
+        verify(api, never()).search(anyString(), anyString(), anyString(), eq("2021"));
+    }
+
+    @Test
+    void 反证_集号略微超出总集数时不否决_绝对集号命名是常态() throws Exception {
+        // 发布组按绝对集号命名（One Piece S01E1173），TMDb 按季编号且数据常年滞后一两集，
+        // 这里必须放行，否则整部长篇动画都会因为"集号超出"而拒绝刮削
+        String onePiece = "{\"results\":[{\"id\":37854,\"name\":\"海贼王\",\"original_name\":\"ONE PIECE\","
+                + "\"first_air_date\":\"1999-10-20\",\"popularity\":180}]}";
+        TMDbApiService api = mock(TMDbApiService.class);
+        when(api.search(anyString(), anyString(), anyString(), any())).thenReturn(onePiece);
+        when(api.getDetails(anyString(), eq("tv"), eq(37854)))
+                .thenReturn("{\"id\":37854,\"number_of_episodes\":1141}");
+
+        MediaInfo info = new MediaInfo("One.Piece.S01E1173.2026.1080p.WEB-DL.strm");
+        info.setOriginalTitle("One Piece");
+        info.setYear("2026");
+        info.setSeason("01");
+        info.setEpisode("1173");
+
+        assertEquals("海贼王", client.search("tv", info, api));
+        assertEquals("37854", info.getTmdbId());
+    }
+
+    @Test
+    void 反证_拿不到总集数时不做判断() throws Exception {
+        // 详情请求失败/字段缺失时反证一律不成立——它只在证据确凿时否决，绝不因为"查不到"而拒绝刮削
+        TMDbApiService api = mock(TMDbApiService.class);
+        when(api.search(anyString(), anyString(), anyString(), any())).thenReturn(PERFECT_WORLD);
+        when(api.getDetails(anyString(), eq("tv"), anyInt())).thenReturn(null);
+
+        MediaInfo info = perfectWorldInfo();
+        client.search("tv", info, api);
+
+        // 退化回改造前的行为：打分冠军（字面同名的英国剧）被采纳
+        assertEquals("2000", info.getTmdbId());
+    }
+
+    @Test
+    void 反证_电影不参与() throws Exception {
+        TMDbApiService api = mock(TMDbApiService.class);
+        when(api.search(anyString(), anyString(), anyString(), any())).thenReturn(EMPTY);
+        when(api.search(anyString(), eq("movie"), eq("Fight Club"), eq("1999"))).thenReturn(MOVIE_HIT);
+
+        MediaInfo info = new MediaInfo("Fight.Club.1999.1080p.BluRay.x264-GROUP.mkv");
+        info.setOriginalTitle("Fight Club");
+        info.setYear("1999");
+
+        assertEquals("搏击俱乐部", client.search("movie", info, api));
+        // 电影没有集号这一维，不该为它多发详情请求（fetchDetails 那次是采纳后的，不算）
+        verify(api, never()).getDetails(anyString(), eq("tv"), anyInt());
+    }
 }

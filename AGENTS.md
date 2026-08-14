@@ -150,5 +150,10 @@ docker compose up -d --build --no-deps backend
 - **STRM 生成的「输出根目录 / 是否下字幕 / 最小体积」可按任务覆盖**，存在 `openlist_strm_task.strm_override`（JSON），合并规则见 `StrmSettingsFactory`——照 `pt_subscription.filter_override` 的约定，只有出现在 JSON 里的键才覆盖，该列为空时行为与引入前完全一致。两条不要改坏的约定：
   1. **`strmDir`/`strmOneFile` 按路径反查任务，不要改成让调用方传任务**。半数调用方手里根本没有任务对象（`AsynHelper` 的复制完成触发、`CopyRecoveryTask` 的兜底恢复、TG 的 `/strm <路径>`），它们退回全局配置就会让同一目录因「谁触发的」而输出到不同根目录，长出两棵 STRM 树，一致性检查还会把其中一棵报成孤儿。匹配走 `pickCoveringTask`：落在路径分隔符上、取最长（最具体）的任务、停用的任务照样参与。
   2. **URL 编码开关与视频/字幕扩展名刻意不可覆盖**。encode 有三个解码侧消费者（`RenameOrphanScanServiceImpl`、`RenameCleanupService`、`StrmSourcePathResolver` 都要从 .strm 内容反解回网盘路径），扩展名是 `sys_dict` 全站字典；两者都是「播放器吃什么」的全局属性，分库配置只会制造解不开的历史数据。
+- **TMDb 匹配里，打分只排序，采纳与否由两道独立检验决定**（`TMDbClient#doSearchOnce`）：正面的 `hasEnoughEvidence`（标题命中 / 年份接近 / 英文规范名命中，三选一）与反面的 `episodeCountContradicts`（候选剧的全剧总集数装不下这一集）。三条容易改坏的语义：
+  1. **冠军没通过就往下看次席，不是整批放弃**（上限 `MAX_CANDIDATES_EXAMINED=3`）。正确答案经常只是打分上的第二名——中文作品拿英文名去搜时，它的 name/original_name 全是中文，一分标题分都拿不到。`Perfect.World.S01E282.2021` 被刮成 TMDb 上 2000 年那部 6 集英国喜剧就是这么来的：英国剧 `original_name` 与解析标题逐字相等拿满 +100，国产动画《完美世界》只有年份吻合的加分，还顺带把年份改写成 2000、按 `origin_country=GB` 分到了「欧美剧」。
+  2. **集号反证留一倍余量**（`episode > total * 2` 才判矛盾），不是简单的 `episode > total`。集号有三套（见上一条），发布组按绝对集号命名时集号本来就可能略超 TMDb 的记录，新集刚播出时 TMDb 滞后一两集也是常态；只否掉差着数量级的情况，误否的代价（该文件不重命名）才压得住。
+  3. **拿不到总集数就不做判断**。反证只在证据确凿时否决，绝不因为「查不到」而拒绝刮削。
+  年份打分档位（`scoreCandidate`）刻意没扣到能一票否决的程度：文件名里的年份对剧集常常是本季播出年而非首播年（`search()` 注释里有完整推导），`The.Office.S03E05.2019` 这种差 14 年的正常命中必须还能靠标题分活下来。真正的否决只交给集号反证。
 - **`tmdb_cache` 靠 `TmdbCachePurgeTask` 定期清理**（启动后 5 分钟首跑，之后每 6 小时）。这张表只在「同 key 再次被请求」时才会 upsert 覆盖，刮完一次就不再访问的 key 不会自己消失；没有这个任务时表单调增长（实测一个中等规模的库里 276 行有 237 行是过期死行）。删除走 `TmdbCacheMapper.deleteExpired` 分批进行，不要改回一条 DELETE 删干净。
 - 后端 Java 异常写在 `/data/logs/sys-error.log`，**不在 docker stdout**（stdout 只有启动 banner）。排查启动失败：`docker cp osr-backend:/data/logs ./tmp` 后看 `sys-error.log`；容器反复重启时先 `docker update --restart=no osr-backend && docker restart osr-backend` 让它崩溃后停住再读日志。
