@@ -82,8 +82,37 @@ class GotifyNotifierTest {
         assertEquals("POST", req.getMethod());
         assertEquals("/message?token=A1b2C3", req.getPath());
         JSONObject body = JSONObject.parseObject(req.getBody().readUtf8());
-        assertEquals("OSR", body.getString("title"));
+        assertEquals("OSR · 下载完成", body.getString("title"));
         assertEquals("下载完成", body.getString("message"));
+        assertEquals(4, body.getIntValue("priority"));
+    }
+
+    /**
+     * 文案里的动态内容都过了 escapeHtml（为 TG 的 HTML parse_mode 准备），Gotify 不解析 HTML，
+     * 不还原实体的话种子标题里的 & 会显示成 &amp;。
+     */
+    @Test
+    void HTML标签与实体_都还原成纯文本() throws Exception {
+        givenConfigured();
+        server.enqueue(new MockResponse().setResponseCode(200));
+
+        notifier.send(NotificationType.DOWNLOAD_COMPLETE, "<b>完成</b>：Tom &amp; Jerry");
+
+        JSONObject body = JSONObject.parseObject(server.takeRequest().getBody().readUtf8());
+        assertEquals("完成：Tom & Jerry", body.getString("message"));
+    }
+
+    /** 失败类才抬高优先级：Gotify 客户端 >=8 才响铃弹窗，全抬高等于逼用户整渠道静音 */
+    @Test
+    void 失败类通知_抬高优先级() throws Exception {
+        givenConfigured();
+        server.enqueue(new MockResponse().setResponseCode(200));
+
+        notifier.send(NotificationType.DOWNLOAD_FAILED, "失败了");
+
+        JSONObject body = JSONObject.parseObject(server.takeRequest().getBody().readUtf8());
+        assertEquals("OSR · 下载失败", body.getString("title"));
+        assertEquals(8, body.getIntValue("priority"));
     }
 
     /** 用户常常连域名带末尾斜杠一起粘贴，不能拼出 //message */

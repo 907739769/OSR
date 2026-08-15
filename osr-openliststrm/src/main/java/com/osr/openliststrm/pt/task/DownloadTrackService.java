@@ -16,6 +16,7 @@ import com.osr.openliststrm.mybatisplus.service.IPtDownloadRecordPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtIndexerPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
+import com.osr.openliststrm.pt.PtNotifyText;
 import com.osr.openliststrm.pt.downloader.DownloaderClientFactory;
 import com.osr.openliststrm.pt.downloader.model.DownloaderTorrent;
 import com.osr.openliststrm.pt.downloader.model.DownloaderTorrentFile;
@@ -31,10 +32,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -313,11 +316,14 @@ public class DownloadTrackService {
             return;
         }
         log.info("下载记录[{}] H&R 已达标（{}）：{}", record.getId(), requirement, record.getTitle());
-        notifySafely(NotificationType.DOWNLOAD_COMPLETE, "🌱 H&R 已达标，可安全删除："
-                + StringUtils.escapeHtml(record.getTitle())
+        PtSubscriptionPlus sub = subOf(record);
+        notifySafely(NotificationType.HR_STATE, "🌱 H&R 已达标，可安全删除："
+                + PtNotifyText.subject(sub, record.getEpisode(), record.getEpisodeEnd())
+                + "\n" + StringUtils.escapeHtml(record.getTitle())
                 + "\n满足条件：" + StringUtils.escapeHtml(requirement)
                 + "\n当前做种 " + formatHours(torrent.getSeedingSeconds())
-                + "，分享率 " + String.format("%.2f", torrent.getRatio()), ownerOf(record));
+                + "，分享率 " + String.format(Locale.ROOT, "%.2f", torrent.getRatio()),
+                sub == null ? null : sub.getOwnerUserId());
     }
 
     /** 达标前种子就消失了：H&R 已经产生，只能如实告知 */
@@ -332,11 +338,13 @@ public class DownloadTrackService {
         }
         long seeded = record.getHrSeedSeconds() == null ? 0L : record.getHrSeedSeconds();
         log.warn("下载记录[{}] 在 H&R 达标前从下载器消失，可能已产生 H&R：{}", record.getId(), record.getTitle());
-        notifySafely(NotificationType.DOWNLOAD_FAILED, "⚠️ 可能已产生 H&R："
-                + StringUtils.escapeHtml(record.getTitle())
+        PtSubscriptionPlus sub = subOf(record);
+        notifySafely(NotificationType.HR_STATE, "⚠️ 可能已产生 H&R："
+                + PtNotifyText.subject(sub, record.getEpisode(), record.getEpisodeEnd())
+                + "\n" + StringUtils.escapeHtml(record.getTitle())
                 + "\n该种子在满足站点保种要求前就从下载器中消失了（最后一次采样：做种 "
                 + formatHours(seeded) + "）。OSR 不会删除种子，请检查是否被手动删除或被下载器的做种限额清理，"
-                + "并尽快到站点确认是否需要补种或申诉", ownerOf(record));
+                + "并尽快到站点确认是否需要补种或申诉", sub == null ? null : sub.getOwnerUserId());
     }
 
     /** 把秒数说成人能读的小时，通知里用 */
@@ -516,7 +524,7 @@ public class DownloadTrackService {
         doFail(record, FailReasonCode.NO_TARGET_EPISODE,
                 "种子内不含任何目标集（包内第 " + actual + " 集，本次要补第 " + target + " 集）",
                 false,
-                "📦 种子内不含任何目标集：《" + StringUtils.escapeHtml(sub.getTitle()) + "》\n"
+                "📦 种子内不含任何目标集：" + PtNotifyText.subject(sub, record.getEpisode(), record.getEpisodeEnd()) + "\n"
                         + StringUtils.escapeHtml(record.getTitle())
                         + "\n包内实际是第 " + actual + " 集，本次的目标是第 " + target
                         + " 集，已中止下载，相关集将重新参与后续匹配");
@@ -645,8 +653,8 @@ public class DownloadTrackService {
                 .collect(Collectors.joining("、"));
         log.info("下载记录[{}] 实际只含 {} 集，多占的 {} 个集已退回缺失（第 {} 集）：{}",
                 record.getId(), actualEpisodes.size(), released, episodeList, record.getTitle());
-        notifySafely(NotificationType.SUBSCRIPTION_HIT, "📦 季包实际不含全季：《"
-                + StringUtils.escapeHtml(sub.getTitle()) + "》\n"
+        notifySafely(NotificationType.SUBSCRIPTION_HIT, "📦 季包实际不含全季："
+                + PtNotifyText.subject(sub, SubscriptionMatcher.SEASON_PACK, null) + "\n"
                 + StringUtils.escapeHtml(record.getTitle())
                 + "\n包内实际 " + actualEpisodes.size() + " 集，多占的第 " + episodeList
                 + " 集已退回缺失，将继续自动搜索补齐", sub.getOwnerUserId());
@@ -737,8 +745,8 @@ public class DownloadTrackService {
         // 免得通知里出现「包内已确认第  集」这种空洞的说法
         String confirmed = confirmedEpisodes.isEmpty()
                 ? "" : "\n包内已确认第 " + joinEpisodes(confirmedEpisodes) + " 集";
-        notifySafely(NotificationType.SUBSCRIPTION_HIT, "📌 订阅命中：《"
-                + StringUtils.escapeHtml(sub.getTitle()) + "》 S" + sub.getSeason() + " 全季\n"
+        notifySafely(NotificationType.SUBSCRIPTION_HIT, "📌 订阅命中："
+                + PtNotifyText.subject(sub, episode, null) + "\n"
                 + StringUtils.escapeHtml(record.getTitle())
                 + "\n已推送至下载器：" + StringUtils.escapeHtml(downloader.getName())
                 + confirmed, sub.getOwnerUserId());
@@ -980,15 +988,54 @@ public class DownloadTrackService {
     }
 
     /**
-     * 从下载记录反查订阅归属人。订阅已被删除时返回 null（按广播处理）——
-     * 记录还在但订阅没了是可能的，不能因此让通知整条丢掉。
+     * 默认的失败文案。
+     * <p>
+     * <b>{@code reason} 必须出现在通知里。</b>它已经落库到 {@code fail_reason} 且写得足够具体
+     * （"下载超过 12 小时仍未完成，判定为僵尸种子" / "下载器中已找不到该种子"），四种
+     * {@link FailReasonCode} 的处置方向却完全不同——僵尸种要去调索引器或换资源，
+     * TORRENT_NOT_FOUND 要去看下载器是不是被清了。原文案一个字都不带，用户收到通知后
+     * 唯一能做的事是打开页面重新查一遍，那这条通知等于只起了「响一声」的作用。
+     * </p>
      */
-    private Long ownerOf(PtDownloadRecordPlus record) {
+    private String describeFailure(PtSubscriptionPlus sub, PtDownloadRecordPlus record,
+                                   String reason, boolean upgrade) {
+        return "❌ " + (upgrade ? "洗版" : "") + "下载失败："
+                + PtNotifyText.subject(sub, record.getEpisode(), record.getEpisodeEnd())
+                + "\n" + StringUtils.escapeHtml(record.getTitle())
+                + (StringUtils.isNotBlank(reason) ? "\n原因：" + StringUtils.escapeHtml(reason) : "")
+                + (upgrade ? "\n原有版本保持不变" : "\n已释放待下轮重新匹配");
+    }
+
+    /**
+     * 完成通知里的「这次下了多少、下了多久」。
+     * <p>
+     * 两者都缺时整行不写：写一句"体积未知 · 耗时未知"只是把有用的信息挤下去。
+     * 耗时按推送到完成算，包含排队与元数据解析——用户想知道的正是「从我看到命中通知
+     * 到现在」这段真实等待，而不是下载器内部的净下载时间。
+     * </p>
+     */
+    private String describeDelivery(PtDownloadRecordPlus record, Date completedAt) {
+        List<String> parts = new ArrayList<>();
+        String size = PtNotifyText.size(record.getSize());
+        if (size != null) {
+            parts.add(size);
+        }
+        String elapsed = PtNotifyText.elapsed(record.getPushedTime(), completedAt);
+        if (elapsed != null) {
+            parts.add("用时 " + elapsed);
+        }
+        return parts.isEmpty() ? "" : "\n" + String.join(" · ", parts);
+    }
+
+    /**
+     * 从下载记录反查订阅。订阅已被删除时返回 null——记录还在但订阅没了是可能的，
+     * 调用方据此退化成「不写作品名、按广播投递」，而不是让通知整条丢掉。
+     */
+    private PtSubscriptionPlus subOf(PtDownloadRecordPlus record) {
         if (record == null || record.getSubId() == null) {
             return null;
         }
-        PtSubscriptionPlus sub = subscriptionService.getById(record.getSubId());
-        return sub == null ? null : sub.getOwnerUserId();
+        return subscriptionService.getById(record.getSubId());
     }
 
     private void complete(PtDownloadRecordPlus record, PtDownloaderPlus downloader, DownloaderTorrent matched) {
@@ -997,10 +1044,13 @@ public class DownloadTrackService {
         PtIndexerPlus indexer = indexerService.getById(record.getIndexerId());
         boolean hitAndRun = indexer != null && indexer.hitAndRunEnabled();
 
+        // 完成时刻单独留一份：它只写进了 set（条件更新用的载体），record 上仍是 null，
+        // 通知里的"用时"要拿它和 pushed_time 相减
+        Date completedAt = new Date();
         PtDownloadRecordPlus set = new PtDownloadRecordPlus();
         set.setState(STATE_COMPLETED);
         set.setProgress(1.0);
-        set.setCompletedTime(new Date());
+        set.setCompletedTime(completedAt);
         if (hitAndRun) {
             set.setHrState(HitAndRunState.PENDING.value());
             set.setHrSeedSeconds(matched.getSeedingSeconds());
@@ -1014,11 +1064,17 @@ public class DownloadTrackService {
         }
         PtStatusWebSocket.pushDownloadEvent(record, STATE_COMPLETED, 1.0, null);
         boolean upgraded = finishUpgrade(record);
+        // 首行是「哪部作品的哪一集」而不是种子标题：国内站的标题常带一长串站点前缀，
+        // 季包更是整季一个名字，光看标题对不上是哪条订阅在动。种子标题退到第二行，
+        // 它仍然要给——用户拿它去下载器里找对应任务
+        PtSubscriptionPlus sub = subOf(record);
         notifySafely(NotificationType.DOWNLOAD_COMPLETE, "✅ " + (upgraded ? "洗版" : "") + "下载完成："
-                + StringUtils.escapeHtml(record.getTitle())
+                + PtNotifyText.subject(sub, record.getEpisode(), record.getEpisodeEnd())
+                + "\n" + StringUtils.escapeHtml(record.getTitle())
+                + describeDelivery(record, completedAt)
                 + (upgraded ? "\n⚠️ 旧版本不会被自动删除，请自行清理，否则媒体库里会出现同一集的两个版本" : "")
                 + (hitAndRun ? "\n🌱 该站点有 H&R 考核，需保种至「" + StringUtils.escapeHtml(describeRequirement(indexer))
-                        + "」，达标前请勿删除" : ""), ownerOf(record));
+                        + "」，达标前请勿删除" : ""), sub == null ? null : sub.getOwnerUserId());
         log.info("下载记录[{}] 已完成：{}{}", record.getId(), record.getTitle(),
                 hitAndRun ? "（进入 H&R 保种考核）" : "");
         // 补缺集时集状态不动，仍是 IN_FLIGHT，等 Emby 对账确认入库（洗版则已在 finishUpgrade 收尾）；
@@ -1124,15 +1180,17 @@ public class DownloadTrackService {
             return; // 已被并发轮次置为终态，避免重复通知
         }
         PtStatusWebSocket.pushDownloadEvent(record, STATE_FAILED, null, reason);
-        notifySafely(NotificationType.DOWNLOAD_FAILED, notice != null ? notice : (upgradeReverted > 0
-                ? "❌ 洗版下载失败：" + StringUtils.escapeHtml(record.getTitle()) + "，原有版本保持不变"
-                : "❌ 下载失败：" + StringUtils.escapeHtml(record.getTitle()) + "，已释放待下轮重新匹配"), ownerOf(record));
+        PtSubscriptionPlus sub = subOf(record);
+        // 熔断提示拼进同一条而不是紧跟着再发一条：它们讲的是同一次失败，分两条发既让用户
+        // 收到两次打扰，又因为原先那条走的是 GENERAL 类型，路由上和索引器故障混在一起
+        String blockedNotice = rollback.blocked() > 0
+                ? "\n🚫 已连续失败 " + maxConsecutiveFailures + " 次，停止自动重试，需到下载记录管理页人工重试"
+                : "";
+        notifySafely(NotificationType.DOWNLOAD_FAILED,
+                (notice != null ? notice : describeFailure(sub, record, reason, upgradeReverted > 0)) + blockedNotice,
+                sub == null ? null : sub.getOwnerUserId());
         log.warn("下载记录[{}] 失败（{} 个集回退缺失，{} 个集回退入库）：{}",
                 record.getId(), rollback.released(), upgradeReverted, record.getTitle());
-        if (rollback.blocked() > 0) {
-            notifySafely("🚫 " + StringUtils.escapeHtml(record.getTitle()) + " 连续失败达 " + maxConsecutiveFailures
-                    + " 次，已停止自动重试，需到下载记录管理页人工重试", ownerOf(record));
-        }
     }
 
     /** 回退结果：released=回退的集数，blocked=其中因连续失败达阈值而熔断的集数 */

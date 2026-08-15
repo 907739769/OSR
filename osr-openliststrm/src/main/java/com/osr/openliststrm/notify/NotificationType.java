@@ -1,8 +1,13 @@
 package com.osr.openliststrm.notify;
 
 /**
- * 通知类型：用于渠道按类型过滤（见 {@link TgNotifier}/{@link WebhookNotifier} 的
- * {@code openlist.notify.*.types} 配置），以便后续不同类型路由到不同渠道。
+ * 通知类型：路由的一维。「这个类型要不要走这个渠道、发给谁」由 {@code notify_route}
+ * 决定（见 {@link NotifyRouteService}），渠道实现只管「怎么发」。
+ * <p>
+ * 新增取值是安全的：路由行缺失按「发送」处理，用户不会因为升级而静默丢通知。
+ * 但<b>拆分</b>已有取值（把一部分通知挪到新类型下）会让用户原先对旧类型的关闭设置
+ * 落空，因此每次拆分都要配一条迁移，把新类型的路由行按它拆自哪个旧类型复制一份。
+ * </p>
  *
  * @author Jack
  */
@@ -17,7 +22,33 @@ public enum NotificationType {
     /** 下载失败 */
     DOWNLOAD_FAILED("下载失败"),
     /** Emby/Jellyfin 对账检测到新集数入库 */
-    EMBY_LIBRARY_SYNC("媒体库入库");
+    EMBY_LIBRARY_SYNC("媒体库入库"),
+    /**
+     * H&amp;R 保种状态变化：达标可安全删除、或达标前种子就消失了。
+     * <p>
+     * 不并进 DOWNLOAD_COMPLETE / DOWNLOAD_FAILED：那样一来关掉「下载完成」的用户
+     * 就再也收不到「可以安全删种了」，而这恰恰是最该收到的一条——它直接对应
+     * 一块能腾出来的磁盘，以及一份能卸下的保种义务。
+     * </p>
+     */
+    HR_STATE("H&R 保种"),
+    /**
+     * 补搜连续落空。
+     * <p>
+     * 不并进 GENERAL：那是索引器故障、复制超时一类的系统告警。补搜落空是<b>某条订阅</b>
+     * 的事，处置方向也不同（去调过滤规则或关键词），混在一起时用户想单独关掉它做不到。
+     * </p>
+     */
+    SUBSCRIPTION_SEARCH("补搜落空"),
+    /**
+     * 文件已下好、却迟迟没进媒体库。
+     * <p>
+     * 不并进 SUBSCRIPTION_HIT（原先的归属）：内容全是「卡住了 / 退回缺失 / 已熔断」，
+     * 挂在「订阅命中」下语义正好相反。也不并进 DOWNLOAD_FAILED——下载本身是成功的，
+     * 卡的是上传网盘或 STRM/刮削那一段，重下解决不了问题。
+     * </p>
+     */
+    LIBRARY_STUCK("入库卡住");
 
     private final String label;
 
@@ -28,5 +59,17 @@ public enum NotificationType {
     /** 页面展示名。放在枚举上而不是前端字典：新增类型时只改一处，前端自动跟上 */
     public String getLabel() {
         return label;
+    }
+
+    /**
+     * 这条通知是不是「出事了」——渠道据此提高推送优先级（Gotify 的 priority、
+     * Bark 的 level），让失败类通知能在锁屏上响一下，而例行的命中/入库不打扰。
+     * <p>
+     * 判据放在枚举上而不是各渠道自己列举：新增类型时只需在这里表态一次，
+     * 漏了的默认按「不紧急」处理——多推一次不响的通知，好过把例行消息全弄成响铃。
+     * </p>
+     */
+    public boolean urgent() {
+        return this == GENERAL || this == DOWNLOAD_FAILED || this == LIBRARY_STUCK;
     }
 }

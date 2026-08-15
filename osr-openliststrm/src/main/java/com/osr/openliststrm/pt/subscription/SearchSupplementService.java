@@ -571,7 +571,10 @@ public class SearchSupplementService {
 
     private void notifySafely(String msg, PtSubscriptionPlus sub) {
         try {
-            TgHelper.sendMsg(NotificationType.GENERAL, msg, NotifyTarget.owner(sub == null ? null : sub.getOwnerUserId()));
+            // SUBSCRIPTION_SEARCH 而不是 GENERAL：GENERAL 是索引器故障、复制超时那类系统告警，
+            // 补搜落空是某条订阅自己的事，处置方向也不同（去调过滤规则或关键词）
+            TgHelper.sendMsg(NotificationType.SUBSCRIPTION_SEARCH, msg,
+                    NotifyTarget.owner(sub == null ? null : sub.getOwnerUserId()));
         } catch (Exception e) {
             log.debug("发送通知失败（不影响主流程）：{}", e.getMessage());
         }

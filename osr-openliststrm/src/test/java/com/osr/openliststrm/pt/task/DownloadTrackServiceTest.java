@@ -11,6 +11,7 @@ import com.osr.openliststrm.mybatisplus.service.IPtDownloadRecordPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtIndexerPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
+import com.osr.openliststrm.notify.NotificationType;
 import com.osr.openliststrm.pt.downloader.DownloaderClientFactory;
 import com.osr.openliststrm.pt.downloader.IDownloaderClient;
 import com.osr.openliststrm.pt.downloader.model.DownloaderTorrent;
@@ -292,6 +293,26 @@ class DownloadTrackServiceTest {
         ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
         verify(recordService).update(captor.capture(), any(Wrapper.class));
         assertEquals("SATISFIED", captor.getValue().getHrState());
+    }
+
+    /**
+     * H&R 走独立类型，不再挂在 DOWNLOAD_COMPLETE 下。挂着的话，一个关掉「下载完成」
+     * 通知的用户就再也收不到「可以安全删种了」——而那一条直接对应一块能腾出来的磁盘
+     * 和一份能卸下的保种义务，恰恰是最该收到的。
+     */
+    @Test
+    void 保种达标通知_走独立的HR类型并带上作品集号() {
+        when(recordService.listSeedingPending(1)).thenReturn(List.of(seedingRecord(200, "osr-pt-bbb", 100_000)));
+        when(indexerService.listByIds(any())).thenReturn(List.of(hrIndexer(7, 72, 0.0)));
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+        when(subscriptionService.getById(10)).thenReturn(tvSub(10));
+
+        try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
+            service().track(downloader(), List.of(seedingTorrent("osr-pt,osr-pt-bbb", 260_000, 0.1)));
+
+            tg.verify(() -> TgHelper.sendMsg(eq(NotificationType.HR_STATE),
+                    argThat(m -> m.startsWith("🌱 H&R 已达标，可安全删除：《Some Show》")), any()));
+        }
     }
 
     @Test
@@ -1033,6 +1054,78 @@ class DownloadTrackServiceTest {
 
         verify(downloaderClient).excludeFiles(any(), eq("h"), eq(Set.of(0)));
         verify(recordService, never()).update(any(PtDownloadRecordPlus.class), any(Wrapper.class));
+    }
+
+    // ---------- 通知文案 ----------
+
+    /**
+     * 完成通知的首行必须是「哪部作品的哪一集」。种子标题常带一长串站点前缀、季包更是整季
+     * 一个名字，只给标题时用户对不上是哪条订阅在动——而命中通知给的却是《剧名》S01E05。
+     */
+    @Test
+    void 下载完成通知_首行给作品与集号_并带体积与耗时() {
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+        PtDownloadRecordPlus r = record(100, 5, "osr-pt-aaa", "DOWNLOADING", 23 * 60_000);
+        r.setTitle("[电影天堂]Some.Show.S01E05.1080p");
+        r.setSize(4L * 1024 * 1024 * 1024);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(subscriptionService.getById(10)).thenReturn(tvSub(10));
+
+        try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
+            service().track(downloader(), List.of(torrent("osr-pt,osr-pt-aaa", 1.0)));
+
+            tg.verify(() -> TgHelper.sendMsg(eq(NotificationType.DOWNLOAD_COMPLETE),
+                    argThat(m -> m.startsWith("✅ 下载完成：《Some Show》 S01E05")
+                            && m.contains("[电影天堂]Some.Show.S01E05.1080p")
+                            && m.contains("4.00 GB")
+                            && m.contains("用时 23 分钟")), any()));
+        }
+    }
+
+    /**
+     * fail_reason 已经落库且写得足够具体，四种 FailReasonCode 的处置方向却完全不同
+     * （僵尸种要换资源、TORRENT_NOT_FOUND 要看下载器是不是被清了）。原文案一个字都不带，
+     * 用户收到通知后唯一能做的事是打开页面重新查一遍。
+     */
+    @Test
+    void 下载失败通知_带上失败原因与作品集号() {
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+        PtDownloadRecordPlus r = record(100, 5, "osr-pt-aaa", "DOWNLOADING", 20 * 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of(episodeRow(500, 0)));
+        when(subscriptionService.getById(10)).thenReturn(tvSub(10));
+
+        try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
+            // 20 分钟前推送、种子不在下载器里且已过宽限期 → TORRENT_NOT_FOUND
+            service().track(downloader(), List.of(torrent("osr-pt,osr-pt-other", 0.5)));
+
+            tg.verify(() -> TgHelper.sendMsg(eq(NotificationType.DOWNLOAD_FAILED),
+                    argThat(m -> m.startsWith("❌ 下载失败：《Some Show》 S01E05")
+                            && m.contains("原因：下载器中已找不到该种子")
+                            && m.contains("已释放待下轮重新匹配")), any()));
+        }
+    }
+
+    /**
+     * 熔断提示拼进同一条而不是紧跟着再发一条：它们讲的是同一次失败，分两条既让用户收到
+     * 两次打扰，又因为原先那条走 GENERAL 类型而在路由上和索引器故障混在一起。
+     */
+    @Test
+    void 达到熔断阈值_熔断提示并进同一条失败通知() {
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+        PtDownloadRecordPlus r = record(100, 5, "osr-pt-aaa", "DOWNLOADING", 20 * 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of(episodeRow(500, 2)));
+        when(subscriptionService.getById(10)).thenReturn(tvSub(10));
+
+        try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
+            service().track(downloader(), List.of(torrent("osr-pt,osr-pt-other", 0.5)));
+
+            tg.verify(() -> TgHelper.sendMsg(eq(NotificationType.DOWNLOAD_FAILED),
+                    argThat(m -> m.contains("原因：") && m.contains("停止自动重试")), any()));
+            // 只此一条，不再额外发一条 GENERAL 的熔断告警
+            tg.verify(() -> TgHelper.sendMsg(any(), anyString(), any()), times(1));
+        }
     }
 
     // ---------- 失败重试熔断 ----------

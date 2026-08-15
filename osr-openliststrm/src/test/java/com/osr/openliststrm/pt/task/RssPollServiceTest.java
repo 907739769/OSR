@@ -173,6 +173,24 @@ class RssPollServiceTest {
         assertEquals(2, captor.getValue().size());
     }
 
+    /**
+     * 推送成功不再发「本轮推送了 N 个种子」的汇总。它与逐条「订阅命中」完全重复
+     * （推 3 个 → 3 条详情 + 1 条只有数字的汇总），而且是广播：多用户环境下 B 会收到
+     * 一个自己无从追查的数字，那 3 条详情只发给了 A。
+     */
+    @Test
+    void 推送成功_不再发本轮汇总通知() throws Exception {
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1, 600, null, 0)));
+        when(torznabClient.fetch(any())).thenReturn(List.of(torrent("t1")));
+        when(subscriptionEngine.process(anyList())).thenReturn(3);
+
+        try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
+            service().poll();
+
+            tg.verify(() -> TgHelper.sendMsg(anyString()), never());
+        }
+    }
+
     @Test
     void 无到期索引器_不调用引擎() throws Exception {
         when(indexerService.listEnabled()).thenReturn(

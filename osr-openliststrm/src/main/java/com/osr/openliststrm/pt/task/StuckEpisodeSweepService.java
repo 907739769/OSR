@@ -245,7 +245,9 @@ public class StuckEpisodeSweepService {
     /** 发通知但绝不让通知失败影响主流程（单测环境下 SpringUtils.getBean 会抛异常，这里兜住） */
     private void notifySafely(String msg, PtSubscriptionPlus sub) {
         try {
-            TgHelper.sendMsg(NotificationType.SUBSCRIPTION_HIT, msg,
+            // LIBRARY_STUCK 而不是 SUBSCRIPTION_HIT：这里发的全是「卡住了 / 退回缺失 /
+            // 已熔断」，挂在「订阅命中」下语义正好相反，用户想单独关掉它也做不到
+            TgHelper.sendMsg(NotificationType.LIBRARY_STUCK, msg,
                     NotifyTarget.owner(sub == null ? null : sub.getOwnerUserId()));
         } catch (Exception e) {
             log.debug("发送通知失败（不影响主流程）：{}", e.getMessage());

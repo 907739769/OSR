@@ -104,7 +104,8 @@ public class MysqlDdl extends SimpleDdl {
                 "sql/20260779-notify-bark-gotify.sql",
                 "sql/20260780-menu-icon-to-mdi.sql",
                 "sql/20260781-drop-notify-types-config.sql",
-                "sql/20260782-pt-filter-description-exclude.sql"
+                "sql/20260782-pt-filter-description-exclude.sql",
+                "sql/20260783-notify-type-split.sql"
         );
     }
 }

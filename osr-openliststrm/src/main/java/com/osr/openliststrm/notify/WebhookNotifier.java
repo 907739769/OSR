@@ -55,8 +55,14 @@ public class WebhookNotifier implements INotifier {
         if (StringUtils.isBlank(url)) {
             return;
         }
+        // text 是纯文本：文案本身是按 Telegram 的 HTML parse_mode 写的，直接透传的话
+        // 下游收到的是带标签、且 & 已被转成 &amp; 的串（见 WeComNotifier#toPlainText）。
+        // type 是机器可读的枚举名、typeLabel 是给人看的中文名：下游自动化要按类型分流
+        // （只把失败转到告警群）时，靠正则去猜文案里的 emoji 是唯一的办法，两个字段成本为零。
         JSONObject body = new JSONObject();
-        body.put("text", message);
+        body.put("text", WeComNotifier.toPlainText(message));
+        body.put("type", type.name());
+        body.put("typeLabel", type.getLabel());
         Request request = new Request.Builder()
                 .url(url)
                 .post(RequestBody.create(JSON_MEDIA_TYPE, body.toJSONString()))

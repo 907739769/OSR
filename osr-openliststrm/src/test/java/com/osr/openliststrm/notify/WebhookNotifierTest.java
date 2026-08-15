@@ -1,5 +1,7 @@
 package com.osr.openliststrm.notify;
 
+import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
 import com.osr.openliststrm.config.OpenlistConfig;
 import okhttp3.OkHttpClient;
 import okhttp3.mockwebserver.MockResponse;
@@ -58,7 +60,25 @@ class WebhookNotifierTest {
         RecordedRequest request = server.takeRequest();
         assertEquals("POST", request.getMethod());
         assertTrue(request.getHeader("Content-Type").startsWith("application/json"));
-        assertEquals("{\"text\":\"hello world\"}", request.getBody().readUtf8());
+        assertEquals("{\"text\":\"hello world\",\"type\":\"GENERAL\",\"typeLabel\":\"系统告警\"}",
+                request.getBody().readUtf8());
+    }
+
+    /**
+     * 文案是按 Telegram 的 HTML parse_mode 写的，Webhook 的下游不解析 HTML。
+     * 尤其是 &amp;——PT 种子标题里的 & 相当常见，透传出去下游存到哪都是错的。
+     */
+    @Test
+    void send_文案里的HTML标签与实体_都还原成纯文本() throws Exception {
+        when(config.getNotifyWebhookUrl()).thenReturn(server.url("/hook").toString());
+        server.enqueue(new MockResponse().setResponseCode(200));
+
+        notifier.send(NotificationType.DOWNLOAD_COMPLETE, "<b>完成</b>：Tom &amp; Jerry");
+
+        JSONObject body = JSON.parseObject(server.takeRequest().getBody().readUtf8());
+        assertEquals("完成：Tom & Jerry", body.getString("text"));
+        assertEquals("DOWNLOAD_COMPLETE", body.getString("type"));
+        assertEquals("下载完成", body.getString("typeLabel"));
     }
 
     @Test

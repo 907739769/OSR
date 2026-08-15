@@ -3,6 +3,8 @@ package com.osr.openliststrm.pt.subscription;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloadRecordPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloaderPlus;
+import com.osr.openliststrm.helper.TgHelper;
+import com.osr.openliststrm.notify.NotificationType;
 import com.osr.openliststrm.mybatisplus.domain.PtFilterConfigPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtIndexerPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;

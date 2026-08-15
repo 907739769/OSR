@@ -1,6 +1,7 @@
 package com.osr.openliststrm.pt.task;
 
 import com.osr.openliststrm.helper.TgHelper;
+import com.osr.openliststrm.notify.NotificationType;
 import com.osr.openliststrm.mybatisplus.domain.PtFilterConfigPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtFilterConfigPlusService;
@@ -23,6 +24,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -185,7 +187,10 @@ class AutoSearchServiceTest {
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
             service().run();
 
-            tg.verify(() -> TgHelper.sendMsg(any(), argThat(m -> m.contains("未找到可用资源")), any()));
+            // 补搜落空走 SUBSCRIPTION_SEARCH 而不是 GENERAL：后者是索引器故障、复制超时
+            // 那类系统告警，混在一起时用户想单独关掉补搜提醒做不到
+            tg.verify(() -> TgHelper.sendMsg(eq(NotificationType.SUBSCRIPTION_SEARCH),
+                    argThat(m -> m.contains("未找到可用资源")), any()));
             ArgumentCaptor<PtSubscriptionPlus> captor = ArgumentCaptor.forClass(PtSubscriptionPlus.class);
             verify(subscriptionService).updateById(captor.capture());
             assertEquals("1", captor.getValue().getLastAutoSearchNoResult());

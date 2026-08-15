@@ -32,7 +32,11 @@ import java.io.IOException;
 public class GotifyNotifier implements INotifier {
 
     private static final MediaType JSON_MEDIA_TYPE = MediaType.parse("application/json");
-    private static final String TITLE = "OSR";
+    private static final String TITLE_PREFIX = "OSR";
+
+    /** 失败类的推送优先级。Gotify 客户端在 >=8 时才会响铃/弹窗，例行通知用默认档静默入列 */
+    private static final int PRIORITY_URGENT = 8;
+    private static final int PRIORITY_NORMAL = 4;
 
     private final OpenlistConfig config;
     private final OkHttpClient httpClient;
@@ -74,9 +78,13 @@ public class GotifyNotifier implements INotifier {
                 .addQueryParameter("token", token.trim())
                 .build();
 
+        // 标题带上类型名（"OSR · 下载失败"），通知列表里不展开正文就能分辨是哪类事。
+        // priority 只对失败类抬高：Gotify 客户端 >=8 才响铃弹窗，若每条都抬高，
+        // 用户为了不被日更剧的入库通知吵醒，只能整个渠道静音，连真告警一起丢掉。
         JSONObject body = new JSONObject();
-        body.put("title", TITLE);
-        body.put("message", WeComNotifier.stripHtmlTags(message));
+        body.put("title", TITLE_PREFIX + " · " + type.getLabel());
+        body.put("message", WeComNotifier.toPlainText(message));
+        body.put("priority", type.urgent() ? PRIORITY_URGENT : PRIORITY_NORMAL);
 
         Request request = new Request.Builder()
                 .url(url)

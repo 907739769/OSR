@@ -68,7 +68,7 @@ public class WeComNotifier implements INotifier {
             return;
         }
         try {
-            apiClient.sendText(resolveToUser(target), stripHtmlTags(message));
+            apiClient.sendText(resolveToUser(target), toPlainText(message));
         } catch (Exception e) {
             log.warn("企业微信通知发送失败：{}", e.getMessage());
         }
@@ -105,17 +105,36 @@ public class WeComNotifier implements INotifier {
     }
 
     /**
-     * 去掉消息里的 HTML 标签。历史通知文案是按 Telegram 的 HTML parse_mode 写的
-     * （形如 {@code <b>复制任务失败</b>}），企微 text 消息不解析 HTML，
-     * 原样发过去用户会看到一堆尖括号标签。
+     * 把按 Telegram HTML parse_mode 写的文案还原成纯文本，供不解析 HTML 的渠道
+     * （企微 / Bark / Gotify）使用。两步缺一不可：
+     * <ol>
+     *   <li><b>去标签</b>：文案里 {@code <b>复制任务失败</b>} 这类字面量标签，原样发过去
+     *       用户看到的是一堆尖括号。只处理简单标签即可——这些文案都是代码里写死的字面量，
+     *       不存在属性、嵌套引号里带 {@code >} 之类需要正经解析器的情况。</li>
+     *   <li><b>解实体</b>：所有动态内容（种子标题、剧名、索引器名）都先过了
+     *       {@link com.osr.common.utils.StringUtils#escapeHtml}，{@code & < >} 已经变成实体。
+     *       TG 那边由 parse_mode 还原，这些渠道没人还原，于是 {@code Tom & Jerry} 会显示成
+     *       {@code Tom &amp; Jerry}——而 {@code &} 在 PT 种子标题里相当常见（片名、组名皆有）。</li>
+     * </ol>
      * <p>
-     * 只处理简单标签即可——这些文案都是代码里写死的字面量，不存在属性、嵌套引号里带
-     * {@code >} 之类需要正经解析器的情况。
+     * <b>两步的先后顺序不能换</b>：先去标签、后解实体。反过来的话，动态内容里字面的
+     * {@code &lt;b&gt;} 会先被还原成 {@code <b>}，紧接着被去标签那步当成真标签删掉——
+     * 用户输入的文本凭空少一截。
+     * </p>
+     * <p>
+     * 解实体这步内部也是有序的：{@code escapeHtml} 先转 {@code &} 再转 {@code < >}，
+     * 还原就必须先 {@code < >} 后 {@code &}，否则 {@code &amp;lt;} 会被解成 {@code <}，
+     * 而它本该还原成字面的 {@code &lt;}。
+     * </p>
      */
-    static String stripHtmlTags(String message) {
-        if (message.indexOf('<') < 0) {
-            return message;
+    static String toPlainText(String message) {
+        String text = message;
+        if (text.indexOf('<') >= 0) {
+            text = text.replaceAll("</?[a-zA-Z][a-zA-Z0-9]*\\s*/?>", "");
         }
-        return message.replaceAll("</?[a-zA-Z][a-zA-Z0-9]*\\s*/?>", "");
+        if (text.indexOf('&') < 0) {
+            return text;
+        }
+        return text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&");
     }
 }

@@ -1,7 +1,9 @@
 package com.osr.openliststrm.pt.task;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.osr.openliststrm.helper.TgHelper;
 import com.osr.openliststrm.mybatisplus.domain.PtMediaServerPlus;
+import com.osr.openliststrm.notify.NotificationType;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtMediaServerPlusService;
@@ -11,6 +13,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
+import org.mockito.MockedStatic;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
@@ -21,6 +24,9 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -136,6 +142,24 @@ class StuckEpisodeSweepServiceTest {
         assertEquals(0, service().sweep());
         verify(episodeService, never()).listStuckInFlight(anyInt());
         verify(episodeService, never()).update(any(PtSubscriptionEpisodePlus.class), any(Wrapper.class));
+    }
+
+    /**
+     * 这里发的全是「卡住了 / 退回缺失 / 已熔断」，原先却挂在 SUBSCRIPTION_HIT（订阅命中）下，
+     * 语义正好相反，用户也没法单独关掉它。
+     */
+    @Test
+    void 清扫通知_走入库卡住类型而不是订阅命中() {
+        withActiveMediaServer();
+        when(episodeService.listStuckInFlight(12)).thenReturn(List.of(stuck(501, 27, 0)));
+        when(episodeService.update(any(PtSubscriptionEpisodePlus.class), any(Wrapper.class))).thenReturn(true);
+        when(subscriptionService.getById(10)).thenReturn(sub());
+
+        try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
+            service().sweep();
+
+            tg.verify(() -> TgHelper.sendMsg(eq(NotificationType.LIBRARY_STUCK), anyString(), any()));
+        }
     }
 
     @Test

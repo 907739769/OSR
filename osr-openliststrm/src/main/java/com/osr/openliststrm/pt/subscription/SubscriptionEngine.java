@@ -29,6 +29,7 @@ import com.osr.openliststrm.pt.filter.RejectCode;
 import com.osr.openliststrm.pt.filter.TorrentBlacklist;
 import com.osr.openliststrm.pt.filter.TorrentFilterEngine;
 import com.osr.openliststrm.pt.indexer.GuidHasher;
+import com.osr.openliststrm.pt.PtNotifyText;
 import com.osr.openliststrm.pt.model.TorrentInfo;
 import com.osr.openliststrm.pt.subscription.TmdbSearchService;
 import com.osr.openliststrm.pt.subscription.dto.MatchResult;
@@ -426,8 +427,9 @@ public class SubscriptionEngine {
         if (mode.isUpgrade()) {
             // 第一期不碰旧文件：OSR 从不删种，新旧两个版本会同时存在，清理由用户手动完成。
             // 通知里必须把这件事说清楚，否则用户会以为系统已经替换好了。
-            notifySafely(NotificationType.SUBSCRIPTION_HIT, "⬆️ 洗版已推送：《" + StringUtils.escapeHtml(sub.getTitle()) + "》"
-                    + describeEpisodes(match) + "\n" + StringUtils.escapeHtml(best.getTitle())
+            notifySafely(NotificationType.SUBSCRIPTION_HIT, "⬆️ 洗版已推送：" + describeSubject(match)
+                    + "\n" + StringUtils.escapeHtml(best.getTitle())
+                    + describeTorrentProfile(best)
                     + "\n已推送至下载器：" + StringUtils.escapeHtml(downloader.getName())
                     + "\n⚠️ 旧版本不会被自动删除，新版本下载完成后请自行清理", sub);
         } else if (match.getEpisode() == SubscriptionMatcher.SEASON_PACK) {
@@ -441,8 +443,9 @@ public class SubscriptionEngine {
             // 任何目标集，已中止」，一次白跑发两条通知，日更剧每天要刷好几轮。
             log.info("订阅[{}] 季包已推送，命中通知延后到文件列表确认后：{}", sub.getId(), best.getTitle());
         } else {
-            notifySafely(NotificationType.SUBSCRIPTION_HIT, "📌 订阅命中：《" + StringUtils.escapeHtml(sub.getTitle()) + "》"
-                    + describeEpisodes(match) + "\n" + StringUtils.escapeHtml(best.getTitle())
+            notifySafely(NotificationType.SUBSCRIPTION_HIT, "📌 订阅命中：" + describeSubject(match)
+                    + "\n" + StringUtils.escapeHtml(best.getTitle())
+                    + describeTorrentProfile(best)
                     + "\n已推送至下载器：" + StringUtils.escapeHtml(downloader.getName()), sub);
         }
         return true;
@@ -555,19 +558,33 @@ public class SubscriptionEngine {
         return downloadUrl != null && downloadUrl.trim().toLowerCase(Locale.ROOT).startsWith("magnet:");
     }
 
-    /** 电影不带季集号；季包整季提示；单集/区间正常拼 SxxEyy，episode/episodeEnd 已在上面按 best 重算过 */
-    private String describeEpisodes(MatchResult match) {
-        PtSubscriptionPlus sub = match.getSubscription();
-        if (SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType())) {
-            return "";
+    /**
+     * 「这条通知讲的是哪部作品的哪一集」。实现收敛在 {@link PtNotifyText#subject}，
+     * 与下载完成/失败通知共用同一种写法——三条通知讲的本就是同一集，说法不一致时
+     * 用户根本对不上号。episode/episodeEnd 已在上面按 best 重算过。
+     */
+    private String describeSubject(MatchResult match) {
+        return PtNotifyText.subject(match.getSubscription(), match.getEpisode(), match.getEpisodeEnd());
+    }
+
+    /** 种子画像行。实现收敛在 {@link PtNotifyText#torrentProfile}，那里能被直接测到 */
+    private String describeTorrentProfile(TorrentInfo best) {
+        return PtNotifyText.torrentProfile(best, indexerNameOf(best.getIndexerId()));
+    }
+
+    /** 站点名。索引器被删掉时返回 null，让画像行少一段而不是显示一个悬空的 id */
+    private String indexerNameOf(Integer indexerId) {
+        if (indexerId == null) {
+            return null;
         }
-        if (match.getEpisode() == SubscriptionMatcher.SEASON_PACK) {
-            return " S" + sub.getSeason() + " 全季";
+        try {
+            PtIndexerPlus indexer = indexerService.getById(indexerId);
+            return indexer == null ? null : indexer.getName();
+        } catch (Exception e) {
+            // 通知文案里的一段修饰，不值得为它把已经成功的推送流程搅黄
+            log.debug("查询索引器[{}]名称失败，命中通知省略站点：{}", indexerId, e.getMessage());
+            return null;
         }
-        Integer end = match.getEpisodeEnd();
-        return (end != null && end > match.getEpisode())
-                ? " S" + sub.getSeason() + "E" + match.getEpisode() + "-E" + end
-                : " S" + sub.getSeason() + "E" + match.getEpisode();
     }
 
     /** 发通知但绝不让通知失败影响主流程（单测环境下 SpringUtils.getBean 会抛异常，这里兜住） */

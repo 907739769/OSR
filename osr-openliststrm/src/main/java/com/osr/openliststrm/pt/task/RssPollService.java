@@ -147,9 +147,12 @@ public class RssPollService {
 
         if (!allTorrents.isEmpty()) {
             int pushed = subscriptionEngine.process(allTorrents);
-            if (pushed > 0) {
-                notifySafely("📥 本轮为订阅推送了 " + pushed + " 个种子");
-            }
+            // 这里刻意不发「本轮推送了 N 个种子」的汇总通知。三条理由，每条单独都够：
+            // ①它与 SubscriptionEngine 逐条发出的「订阅命中」完全重复——推 3 个种子，
+            //   用户会收到 3 条命中详情外加 1 条只有数字的汇总；
+            // ②它是广播（拿不到归属人），多用户环境下 B 会收到"推送了 3 个种子"，
+            //   而那 3 条命中详情只发给了 A，B 只能看见一个无从追查的数字；
+            // ③信息量本就为零，同样的内容下一行的 log.info 已经记了，排查时够用。
             log.info("本轮共拉取 {} 条种子，推送 {} 个", allTorrents.size(), pushed);
         }
     }

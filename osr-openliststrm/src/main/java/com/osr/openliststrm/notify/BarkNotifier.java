@@ -28,8 +28,8 @@ import java.io.IOException;
 @Component
 public class BarkNotifier implements INotifier {
 
-    /** 推送标题。Bark 的通知栏会把它加粗显示在正文上方 */
-    private static final String TITLE = "OSR";
+    /** 推送标题的前缀。Bark 的通知栏会把标题加粗显示在正文上方 */
+    private static final String TITLE_PREFIX = "OSR";
 
     private final OpenlistConfig config;
     private final OkHttpClient httpClient;
@@ -67,10 +67,19 @@ public class BarkNotifier implements INotifier {
         }
         // 用 addPathSegment 而不是字符串拼接：消息里的 / # ? 会被正确转义，
         // 否则一条带路径的通知（"复制失败 /电影/xxx"）会把 URL 结构撑断
-        HttpUrl url = parsed.newBuilder()
-                .addPathSegment(TITLE)
-                .addPathSegment(stripHtmlTags(message))
-                .build();
+        //
+        // 标题带上类型名（"OSR · 下载失败"），锁屏上不展开正文就能分辨是哪类事；
+        // group 让 Bark 把同类通知折叠成一组，日更剧一天几条命中不会把通知中心刷屏；
+        // level 只对失败类抬到 timeSensitive（会响、会亮屏），例行的命中/入库保持默认，
+        // 否则「每条都紧急」等于「每条都不紧急」。
+        HttpUrl.Builder builder = parsed.newBuilder()
+                .addPathSegment(TITLE_PREFIX + " · " + type.getLabel())
+                .addPathSegment(toPlainText(message))
+                .addQueryParameter("group", type.getLabel());
+        if (type.urgent()) {
+            builder.addQueryParameter("level", "timeSensitive");
+        }
+        HttpUrl url = builder.build();
         Request request = new Request.Builder().url(url).get().build();
         try (Response response = httpClient.newCall(request).execute()) {
             if (!response.isSuccessful()) {
@@ -82,10 +91,10 @@ public class BarkNotifier implements INotifier {
     }
 
     /**
-     * 历史通知文案带 Telegram 的 HTML 标签，Bark 不解析 HTML，原样发过去是一堆尖括号。
+     * Bark 不解析 HTML：既要去掉文案里的标签，也要把 {@code &amp;} 一类实体还原回去。
      * 复用企微那份实现，两处保持同一套清洗口径。
      */
-    static String stripHtmlTags(String message) {
-        return WeComNotifier.stripHtmlTags(message);
+    static String toPlainText(String message) {
+        return WeComNotifier.toPlainText(message);
     }
 }
