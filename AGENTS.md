@@ -37,6 +37,7 @@
 | 重命名产物清理 | `osr-openliststrm/src/main/java/com/osr/openliststrm/rename/cleanup/` | 删主文件+刮削+回收空目录，重命名换位时清旧位置 |
 | PT 订阅管理 | `osr-openliststrm/src/main/java/com/osr/openliststrm/pt/` | downloader/indexer/subscription/media server |
 | PT 自动删种 | `osr-openliststrm/src/main/java/com/osr/openliststrm/pt/clean/` | 按体积区间+做种时长分级删种，辅种整组同删 |
+| PT 转移做种 | `osr-openliststrm/src/main/java/com/osr/openliststrm/pt/transfer/` | 把 qB 上做够时长的种子搬到 TR 继续做种（IYUU「转移」的自建实现，不含辅种） |
 | 追剧日历 | `osr-openliststrm/src/main/java/com/osr/openliststrm/pt/calendar/` | 播出日期同步 + 按日期区间查排播 |
 | 安全/认证 | `osr-framework/src/main/java/com/osr/framework/security/` | Spring Security + JWT（无 Shiro，早期文档写的 shiro/ 目录并不存在） |
 | 登录防爆破 | `osr-framework/src/main/java/com/osr/framework/security/LoginAttemptService.java` | 账号桶 + IP 桶双计数，超阈值临时锁定 |
@@ -152,6 +153,13 @@ docker compose up -d --build --no-deps backend
   
   这个 bug 的症状很隐蔽：下载记录明明 COMPLETED，集状态却永远 MISSING，订阅进度一直卡着。**TMDb 的「剧集组」(episode_groups) 暂时用不上**——航海王那 18 个组没有一个对得上种子的 S23 编号，而主数据里已经有需要的绝对号了。等真碰到「发布组用的编号主数据表达不了」的剧（比如按 Netflix 分季）再考虑加 `pt_subscription.episode_group_id` 让用户手选，那种情况 TMDb 自己也推断不出来。
 - **追剧日历的数据来自 `pt_subscription_episode.air_date`，由 `EpisodeAirDateSyncTask` 每 12 小时同步**（首轮兼做存量回填，所以升级上来的库不需要单独迁移动作）。播出日期本来就会变——改档、提前放送、季中休播——一次性回填脚本解决不了，定期同步是必需的而不是图省事。查询侧 `PtCalendarService` 是纯 SQL 范围查询，不打 TMDb。两条容易踩的：TMDb 撤掉日期时**不清空**已有值（撤档信息本身不可靠，清掉会让这集从日历上凭空消失）；同步只写日期确实变了的行，否则每 12 小时把整表 `update_time` 刷一遍，看起来像天天都有变化。
+- **转移做种（`pt/transfer/`）只覆盖 IYUU 的「转移」，不覆盖「辅种」**。辅种要拿 infohash 去其它站点找同一份资源，依赖 IYUU 服务端的站点索引与各站 passkey，OSR 没有也造不出这些数据——用户装了 IYUU 是为了辅种的话，这个功能替代不了它。转移本身是跨轮次的状态机（本轮「导出 → 暂停态加种 → 触发校验」，下一轮「读校验结果 → 启动 → 删源端种子」），中间态落在 `pt_transfer_record` 上：目标下载器接手前必须校验一遍本地数据，要跑几分钟到几十分钟，放内存里的话进程一重启，目标端就留下一批暂停态的孤儿种子。五条不要改坏的：
+  1. **目标端一律以暂停态加入、校验到 100% 才启动**。直接以运行态加进去的话，保存路径一旦对不上（路径映射配错是本功能最常见的故障），下载器会把整个种子**重新下载一遍**。`DownloaderTorrent#checking` 就是为此加的：只看 `progress` 分不出「校验还没跑完」和「校验完了但数据对不上」，两者都表现为进度不到 1，而前者要继续等、后者必须立刻撤销。
+  2. **撤销目标端种子时 `deleteFiles` 恒为 false**。那份文件是源下载器正在做种的数据，传 true 会让源端种子立刻变成"文件丢失"、在它所属的站点上记一次 H&R——这是整个功能里唯一能造成真实数据损失的一步。撤销前还要确认种子是本次**新加**的（`AddTorrentOutcome.DUPLICATE` 说明目标端本来就有，那可能是用户自己加的任务）。qB 对重复种子同样返回 `Ok.`、分辨不出来，所以「加种前先查目标端有没有同 hash」是主防线，枚举只是第二道。
+  3. **删源端种子是「OSR 从不删种」的第三个受控例外**（前两个是 `DownloadTrackService#removeUselessTorrent` 与 `TorrentCleanService`）。边界：只在目标端校验通过**且已启动**之后、只删种不删文件、可逐规则关掉。顺序也是硬的——**先启动目标端再删源端**，反过来的话中间那段窗口两边都不在做种，站点看到的是一个突然消失的种子。
+  4. **H&R 考核中（`hr_state=PENDING`）的种子不转移**。换下载器后做种时长要从零重新累计（那是下载器自己的计时口径），更要紧的是站点的 H&R 要求是以种子级限额下发到**原**下载器上的（`setShareLimits`），限额不跟着种子搬家。把 PENDING 挡在门外，顺带使得"搬过去要不要重新下发限额"这个问题不存在。同理还有**集停在 `IN_FLIGHT`/`UPGRADING` 的记录**：种子下完 ≠ 活干完，文件还要传网盘，而 `DownloadTrackService#trackActive` 严格按跟踪标签在**本下载器**里认领在途记录，此时把种子搬走会让那条记录再也认不回来。
+  5. **Transmission 不能作为转移来源**，靠 `IDownloaderClient#supportsExport()` 声明（做成能力声明而不是让调用方按类型硬判断，与 `INotifier#supportsDirectDelivery()` 同一套路）。它的 RPC 里唯一沾边的 `torrentFile` 字段给的是**服务端本地路径**而不是文件内容，OSR 与它通常不在同一个容器里。前端的源下载器下拉直接把 Transmission 滤掉，后端则在规则开头就整条报错——逐个种子失败会刷出一屏一模一样的记录。
+  「H&R 保护名单」的三路降级匹配（hash → 跟踪标签 → 种子名）被自动删种与转移共用，实现提到了 `pt/model/ProtectedTorrents`。**不要在任一侧复制一份**：漂移的表现是"某一侧偶尔漏保护"，几乎无法从日志追出来。至于"该保护哪些记录"由各业务自己查，那是各自的判断。
 - **PT 过滤的关键词有标题、描述两套，判定对象不同、缺失时的取向也相反**。`exclude_keywords` 只匹配标题，`description_exclude_keywords` 只匹配描述（`TorrentFilterEngine#rejectReason`，两条相邻）。加后者是因为有一类属性标题里根本不写——蓝光原盘最典型：国内站只在种子描述里标一句「原盘」，标题与压制版逐字同构，两者都解析成 `source=BluRay`，来源白名单分不开；体积上限虽能挡住原盘，却会连体积区间重叠的 REMUX 一起切掉，而 REMUX 是 mkv、播放器本来吃得下。两条不要改坏的：
   1. **标题为空一律淘汰（`BLANK_TITLE`），描述为空一律放行**。标题是索引器必给的字段，描述不是——不少索引器压根不返回 `<description>`，按「判不出即淘汰」处理会把这些站点的候选整批清光。
   2. **`EXCLUDED_DESCRIPTION_KEYWORD` 与 `EXCLUDED_KEYWORD` 是两个码，别合并**。命中的是标题还是描述，决定用户该去改哪个输入框，聚合成一个就分不出来了。

@@ -19,6 +19,8 @@ com/osr/openliststrm/
 ├── openai/           # AI 相关功能 (OpenAIClient)
 ├── orphan/           # 重命名一致性检查 (孤儿扫描/清理/忽略)
 ├── pt/               # PT 订阅管理 (downloader/indexer/subscription/media server)
+│   ├── clean/        # 自动删种 (体积区间 + 做种时长分级，辅种整组同删)
+│   └── transfer/     # 转移做种 (qB → TR 搬种，IYUU「转移」的自建实现)
 ├── rename/           # 影视文件重命名 (MediaParser/TitleProcessor/PebbleRenderer)
 │   └── cleanup/      # 产物清理 (ArtifactPaths 纯逻辑 + RenameCleanupService 实际 I/O)
 ├── req/              # 请求 DTO
@@ -106,6 +108,7 @@ com/osr/openliststrm/
 - **`pt_downloader.role` 把"订阅下载池"与"只做种的机器"分开，过滤必须在 Java 侧做**（`SubscriptionEngine#loadEnabledDownloaders` 用 `PtDownloaderPlus#participatesInDownload()`）。`resolveDownloader` 在订阅没指定下载器时会在**所有**启用下载器之间做负载均衡，用户加一台"接 IYUU 转移+辅种、开着自动删种"的保种机后，订阅会开始往它上面推种——而那台机器的清理规则是按"保种"设计的（做满 N 小时就删），正在补的剧集下上去会被当保种种子清掉。**不要改写成 SQL 的 `eq("role","DOWNLOAD")`**：role 是后加的列，存量行为 NULL，等值比较对 NULL 恒为假，会把用户原本唯一那台下载器整个滤掉、订阅全部停摆；`participatesInDownload()` 对 NULL 退化成 DOWNLOAD。订阅显式指定了 SEED_ONLY 的下载器同样只能改派（那是分工意图不是配置事故，但推上去更糟）
 - **自动删种以「辅种组」为最小单位，不是以种子为单位**（`TorrentCleanService`）。按 `DownloaderTorrent#contentKey()`（qB 的 `content_path`，缺失时退化为 `savePath + name`）分组，**组内每个种子都达标才整组删，任一个不达标整组保留**。删掉一个种子的文件会让共用这份文件的其余种子立刻变成"文件丢失"，那是在**其它站**上记 H&R，而 OSR 连它们属于哪个站都不知道。执行顺序也是硬要求：**先删不带文件的兄弟，最后一个才连文件一起删**——反过来的话文件在第一步就没了，剩下的兄弟会先进入错误态；而且中途失败时现在这个顺序保证文件还在，整组下一轮可原样重来。五条护栏一条都不能省：总开关默认关且逐下载器显式开启、**没有启用规则就一个都不删**（空规则集的语义是"没有任何规则说该删它"）、`hr_state=PENDING` 的记录按 hash/跟踪标签/种子名三路匹配一律保护、**还有集停在 `IN_FLIGHT`/`UPGRADING` 的记录同样保护**（种子下完 ≠ 活干完，文件还要传网盘，大文件跨天是常态；删早了会造出"下载记录显示成功、媒体库里永远不出现"的集，判据与 `file_confirmed` 同源）、每轮有删除上限（超出的组改判 `ROUND_LIMIT` 并打日志，静默截断会被读成"已经清干净了"）。后两类保护**必须分成两份名单**而不是合并：预览里的跳过原因是用户唯一的解释来源，报成"H&R 考核未达标"会让他去站点查考核进度，而实际该看的是复制记录页的上传进度
 - **删种规则的体积区间是左闭右开的**（`PtCleanRulePlus#sizeMatches`），按 `sort_order` 升序取**第一条命中**的规则，命中后不再往后看——分级删除（>50GB 做满 3 天删、其余做满 7 天删）就是这样表达的。体积落不进任何区间时不删。判定与执行分成 `evaluate` / `clean` 两步，**预览接口与真正的清理走同一份判定**，分叉一次就会出现"预览里说不删的、实际删了"
+- **转移做种的状态机与护栏见根目录 `AGENTS.md`**（那条同时约束 `IDownloaderClient` 的新增方法与 `pt_transfer_*` 两张表）。这里只强调本模块内部最容易改错的一点：`IDownloaderClient#addTorrentFile` 与 `addTorrent` 是**两个不同用途**的方法，不要合并。后者用下载链接加种、目的是**下载**；前者用 .torrent 字节流加种、数据已经在盘上、目的是**接手做种**，因此必须 `paused=true` + 显式 `skip_checking=false` + `autoTMM=false`（qB 开着自动种子管理时会按分类推导保存路径、直接忽略传入的 savepath，转移落到别的目录就必然校验失败）。
 - **`IDownloaderClient#listAll` 与 `listByTag` 的分工是硬的**：IYUU 转移/辅种加进来的种子**不带 OSR 标签**，`listByTag` 一条都看不见。自动删种、以及"种子是被删了还是被转移走了"的判断都必须用 `listAll`。`DownloadTrackTask#fetchTorrents` 据此按 role 分流：SEED_ONLY 拉全量，DOWNLOAD 仍按标签拉（避免把用户手工添加的一大堆无关种子拉进来）
 - **H&R 追踪必须跨下载器看，否则 IYUU 转移会产生成批假告警**。`trackSeeding` 原本把"在本下载器里找不到"直接判成 VIOLATED，而 IYUU 转移会让种子从原下载器彻底消失——每条被转移的记录都会收到一条"可能已产生 H&R"。现在 `DownloadTrackTask` 先把**全部**下载器的快照拉齐（`DownloaderSnapshot`）再逐个推进状态，`trackSeeding` 在本下载器找不到时会去其余快照里找一遍，找到就把 `downloader_id` 改成种子实际所在的那个并继续考核。**匹配的降级链（标签 → hash → 种子名）只用在 `trackSeeding`，绝不能用在 `trackActive`**：在途记录必须严格按跟踪标签认领，认错就是把进度写到别人头上；而保种阶段面对的是"种子可能已被第三方工具搬走"，标签未必还在，宁可用弱判据认回来也不要误判成 H&R
 - **洗版判定绝不能引入 SEEDERS / SIZE / FREE 维度**（`UpgradeDimension` 只有 RESOLUTION/SOURCE/TAG/RELEASE_GROUP）。那些取值随时间连续变化：同分辨率但做种更多的种子会被判成"更优"，下完之后下一轮又冒出别的做种更多的，于是无限洗版。现有四个维度取值都来自有限集合，字典序比较构成全预序，数学上不存在 A 优于 B 且 B 优于 A 的环——这是"不会来回洗"的唯一保证，`UpgradeEvaluatorTest.比较关系无环_任意两个画像至多一个方向成立` 守着它

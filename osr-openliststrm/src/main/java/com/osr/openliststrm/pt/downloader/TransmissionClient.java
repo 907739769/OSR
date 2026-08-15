@@ -5,6 +5,7 @@ import com.alibaba.fastjson2.JSONException;
 import com.alibaba.fastjson2.JSONObject;
 import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloaderPlus;
+import com.osr.openliststrm.pt.downloader.model.AddTorrentOutcome;
 import com.osr.openliststrm.pt.downloader.model.DownloaderTorrent;
 import com.osr.openliststrm.pt.downloader.model.DownloaderTorrentFile;
 import lombok.extern.slf4j.Slf4j;
@@ -139,43 +140,135 @@ public class TransmissionClient implements IDownloaderClient {
      *            按 label 过滤的参数，两种口径都是拉全量后在本地筛）
      */
     private List<DownloaderTorrent> listTorrents(PtDownloaderPlus config, String tag) throws IOException {
-        JSONObject args = new JSONObject();
-        args.put("fields", List.of("id", "name", "percentDone", "status", "downloadDir", "labels", "hashString",
-                "uploadRatio", "secondsSeeding", "uploadedEver", "sizeWhenDone"));
-        JSONObject result = call(config, "torrent-get", args);
-
+        JSONArray torrents = fetchTorrents(config, null);
         List<DownloaderTorrent> list = new ArrayList<>();
-        JSONObject arguments = result.getJSONObject("arguments");
-        JSONArray torrents = arguments == null ? null : arguments.getJSONArray("torrents");
-        if (torrents == null) {
-            return list;
-        }
         for (int i = 0; i < torrents.size(); i++) {
             JSONObject item = torrents.getJSONObject(i);
             JSONArray labels = item.getJSONArray("labels");
             if (tag != null && (labels == null || !containsLabel(labels, tag))) {
                 continue;
             }
-            DownloaderTorrent torrent = new DownloaderTorrent();
-            String hash = item.getString("hashString");
-            torrent.setHash(hash == null ? null : hash.toLowerCase());
-            torrent.setName(item.getString("name"));
-            torrent.setProgress(item.getDoubleValue("percentDone"));
-            torrent.setRawState(String.valueOf(item.getIntValue("status")));
-            torrent.setSavePath(item.getString("downloadDir"));
-            torrent.setTags(labels == null ? "" : joinLabels(labels));
-            // H&R 保种考核用：Transmission 无法计算分享率时返回 -1，必须归一到 0，
-            // 否则"分享率 >= 阈值"在阈值为 0 时会被 -1 意外满足
-            torrent.setRatio(Math.max(0.0, item.getDoubleValue("uploadRatio")));
-            torrent.setSeedingSeconds(Math.max(0L, item.getLongValue("secondsSeeding")));
-            torrent.setUploaded(Math.max(0L, item.getLongValue("uploadedEver")));
-            // sizeWhenDone = 已选中文件下完后的体积，语义与 qB 的 size 一致（都排除了未选中的文件）
-            torrent.setSize(Math.max(0L, item.getLongValue("sizeWhenDone")));
-            // Transmission 没有 content_path 字段，交给 DownloaderTorrent#contentKey
-            // 用 downloadDir + name 退化推导——对辅种而言这两项同样是一致的
-            list.add(torrent);
+            list.add(mapTorrent(item));
         }
         return list;
+    }
+
+    /** 状态快照需要的字段清单，全量查询与单条查询共用一份，避免两处漂移 */
+    private static final List<String> SNAPSHOT_FIELDS = List.of(
+            "id", "name", "percentDone", "status", "downloadDir", "labels", "hashString",
+            "uploadRatio", "secondsSeeding", "uploadedEver", "sizeWhenDone");
+
+    /**
+     * 执行一次 {@code torrent-get}。
+     *
+     * @param hash 只查这一个种子；传 null 表示拉全量
+     */
+    private JSONArray fetchTorrents(PtDownloaderPlus config, String hash) throws IOException {
+        JSONObject args = new JSONObject();
+        args.put("fields", SNAPSHOT_FIELDS);
+        if (hash != null) {
+            args.put("ids", List.of(hash));
+        }
+        JSONObject result = call(config, "torrent-get", args);
+        JSONObject arguments = result.getJSONObject("arguments");
+        JSONArray torrents = arguments == null ? null : arguments.getJSONArray("torrents");
+        return torrents == null ? new JSONArray() : torrents;
+    }
+
+    private DownloaderTorrent mapTorrent(JSONObject item) {
+        DownloaderTorrent torrent = new DownloaderTorrent();
+        String hash = item.getString("hashString");
+        torrent.setHash(hash == null ? null : hash.toLowerCase());
+        torrent.setName(item.getString("name"));
+        torrent.setProgress(item.getDoubleValue("percentDone"));
+        int status = item.getIntValue("status");
+        torrent.setRawState(String.valueOf(status));
+        // Transmission 的 status：1=等待校验，2=校验中。转移做种靠这个字段区分
+        // "校验还没跑完"与"校验跑完了但数据对不上"，后者必须撤销种子
+        torrent.setChecking(status == TR_STATUS_CHECK_WAIT || status == TR_STATUS_CHECKING);
+        torrent.setSavePath(item.getString("downloadDir"));
+        JSONArray labels = item.getJSONArray("labels");
+        torrent.setTags(labels == null ? "" : joinLabels(labels));
+        // H&R 保种考核用：Transmission 无法计算分享率时返回 -1，必须归一到 0，
+        // 否则"分享率 >= 阈值"在阈值为 0 时会被 -1 意外满足
+        torrent.setRatio(Math.max(0.0, item.getDoubleValue("uploadRatio")));
+        torrent.setSeedingSeconds(Math.max(0L, item.getLongValue("secondsSeeding")));
+        torrent.setUploaded(Math.max(0L, item.getLongValue("uploadedEver")));
+        // sizeWhenDone = 已选中文件下完后的体积，语义与 qB 的 size 一致（都排除了未选中的文件）
+        torrent.setSize(Math.max(0L, item.getLongValue("sizeWhenDone")));
+        // Transmission 没有 content_path 字段，交给 DownloaderTorrent#contentKey
+        // 用 downloadDir + name 退化推导——对辅种而言这两项同样是一致的
+        return torrent;
+    }
+
+    /** Transmission status：等待校验 */
+    private static final int TR_STATUS_CHECK_WAIT = 1;
+
+    /** Transmission status：校验中 */
+    private static final int TR_STATUS_CHECKING = 2;
+
+    @Override
+    public DownloaderTorrent getTorrent(PtDownloaderPlus config, String hash) throws IOException {
+        JSONArray torrents = fetchTorrents(config, hash);
+        return torrents.isEmpty() ? null : mapTorrent(torrents.getJSONObject(0));
+    }
+
+    @Override
+    public boolean supportsExport() {
+        return false;
+    }
+
+    /**
+     * Transmission 拿不出 .torrent 本体，因此不能作为转移的<b>来源</b>。
+     * <p>
+     * RPC 里唯一沾边的是 {@code torrent-get} 的 {@code torrentFile} 字段，它给的是
+     * <b>Transmission 服务端本地文件系统上的路径</b>（如 {@code /config/torrents/xxx.torrent}），
+     * 不是文件内容。OSR 与 Transmission 通常在不同容器里，那个路径在 OSR 这边根本打不开；
+     * 就算凑巧挂载了，也是一条依赖部署拓扑的隐式约定——某天换个挂载方式就静默失效。
+     * 与其给出一个时灵时不灵的实现，不如在这里明确报错，让用户把转移方向调过来。
+     * </p>
+     */
+    @Override
+    public byte[] exportTorrent(PtDownloaderPlus config, String hash) throws IOException {
+        throw new IOException("Transmission 不支持导出种子文件，不能作为转移做种的来源下载器");
+    }
+
+    @Override
+    public AddTorrentOutcome addTorrentFile(PtDownloaderPlus config, byte[] metainfo, String savePath,
+                                            String tag, boolean paused) throws IOException {
+        JSONObject args = new JSONObject();
+        args.put("metainfo", Base64.getEncoder().encodeToString(metainfo));
+        args.put("download-dir", savePath);
+        args.put("paused", paused);
+        JSONObject result = call(config, "torrent-add", args);
+
+        JSONObject arguments = result.getJSONObject("arguments");
+        boolean duplicate = arguments != null && arguments.getJSONObject("torrent-duplicate") != null;
+        log.info("已用种子文件把种子加入下载器[{}]，保存路径：{}{}", config.getName(), savePath,
+                duplicate ? "（该种子原本就在下载器里）" : "");
+
+        Integer torrentId = extractTorrentId(result);
+        if (torrentId != null && StringUtils.isNotBlank(tag)) {
+            // 打标签与 addTorrent 一样是独立的第二步，失败只记 warn：labels 是 3.0+ 才有的字段，
+            // 而"种子已经加进去了"是既成事实，不该因为标签没打上就让调用方以为加种失败
+            try {
+                JSONObject setArgs = new JSONObject();
+                setArgs.put("ids", List.of(torrentId));
+                setArgs.put("labels", List.of(tag));
+                call(config, "torrent-set", setArgs);
+            } catch (Exception e) {
+                log.warn("下载器[{}]打标签失败（种子已添加成功）：{}", config.getName(), e.getMessage());
+            }
+        }
+        return duplicate ? AddTorrentOutcome.DUPLICATE : AddTorrentOutcome.ADDED;
+    }
+
+    @Override
+    public void recheckTorrent(PtDownloaderPlus config, String hash) throws IOException {
+        JSONObject args = new JSONObject();
+        args.put("ids", List.of(hash));
+        call(config, "torrent-verify", args);
+        log.info("下载器[{}] 已触发种子[{}]的本地数据校验", config.getName(), hash);
     }
 
     private boolean containsLabel(JSONArray labels, String tag) {

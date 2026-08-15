@@ -1,6 +1,7 @@
 package com.osr.openliststrm.pt.downloader;
 
 import com.osr.openliststrm.mybatisplus.domain.PtDownloaderPlus;
+import com.osr.openliststrm.pt.downloader.model.AddTorrentOutcome;
 import com.osr.openliststrm.pt.downloader.model.DownloaderTorrent;
 import com.osr.openliststrm.pt.downloader.model.DownloaderTorrentFile;
 
@@ -119,4 +120,66 @@ public interface IDownloaderClient {
      */
     void setShareLimits(PtDownloaderPlus config, String hash, double ratioLimit, long seedingTimeMinutes)
             throws IOException;
+
+    /**
+     * 按 hash 查单个种子，下载器里没有则返回 {@code null}。
+     * <p>
+     * 与 {@link #listAll} 的分工是「问一个种子」和「问全部种子」：转移做种要在每一轮里
+     * 反复确认某个种子的校验进度，用全量查询等于每次把整台机器的种子列表拉一遍。
+     * </p>
+     *
+     * @throws IOException 网络异常
+     */
+    DownloaderTorrent getTorrent(PtDownloaderPlus config, String hash) throws IOException;
+
+    /**
+     * 本下载器能不能导出 .torrent 本体，也就是能不能作为转移做种的<b>来源</b>。
+     * <p>
+     * 做成能力声明而不是让调用方按类型硬判断，理由与 {@code INotifier#supportsDirectDelivery()}
+     * 相同：调用方问的是能不能做这件事，不该去记住哪些实现类支持。转移侧据此在规则一开始
+     * 就报错，而不是让每个种子各失败一次、刷出一屏一模一样的记录。
+     * </p>
+     */
+    default boolean supportsExport() {
+        return true;
+    }
+
+    /**
+     * 导出种子的 .torrent 原始字节，用于把种子转移到另一个下载器继续做种。
+     * <p>
+     * 必须导出种子文件本体而不是用磁力链重加：磁力链要重新向 DHT/tracker 拉一次元数据，
+     * 私有站点的种子多半禁用 DHT，元数据永远拉不回来，种子就卡在那里。
+     * </p>
+     *
+     * @return .torrent 文件的完整字节；下载器不支持导出或种子不存在时抛异常，不返回空数组
+     * @throws IOException 网络异常、下载器版本不支持导出端点、或种子不存在
+     */
+    byte[] exportTorrent(PtDownloaderPlus config, String hash) throws IOException;
+
+    /**
+     * 用 .torrent 文件字节流添加种子。
+     * <p>
+     * 转移做种专用：数据已经在盘上，加进来只是为了让另一个下载器接手做种。调用方应当传
+     * {@code paused=true}，随后调用 {@link #recheckTorrent} 校验本地数据，确认进度到 100%
+     * 之后再 {@link #resumeTorrent}——直接以运行态加入的话，一旦保存路径对不上，
+     * 下载器会立刻把整个种子重新下载一遍。
+     * </p>
+     *
+     * @param metainfo .torrent 文件的完整字节
+     * @param savePath 目标下载器视角下的保存路径（两台机器挂载点不同时，调用方负责先做映射）
+     * @throws IOException 网络异常或下载器拒绝
+     */
+    AddTorrentOutcome addTorrentFile(PtDownloaderPlus config, byte[] metainfo, String savePath,
+                                     String tag, boolean paused) throws IOException;
+
+    /**
+     * 触发种子的本地数据校验（qBittorrent 的 recheck / Transmission 的 verify）。
+     * <p>
+     * 校验是<b>异步</b>的：本方法返回只代表下载器接受了请求，进度要靠
+     * {@link #getTorrent} 轮询 {@code progress} 与 {@code checking} 得到。
+     * </p>
+     *
+     * @throws IOException 网络异常或下载器拒绝
+     */
+    void recheckTorrent(PtDownloaderPlus config, String hash) throws IOException;
 }

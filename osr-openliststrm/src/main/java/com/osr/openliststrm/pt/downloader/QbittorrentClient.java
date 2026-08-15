@@ -5,11 +5,14 @@ import com.alibaba.fastjson2.JSONException;
 import com.alibaba.fastjson2.JSONObject;
 import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloaderPlus;
+import com.osr.openliststrm.pt.downloader.model.AddTorrentOutcome;
 import com.osr.openliststrm.pt.downloader.model.DownloaderTorrent;
 import com.osr.openliststrm.pt.downloader.model.DownloaderTorrentFile;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.FormBody;
 import okhttp3.HttpUrl;
+import okhttp3.MediaType;
+import okhttp3.MultipartBody;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
 import okhttp3.RequestBody;
@@ -177,7 +180,11 @@ public class QbittorrentClient implements IDownloaderClient {
             torrent.setHash(hash == null ? null : hash.toLowerCase());
             torrent.setName(item.getString("name"));
             torrent.setProgress(item.getDoubleValue("progress"));
-            torrent.setRawState(item.getString("state"));
+            String state = item.getString("state");
+            torrent.setRawState(state);
+            // qB 的校验态有 checkingUP/checkingDL/checkingResumeData/queuedForChecking 四种，
+            // 一律按子串匹配——转移做种只关心"是不是还在校验"，逐个枚举会在 qB 加新状态时漏掉
+            torrent.setChecking(state != null && state.toLowerCase().contains("checking"));
             torrent.setSavePath(item.getString("save_path"));
             torrent.setTags(item.getString("tags"));
             // H&R 保种考核用：qB 在种子未产生上传时 ratio 可能是 -1，归一到 0，
@@ -253,10 +260,89 @@ public class QbittorrentClient implements IDownloaderClient {
                 seedingTimeMinutes > 0 ? seedingTimeMinutes : "不限");
     }
 
+    @Override
+    public DownloaderTorrent getTorrent(PtDownloaderPlus config, String hash) throws IOException {
+        List<DownloaderTorrent> list = listInfo(config, Map.of("hashes", hash));
+        return list.isEmpty() ? null : list.get(0);
+    }
+
+    /**
+     * qBittorrent 的种子导出端点，4.4.0（API 2.8.9）起提供。更早的版本没有任何 HTTP 途径
+     * 能取到 .torrent 本体（只有服务端 BT_backup 目录里的文件，容器化部署下读不到），
+     * 因此这里不做降级，直接把版本要求报给用户。
+     */
+    private static final String EXPORT_ENDPOINT = "/api/v2/torrents/export";
+
+    @Override
+    public byte[] exportTorrent(PtDownloaderPlus config, String hash) throws IOException {
+        byte[] data;
+        try {
+            data = getBytes(config, EXPORT_ENDPOINT, Map.of("hash", hash));
+        } catch (IOException e) {
+            if (e.getMessage() != null && e.getMessage().contains("404")) {
+                throw new IOException("该 qBittorrent 不支持导出种子文件（需要 4.4.0 及以上版本）", e);
+            }
+            throw e;
+        }
+        if (data.length == 0) {
+            // 端点存在但返回空体：种子已不在下载器里，或 qB 找不到对应的 .torrent。
+            // 空字节流加到目标端只会得到一个报错的任务，不如在这里断掉
+            throw new IOException("qBittorrent 导出的种子文件为空，种子[" + hash + "]可能已被移除");
+        }
+        return data;
+    }
+
+    /** .torrent 的标准 MIME 类型 */
+    private static final MediaType TORRENT_MEDIA = MediaType.parse("application/x-bittorrent");
+
+    @Override
+    public AddTorrentOutcome addTorrentFile(PtDownloaderPlus config, byte[] metainfo, String savePath,
+                                            String tag, boolean paused) throws IOException {
+        MultipartBody.Builder builder = new MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("torrents", "transfer.torrent",
+                        RequestBody.create(metainfo, TORRENT_MEDIA))
+                .addFormDataPart("savepath", savePath)
+                .addFormDataPart("tags", StringUtils.defaultString(tag, ""))
+                // 自动种子管理（Auto TMM）开着时 qB 会按分类推导保存路径、直接忽略 savepath，
+                // 转移做种一旦落到别的目录，校验必然失败。显式关掉它是这里唯一能保证路径生效的办法
+                .addFormDataPart("autoTMM", "false")
+                // 不跳过校验：数据在不在、路径对不对，全靠这一次校验证明。
+                // 跳过校验加进来的种子会以"100% 完成"的假象开始做种，实际一个块都没有，
+                // 站点那边看到的就是一个从不上传的种子
+                .addFormDataPart("skip_checking", "false");
+        if (paused) {
+            builder.addFormDataPart("paused", "true").addFormDataPart("stopped", "true");
+        }
+        String response = post(config, "/api/v2/torrents/add", builder.build());
+        if (!OK.equalsIgnoreCase(response.trim())) {
+            throw new IOException("qBittorrent 拒绝添加种子文件，响应：" + response);
+        }
+        log.info("已用种子文件把种子加入下载器[{}]，保存路径：{}", config.getName(), savePath);
+        // qB 对"已存在的种子"同样返回 Ok.，无从分辨，一律报 ADDED。
+        // 真正的去重防线在调用方：加种之前先 getTorrent 查一次
+        return AddTorrentOutcome.ADDED;
+    }
+
+    @Override
+    public void recheckTorrent(PtDownloaderPlus config, String hash) throws IOException {
+        post(config, "/api/v2/torrents/recheck", hashesBody(hash));
+        log.info("下载器[{}] 已触发种子[{}]的本地数据校验", config.getName(), hash);
+    }
+
     // ---------- 内部：带会话管理的请求执行 ----------
 
     private String get(PtDownloaderPlus config, String path, Map<String, String> query) throws IOException {
-        return executeWithSession(config, sid -> {
+        return executeWithSession(config, getRequest(config, path, query), TEXT_READER);
+    }
+
+    /** 与 {@link #get} 同一个请求，只是响应体按字节读——.torrent 是二进制，走 String 会被编码破坏 */
+    private byte[] getBytes(PtDownloaderPlus config, String path, Map<String, String> query) throws IOException {
+        return executeWithSession(config, getRequest(config, path, query), BYTES_READER);
+    }
+
+    private RequestFactory getRequest(PtDownloaderPlus config, String path, Map<String, String> query) {
+        return sid -> {
             HttpUrl.Builder builder = parseUrl(config.baseUrl() + path);
             query.forEach(builder::addQueryParameter);
             return new Request.Builder()
@@ -265,7 +351,7 @@ public class QbittorrentClient implements IDownloaderClient {
                     .header("Referer", config.baseUrl())
                     .get()
                     .build();
-        });
+        };
     }
 
     /**
@@ -308,13 +394,14 @@ public class QbittorrentClient implements IDownloaderClient {
                 .header("Cookie", "SID=" + sid)
                 .header("Referer", config.baseUrl())
                 .post(body)
-                .build());
+                .build(), TEXT_READER);
     }
 
     /**
      * 使用缓存 SID 执行请求；遇 403 视为会话过期，重新登录后重试一次。
      */
-    private String executeWithSession(PtDownloaderPlus config, RequestFactory factory) throws IOException {
+    private <T> T executeWithSession(PtDownloaderPlus config, RequestFactory factory,
+                                     ResponseReader<T> reader) throws IOException {
         // id 为 null 表示这是"新增下载器时还没保存就点测试连接"传进来的临时配置。
         // ConcurrentHashMap 不接受 null 键，get/put 都会抛 NPE，被 testConnection 的
         // catch (Exception) 吞成"连接失败"，用户看到的是一条与真实原因无关的提示。
@@ -327,7 +414,7 @@ public class QbittorrentClient implements IDownloaderClient {
 
         try (Response response = httpClient.newCall(factory.build(sid)).execute()) {
             if (response.code() != 403) {
-                return readSuccessful(response);
+                return readSuccessful(response, reader);
             }
         }
 
@@ -337,17 +424,22 @@ public class QbittorrentClient implements IDownloaderClient {
         }
         String freshSid = login(config);
         try (Response retry = httpClient.newCall(factory.build(freshSid)).execute()) {
-            return readSuccessful(retry);
+            return readSuccessful(retry, reader);
         }
     }
 
-    private String readSuccessful(Response response) throws IOException {
+    private <T> T readSuccessful(Response response, ResponseReader<T> reader) throws IOException {
         if (!response.isSuccessful()) {
             throw new IOException("qBittorrent 返回 HTTP " + response.code());
         }
-        ResponseBody body = response.body();
-        return body == null ? "" : body.string();
+        return reader.read(response.body());
     }
+
+    /** 文本响应：绝大多数 qB 端点都是纯文本或 JSON */
+    private static final ResponseReader<String> TEXT_READER = body -> body == null ? "" : body.string();
+
+    /** 二进制响应：只有导出 .torrent 用得到 */
+    private static final ResponseReader<byte[]> BYTES_READER = body -> body == null ? new byte[0] : body.bytes();
 
     /**
      * 登录并缓存 SID。
@@ -366,7 +458,7 @@ public class QbittorrentClient implements IDownloaderClient {
                 .build();
 
         try (Response response = httpClient.newCall(request).execute()) {
-            String text = readSuccessful(response);
+            String text = readSuccessful(response, TEXT_READER);
             // 注意：登录失败时 qBittorrent 同样返回 200，响应体为 Fails.
             if (!OK.equalsIgnoreCase(text.trim())) {
                 throw new IOException("qBittorrent 登录失败，请检查用户名密码");
@@ -396,5 +488,14 @@ public class QbittorrentClient implements IDownloaderClient {
     @FunctionalInterface
     private interface RequestFactory {
         Request build(String sid) throws IOException;
+    }
+
+    /**
+     * 响应体读取器。存在的唯一理由是导出 .torrent 需要读字节，而其余端点全是文本——
+     * 会话管理（403 重登重试）那段逻辑不该为此复制一份。
+     */
+    @FunctionalInterface
+    private interface ResponseReader<T> {
+        T read(ResponseBody body) throws IOException;
     }
 }

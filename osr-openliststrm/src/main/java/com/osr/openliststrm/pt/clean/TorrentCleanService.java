@@ -15,6 +15,7 @@ import com.osr.openliststrm.notify.NotificationType;
 import com.osr.openliststrm.pt.downloader.DownloaderClientFactory;
 import com.osr.openliststrm.pt.downloader.IDownloaderClient;
 import com.osr.openliststrm.pt.downloader.model.DownloaderTorrent;
+import com.osr.openliststrm.pt.model.ProtectedTorrents;
 import com.osr.openliststrm.pt.subscription.SubscriptionEpisodeState;
 import com.osr.openliststrm.pt.task.HitAndRunState;
 import lombok.extern.slf4j.Slf4j;
@@ -415,66 +416,5 @@ public class TorrentCleanService {
 
     private String formatSize(long bytes) {
         return String.format("%.2f GB", bytes / (1024.0 * 1024 * 1024));
-    }
-
-    /**
-     * H&R 保护名单：把考核中的下载记录展开成三种可比对的身份。
-     * <p>
-     * 三种都要，因为它们各有失效的时候：{@code torrent_hash} 来自索引器的 infohash 属性、
-     * 很多站不给；{@code tracking_tag} 在 IYUU 转移后未必被保留；种子名则可能被用户改过。
-     * 任一命中即保护——这里宁可多保护（种子多留几天）也不能漏保护（记一次 H&R）。
-     * </p>
-     */
-    static final class ProtectedTorrents {
-
-        private final Set<String> hashes;
-        private final Set<String> tags;
-        private final Set<String> names;
-
-        private ProtectedTorrents(Set<String> hashes, Set<String> tags, Set<String> names) {
-            this.hashes = hashes;
-            this.tags = tags;
-            this.names = names;
-        }
-
-        static ProtectedTorrents of(List<PtDownloadRecordPlus> records) {
-            Set<String> hashes = new HashSet<>();
-            Set<String> tags = new HashSet<>();
-            Set<String> names = new HashSet<>();
-            if (records != null) {
-                for (PtDownloadRecordPlus record : records) {
-                    addIfPresent(hashes, record.getTorrentHash());
-                    addIfPresent(tags, record.getTrackingTag());
-                    addIfPresent(names, record.getTitle());
-                }
-            }
-            return new ProtectedTorrents(hashes, tags, names);
-        }
-
-        private static void addIfPresent(Set<String> target, String value) {
-            if (StringUtils.isNotBlank(value)) {
-                target.add(value.trim().toLowerCase(Locale.ROOT));
-            }
-        }
-
-        boolean covers(DownloaderTorrent torrent) {
-            if (StringUtils.isNotBlank(torrent.getHash())
-                    && hashes.contains(torrent.getHash().toLowerCase(Locale.ROOT))) {
-                return true;
-            }
-            if (StringUtils.isNotBlank(torrent.getName())
-                    && names.contains(torrent.getName().trim().toLowerCase(Locale.ROOT))) {
-                return true;
-            }
-            if (StringUtils.isBlank(torrent.getTags()) || tags.isEmpty()) {
-                return false;
-            }
-            for (String tag : torrent.getTags().split(",")) {
-                if (tags.contains(tag.trim().toLowerCase(Locale.ROOT))) {
-                    return true;
-                }
-            }
-            return false;
-        }
     }
 }
