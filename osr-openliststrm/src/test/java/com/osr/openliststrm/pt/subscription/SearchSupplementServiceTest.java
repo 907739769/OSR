@@ -55,6 +55,7 @@ import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -86,7 +87,7 @@ class SearchSupplementServiceTest {
     @BeforeEach
     void setUp() {
         capabilityCache = new IndexerCapabilityCache(torznabClient, 300_000L);
-        service = new SearchSupplementService(indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, blacklistService, searchLogService);
+        service = new SearchSupplementService(indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, blacklistService, searchLogService, 0);
     }
 
     private PtIndexerPlus indexer(int id) {
@@ -213,6 +214,77 @@ class SearchSupplementServiceTest {
 
         assertEquals(1, maxPerIndexer.get(), "同一索引器上不应有两步同时在途");
         assertEquals(3, maxAcrossIndexers.get(), "三个索引器应当并发执行");
+    }
+
+    // ---------- 单索引器检索预算 ----------
+
+    @Test
+    void 索引器用满预算_放弃剩余步骤_已完成结果照常返回() throws Exception {
+        // 一个慢站点会独占整个搜索的墙钟：实测 7 个索引器里 6 个在 31 秒内跑完全部 6 步，
+        // 第 7 个拖到 56 秒，而它多跑的那几步一条有用结果都没带回来
+        SearchSupplementService budgeted = new SearchSupplementService(
+                indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService,
+                matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService,
+                blacklistService, searchLogService, 80);
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+
+        AtomicInteger calls = new AtomicInteger(0);
+        when(torznabClient.search(any(), anyString())).thenAnswer(inv -> {
+            calls.incrementAndGet();
+            Thread.sleep(200);
+            return List.of(torrent("t-" + calls.get()));
+        });
+
+        PtSubscriptionPlus sub = tvSub(10, 1, 12);
+        sub.setEnglishTitle("Another Name");
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(1, "MISSING")));
+
+        budgeted.searchAndPushMissing(10);
+
+        // 第一步就把 80ms 预算用光了，后面的关键词步不该再发请求
+        assertEquals(1, calls.get(), "超预算后不应继续发起后续步骤");
+        // 已完成那一步的结果必须照常进入匹配链路，不能因为放弃了尾部就整个丢掉
+        verify(subscriptionEngine, atLeastOnce()).fillParsed(any());
+    }
+
+    @Test
+    void 预算充足_全部步骤照常执行() throws Exception {
+        SearchSupplementService budgeted = new SearchSupplementService(
+                indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService,
+                matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService,
+                blacklistService, searchLogService, 60_000);
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+        when(torznabClient.search(any(), anyString())).thenReturn(List.of(torrent("t")));
+
+        PtSubscriptionPlus sub = tvSub(10, 1, 12);
+        sub.setEnglishTitle("Another Name");
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(1, "MISSING")));
+
+        budgeted.searchAndPushMissing(10);
+
+        // 中文标题 + 英文标题两个关键词步都要发出
+        verify(torznabClient, times(2)).search(any(), anyString());
+    }
+
+    @Test
+    void 预算为0_视为不限制() throws Exception {
+        // 保留这条退路：排查「结果怎么少了」时可以临时关掉预算做对照
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+        when(torznabClient.search(any(), anyString())).thenAnswer(inv -> {
+            Thread.sleep(30);
+            return List.of(torrent("t"));
+        });
+
+        PtSubscriptionPlus sub = tvSub(10, 1, 12);
+        sub.setEnglishTitle("Another Name");
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(1, "MISSING")));
+
+        service.searchAndPushMissing(10);
+
+        verify(torznabClient, times(2)).search(any(), anyString());
     }
 
     // ---------- supplement ----------

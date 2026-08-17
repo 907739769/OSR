@@ -30,6 +30,7 @@ import com.osr.openliststrm.pt.subscription.dto.SearchAndPushSummary;
 import com.osr.openliststrm.pt.subscription.dto.SearchCandidateDTO;
 import com.osr.openliststrm.pt.subscription.dto.SupplementResult;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -44,6 +45,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -71,6 +73,25 @@ public class SearchSupplementService {
     /** 只用来取水位线与回读淘汰原因聚合，不参与落库——落库由 SubscriptionEngine 在过滤现场完成 */
     private final SearchLogService searchLogService;
 
+    /**
+     * 单个索引器跑完整份检索计划的时间预算（毫秒），{@code <= 0} 表示不限制。
+     * <p>
+     * 存在的理由是一个慢站点会独占整个请求的墙钟：实测 7 个索引器里 6 个在 31 秒内跑完全部
+     * 6 步，第 7 个（单次请求就要 3~14 秒）拖到 56 秒，而它多跑的那几步一条有用结果都没带回来。
+     * 计划里的步骤本就是逐级兜底、越往后命中率越低，慢站点跑不完时放弃尾部几步是划算的。
+     * </p>
+     * <p>
+     * <b>这是软上限，不是超时</b>：只在<b>每一步开始前</b>检查，已经发出的请求不会被打断
+     * （那需要 HTTP 层配合，而 {@code TorznabClient} 的读超时是 60 秒）。因此最坏耗时是
+     * 「预算 + 最后那一步的实际耗时」，不要按硬超时来理解这个值。
+     * </p>
+     * <p>
+     * 预算<b>从整份计划开始算起</b>而不是各索引器自己的起点：所有索引器几乎同时启动，
+     * 用统一起点才能让这个值直接对应"用户最多等多久"。
+     * </p>
+     */
+    private final long indexerBudgetMillis;
+
     public SearchSupplementService(IPtIndexerPlusService indexerService,
                                    TorznabClient torznabClient,
                                    SubscriptionEngine subscriptionEngine,
@@ -82,7 +103,8 @@ public class SearchSupplementService {
                                    TorrentFilterEngine filterEngine,
                                    TmdbSearchService tmdbSearchService,
                                    IPtTorrentBlacklistPlusService blacklistService,
-                                   SearchLogService searchLogService) {
+                                   SearchLogService searchLogService,
+                                   @Value("${pt.search.indexer-budget-ms:30000}") long indexerBudgetMillis) {
         this.indexerService = indexerService;
         this.torznabClient = torznabClient;
         this.subscriptionEngine = subscriptionEngine;
@@ -95,6 +117,7 @@ public class SearchSupplementService {
         this.tmdbSearchService = tmdbSearchService;
         this.blacklistService = blacklistService;
         this.searchLogService = searchLogService;
+        this.indexerBudgetMillis = indexerBudgetMillis;
     }
 
     /**
@@ -618,6 +641,15 @@ public class SearchSupplementService {
         }
     }
 
+    /**
+     * 预算是否已耗尽。{@code indexerBudgetMillis <= 0} 表示不限制——保留这条退路，
+     * 便于排查时临时关掉预算确认"结果少了"是不是它造成的。
+     * 用差值与 0 比较而不是直接比大小，是 {@code nanoTime} 的惯用写法（它的绝对值无意义）。
+     */
+    private boolean budgetExhausted(long deadline) {
+        return indexerBudgetMillis > 0 && deadline - System.nanoTime() < 0;
+    }
+
     /** 按 {@code (indexerId, guid)} 去重，保留首次出现的次序——与 {@link #addDeduped} 同一口径 */
     private List<TorrentInfo> dedupeByIndexerGuid(List<TorrentInfo> candidates) {
         List<TorrentInfo> deduped = new ArrayList<>(candidates.size());
@@ -753,10 +785,12 @@ public class SearchSupplementService {
         for (int i = 0; i < plan.size(); i++) {
             perStep.add(new CopyOnWriteArrayList<>());
         }
+        // 截止时刻在派发前一次算好，所有索引器共用同一个起点
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(Math.max(0L, indexerBudgetMillis));
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             List<CompletableFuture<Void>> futures = indexers.stream()
                     .map(indexer -> CompletableFuture.runAsync(
-                            Threads.wrap(() -> runPlanOn(indexer, plan, perStep)), executor))
+                            Threads.wrap(() -> runPlanOn(indexer, plan, perStep, deadline)), executor))
                     .toList();
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
         }
@@ -770,9 +804,17 @@ public class SearchSupplementService {
      * 在单个索引器上按顺序跑完整份计划。某一步失败只记 log 并继续下一步——
      * 一个索引器不支持某种检索、或某次请求超时，不该让它剩下的几步也一并放弃。
      */
-    private void runPlanOn(PtIndexerPlus indexer, List<SearchStep> plan, List<List<TorrentInfo>> perStep) {
+    private void runPlanOn(PtIndexerPlus indexer, List<SearchStep> plan,
+                           List<List<TorrentInfo>> perStep, long deadline) {
         for (int i = 0; i < plan.size(); i++) {
             SearchStep step = plan.get(i);
+            if (budgetExhausted(deadline)) {
+                // 放弃是有代价的，必须说出口：只写 debug 或干脆不写的话，用户看到的是"结果少了几个"，
+                // 而日志里一切正常，根本无从想到是某个慢站点没跑完
+                log.warn("索引器[{}]已用满 {}ms 检索预算，放弃剩余 {} 步（前 {} 步的结果照常参与匹配）",
+                        indexer.getName(), indexerBudgetMillis, plan.size() - i, i);
+                return;
+            }
             try {
                 List<TorrentInfo> found = step.op().apply(indexer);
                 if (found != null) {
