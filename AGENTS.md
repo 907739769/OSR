@@ -169,6 +169,16 @@ docker compose up -d --build --no-deps backend
   4. **H&R 考核中（`hr_state=PENDING`）的种子不转移**。换下载器后做种时长要从零重新累计（那是下载器自己的计时口径），更要紧的是站点的 H&R 要求是以种子级限额下发到**原**下载器上的（`setShareLimits`），限额不跟着种子搬家。把 PENDING 挡在门外，顺带使得"搬过去要不要重新下发限额"这个问题不存在。同理还有**集停在 `IN_FLIGHT`/`UPGRADING` 的记录**：种子下完 ≠ 活干完，文件还要传网盘，而 `DownloadTrackService#trackActive` 严格按跟踪标签在**本下载器**里认领在途记录，此时把种子搬走会让那条记录再也认不回来。
   5. **Transmission 不能作为转移来源**，靠 `IDownloaderClient#supportsExport()` 声明（做成能力声明而不是让调用方按类型硬判断，与 `INotifier#supportsDirectDelivery()` 同一套路）。它的 RPC 里唯一沾边的 `torrentFile` 字段给的是**服务端本地路径**而不是文件内容，OSR 与它通常不在同一个容器里。前端的源下载器下拉直接把 Transmission 滤掉，后端则在规则开头就整条报错——逐个种子失败会刷出一屏一模一样的记录。
   「H&R 保护名单」的三路降级匹配（hash → 跟踪标签 → 种子名）被自动删种与转移共用，实现提到了 `pt/model/ProtectedTorrents`。**不要在任一侧复制一份**：漂移的表现是"某一侧偶尔漏保护"，几乎无法从日志追出来。至于"该保护哪些记录"由各业务自己查，那是各自的判断。
+- **索引器检索的并发嵌套顺序是「索引器之间并发、单索引器内各步串行」**，实现只有 `SearchSupplementService#executePlan` 一份。一次补搜最多要向每个索引器发 6 次请求（ID 精确、不带季号的 ID、中文关键词、两条绝对号变体、英文/原语言标题），怎么排这两层循环有三种写法，只有一种是对的：
+  1. **逐轮串行、轮内并发**（改造前）：每轮 `allOf().join()` 等最慢的索引器返回才开下一轮，一个慢站点把所有站点一起拖住。
+  2. **全部一次性提交**（看起来最快，实际最糟）：同一索引器的 6 个请求同时涌向 `IndexerRateLimiter`，抢同一把 `slot.serial` 并各自叠加最小间隔，排最后的那个要等 `5 × (RTT + 间隔)`。限流器每段等待都受 `pt.indexer.max-wait-ms`（默认 30 秒）约束，超时抛 `IndexerBackpressureException` 快速失败——站点稍慢就有请求被静默跳过，只留一行 warn，症状是「搜索结果凭空少一批」，且越慢的站点丢得越多。
+  3. **按索引器分线程、线程内串行**（现在）：请求到达限流器时天然排好队，一次排队浪费都没有，且请求总量与改造前逐轮发送完全相同。
+  
+  因此 `pt.search.max-concurrency` 那层局部闸门已删除——它比 `pt.indexer.global-concurrency` 还小，让全局上限永远轮不到生效，纯属压低扇出。**防封职责全部在 `IndexerRateLimiter`**，`global-concurrency` 现在是搜索扇出的唯一上限，不宜低于用户常用的索引器数量。
+  
+  **有早停的路径不能拼成一份计划**。`supplement()` 的自动推送模式是三级回退、逐级早停（某级推送成功就不再发下一级的请求，命中率高的订阅一次只打 1~2 级），拼成一份计划等于每次把所有级别打满，请求量翻几倍。无早停的两处（`searchSeasonCandidates` 的全季搜索、手动挑选模式）才拼整份计划——它们本来就要把所有级别的结果合并去重后统一匹配。
+  
+  **每一级放行到下一级的判据是「推送成功」而不是「过滤后有匹配」**。`pushBest` 会因为候选都已推送过、被过滤规则全清、下载器并发已满、该集已被别的轮次占位等原因返回 false（见 `SubscriptionEngine#handleGroup` 的几处 `return false`）。早先第二级按 `matched.isEmpty()` 判，一旦本级有匹配却推送失败，第三级的英文名兜底就被跳过、这一轮空手而归，而那批资源本来可能推得动，只能等下一轮补搜重来。
 - **PT 过滤的关键词有标题、描述两套，判定对象不同、缺失时的取向也相反**。`exclude_keywords` 只匹配标题，`description_exclude_keywords` 只匹配描述（`TorrentFilterEngine#rejectReason`，两条相邻）。加后者是因为有一类属性标题里根本不写——蓝光原盘最典型：国内站只在种子描述里标一句「原盘」，标题与压制版逐字同构，两者都解析成 `source=BluRay`，来源白名单分不开；体积上限虽能挡住原盘，却会连体积区间重叠的 REMUX 一起切掉，而 REMUX 是 mkv、播放器本来吃得下。两条不要改坏的：
   1. **标题为空一律淘汰（`BLANK_TITLE`），描述为空一律放行**。标题是索引器必给的字段，描述不是——不少索引器压根不返回 `<description>`，按「判不出即淘汰」处理会把这些站点的候选整批清光。
   2. **`EXCLUDED_DESCRIPTION_KEYWORD` 与 `EXCLUDED_KEYWORD` 是两个码，别合并**。命中的是标题还是描述，决定用户该去改哪个输入框，聚合成一个就分不出来了。

@@ -30,13 +30,13 @@ import com.osr.openliststrm.pt.subscription.dto.SearchAndPushSummary;
 import com.osr.openliststrm.pt.subscription.dto.SearchCandidateDTO;
 import com.osr.openliststrm.pt.subscription.dto.SupplementResult;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
+import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -44,7 +44,6 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Semaphore;
 import java.util.stream.Collectors;
 
 /**
@@ -72,17 +71,6 @@ public class SearchSupplementService {
     /** 只用来取水位线与回读淘汰原因聚合，不参与落库——落库由 SubscriptionEngine 在过滤现场完成 */
     private final SearchLogService searchLogService;
 
-    /**
-     * 单次搜索调用内部的并发上限。
-     * <p>
-     * <b>这不是对站点的节流</b>——它是每次调用新建的，多个搜索同时进行时各自持有一份许可，
-     * 真实并发是它的若干倍。真正的节流在 {@link com.osr.openliststrm.pt.indexer.IndexerRateLimiter}：
-     * 全局单例，按索引器串行化并强制最小请求间隔，RSS 轮询与搜索共用同一份配额。
-     * 这里保留本闸门只是为了限制单次调用同时在途的任务数量，不承担防封职责。
-     * </p>
-     */
-    private final int maxConcurrency;
-
     public SearchSupplementService(IPtIndexerPlusService indexerService,
                                    TorznabClient torznabClient,
                                    SubscriptionEngine subscriptionEngine,
@@ -94,8 +82,7 @@ public class SearchSupplementService {
                                    TorrentFilterEngine filterEngine,
                                    TmdbSearchService tmdbSearchService,
                                    IPtTorrentBlacklistPlusService blacklistService,
-                                   SearchLogService searchLogService,
-                                   @Value("${pt.search.max-concurrency:3}") int maxConcurrency) {
+                                   SearchLogService searchLogService) {
         this.indexerService = indexerService;
         this.torznabClient = torznabClient;
         this.subscriptionEngine = subscriptionEngine;
@@ -108,7 +95,6 @@ public class SearchSupplementService {
         this.tmdbSearchService = tmdbSearchService;
         this.blacklistService = blacklistService;
         this.searchLogService = searchLogService;
-        this.maxConcurrency = Math.max(1, maxConcurrency);
     }
 
     /**
@@ -138,23 +124,25 @@ public class SearchSupplementService {
 
         int totalCandidates = 0;
 
-        // 第一优先级：IMDB/TMDB ID 精确搜索
-        List<TorrentInfo> idCandidates = new ArrayList<>(searchByExternalId(sub, episode));
-        // 绝对编号的剧集要再搜一次「不带季号」：上面那次把 season=23 传给了索引器，
-        // 而这类资源在站上标的是 S01（One Piece S01E1174），带季号过滤在索引器那一层
-        // 就被排除在结果之外了，后面的匹配再宽松也无米下锅
-        if (!absoluteMapOf(sub).isEmpty()) {
-            Set<String> seen = idCandidates.stream()
-                    .map(t -> t.getIndexerId() + ":" + t.getGuid())
-                    .collect(java.util.stream.Collectors.toSet());
-            addDeduped(idCandidates, seen, searchByExternalIdWithoutSeason(sub));
-        }
-        fillParsedAll(idCandidates);
-        totalCandidates += idCandidates.size();
-
         if (manualSelect) {
-            // 手动模式：收集所有来源的候选种子（ID精确 + 关键词 + 英文名），不自动推送
-            List<TorrentInfo> allMatched = new ArrayList<>();
+            // 手动模式没有早停——ID 精确、关键词、绝对号变体、英文名兜底全都要搜，结果一起
+            // 展示给用户挑。因此拼成一份计划交给 executePlan，由每个索引器自己串行跑完，
+            // 而不是逐轮 join 等齐所有索引器（慢站点会把快站点一起拖住）
+            List<SearchStep> plan = new ArrayList<>(idPlan(sub, episode));
+            plan.add(keywordStep(keyword));
+            for (String variant : absoluteKeywords(sub, episode)) {
+                plan.add(keywordStep(variant));
+            }
+            String altKeyword = buildAltKeyword(sub, episode);
+            if (altKeyword != null) {
+                plan.add(keywordStep(altKeyword));
+            }
+            Map<StepKind, List<TorrentInfo>> grouped = executePlanByKind(plan);
+            List<TorrentInfo> idCandidates = dedupeByIndexerGuid(grouped.get(StepKind.EXTERNAL_ID));
+            List<TorrentInfo> kwCandidates = dedupeByIndexerGuid(grouped.get(StepKind.KEYWORD));
+            fillParsedAll(idCandidates);
+            fillParsedAll(kwCandidates);
+            totalCandidates = idCandidates.size() + kwCandidates.size();
 
             // 目标为整季包时，人工挑选场景不必像自动推送那样严格收窄到"纯季包"——
             // 连载剧集完结前基本没有季包，否则用户在手动模式下会看不到任何候选（见 filterByTargetManual）
@@ -162,32 +150,15 @@ public class SearchSupplementService {
                     && !SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType()))
                     ? missingEpisodeNumbers(sub) : Set.of();
 
-            // ID 搜索结果已由 imdb/tmdb id 精确锁定剧集本身，不需要再核对标题，
-            // 但索引器对季参数的支持程度不一，仍需核对季号，避免把别的季当成目标季
-            allMatched.addAll(filterIdCandidates(sub, episode, idCandidates, missingEpisodes));
-
-            // 关键词搜索
-            List<TorrentInfo> kwCandidates = searchByKeywordWithAbsoluteVariants(sub, episode, keyword);
-            fillParsedAll(kwCandidates);
-            totalCandidates += kwCandidates.size();
-            allMatched.addAll(filterByTargetManual(sub, episode, kwCandidates, missingEpisodes));
-
-            // 英文/原语言标题兜底
-            String altKeyword = buildAltKeyword(sub, episode);
-            if (altKeyword != null) {
-                List<TorrentInfo> altCandidates = searchAcrossIndexers(altKeyword);
-                fillParsedAll(altCandidates);
-                totalCandidates += altCandidates.size();
-                // 去重：已存在的 guid 不重复添加
-                Set<String> existingGuids = allMatched.stream()
-                        .map(t -> t.getIndexerId() + ":" + t.getGuid())
-                        .collect(java.util.stream.Collectors.toSet());
-                for (TorrentInfo t : filterByTargetManual(sub, episode, altCandidates, missingEpisodes)) {
-                    if (existingGuids.add(t.getIndexerId() + ":" + t.getGuid())) {
-                        allMatched.add(t);
-                    }
-                }
-            }
+            // 两组过滤路径不同：ID 搜索结果已由 imdb/tmdb id 精确锁定剧集本身，不需要再核对标题
+            // （但索引器对季参数的支持程度不一，仍需核对季号，避免把别的季当成目标季）；
+            // 关键词结果则必须核对标题。各自过滤后按 (indexerId, guid) 合并去重
+            List<TorrentInfo> allMatched = new ArrayList<>();
+            Set<String> matchedGuids = new HashSet<>();
+            addDeduped(allMatched, matchedGuids,
+                    filterIdCandidates(sub, episode, idCandidates, missingEpisodes));
+            addDeduped(allMatched, matchedGuids,
+                    filterByTargetManual(sub, episode, kwCandidates, missingEpisodes));
 
             // 应用 PT 过滤规则：淘汰不满足条件的候选，按配置维度排序。
             // 黑名单必须与自动推送链路（SubscriptionEngine#handleGroup）用同一份：漏传会让已拉黑的
@@ -229,35 +200,63 @@ public class SearchSupplementService {
             return new SupplementResult(false, totalCandidates, toCandidateDtos(survivors));
         }
 
-        // 以下为自动推送模式
+        // 以下为自动推送模式。三级逐级回退且<b>逐级早停</b>：某一级推送成功就不再向索引器发出
+        // 下一级的请求，命中率高的订阅一次只打 1~2 级。正因为有早停，这里不能像手动模式那样把
+        // 各级拼成一份计划一次发出——那等于每次都把所有级别打满，请求量翻几倍
         boolean pushed = false;
-        // ID 搜索结果不需要核对标题，但仍需核对季号（严格模式：目标为整季包时只认真正的季包，
-        // 不放行单集——自动推送要保证准确，不像手动模式有人工兜底）
+        List<TorrentInfo> idCandidates = dedupeByIndexerGuid(executePlan(idPlan(sub, episode)));
+        fillParsedAll(idCandidates);
+        totalCandidates += idCandidates.size();
+
+        // 第一级：ID 精确。结果不需要核对标题，但仍需核对季号（严格模式：目标为整季包时只认
+        // 真正的季包，不放行单集——自动推送要保证准确，不像手动模式有人工兜底）
         List<TorrentInfo> idMatched = filterIdCandidates(sub, episode, idCandidates, null);
         if (!idMatched.isEmpty()) {
             pushed = subscriptionEngine.pushBest(sub, episode, idMatched);
         }
 
-        List<TorrentInfo> matched = new ArrayList<>();
+        // 第二级：关键词（含绝对号变体）。
+        // 放行到下一级的判据是「推送成功」而不是「过滤后有匹配」——pushBest 会因为候选都已推送过、
+        // 被过滤规则全清、下载器并发已满、该集已被别的轮次占位等原因返回 false（见
+        // SubscriptionEngine#handleGroup 的几处 return false）。早先这里按 matched.isEmpty() 判，
+        // 一旦本级有匹配却推送失败，第三级的英文名兜底就被跳过、这一轮空手而归，而那批资源
+        // 本来可能推得动，只能等下一轮补搜重来。第一级从一开始就是按 pushed 判的，这里与它对齐
+        List<TorrentInfo> matched = List.of();
         if (!pushed) {
-            List<TorrentInfo> candidates = searchByKeywordWithAbsoluteVariants(sub, episode, keyword);
+            List<SearchStep> plan = new ArrayList<>();
+            plan.add(keywordStep(keyword));
+            for (String variant : absoluteKeywords(sub, episode)) {
+                plan.add(keywordStep(variant));
+            }
+            List<TorrentInfo> candidates = dedupeByIndexerGuid(executePlan(plan));
             fillParsedAll(candidates);
             totalCandidates += candidates.size();
             matched = filterByTarget(sub, episode, candidates);
-        }
-
-        if (!pushed && matched.isEmpty()) {
-            String altKeyword = buildAltKeyword(sub, episode);
-            if (altKeyword != null) {
-                List<TorrentInfo> altCandidates = searchAcrossIndexers(altKeyword);
-                fillParsedAll(altCandidates);
-                totalCandidates += altCandidates.size();
-                matched = filterByTarget(sub, episode, altCandidates);
+            if (!matched.isEmpty()) {
+                pushed = subscriptionEngine.pushBest(sub, episode, matched);
             }
         }
 
+        // 第三级：英文/原语言标题兜底
         if (!pushed) {
-            pushed = subscriptionEngine.pushBest(sub, episode, matched);
+            String altKeyword = buildAltKeyword(sub, episode);
+            if (altKeyword != null) {
+                List<TorrentInfo> altCandidates = executePlan(List.of(keywordStep(altKeyword)));
+                fillParsedAll(altCandidates);
+                totalCandidates += altCandidates.size();
+                matched = filterByTarget(sub, episode, altCandidates);
+                if (!matched.isEmpty()) {
+                    pushed = subscriptionEngine.pushBest(sub, episode, matched);
+                }
+            }
+        }
+
+        // 一级都没匹配到候选：补一次空推送，让「搜索未返回任何候选种子」照常落进 pt_search_log
+        // 供排查（recordSummary 写的行不带 reason_code，不会进 rejectSummary 聚合）。
+        // 空表进 handleGroup 必然在 fresh.isEmpty() 处返回 false，赋值只是不丢弃调用结果。
+        // matched 非空说明上面已经推过且失败，失败原因已经落库，不必再记一次
+        if (!pushed && matched.isEmpty()) {
+            pushed = subscriptionEngine.pushBest(sub, episode, List.of());
         }
 
         sub.setLastSearchTime(new Date());
@@ -513,26 +512,30 @@ public class SearchSupplementService {
      * @return 搜索到的全部候选种子（已去重）；全为空返回空列表
      */
     private List<TorrentInfo> searchSeasonCandidates(PtSubscriptionPlus sub) {
-        List<TorrentInfo> merged = new ArrayList<>();
-        Set<String> seenGuids = new HashSet<>();
+        List<TorrentInfo> merged = dedupeByIndexerGuid(executePlan(seasonPlan(sub)));
+        fillParsedAll(merged);
+        return merged;
+    }
 
-        List<TorrentInfo> idCandidates = searchByExternalId(sub, SubscriptionMatcher.SEASON_PACK);
-        fillParsedAll(idCandidates);
-        addDeduped(merged, seenGuids, idCandidates);
+    /**
+     * 全季搜索的检索计划：ID 精确 →（绝对编号剧的不带季号 ID）→ 中文标题 → 英文/原语言标题。
+     * <p>
+     * 这几步没有任何早停——调用方把结果合并去重后统一匹配，所以整份计划一次交给
+     * {@link #executePlan}，由每个索引器自己串行跑完，而不是逐步 join 等齐所有索引器。
+     * </p>
+     */
+    private List<SearchStep> seasonPlan(PtSubscriptionPlus sub) {
+        List<SearchStep> plan = new ArrayList<>();
+        plan.add(idStepOf(sub, SubscriptionMatcher.SEASON_PACK, false));
 
-        // 绝对编号的剧要再搜一次「不带季号」：上面那次把 season=23 传给了索引器，
+        // 绝对编号的剧要再搜一次「不带季号」：上面那步把 season=23 传给了索引器，
         // 而这类资源在站上标的是 S01（One Piece S01E1173），带季号过滤直接就被排除在结果之外，
         // 后面的匹配再宽松也无米下锅。只对确实用绝对编号的订阅多打这一次请求
         if (!absoluteMapOf(sub).isEmpty()) {
-            List<TorrentInfo> absCandidates = searchByExternalIdWithoutSeason(sub);
-            fillParsedAll(absCandidates);
-            addDeduped(merged, seenGuids, absCandidates);
+            plan.add(idStepOf(sub, SubscriptionMatcher.SEASON_PACK, true));
         }
 
-        String keyword = sub.getTitle() + " S" + pad(sub.getSeason());
-        List<TorrentInfo> kwCandidates = searchAcrossIndexers(keyword);
-        fillParsedAll(kwCandidates);
-        addDeduped(merged, seenGuids, kwCandidates);
+        plan.add(keywordStep(sub.getTitle() + " S" + pad(sub.getSeason())));
 
         // 英文标题 + 原语言标题都搜一遍（去重）：日韩剧的 originalTitle 是日文/韩文本身搜不到种子，
         // 必须靠 englishTitle 才能命中英文种子标题；两者归一化后相同（或与主标题相同）时跳过重复搜索。
@@ -542,22 +545,16 @@ public class SearchSupplementService {
             if (StringUtils.isBlank(alt)) {
                 continue;
             }
-            Set<String> altNorm = matcher.normalizeAll(alt);
-            if (!searchedNorms.add(altNorm)) {
+            if (!searchedNorms.add(matcher.normalizeAll(alt))) {
                 continue;
             }
-            String altKeyword = alt + " S" + pad(sub.getSeason());
-            List<TorrentInfo> altCandidates = searchAcrossIndexers(altKeyword);
-            fillParsedAll(altCandidates);
-            addDeduped(merged, seenGuids, altCandidates);
+            plan.add(keywordStep(alt + " S" + pad(sub.getSeason())));
         }
-
-        return merged;
+        return plan;
     }
 
-    /** 按 (indexerId, guid) 去重后追加，与手动搜索模式（见 {@link #supplement}）用同一去重口径 */
     /**
-     * 关键词检索，外加「绝对集号」形式的关键词变体。
+     * 「片名 + 绝对集号」的关键词变体，中英文各一条；非绝对编号的剧集返回空表（不多打请求）。
      * <p>
      * 用户（以及 buildAltKeyword）给出的关键词形如 {@code 航海王 S23E19}，而站上这类资源叫
      * {@code One Piece S01E1174}——既不含中文名也不含 S23E19，索引器按文本匹配一条都返不回来。
@@ -568,20 +565,6 @@ public class SearchSupplementService {
      * 空格切词后 AND 匹配，{@code One Piece 1174} 能命中标题里含 One / Piece / 1174 的种子，
      * 而写死 S01E 会把「用别的季号标注同一集」的发布组排除掉。
      * </p>
-     */
-    private List<TorrentInfo> searchByKeywordWithAbsoluteVariants(PtSubscriptionPlus sub, int episode, String keyword) {
-        List<TorrentInfo> merged = new ArrayList<>(searchAcrossIndexers(keyword));
-        Set<String> seen = merged.stream()
-                .map(t -> t.getIndexerId() + ":" + t.getGuid())
-                .collect(java.util.stream.Collectors.toSet());
-        for (String variant : absoluteKeywords(sub, episode)) {
-            addDeduped(merged, seen, searchAcrossIndexers(variant));
-        }
-        return merged;
-    }
-
-    /**
-     * 「片名 + 绝对集号」的关键词变体，中英文各一条；非绝对编号的剧集返回空表（不多打请求）。
      */
     private List<String> absoluteKeywords(PtSubscriptionPlus sub, int episode) {
         if (episode == SubscriptionMatcher.SEASON_PACK
@@ -607,12 +590,20 @@ public class SearchSupplementService {
         return keywords;
     }
 
+    /** 按 {@code (indexerId, guid)} 去重后追加，全流程共用同一去重口径 */
     private void addDeduped(List<TorrentInfo> target, Set<String> seenGuids, List<TorrentInfo> source) {
         for (TorrentInfo t : source) {
             if (seenGuids.add(t.getIndexerId() + ":" + t.getGuid())) {
                 target.add(t);
             }
         }
+    }
+
+    /** 按 {@code (indexerId, guid)} 去重，保留首次出现的次序——与 {@link #addDeduped} 同一口径 */
+    private List<TorrentInfo> dedupeByIndexerGuid(List<TorrentInfo> candidates) {
+        List<TorrentInfo> deduped = new ArrayList<>(candidates.size());
+        addDeduped(deduped, new HashSet<>(), candidates);
+        return deduped;
     }
 
     /**
@@ -642,100 +633,169 @@ public class SearchSupplementService {
 
     /**
      * 并发向所有启用索引器发起关键词搜索，合并结果。单索引器超时/异常只记 log，不影响其他索引器。
-     * 并发数受 {@link #maxConcurrency} 限制，索引器数量超出时排队等待，避免瞬间打爆所有站点。
      */
     public List<TorrentInfo> searchAcrossIndexers(String keyword) {
+        return executePlan(List.of(keywordStep(keyword)));
+    }
+
+    /**
+     * 检索步的归类。ID 精确检索已由 imdb/tmdb id 锁定剧集本身、结果不需要核对标题，
+     * 关键词检索的结果必须核对——两者过滤路径不同（{@code filterIdCandidates} vs
+     * {@code filterByTarget*}），因此混在同一份计划里执行时必须能分开取回。
+     */
+    private enum StepKind {
+        EXTERNAL_ID, KEYWORD
+    }
+
+    /**
+     * 检索计划里的一步。{@code label} 只用于失败日志（说明是哪一类检索），
+     * {@code op} 是对<b>单个</b>索引器的执行体——计划本身与索引器无关，由
+     * {@link #executePlan} 负责展开到每个启用索引器上。
+     */
+    private record SearchStep(StepKind kind, String label, SearchOp op) {
+    }
+
+    /** 对单个索引器执行一步检索；返回 {@code null} 表示该索引器不适用本步，连请求都不发 */
+    @FunctionalInterface
+    private interface SearchOp {
+        List<TorrentInfo> apply(PtIndexerPlus indexer) throws Exception;
+    }
+
+    private SearchStep keywordStep(String keyword) {
+        return new SearchStep(StepKind.KEYWORD, "关键词[" + keyword + "]",
+                indexer -> torznabClient.search(indexer, keyword));
+    }
+
+    /**
+     * ID 精确检索的一步：{@code t=caps} 探测到支持时用 IMDb ID（优先）或 TMDB ID
+     * （订阅无 IMDb ID 或索引器不支持 imdbid 时）；两者都不满足的索引器返回 null 直接跳过。
+     */
+    private SearchStep externalIdStep(PtSubscriptionPlus sub, boolean movie, Integer season, Integer ep) {
+        return new SearchStep(StepKind.EXTERNAL_ID, "外部 ID", indexer -> {
+            IdSearchParam param = resolveIdParam(sub, indexer, movie);
+            if (param == null) {
+                return null;
+            }
+            return torznabClient.searchByExternalId(indexer, movie, param.name(), param.value(), season, ep);
+        });
+    }
+
+    /**
+     * 执行一份检索计划：<b>索引器之间并发，同一索引器内部的各步严格串行</b>。
+     * <p>
+     * 这个嵌套顺序是本方法存在的全部理由，反过来写会坏两件事。改造前的形态是
+     * 「外层轮次串行、内层索引器并发」——每一轮都要 {@code allOf().join()} 等最慢的
+     * 索引器返回才能开下一轮，一次补搜最多 6 轮，慢索引器把所有索引器一起拖住。
+     * </p>
+     * <p>
+     * 而朴素的修法（把「轮次 × 索引器」全部一次性提交）更糟：同一索引器的 6 个请求会
+     * 同时涌向 {@link com.osr.openliststrm.pt.indexer.IndexerRateLimiter}，抢同一把
+     * {@code slot.serial} 并各自叠加最小间隔，排在最后的那个要等 {@code 5 × (RTT + 间隔)}。
+     * 限流器的每段等待都受 {@code pt.indexer.max-wait-ms}（默认 30 秒）约束，超时抛
+     * {@link com.osr.openliststrm.pt.indexer.IndexerBackpressureException} 快速失败——
+     * 站点稍慢就会有请求被静默跳过，只留一行 warn，表现为「搜索结果凭空少了一批」。
+     * 按索引器分线程、线程内串行，请求到达限流器时天然就是排好队的，一次排队浪费都没有。
+     * </p>
+     * <p>
+     * 本方法<b>不做去重</b>，与改造前逐轮返回的语义保持一致；跨轮次的重复由调用方用
+     * {@link #addDeduped} 按 {@code (indexerId, guid)} 消除。
+     * </p>
+     */
+    private List<TorrentInfo> executePlan(List<SearchStep> plan) {
+        Map<StepKind, List<TorrentInfo>> grouped = executePlanByKind(plan);
+        List<TorrentInfo> merged = new ArrayList<>();
+        // EnumMap 的迭代序是 EXTERNAL_ID → KEYWORD，恰好与所有计划里两类步的先后一致
+        for (List<TorrentInfo> part : grouped.values()) {
+            merged.addAll(part);
+        }
+        return merged;
+    }
+
+    /**
+     * 同 {@link #executePlan}，但结果按 {@link StepKind} 分开返回，供需要区分
+     * 「ID 检索结果」与「关键词检索结果」的调用方使用（两者过滤路径不同）。
+     * 两个键恒存在，无对应步时为空表。
+     */
+    private Map<StepKind, List<TorrentInfo>> executePlanByKind(List<SearchStep> plan) {
+        Map<StepKind, List<TorrentInfo>> grouped = new EnumMap<>(StepKind.class);
+        for (StepKind kind : StepKind.values()) {
+            grouped.put(kind, new ArrayList<>());
+        }
+        if (plan.isEmpty()) {
+            return grouped;
+        }
         List<PtIndexerPlus> indexers = indexerService.listEnabled();
         if (indexers.isEmpty()) {
-            return List.of();
+            return grouped;
         }
-        List<TorrentInfo> merged = new CopyOnWriteArrayList<>();
-        Semaphore limiter = new Semaphore(maxConcurrency);
+        // 每步一个收集槽，最后按步顺序拼接：返回顺序仍是「计划里的先后」，
+        // 而不是「哪个索引器先返回」，与改造前逐轮调用的语义一致
+        List<List<TorrentInfo>> perStep = new ArrayList<>(plan.size());
+        for (int i = 0; i < plan.size(); i++) {
+            perStep.add(new CopyOnWriteArrayList<>());
+        }
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             List<CompletableFuture<Void>> futures = indexers.stream()
-                    .map(indexer -> CompletableFuture.runAsync(Threads.wrap(() ->
-                            runLimited(limiter, () -> {
-                                try {
-                                    merged.addAll(torznabClient.search(indexer, keyword));
-                                } catch (Exception e) {
-                                    log.warn("索引器[{}]关键词搜索失败：{}", indexer.getName(), e.getMessage());
-                                }
-                            })), executor))
+                    .map(indexer -> CompletableFuture.runAsync(
+                            Threads.wrap(() -> runPlanOn(indexer, plan, perStep)), executor))
                     .toList();
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
         }
-        return new ArrayList<>(merged);
+        for (int i = 0; i < plan.size(); i++) {
+            grouped.get(plan.get(i).kind()).addAll(perStep.get(i));
+        }
+        return grouped;
     }
 
     /**
-     * 第一优先级：对每个启用索引器，若 {@code t=caps} 探测到支持则用 IMDb ID（优先）或
-     * TMDB ID（订阅无 IMDb ID 或索引器不支持 imdbid 时）发起精确搜索；两者都不满足的索引器
-     * 直接跳过，不发请求（也不占并发名额——resolveIdParam 在拿许可证之前判定）。
+     * 在单个索引器上按顺序跑完整份计划。某一步失败只记 log 并继续下一步——
+     * 一个索引器不支持某种检索、或某次请求超时，不该让它剩下的几步也一并放弃。
      */
+    private void runPlanOn(PtIndexerPlus indexer, List<SearchStep> plan, List<List<TorrentInfo>> perStep) {
+        for (int i = 0; i < plan.size(); i++) {
+            SearchStep step = plan.get(i);
+            try {
+                List<TorrentInfo> found = step.op().apply(indexer);
+                if (found != null) {
+                    perStep.get(i).addAll(found);
+                }
+            } catch (Exception e) {
+                log.warn("索引器[{}]按{}搜索失败：{}", indexer.getName(), step.label(), e.getMessage());
+            }
+        }
+    }
+
     /**
-     * 不带季号的外部 ID 检索，供绝对编号的剧使用。
+     * ID 精确检索计划：带季号一步；绝对编号的剧再加一步<b>不带季号</b>的。
      * <p>
-     * 走 {@link #searchByExternalId} 的电影分支：那条分支恰好就是「season/ep 都传 null」，
-     * 语义上等价于「这部作品的全部资源」。不新写一份并发检索逻辑。
+     * 后者不可省：第一步把 {@code season=23} 传给了索引器，而这类资源在站上标的是 S01
+     * （One Piece S01E1174），带季号的过滤在索引器那一层就把它排除在结果之外了，
+     * 后面的匹配再宽松也无米下锅。只对确实用绝对编号的订阅多打这一次请求。
+     * </p>
+     * <p>
+     * 不带季号那步走 {@link #idStepOf} 的电影分支（season/ep 都传 null），
+     * 语义上等价于「这部作品的全部资源」。
      * </p>
      */
-    private List<TorrentInfo> searchByExternalIdWithoutSeason(PtSubscriptionPlus sub) {
-        return searchByExternalId(sub, SubscriptionMatcher.SEASON_PACK, true);
-    }
-
-    private List<TorrentInfo> searchByExternalId(PtSubscriptionPlus sub, int episode) {
-        return searchByExternalId(sub, episode, false);
-    }
-
-    private List<TorrentInfo> searchByExternalId(PtSubscriptionPlus sub, int episode, boolean ignoreSeason) {
-        List<PtIndexerPlus> indexers = indexerService.listEnabled();
-        if (indexers.isEmpty()) {
-            return List.of();
+    private List<SearchStep> idPlan(PtSubscriptionPlus sub, int episode) {
+        List<SearchStep> plan = new ArrayList<>();
+        plan.add(idStepOf(sub, episode, false));
+        if (!absoluteMapOf(sub).isEmpty()) {
+            plan.add(idStepOf(sub, SubscriptionMatcher.SEASON_PACK, true));
         }
+        return plan;
+    }
+
+    /**
+     * 把「订阅 + 目标集」翻译成一步 ID 精确检索。抽成独立方法而不是直接建计划，
+     * 是为了让 {@link #searchSeasonCandidates} 那样的多轮计划能把它和关键词步拼在同一份计划里，
+     * 从而共用一个索引器线程、串行发出。
+     */
+    private SearchStep idStepOf(PtSubscriptionPlus sub, int episode, boolean ignoreSeason) {
         boolean movie = SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType());
         Integer season = (movie || ignoreSeason) ? null : sub.getSeason();
         Integer ep = (movie || episode == SubscriptionMatcher.SEASON_PACK) ? null : episode;
-
-        List<TorrentInfo> merged = new CopyOnWriteArrayList<>();
-        Semaphore limiter = new Semaphore(maxConcurrency);
-        try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            List<CompletableFuture<Void>> futures = indexers.stream()
-                    .map(indexer -> CompletableFuture.runAsync(Threads.wrap(() -> {
-                        IdSearchParam param = resolveIdParam(sub, indexer, movie);
-                        if (param == null) {
-                            return;
-                        }
-                        runLimited(limiter, () -> {
-                            try {
-                                merged.addAll(torznabClient.searchByExternalId(
-                                        indexer, movie, param.name(), param.value(), season, ep));
-                            } catch (Exception e) {
-                                log.warn("索引器[{}]按{}搜索失败：{}", indexer.getName(), param.name(), e.getMessage());
-                            }
-                        });
-                    }), executor))
-                    .toList();
-            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-        }
-        return new ArrayList<>(merged);
-    }
-
-    /**
-     * 在信号量许可证下执行任务，把"抢许可证-跑任务-还许可证"的样板收敛到一处。
-     * 等待许可证时被中断则放弃本次任务并恢复中断标志，不让异常从 CompletableFuture 里裸抛出去。
-     */
-    private void runLimited(Semaphore limiter, Runnable task) {
-        try {
-            limiter.acquire();
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            return;
-        }
-        try {
-            task.run();
-        } finally {
-            limiter.release();
-        }
+        return externalIdStep(sub, movie, season, ep);
     }
 
     private record IdSearchParam(String name, String value) {

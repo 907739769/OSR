@@ -32,8 +32,10 @@ import org.mockito.quality.Strictness;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -84,7 +86,7 @@ class SearchSupplementServiceTest {
     @BeforeEach
     void setUp() {
         capabilityCache = new IndexerCapabilityCache(torznabClient, 300_000L);
-        service = new SearchSupplementService(indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, blacklistService, searchLogService, 10);
+        service = new SearchSupplementService(indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, blacklistService, searchLogService);
     }
 
     private PtIndexerPlus indexer(int id) {
@@ -170,65 +172,47 @@ class SearchSupplementServiceTest {
         assertTrue(service.searchAcrossIndexers("kw").isEmpty());
     }
 
-    // ---------- 并发限速 ----------
+    // ---------- 计划执行：索引器并发、单索引器内串行 ----------
 
     @Test
-    void searchAcrossIndexers_并发数不超过配置上限() throws Exception {
-        int limit = 2;
-        SearchSupplementService limited = new SearchSupplementService(
-                indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, blacklistService, searchLogService, limit);
-        when(indexerService.listEnabled()).thenReturn(
-                List.of(indexer(1), indexer(2), indexer(3), indexer(4), indexer(5)));
+    void 多步计划_同一索引器内严格串行_索引器之间并发() throws Exception {
+        // 这是 executePlan 的核心保证。反过来（同一索引器的多步并发发出）会让它们在
+        // IndexerRateLimiter 里抢同一把 slot.serial 并各自叠加最小间隔，排最后的那个
+        // 可能等到超过 max-wait-ms 被静默跳过，表现为搜索结果凭空少一批
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1), indexer(2), indexer(3)));
 
-        AtomicInteger current = new AtomicInteger(0);
-        AtomicInteger maxObserved = new AtomicInteger(0);
-        CountDownLatch releaseLatch = new CountDownLatch(1);
+        Map<Integer, AtomicInteger> inFlightPerIndexer = new ConcurrentHashMap<>();
+        AtomicInteger maxPerIndexer = new AtomicInteger(0);
+        AtomicInteger maxAcrossIndexers = new AtomicInteger(0);
+        AtomicInteger inFlightTotal = new AtomicInteger(0);
+        CountDownLatch allStarted = new CountDownLatch(3);
+
         when(torznabClient.search(any(), anyString())).thenAnswer(inv -> {
-            int now = current.incrementAndGet();
-            maxObserved.updateAndGet(prev -> Math.max(prev, now));
-            releaseLatch.await(2, TimeUnit.SECONDS);
-            current.decrementAndGet();
-            return List.of();
+            PtIndexerPlus idx = inv.getArgument(0);
+            AtomicInteger mine = inFlightPerIndexer.computeIfAbsent(idx.getId(), k -> new AtomicInteger());
+            // 先自增到局部变量再比较：updateAndGet 的 lambda 在 CAS 竞争下会被重试，
+            // 把 incrementAndGet 写在里面会多加几次，观测值凭空变大
+            int mineNow = mine.incrementAndGet();
+            int totalNow = inFlightTotal.incrementAndGet();
+            maxPerIndexer.updateAndGet(prev -> Math.max(prev, mineNow));
+            maxAcrossIndexers.updateAndGet(prev -> Math.max(prev, totalNow));
+            allStarted.countDown();
+            // 等另外两个索引器也进来，证明它们确实是并发的（真串行的话这里会超时）
+            allStarted.await(2, TimeUnit.SECONDS);
+            inFlightTotal.decrementAndGet();
+            mine.decrementAndGet();
+            return List.of(torrent("t-" + idx.getId()));
         });
-        Thread releaser = new Thread(() -> {
-            try {
-                Thread.sleep(300);
-            } catch (InterruptedException ignored) {
-                Thread.currentThread().interrupt();
-            }
-            releaseLatch.countDown();
-        });
-        releaser.start();
 
-        limited.searchAcrossIndexers("kw");
-        releaser.join();
+        PtSubscriptionPlus sub = tvSub(10, 1, 12);
+        sub.setEnglishTitle("Another Name");
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(1, "MISSING")));
 
-        assertTrue(maxObserved.get() <= limit,
-                "并发数不应超过限制 " + limit + "，实际观测到 " + maxObserved.get());
-    }
+        service.searchAndPushMissing(10);
 
-    @Test
-    void searchAcrossIndexers_并发受限但最终仍处理完所有索引器() throws Exception {
-        int limit = 2;
-        SearchSupplementService limited = new SearchSupplementService(
-                indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, blacklistService, searchLogService, limit);
-        when(indexerService.listEnabled()).thenReturn(
-                List.of(indexer(1), indexer(2), indexer(3), indexer(4), indexer(5)));
-        when(torznabClient.search(any(), anyString())).thenReturn(List.of(torrent("t")));
-
-        List<TorrentInfo> results = limited.searchAcrossIndexers("kw");
-
-        assertEquals(5, results.size());
-    }
-
-    @Test
-    void 配置并发数小于1_至少允许1个() throws Exception {
-        SearchSupplementService limited = new SearchSupplementService(
-                indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, blacklistService, searchLogService, 0);
-        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
-        when(torznabClient.search(any(), anyString())).thenReturn(List.of(torrent("t")));
-
-        assertEquals(1, limited.searchAcrossIndexers("kw").size());
+        assertEquals(1, maxPerIndexer.get(), "同一索引器上不应有两步同时在途");
+        assertEquals(3, maxAcrossIndexers.get(), "三个索引器应当并发执行");
     }
 
     // ---------- supplement ----------

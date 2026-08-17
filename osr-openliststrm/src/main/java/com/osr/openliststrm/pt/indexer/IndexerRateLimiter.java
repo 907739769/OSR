@@ -16,11 +16,18 @@ import java.util.concurrent.atomic.AtomicLong;
  * 索引器请求的全局限流器：所有打向 Torznab 的 HTTP 请求（RSS 轮询、关键词搜索、ID 精确搜索、
  * caps 探测）都必须经由本类，是唯一的节流入口。
  * <p>
- * <b>为什么必须是全局单例</b>：改造前 {@code RssPollService.poll()} 与
- * {@code SearchSupplementService.searchAcrossIndexers()/searchByExternalId()} 各自
- * {@code new Semaphore(n)}，且后两者是<b>每次调用</b>新建。这些信号量彼此毫不相干，
- * 真实并发上限是 {@code 4 + 3 × 同时进行的搜索次数}，无界——用户连点几次搜索、
- * 批量建订阅触发的异步补搜、RSS 轮询三者叠加时会瞬间打穿 Prowlarr 直达后端 PT 站点。
+ * <b>为什么必须是全局单例</b>：早先 {@code RssPollService.poll()} 与
+ * {@code SearchSupplementService} 的两个检索方法各自 {@code new Semaphore(n)}，
+ * 且后两者是<b>每次调用</b>新建。这些信号量彼此毫不相干，真实并发上限是
+ * {@code 4 + 3 × 同时进行的搜索次数}，无界——用户连点几次搜索、批量建订阅触发的异步补搜、
+ * RSS 轮询三者叠加时会瞬间打穿 Prowlarr 直达后端 PT 站点。
+ * </p>
+ * <p>
+ * <b>搜索侧的那层局部闸门已经删掉</b>（轮询侧的 {@code pt.indexer.max-concurrency} 还在）：
+ * 它比本类的 {@code global-concurrency} 还小，等于让全局上限永远轮不到生效，只是白白压低扇出，
+ * 而防封职责本就全在本类。因此 {@code global-concurrency} 现在是搜索扇出的<b>唯一</b>上限，
+ * 调它就是直接调「同时打几个不同站点」，不宜低于用户常用的索引器数量——低于时多出来的索引器
+ * 要在这里排队，等待超过 {@code maxWaitMillis} 会被整个跳过。
  * </p>
  * <p>
  * <b>为什么限"间隔"而不只限"并发"</b>：并发数限的是"同时几个"，NexusPHP 的 rate limit
