@@ -110,7 +110,8 @@ public class MysqlDdl extends SimpleDdl {
                 "sql/20260785-pt-menu-regroup.sql",
                 "sql/20260786-pt-subscription-menu-icon.sql",
                 "sql/20260787-clear-stale-no-target-episode.sql",
-                "sql/20260788-pt-auto-search-backoff.sql"
+                "sql/20260788-pt-auto-search-backoff.sql",
+                "sql/20260789-pt-episode-health.sql"
         );
     }
 }

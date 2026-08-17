@@ -7,6 +7,7 @@ import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusServic
 import com.osr.openliststrm.pt.subscription.SubscriptionEpisodeState;
 import org.springframework.stereotype.Service;
 
+import java.util.Date;
 import java.util.List;
 
 /**
@@ -40,6 +41,25 @@ public class PtSubscriptionEpisodePlusServiceImpl extends ServiceImpl<PtSubscrip
                         "SELECT id FROM pt_download_record WHERE state = 'COMPLETED'"
                                 + " AND completed_time IS NOT NULL"
                                 + " AND completed_time < DATE_SUB(NOW(), INTERVAL " + hours + " HOUR)")
+                .orderByAsc(PtSubscriptionEpisodePlus::getSubId)
+                .orderByAsc(PtSubscriptionEpisodePlus::getEpisode)
+                .list();
+    }
+
+    @Override
+    public List<PtSubscriptionEpisodePlus> listHealthCandidates(Date airedBefore) {
+        return lambdaQuery()
+                // UPGRADING 不纳入：那一集本来就在库里，用户手上有能看的版本，
+                // 报进「缺集」会让体检页混进一批其实不缺的条目
+                .in(PtSubscriptionEpisodePlus::getState,
+                        SubscriptionEpisodeState.MISSING.value(),
+                        SubscriptionEpisodeState.IN_FLIGHT.value(),
+                        SubscriptionEpisodeState.BLOCKED.value())
+                // 暂停/已完成的订阅不体检：用户已经明确表态不再追它，报出来只是噪音
+                .inSql(PtSubscriptionEpisodePlus::getSubId,
+                        "SELECT id FROM pt_subscription WHERE status = 'ACTIVE'")
+                .and(w -> w.isNull(PtSubscriptionEpisodePlus::getAirDate)
+                        .or().le(PtSubscriptionEpisodePlus::getAirDate, airedBefore))
                 .orderByAsc(PtSubscriptionEpisodePlus::getSubId)
                 .orderByAsc(PtSubscriptionEpisodePlus::getEpisode)
                 .list();

@@ -20,6 +20,7 @@ com/osr/openliststrm/
 ├── orphan/           # 重命名一致性检查 (孤儿扫描/清理/忽略)
 ├── pt/               # PT 订阅管理 (downloader/indexer/subscription/media server)
 │   ├── clean/        # 自动删种 (体积区间 + 做种时长分级，辅种整组同删)
+│   ├── health/       # 缺集体检 (逾期未入库的分档诊断 + 每日聚合提醒)
 │   └── transfer/     # 转移做种 (qB → TR 搬种，IYUU「转移」的自建实现)
 ├── rename/           # 影视文件重命名 (MediaParser/TitleProcessor/PebbleRenderer)
 │   └── cleanup/      # 产物清理 (ArtifactPaths 纯逻辑 + RenameCleanupService 实际 I/O)
@@ -48,6 +49,7 @@ com/osr/openliststrm/
 | 重命名产物清理 | `rename/cleanup/` | RenameCleanupService（purge/purgeRelocated/回收空目录）, ArtifactPaths |
 | PT 订阅管理 | `pt/` | Downloader/Indexer/Subscription/MediaServer |
 | PT 自动删种 | `pt/clean/` | TorrentCleanService（判定+执行）, TorrentCleanTask（默认每 60 分钟） |
+| PT 缺集体检 | `pt/health/` | EpisodeHealthService（纯查询分档+诊断）, EpisodeHealthNotifyService/Task（每 24 小时） |
 | 文件刮削 | `scrape/` | ScrapeService, TMDb 刮削/文件删除 |
 | 任务监控 | `monitor/` | MediaRenameProcessor 等处理器 |
 | 任务配置 | `mybatisplus/domain/` + `controller/` | 所有 *Plus 实体 |
@@ -119,6 +121,8 @@ com/osr/openliststrm/
 - **洗版失败退回 IN_LIBRARY 而不是 MISSING，且不累加 `fail_count`**。旧文件一直在库里，退成 MISSING 会让这一集显示成缺失并被 RSS 从头重下；累加 fail_count 会让几次洗版失败把一个明明已入库的集熔断成 BLOCKED
 - **第一期洗版不碰旧文件**：OSR 从不删种，新旧版本同时存在，清理由用户手动完成。自动清理（第二期）必须先检查旧种子 `hr_state ∈ {SATISFIED, null}`——删掉还在 H&R 考核期内的种子的文件，等于亲手制造一次记过
 - **电影年份判定统一走 `SubscriptionMatcher#movieYearMatches`，容差 1 年，两条链路不许各写一份**。RSS 自动匹配（`SubscriptionMatcher` 电影分支）与搜索补集（`SearchSupplementService#filterMovieCandidates`）对「这个候选是不是这部电影」必须给出同一个答案，只改一处会出现「手动搜索能选中、RSS 却当它不匹配」这种说不清的不一致（标题归一化 `normalizeAll` 共用同一份也是这个理由）。容差取 1 是因为电影节首映 vs 正式公映、年末跨年上映会让同一部电影在 TMDb 与发布组标注之间差一年；**不要放宽到 2 及以上**——每放宽一年同名翻拍串台的风险就实打实增加，而"正好差两年"的同一部电影几乎不存在。**任一侧缺年份仍判不匹配**：电影没有季集号可交叉验证，年份是唯一能区分同名作品的信号
+- **`pt/health/` 是只读诊断层，绝不许在里面改集状态或推送下载**。它读 `pt_subscription_episode` 与 `pt_subscription` 算出「缺了几集、缺了多久、为什么还缺」，唯一的写操作是通知去重的两列（`last_overdue_notify_sign` / `last_overdue_notify_time`）。想让它顺手把 `MISSING` 的集退回重搜、或把长期缺集的订阅自动暂停，都会与 `StuckEpisodeSweepService`、`AutoSearchService`、`DownloadTrackService` 抢同一份状态机——那三处的退回逻辑各自带着熔断计数与并发条件更新，多一个写入方就没人说得清一集是被谁改的。页面上的处置动作（开启自动补搜、立即补搜）走 Controller 显式调用既有服务（`searchAndPushMissing`），体检本身不发起任何动作。
+- **`EpisodeHealthService#scan(LocalDate)` 的 today 是参数，不是 `LocalDate.now()`**，为的是让逾期天数那套算术能被测试钉住。**刻意不为此加第二个构造器注入 `Clock`**：一个 bean 有多个构造器时 Spring 不会自己挑，没标 `@Autowired` 就退回去找默认构造器、找不到就整个应用装配失败，而单测直接 new、绕开 Spring、全绿——`LoginAttemptService` 踩过这一次。需要注入时钟时优先改成传参。
 - **`FilterCriteria` 一律用 `FilterCriteria.builder()` 构造**，不要用位置参数：16 个分量里有 9 个是 `List<String>`，顺序写反编译器发现不了；新增维度时 builder 调用方也不必补占位参数
 - **`TorrentFilterEngine` 只有 2 参与 4 参两种签名，不要再加三参重载**。历史上 `(…, TorrentBlacklist)` 与 `(…, String originalLanguage)` 两个三参重载只靠第三参类型区分，`SearchSupplementService` 调错了版本，导致手动搜索候选列表不受黑名单约束，用户选中后推送侧再拦下，只回一个没有原因的失败
 - **种子的 `parsedTags` 是 `MediaInfo.tags` + 视频编码 + 音频编码的并集**（见 `SubscriptionEngine#collectTags`）。extractor 按 Resolution → Codec → SourceAndGroup 顺序跑，`CodecExtractor` 会先把 `Atmos`/`H265`/`DTS-HD` 匹进 `audioCodec`/`videoCodec` 并从标题里抹掉，只读 `tags` 的话「必须带 Atmos」这类配置会一条都匹配不上

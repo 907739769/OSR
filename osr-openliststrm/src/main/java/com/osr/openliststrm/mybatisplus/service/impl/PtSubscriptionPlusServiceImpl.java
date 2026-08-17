@@ -7,6 +7,7 @@ import com.osr.openliststrm.mybatisplus.mapper.PtSubscriptionPlusMapper;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import org.springframework.stereotype.Service;
 
+import java.util.Date;
 import java.util.List;
 
 /**
@@ -59,6 +60,24 @@ public class PtSubscriptionPlusServiceImpl extends ServiceImpl<PtSubscriptionPlu
                 .inSql(PtSubscriptionPlus::getId,
                         "SELECT DISTINCT sub_id FROM pt_subscription_episode WHERE state IN ('MISSING', 'IN_FLIGHT')")
                 .orderByAsc(PtSubscriptionPlus::getId)
+                .list();
+    }
+
+    @Override
+    public void updateOverdueNotifyState(Integer subId, String sign, Date notifiedAt) {
+        if (subId == null) {
+            return;
+        }
+        update(new LambdaUpdateWrapper<PtSubscriptionPlus>()
+                .eq(PtSubscriptionPlus::getId, subId)
+                .set(PtSubscriptionPlus::getLastOverdueNotifySign, sign)
+                .set(PtSubscriptionPlus::getLastOverdueNotifyTime, notifiedAt));
+    }
+
+    @Override
+    public List<PtSubscriptionPlus> listOverdueNotified() {
+        return lambdaQuery()
+                .isNotNull(PtSubscriptionPlus::getLastOverdueNotifySign)
                 .list();
     }
 }

@@ -63,8 +63,15 @@ public class DownloadTrackService {
     private static final String EP_UPGRADING = SubscriptionEpisodeState.UPGRADING.value();
     private static final String EP_BLOCKED = SubscriptionEpisodeState.BLOCKED.value();
 
-    /** pt_subscription_episode.file_confirmed 的「已确认」取值 */
-    static final String FILE_CONFIRMED = "1";
+    /**
+     * pt_subscription_episode.file_confirmed 的「已确认」取值。
+     * <p>
+     * 公开而不是包级可见：跨包的 {@code EpisodeHealthService} 也要靠它分开「文件已下好、
+     * 卡在上传」与「种子里可能压根没这集」——这两种在页面上症状一样、处置完全相反。
+     * 在那边重新写一个 {@code "1"} 字面量是最容易的做法，也正是本项目反复吃过亏的那种漂移。
+     * </p>
+     */
+    public static final String FILE_CONFIRMED = "1";
 
     /** 媒体类型：电影。判定只看 media_type，口径与 {@link SubscriptionService} 同源，不用 season==0（特别篇也是第0季） */
     private static final String TYPE_MOVIE = SubscriptionService.TYPE_MOVIE;

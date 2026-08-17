@@ -3,6 +3,7 @@ package com.osr.openliststrm.mybatisplus.service;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
 
+import java.util.Date;
 import java.util.List;
 
 /**
@@ -37,4 +38,25 @@ public interface IPtSubscriptionEpisodePlusService extends IService<PtSubscripti
      * @param completedHoursAgo 下载记录完成后至少经过多少小时才纳入，必须为正数
      */
     List<PtSubscriptionEpisodePlus> listStuckInFlight(int completedHoursAgo);
+
+    /**
+     * 查「缺集体检」的候选集：ACTIVE 订阅名下、尚未入库、且不属于「还没播」的集。
+     * <p>
+     * 三个条件都推到 SQL 而不是拉全表再内存筛：集表是本项目最大的一张表（订阅数 × 集数），
+     * 而体检真正关心的通常只有几十行。
+     * </p>
+     * <p>
+     * <b>{@code air_date IS NULL} 的行也要捞回来</b>，交给上层单独分档。在这里就把它们滤掉
+     * 看似干净，代价是电影订阅（压根不参与日期同步，{@code air_date} 恒为 NULL）
+     * 与尚未被 {@code EpisodeAirDateSyncTask} 扫到的存量行会整批从体检里消失——
+     * 而「缺了却看不见」正是这个功能要解决的问题本身。
+     * </p>
+     * <p>
+     * 未播出的集靠 {@code airedBefore} 上界排除，与 {@code SearchSupplementService#aired}
+     * 是同一条业务判据：还没播的集恒为 MISSING，报成"缺集"只会让整页被未来的集淹掉。
+     * </p>
+     *
+     * @param airedBefore 播出日期上界（含当天）；比它晚的集视为「还没播够时间」不纳入
+     */
+    List<PtSubscriptionEpisodePlus> listHealthCandidates(Date airedBefore);
 }

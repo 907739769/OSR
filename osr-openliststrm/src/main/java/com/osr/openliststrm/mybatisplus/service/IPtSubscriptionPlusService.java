@@ -3,6 +3,7 @@ package com.osr.openliststrm.mybatisplus.service;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 
+import java.util.Date;
 import java.util.List;
 
 /**
@@ -60,4 +61,32 @@ public interface IPtSubscriptionPlusService extends IService<PtSubscriptionPlus>
      * </p>
      */
     void updateAutoSearchMissState(Integer subId, int missStreak, String rejectSign);
+
+    /**
+     * 只更新「逾期缺集」通知的两列（指纹、通知时间），<b>不碰实体上的任何其它字段</b>。
+     * <p>
+     * 与 {@link #updateAutoSearchMissState} 同样的理由，也是同一个踩过的坑：
+     * {@code updateById(实体)} 在 MyBatis-Plus 默认的 {@code NOT_NULL} 策略下会把实体上
+     * 所有非 null 字段一并写回，而体检拿到的那份订阅是扫描时刻的快照——把它整体写回，
+     * 就会把补搜链路刚更新的 {@code last_search_time} 覆盖成旧值，导致订阅永远"已到期"、
+     * 每次心跳都重搜一遍。而这件事没有任何错误现象，只是索引器被默默打了几十倍的请求。
+     * </p>
+     * <p>
+     * 两个参数都允许传 {@code null}（缺集补齐后清空状态），因此必须走
+     * {@code LambdaUpdateWrapper} 显式 set——NOT_NULL 策略下实体上的 null 字段会被直接跳过，
+     * 清空写不进去。
+     * </p>
+     */
+    void updateOverdueNotifyState(Integer subId, String sign, Date notifiedAt);
+
+    /**
+     * 查所有留有「逾期缺集」通知指纹的订阅（{@code last_overdue_notify_sign IS NOT NULL}）。
+     * <p>
+     * 用来找出"上次通知过、这次已经不缺了"的订阅并清空它们的状态。不清的话，这条订阅
+     * 下次再出现缺集时会拿新指纹与陈旧的老指纹比较——多数情况下确实不等、于是照常通知，
+     * 但只要新缺的恰好与上次是同一批（同一部剧反复缺同几集完全是常态），
+     * 指纹相等，这次通知就被静默吞掉。
+     * </p>
+     */
+    List<PtSubscriptionPlus> listOverdueNotified();
 }

@@ -126,6 +126,27 @@ public class PtSubscriptionPlus extends BaseEntity {
     private String lastAutoSearchRejectSign;
 
     /**
+     * 上次「逾期缺集」通知时，这条订阅逾期缺集的指纹（集数 + 排序去重的集号，见
+     * {@code EpisodeHealthNotifyService#signatureOf}）。
+     * <p>
+     * 逾期缺集与补搜落空不同：它<b>天天都在</b>，不通知去重的话每轮都会重发同一条。
+     * 指纹变了（新缺了一集、或补上了一集）立刻再通知一次，没变则按周期重提醒——
+     * 只按"发过就不再发"处理的话，一部永远补不上的剧提醒一次之后就再无声息，
+     * 而它恰恰是最该被记住的那一部。
+     * </p>
+     * <p>
+     * 指纹带集数前缀是为了压低截断后的碰撞：集号串可能很长（长篇动画一季上百集），
+     * 超过列宽要截断，而两批不同的缺集常常共享一长串相同的前缀。
+     * </p>
+     */
+    @TableField("last_overdue_notify_sign")
+    private String lastOverdueNotifySign;
+
+    /** 上次发出「逾期缺集」通知的时间，配合指纹做周期性重提醒；NULL 表示从未通知过 */
+    @TableField("last_overdue_notify_time")
+    private Date lastOverdueNotifyTime;
+
+    /**
      * 订阅归属人(sys_user.user_id)。NULL = 无归属的公共订阅，所有人可见——
      * 本列是后加的，历史订阅全为 NULL，若把 NULL 当成"归属于某个不存在的人"，
      * 升级后所有老订阅会从非管理员的列表里整批消失。

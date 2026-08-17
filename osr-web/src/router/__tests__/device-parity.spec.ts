@@ -32,7 +32,7 @@ const PAIRS = [
   'strmTask', 'strmRecord', 'copyTask', 'copyRecord',
   'renameTask', 'renameDetail', 'renameOrphan', 'renameConfig',
   'ptIndexer', 'ptDownloader', 'ptMediaServer', 'ptSubscription',
-  'ptDownloadRecord', 'ptStatsDashboard', 'ptTorrentBlacklist', 'ptAutoAddRule', 'ptCalendar', 'notifyRoute', 'wecomUser'
+  'ptDownloadRecord', 'ptStatsDashboard', 'ptTorrentBlacklist', 'ptAutoAddRule', 'ptCalendar', 'ptHealth', 'notifyRoute', 'wecomUser'
 ]
 
 /**
