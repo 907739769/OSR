@@ -106,7 +106,9 @@ public class MysqlDdl extends SimpleDdl {
                 "sql/20260781-drop-notify-types-config.sql",
                 "sql/20260782-pt-filter-description-exclude.sql",
                 "sql/20260783-notify-type-split.sql",
-                "sql/20260784-pt-torrent-transfer.sql"
+                "sql/20260784-pt-torrent-transfer.sql",
+                "sql/20260785-pt-menu-regroup.sql",
+                "sql/20260786-pt-subscription-menu-icon.sql"
         );
     }
 }
