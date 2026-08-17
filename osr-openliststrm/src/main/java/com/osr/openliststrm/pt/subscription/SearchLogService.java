@@ -121,21 +121,43 @@ public class SearchLogService {
     }
 
     /**
-     * 把水位线之后写入的<b>淘汰行</b>按 {@code reason_code} 聚合成一句人话，供通知说明
-     * 「为什么这次什么都没推成」。
+     * 一次搜索里「候选被过滤规则淘汰」的聚合结果：给人看的一句话，加上给通知去重用的指纹。
+     * <p>
+     * 两者出自同一次查询——指纹单独再查一遍库是纯浪费，而它们本来就描述同一批行。
+     * </p>
+     *
+     * @param summary   如 {@code "103 个候选被过滤规则淘汰：98 个「非免费种」、5 个「做种数不足」"}，
+     *                  只列举前 {@link #SUMMARY_TOP_N} 类，够用户判断方向即可
+     * @param signature 全部淘汰原因码排序去重后拼接，如 {@code "LOW_SEEDERS,NOT_FREE"}。
+     *                  两条刻意与 {@code summary} 不同的取舍：<b>不含计数</b>——摘要里
+     *                  「98 个非免费种」的数字每轮都在变，含进去等于每轮都判定"原因变了"、
+     *                  把去重彻底失效；<b>不截取 TOP_N</b>——只留前三类的话，第四类原因的
+     *                  出现或消失就捕捉不到，而指纹存在的全部意义就是发现种类变化
+     */
+    public record RejectionDigest(String summary, String signature) {
+
+        /** 没有任何淘汰行（例如压根没搜到候选）：与过滤规则无关，调用方应退回泛化文案 */
+        public static final RejectionDigest EMPTY = new RejectionDigest(null, null);
+    }
+
+    /** 指纹落库列宽（{@code pt_subscription.last_auto_search_reject_sign}），超长按字符截断 */
+    private static final int SIGNATURE_MAX_LENGTH = 255;
+
+    /**
+     * 把水位线之后写入的<b>淘汰行</b>按 {@code reason_code} 聚合成一句人话（供通知说明
+     * 「为什么这次什么都没推成」）与一个原因种类指纹（供通知去重）。
      * <p>
      * 这是 {@code reason_code} 列存在的主要理由之一：按 {@code reason} 文本聚合会因为文案里
      * 嵌着实际值（做种数、体积、标签名）而碎成一堆计数为 1 的片段，看不出主要卡在哪条规则上。
      * </p>
      * <p>
-     * 只取前 {@link #SUMMARY_TOP_N} 类，够用户判断方向即可；完整明细本来就逐条躺在
-     * {@code pt_search_log} 里。没有任何淘汰行（例如压根没搜到候选）时返回 {@code null}，
-     * 调用方据此退回原本的泛化文案——那种情况确实与过滤规则无关。
+     * 完整明细本来就逐条躺在 {@code pt_search_log} 里。没有任何淘汰行时返回
+     * {@link RejectionDigest#EMPTY}。
      * </p>
      */
-    public String summarizeRejectionsSince(Integer subId, long watermark) {
+    public RejectionDigest digestRejectionsSince(Integer subId, long watermark) {
         if (subId == null) {
-            return null;
+            return RejectionDigest.EMPTY;
         }
         try {
             List<PtSearchLogPlus> rejected = logService.list(new LambdaQueryWrapper<PtSearchLogPlus>()
@@ -144,7 +166,7 @@ public class SearchLogService {
                     .eq(PtSearchLogPlus::getAccepted, "0")
                     .isNotNull(PtSearchLogPlus::getReasonCode));
             if (rejected.isEmpty()) {
-                return null;
+                return RejectionDigest.EMPTY;
             }
             Map<String, Long> byCode = rejected.stream().collect(Collectors.groupingBy(
                     PtSearchLogPlus::getReasonCode, LinkedHashMap::new, Collectors.counting()));
@@ -153,10 +175,15 @@ public class SearchLogService {
                     .limit(SUMMARY_TOP_N)
                     .map(e -> e.getValue() + " 个「" + RejectCode.labelOf(e.getKey()) + "」")
                     .collect(Collectors.joining("、"));
-            return rejected.size() + " 个候选被过滤规则淘汰：" + detail;
+            // 排序而不是保留出现次序：指纹只表达"有哪几类原因"，次序不同不该算变化
+            String signature = byCode.keySet().stream().sorted().collect(Collectors.joining(","));
+            if (signature.length() > SIGNATURE_MAX_LENGTH) {
+                signature = signature.substring(0, SIGNATURE_MAX_LENGTH);
+            }
+            return new RejectionDigest(rejected.size() + " 个候选被过滤规则淘汰：" + detail, signature);
         } catch (Exception e) {
             log.warn("聚合淘汰原因失败（不影响主流程），订阅[{}]：{}", subId, e.getMessage());
-            return null;
+            return RejectionDigest.EMPTY;
         }
     }
 

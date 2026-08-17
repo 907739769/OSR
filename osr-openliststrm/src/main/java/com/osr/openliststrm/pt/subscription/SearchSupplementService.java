@@ -33,6 +33,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -463,6 +465,10 @@ public class SearchSupplementService {
      * 只搜严格意义的整季包（连载剧集完结前基本没有季包资源，旧实现对这类订阅形同虚设）。
      * </p>
      * <p>
+     * <b>未播出的集不参与</b>（见 {@link #aired}）：既省下必然落空的请求，也避免把
+     * 「这一集还没播」报成「没搜到资源，检查你的关键词与索引器」。
+     * </p>
+     * <p>
      * 顶层不抛异常，任一步的异常被各自 try/catch 捕获，不影响其他步骤继续；调用方按需
      * 决定如何处理"全部落空"的情况（是否通知、通知频率）。
      * </p>
@@ -473,9 +479,12 @@ public class SearchSupplementService {
             return SearchAndPushSummary.skip();
         }
         List<PtSubscriptionEpisodePlus> episodes = episodeService.listBySubscription(subId);
-        boolean hasMissing = episodes.stream()
-                .anyMatch(ep -> SubscriptionService.STATE_MISSING.equals(ep.getState()));
-        if (!hasMissing) {
+        // 只有「已播出且仍缺」的集才值得搜。剩下全是未播集时整条订阅本轮直接跳过，
+        // 一个请求都不发——skip 也不会碰调用方的通知去重标记（见 AutoSearchService#trySearch）
+        LocalDate today = LocalDate.now();
+        boolean hasSearchableMissing = episodes.stream()
+                .anyMatch(ep -> SubscriptionService.STATE_MISSING.equals(ep.getState()) && aired(ep, today));
+        if (!hasSearchableMissing) {
             return SearchAndPushSummary.skip();
         }
 
@@ -491,8 +500,10 @@ public class SearchSupplementService {
             } catch (Exception e) {
                 log.warn("订阅[{}] 补搜失败：{}", subId, e.getMessage());
             }
-            return new SearchAndPushSummary(false, pushed, 0,
-                    pushed ? null : searchLogService.summarizeRejectionsSince(subId, watermark));
+            SearchLogService.RejectionDigest digest = pushed
+                    ? SearchLogService.RejectionDigest.EMPTY
+                    : searchLogService.digestRejectionsSince(subId, watermark);
+            return new SearchAndPushSummary(false, pushed, 0, digest.summary(), digest.signature());
         }
 
         // 单次全季节搜索（三级回退：ID → 中文 → 英文/原语言）
@@ -518,7 +529,7 @@ public class SearchSupplementService {
         int episodesPushed = 0;
         if (!seasonPushed && !candidates.isEmpty()) {
             for (PtSubscriptionEpisodePlus ep : episodes) {
-                if (!SubscriptionService.STATE_MISSING.equals(ep.getState())) {
+                if (!SubscriptionService.STATE_MISSING.equals(ep.getState()) || !aired(ep, today)) {
                     continue;
                 }
                 List<TorrentInfo> episodeCandidates = filterByTarget(sub, ep.getEpisode(), candidates);
@@ -540,8 +551,38 @@ public class SearchSupplementService {
         subscriptionService.updateById(sub);
 
         boolean anyPushed = seasonPushed || episodesPushed > 0;
+        SearchLogService.RejectionDigest digest = anyPushed
+                ? SearchLogService.RejectionDigest.EMPTY
+                : searchLogService.digestRejectionsSince(subId, watermark);
         return new SearchAndPushSummary(false, seasonPushed, episodesPushed,
-                anyPushed ? null : searchLogService.summarizeRejectionsSince(subId, watermark));
+                digest.summary(), digest.signature());
+    }
+
+    /**
+     * 该集是否已经播出。未播出的集不参与补搜——站上不可能有还没播的集的资源。
+     * <p>
+     * 省下的请求是次要的，真正的问题在通知：一部刚播到第 3 集的 12 集新番，剩下 9 集全是
+     * MISSING，于是这条订阅每轮都「有缺集」、每轮都发出完整一轮索引器请求、每轮都
+     * 「什么都没推成」，用户收到的是「未找到可用资源，可检查关键词与索引器配置」——
+     * 而真实原因是<b>还没播</b>。这正是 {@code describeNoResult} 那类文案要避免的
+     * 「把用户引向一个根本没问题的地方」。
+     * </p>
+     * <p>
+     * {@code air_date} 为 null 一律按<b>已播出</b>处理：可能是未定档、TMDb 未录入，也可能只是
+     * 存量行还没被 {@code EpisodeAirDateSyncTask}（每 12 小时一轮）同步到。判成未播出会让这些集
+     * 彻底搜不到，而多搜一轮只是几个请求。取向与 {@code EpisodeAirDateSyncService} 撤档时不清空
+     * 已有日期一致——日期信息本身不够可靠，不能让它单方面否决业务动作。
+     * 电影订阅压根不参与日期同步（该服务按 {@code mediaType != MOVIE} 取订阅），air_date 恒为 null，
+     * 因此这条判断对电影恒真。
+     * </p>
+     * <p>播出当天算已播出：air_date 是当地日期，当天已经放送过了。</p>
+     */
+    private boolean aired(PtSubscriptionEpisodePlus ep, LocalDate today) {
+        Date airDate = ep.getAirDate();
+        if (airDate == null) {
+            return true;
+        }
+        return !airDate.toInstant().atZone(ZoneId.systemDefault()).toLocalDate().isAfter(today);
     }
 
     /**

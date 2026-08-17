@@ -35,9 +35,20 @@ public class SearchAndPushSummary {
      */
     private String rejectSummary;
 
+    /**
+     * 与 {@link #rejectSummary} 同源的原因<b>种类</b>指纹（见
+     * {@code SearchLogService.RejectionDigest#signature}），供调用方判断「这次落空的原因
+     * 和上次是不是同一类」。
+     * <p>
+     * 不能用 {@link #rejectSummary} 自己去比：它带着计数，数字每轮都在变，
+     * 拿它做去重等于每轮都通知。
+     * </p>
+     */
+    private String rejectSignature;
+
     /** 兼容既有三参调用点，等价于没有淘汰摘要 */
     public SearchAndPushSummary(boolean skipped, boolean seasonPushed, int episodesPushed) {
-        this(skipped, seasonPushed, episodesPushed, null);
+        this(skipped, seasonPushed, episodesPushed, null, null);
     }
 
     public static SearchAndPushSummary skip() {

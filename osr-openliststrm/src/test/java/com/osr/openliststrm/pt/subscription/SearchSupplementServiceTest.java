@@ -31,6 +31,9 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
 import java.io.IOException;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -48,6 +51,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.same;
@@ -86,6 +90,10 @@ class SearchSupplementServiceTest {
 
     @BeforeEach
     void setUp() {
+        // 真实的 SearchLogService 内部全程 try/catch、恒返回 EMPTY 而非 null；
+        // mock 默认返回 null，不打这个桩会让每条走到落空汇总的用例都撞 NPE
+        when(searchLogService.digestRejectionsSince(any(), anyLong()))
+                .thenReturn(SearchLogService.RejectionDigest.EMPTY);
         capabilityCache = new IndexerCapabilityCache(torznabClient, 300_000L);
         service = new SearchSupplementService(indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, blacklistService, searchLogService, 0);
     }
@@ -133,6 +141,14 @@ class SearchSupplementServiceTest {
         PtSubscriptionEpisodePlus ep = new PtSubscriptionEpisodePlus();
         ep.setEpisode(number);
         ep.setState(state);
+        return ep;
+    }
+
+    /** 带播出日期的集：{@code daysFromToday} 为正表示还没播 */
+    private PtSubscriptionEpisodePlus episodeAiring(int number, String state, int daysFromToday) {
+        PtSubscriptionEpisodePlus ep = episode(number, state);
+        ep.setAirDate(Date.from(LocalDate.now().plusDays(daysFromToday)
+                .atStartOfDay(ZoneId.systemDefault()).toInstant()));
         return ep;
     }
 
@@ -979,6 +995,74 @@ class SearchSupplementServiceTest {
         verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(1), anyList());
         verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(2), anyList());
         verify(subscriptionEngine, never()).pushBest(eq(sub), eq(3), anyList());
+    }
+
+    // ---------- 未播出的集不参与补搜 ----------
+
+    @Test
+    void 缺集全都还没播_整条订阅跳过_一个请求都不发() throws Exception {
+        // 一部刚订阅、还没开播的剧：站上不可能有资源，搜一轮必然落空，
+        // 而落空会被报成「未找到可用资源，检查关键词与索引器配置」——把用户引向没问题的地方
+        PtSubscriptionPlus sub = tvSub(10, 1, 2);
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(
+                episodeAiring(1, "MISSING", 3), episodeAiring(2, "MISSING", 10)));
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+
+        assertTrue(service.searchAndPushMissing(10).isSkipped());
+
+        verify(torznabClient, never()).search(any(), anyString());
+        verify(subscriptionEngine, never()).pushBest(any(), anyInt(), anyList());
+    }
+
+    @Test
+    void 只为已播出的缺集逐集兜底_未播的集不占请求也不占位() throws Exception {
+        PtSubscriptionPlus sub = tvSub(10, 1, 2);
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        // 第 1 集昨天播了还没入库，第 2 集下周才播
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(
+                episodeAiring(1, "MISSING", -1), episodeAiring(2, "MISSING", 7)));
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+        TorrentInfo ep1 = torrent("Some.Show.S01E01.1080p");
+        ep1.setParsedSeason(1);
+        ep1.setParsedEpisode(1);
+        ep1.setParsedTitle("Some Show");
+        when(torznabClient.search(any(), anyString())).thenReturn(List.of(ep1));
+        when(subscriptionEngine.pushBest(eq(sub), eq(1), anyList())).thenReturn(true);
+
+        service.searchAndPushMissing(10);
+
+        verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(1), anyList());
+        verify(subscriptionEngine, never()).pushBest(eq(sub), eq(2), anyList());
+    }
+
+    @Test
+    void 播出日期为空的集照常参与补搜() throws Exception {
+        // air_date 可能是未定档、TMDb 未录入，也可能只是存量行还没被同步任务扫到；
+        // 判成"未播出"会让这些集彻底搜不到
+        PtSubscriptionPlus sub = tvSub(10, 1, 1);
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(1, "MISSING")));
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+        TorrentInfo ep1 = torrent("Some.Show.S01E01.1080p");
+        ep1.setParsedSeason(1);
+        ep1.setParsedEpisode(1);
+        ep1.setParsedTitle("Some Show");
+        when(torznabClient.search(any(), anyString())).thenReturn(List.of(ep1));
+
+        assertFalse(service.searchAndPushMissing(10).isSkipped());
+
+        verify(subscriptionEngine, atLeastOnce()).pushBest(eq(sub), anyInt(), anyList());
+    }
+
+    @Test
+    void 播出当天的集算已播出() throws Exception {
+        PtSubscriptionPlus sub = tvSub(10, 1, 1);
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episodeAiring(1, "MISSING", 0)));
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+
+        assertFalse(service.searchAndPushMissing(10).isSkipped());
     }
 
     @Test

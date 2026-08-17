@@ -100,9 +100,30 @@ public class PtSubscriptionPlus extends BaseEntity {
     @TableField("last_search_time")
     private Date lastSearchTime;
 
-    /** 上一轮定期自动补搜是否落空 0-否(有命中或未跑过) 1-是，用于通知去重避免每轮重复打扰 */
+    /**
+     * 定期自动补搜的连续落空次数：0 表示上一轮有命中或还没跑过，N&gt;0 表示已连续 N 轮什么都没推成。
+     * <p>
+     * 一个字段担两件事：{@code > 0} 精确等于旧的「上一轮已落空」布尔，仍用于通知去重；
+     * 次数本身用于按次退避（见 {@code AutoSearchService#effectiveIntervalMillis}）——
+     * 片源确实不存在的老剧不该永远每 24 小时打满一整轮索引器请求，
+     * 而这件事用户从现象上根本看不出来（日志里每轮都"正常地"搜了一遍）。
+     * </p>
+     */
     @TableField("last_auto_search_no_result")
-    private String lastAutoSearchNoResult;
+    private Integer lastAutoSearchNoResult;
+
+    /**
+     * 上次自动补搜落空时的淘汰原因码指纹（排序去重、不含计数，见
+     * {@code SearchLogService#digestRejectionsSince}）。
+     * <p>
+     * 落空通知本身按「首次落空」去重，但原因<b>种类</b>变了要再发一次：「压根没搜到候选」
+     * 与「候选全被 freeOnly 淘汰」的处置方向完全相反，只按次数去重会把这次翻转吃掉，
+     * 而那恰恰是用户最需要知道的一次变化。指纹刻意不含计数——摘要里
+     * 「98 个非免费种」的数字每轮都在变，含进去等于每轮都通知，退回刷屏。
+     * </p>
+     */
+    @TableField("last_auto_search_reject_sign")
+    private String lastAutoSearchRejectSign;
 
     /**
      * 订阅归属人(sys_user.user_id)。NULL = 无归属的公共订阅，所有人可见——
