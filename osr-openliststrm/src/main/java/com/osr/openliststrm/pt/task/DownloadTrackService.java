@@ -22,6 +22,7 @@ import com.osr.openliststrm.pt.downloader.model.DownloaderTorrent;
 import com.osr.openliststrm.pt.downloader.model.DownloaderTorrentFile;
 import com.osr.openliststrm.pt.subscription.SubscriptionEpisodeState;
 import com.osr.openliststrm.pt.subscription.SubscriptionMatcher;
+import com.osr.openliststrm.pt.subscription.AbsoluteEpisodeMap;
 import com.osr.openliststrm.pt.subscription.SubscriptionService;
 import com.osr.openliststrm.pt.upgrade.QualityProfile;
 import com.osr.openliststrm.pt.upgrade.UpgradeState;
@@ -435,11 +436,18 @@ public class DownloadTrackService {
                 return false;
             }
 
+            // 种子内文件名可能用绝对集号（航海王 S01E1174 其实是第 23 季第 19 集），
+            // 而 targetEpisodes 是本地相对号。不归一化的话两边永远交不上，
+            // 整包会被判成「不含目标集」而中止——用户看到的就是「刚推就没了」。
+            // targets 自带 tmdb_episode_number，够建出本次要用的映射；普通剧集两号相同，
+            // 映射为空，toLocalOrSelf 原样返回，行为与改动前一致
+            AbsoluteEpisodeMap absolutes = AbsoluteEpisodeMap.from(targets);
+
             Set<Integer> excludeIndexes = new HashSet<>();
             Set<Integer> actualEpisodes = new HashSet<>();
             for (DownloaderTorrentFile file : files) {
                 MediaInfo info = mediaParser.parseLocal(file.getName());
-                Integer episode = toInt(info.getEpisode());
+                Integer episode = absolutes.toLocalOrSelf(toInt(info.getEpisode()));
                 if (episode == null) {
                     // 解析不出集号的文件（NFO、字幕、样片等）默认保留，不做排除
                     continue;
@@ -695,9 +703,11 @@ public class DownloadTrackService {
             }
             List<DownloaderTorrentFile> files = downloaderClientFactory.get(downloader)
                     .listFiles(downloader, matched.getHash());
+            // 与 trySelectFiles 同一处理：文件名可能是绝对集号，先归一化成本地集号
+            AbsoluteEpisodeMap absolutes = AbsoluteEpisodeMap.from(targets);
             Set<Integer> actualEpisodes = new HashSet<>();
             for (DownloaderTorrentFile file : files) {
-                Integer episode = toInt(mediaParser.parseLocal(file.getName()).getEpisode());
+                Integer episode = absolutes.toLocalOrSelf(toInt(mediaParser.parseLocal(file.getName()).getEpisode()));
                 if (episode != null) {
                     actualEpisodes.add(episode);
                 }

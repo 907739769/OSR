@@ -668,6 +668,91 @@ class DownloadTrackServiceTest {
         return f;
     }
 
+    /** 带 TMDb 绝对集号的集行，用于「文件名用绝对号、本地用相对号」的场景 */
+    private PtSubscriptionEpisodePlus absoluteEpisodeRow(int id, int localEpisode, int tmdbEpisodeNumber) {
+        PtSubscriptionEpisodePlus ep = episodeRow(id, 0, localEpisode);
+        ep.setTmdbEpisodeNumber(tmdbEpisodeNumber);
+        return ep;
+    }
+
+    // ---------- 文件名用绝对集号（长篇动画） ----------
+
+    /**
+     * 用户实际遇到的故障：《航海王》订阅第 23 季第 19 集，站上的种子叫
+     * One Piece S01E1174（1174 是绝对号）。文件名解析出 1174，而目标集是本地的 19，
+     * 两边交不上 → 整包被判「不含目标集」中止，现象是「刚推给下载器就没了」。
+     */
+    @Test
+    void 单集种子文件名是绝对集号_不再误判为不含目标集() throws Exception {
+        PtDownloadRecordPlus r = record(100, 19, "osr-pt-abs", "PUSHED", 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(episodeService.list(any(Wrapper.class)))
+                .thenReturn(List.of(absoluteEpisodeRow(501, 19, 1174)));
+        when(downloaderClientFactory.get(any())).thenReturn(downloaderClient);
+        when(downloaderClient.listFiles(any(), eq("h"))).thenReturn(List.of(
+                file(0, "One Piece S01E1174 1999 2160p WEB-DL H265 AAC-ADWeb.mkv")));
+
+        service().track(downloader(), List.of(torrent("osr-pt,osr-pt-abs", 0.1)));
+
+        // 唯一的视频文件就是目标集，不该被排除，更不该中止
+        verify(downloaderClient, never()).excludeFiles(any(), any(), any());
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService, atLeastOnce()).updateById(captor.capture());
+        assertTrue(captor.getAllValues().stream().noneMatch(rec -> "FAILED".equals(rec.getState())),
+                "不该被判成 FAILED");
+        assertTrue(captor.getAllValues().stream().anyMatch(rec -> Boolean.TRUE.equals(rec.getFilesSelected())),
+                "应正常完成文件选择");
+    }
+
+    @Test
+    void 季包文件名是绝对集号_只排除非目标集() throws Exception {
+        // 只缺本地第 19、20 集（绝对号 1174、1175），包里是 1174..1177
+        PtDownloadRecordPlus r = record(100, -1, "osr-pt-pack", "PUSHED", 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(episodeService.list(any(Wrapper.class))).thenReturn(
+                List.of(absoluteEpisodeRow(501, 19, 1174), absoluteEpisodeRow(502, 20, 1175)));
+        when(downloaderClientFactory.get(any())).thenReturn(downloaderClient);
+        when(downloaderClient.listFiles(any(), eq("h"))).thenReturn(List.of(
+                file(0, "One Piece S01E1174.mkv"),
+                file(1, "One Piece S01E1175.mkv"),
+                file(2, "One Piece S01E1176.mkv"),
+                file(3, "One Piece S01E1177.mkv")));
+
+        service().track(downloader(), List.of(torrent("osr-pt,osr-pt-pack", 0.1)));
+
+        ArgumentCaptor<Set<Integer>> captor = ArgumentCaptor.forClass(Set.class);
+        verify(downloaderClient).excludeFiles(any(), eq("h"), captor.capture());
+        assertEquals(Set.of(2, 3), captor.getValue(), "只该排除 1176/1177 两个文件");
+    }
+
+    /**
+     * 绝对号确实不在目标范围内时仍要中止——归一化只负责翻译编号，
+     * 不能顺手把「这个包真的没有我要的集」也一并放行。
+     */
+    @Test
+    void 绝对集号不属于本次目标_仍判为不含目标集() throws Exception {
+        PtDownloadRecordPlus r = record(100, 19, "osr-pt-abs", "PUSHED", 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(episodeService.list(any(Wrapper.class)))
+                .thenReturn(List.of(absoluteEpisodeRow(501, 19, 1174)));
+        when(downloaderClientFactory.get(any())).thenReturn(downloaderClient);
+        when(downloaderClient.listFiles(any(), eq("h"))).thenReturn(List.of(
+                file(0, "One Piece S01E1180.mkv")));
+
+        // 中止判定要求拿得到订阅（isNoTargetEpisode 对 sub==null 一律放行）。
+        // 必须在 service() 之后桩：该辅助方法内部会把 listByIds 重置成空表
+        DownloadTrackService svc = service();
+        when(subscriptionService.listByIds(any())).thenReturn(List.of(tvSub(10)));
+        svc.track(downloader(), List.of(torrent("osr-pt,osr-pt-abs", 0.1)));
+
+        // 中止走 doFail，用的是条件更新 update(set, wrapper) 而不是 updateById
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService, atLeastOnce()).update(captor.capture(), any(Wrapper.class));
+        assertTrue(captor.getAllValues().stream().anyMatch(rec -> "FAILED".equals(rec.getState())
+                        && FailReasonCode.NO_TARGET_EPISODE.value().equals(rec.getFailReasonCode())),
+                "包里确实没有目标集时仍应中止");
+    }
+
     // ---------- 按目标集数过滤季包文件 ----------
 
     @Test

@@ -146,6 +146,14 @@ docker compose up -d --build --no-deps backend
   季包不参与，否则会去拉一千多集）。检索侧还要对这类订阅补一次**不带季号**的外部 ID 搜索，
   否则 `season=23` 会在索引器那一层就把 S01 的资源过滤掉，匹配再宽松也无米下锅。
   
+  **第三处：种子内文件名也可能是绝对号**。`DownloadTrackService` 读下载器的文件列表判断
+  「这个包含哪几集」，文件名 `One Piece S01E1174.mkv` 解析出 1174，而目标集是本地第 19 集，
+  两边交不上会被 `isNoTargetEpisode` 判成「种子内不含任何目标集」直接中止——现象是
+  「刚推给下载器就没了」。解法是在解析出集号的那一刻就用 `AbsoluteEpisodeMap#toLocalOrSelf`
+  归一化成本地编号（映射由 `targets` 自带的 `tmdb_episode_number` 建），下游的排除文件、
+  中止判定、认领对账全部不用改。`trySelectFiles` 与完成前补对账两处都要做，漏一处就是
+  「能下但集状态不对」。
+  
   **已知缺口**：字幕组的 `[Sakurato] One Piece - 1173 [2160p]` 这类裸数字命名仍匹配不上，
   但卡点不在集号——`YearSeasonEpisodeExtractor` 会把标题解析成
   `[ Sakurato ] One Piece - 1173 [ ] [ - ]`，在标题匹配那步就淘汰了。要支持得先修标题截断，

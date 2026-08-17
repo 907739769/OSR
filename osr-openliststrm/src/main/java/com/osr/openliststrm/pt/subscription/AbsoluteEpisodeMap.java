@@ -72,4 +72,16 @@ public final class AbsoluteEpisodeMap {
     public Integer toLocal(Integer absolute) {
         return absolute == null ? null : absoluteToLocal.get(absolute);
     }
+
+    /**
+     * 把一个「来源不明的集号」归一化成本地集号：认得出的绝对号转成本地号，认不出的原样返回。
+     * <p>
+     * 用于种子内文件名解析出的集号——同一个包里的文件未必用同一套编号，而且普通剧集
+     * 本来就用本地号。转不动就保持原值，让调用方按原有逻辑处理（多半是排除该文件）。
+     * </p>
+     */
+    public Integer toLocalOrSelf(Integer number) {
+        Integer local = toLocal(number);
+        return local != null ? local : number;
+    }
 }
