@@ -53,6 +53,9 @@ import java.util.function.Consumer;
  *       就永远等不到自己的 .strm 了。这一段由 {@link #backfillMissingStrm()} 在进程启动后补一次。</li>
  * </ol>
  *
+ * <p>执行顺序上第二段<b>排在第一段前面</b>，理由见 {@link #sweep()} 里的注释：两段的判据会重叠，
+ * 反过来跑会把本轮刚判成功的记录再补一遍 STRM。
+ *
  * <p>第一段的裁决口径：
  * <ul>
  *   <li>AList 还认得这个任务 → 按 state 判定，成功就补上重启时漏掉的 STRM 生成；</li>
@@ -157,10 +160,15 @@ public class CopyRecoveryTask {
         }
         try {
             monitorRegistry.evictExpired();
-            sweepPendingCopies();
+            // 补生成必须排在接管之前：它认的是「已经是成功态、却没有 STRM 记录」，
+            // 而 sweepPendingCopies 判成功的记录同样满足这个形状。反过来的顺序会让本轮刚判成功、
+            // STRM 记录也已生成的那批被 backfill 立刻再捞一次（NOT EXISTS 读到的还是没有该行的快照），
+            // 同一个文件生成两遍、留下两条一模一样的 openlist_strm 记录——表上没有唯一约束兜底。
+            // 先跑 backfill 时，它看到的只有重启前遗留的记录，正是它要解决的那一段。
             if (backfillDone.compareAndSet(false, true)) {
                 backfillMissingStrm();
             }
+            sweepPendingCopies();
         } catch (Exception e) {
             log.error("CopyRecoveryTask sweep error", e);
         } finally {

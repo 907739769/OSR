@@ -1,6 +1,5 @@
 package com.osr.openliststrm.helper;
 
-import com.osr.framework.manager.AsyncManager;
 import com.osr.openliststrm.mybatisplus.domain.OpenlistStrmPlus;
 import com.osr.openliststrm.mybatisplus.service.IOpenlistStrmPlusService;
 import lombok.extern.slf4j.Slf4j;
@@ -25,38 +24,45 @@ public class StrmHelper {
      * 新增或更新 strm 记录。
      * <p>
      * 注意：openlist_strm 表上 (strm_path, strm_file_name) 并无唯一约束
-     * （曾经加过唯一索引 idx_path_name，但已被 20260626-delindex.sql 删除，且未恢复），
-     * 因此这里必须显式查询是否已存在再决定 insert/update，不能依赖插入时捕获唯一键冲突异常。
-     * 存在极小的查询与写入之间的竞态窗口（同一 path+fileName 被并发处理时可能产生重复行），
-     * 与 {@link CopyHelper#addCopy} 采用的策略一致。
+     * （曾经加过唯一索引 idx_path_name，但已被 20260626-delindex.sql 删除；strm_path 字段过长
+     * 无法重建唯一索引，不要再尝试恢复），因此这里必须显式查询是否已存在再决定 insert/update，
+     * 不能依赖插入时捕获唯一键冲突异常。
+     * <p>
+     * <b>同步执行，不要再包 {@code AsyncManager}</b>：异步（延迟 10ms 调度）会让本方法返回时记录
+     * 尚未落库，而下游普遍靠读库判重——{@code StrmServiceImpl#strmOneFile} 开头的 {@link #existsStrm}、
+     * {@code CopyRecoveryTask#backfillMissingStrm} 的 {@code NOT EXISTS openlist_strm} 都是。
+     * 表上没有唯一约束兜底，这个窗口就是实打实的重复行：兜底恢复判成功后刚生成 STRM，
+     * backfill 立刻用旧快照又捞一次，两次 addStrm 各自「查不到 → insert」，同一文件留下两条一模一样的记录。
+     * 目录级的 {@link #batchAddStrm} 早就是同步的（注释里写明「方法返回即已入库」），单文件路径与之对齐。
+     * 调用方（{@code strmOneFile}）本就跑在后台虚拟线程上、且刚做完写文件的 IO，多一次库往返可以忽略。
      */
     public void addStrm(String strmPath, String strmFileName, String status) {
-        AsyncManager.me().execute(() -> {
-            try {
-                // 表上无唯一约束，历史脏数据可能存在同 path+fileName 多行；用 LIMIT 1 避免
-                // .one() 在命中多行时抛 TooManyResultsException
-                OpenlistStrmPlus existing = openlistStrmPlusService.lambdaQuery()
-                        .eq(OpenlistStrmPlus::getStrmPath, strmPath)
-                        .eq(OpenlistStrmPlus::getStrmFileName, strmFileName)
-                        .select(OpenlistStrmPlus::getStrmId)
-                        .last("LIMIT 1")
-                        .one();
-                if (existing != null) {
-                    openlistStrmPlusService.lambdaUpdate()
-                            .eq(OpenlistStrmPlus::getStrmId, existing.getStrmId())
-                            .set(OpenlistStrmPlus::getStrmStatus, status)
-                            .update();
-                } else {
-                    OpenlistStrmPlus strm = new OpenlistStrmPlus();
-                    strm.setStrmPath(strmPath);
-                    strm.setStrmFileName(strmFileName);
-                    strm.setStrmStatus(status);
-                    openlistStrmPlusService.save(strm);
-                }
-            } catch (Exception e) {
-                log.error("Error adding strm: path={}, fileName={}", strmPath, strmFileName, e);
+        try {
+            // 表上无唯一约束，历史脏数据可能存在同 path+fileName 多行；用 LIMIT 1 避免
+            // .one() 在命中多行时抛 TooManyResultsException
+            OpenlistStrmPlus existing = openlistStrmPlusService.lambdaQuery()
+                    .eq(OpenlistStrmPlus::getStrmPath, strmPath)
+                    .eq(OpenlistStrmPlus::getStrmFileName, strmFileName)
+                    .select(OpenlistStrmPlus::getStrmId)
+                    .last("LIMIT 1")
+                    .one();
+            if (existing != null) {
+                openlistStrmPlusService.lambdaUpdate()
+                        .eq(OpenlistStrmPlus::getStrmId, existing.getStrmId())
+                        .set(OpenlistStrmPlus::getStrmStatus, status)
+                        .update();
+            } else {
+                OpenlistStrmPlus strm = new OpenlistStrmPlus();
+                strm.setStrmPath(strmPath);
+                strm.setStrmFileName(strmFileName);
+                strm.setStrmStatus(status);
+                openlistStrmPlusService.save(strm);
             }
-        });
+        } catch (Exception e) {
+            // 保持原异步实现的语义：写记录失败不往上抛，.strm 文件本身已经写好了，
+            // 抛出去会让 strmOneFile 的 catch 分支再调一次 addStrm，把一次失败放大成两次
+            log.error("Error adding strm: path={}, fileName={}", strmPath, strmFileName, e);
+        }
     }
 
     /**
