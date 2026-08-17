@@ -8,7 +8,8 @@ import {
   deletePtTransferRuleApi,
   previewPtTransferRuleApi,
   runPtTransferRuleApi,
-  getPtTransferRecordListApi
+  getPtTransferRecordListApi,
+  clearPtTransferFailedRecordsApi
 } from '@/api/openlist/ptTransferRule'
 import { getPtDownloaderListApi } from '@/api/openlist/ptDownloader'
 import type { SearchParams } from '@/types'
@@ -147,9 +148,12 @@ export function usePtTransferRule(options: ListLoadOptions = {}) {
   const recordLoading = ref(false)
   const records = ref<any[]>([])
 
+  const recordRuleId = ref<number | undefined>(undefined)
+
   const loadRecords = async (ruleId?: number) => {
     recordOpen.value = true
     recordLoading.value = true
+    recordRuleId.value = ruleId
     records.value = []
     try {
       const res: any = await getPtTransferRecordListApi({ pageNum: 1, pageSize: 50, ruleId } as any)
@@ -158,6 +162,24 @@ export function usePtTransferRule(options: ListLoadOptions = {}) {
       console.error('[PT转移做种] 加载转移记录失败:', e)
     } finally {
       recordLoading.value = false
+    }
+  }
+
+  /**
+   * 清除失败记录。同一个种子失败太多次后后端会停止自动重试（否则失败原因不变、
+   * 每一轮都原样重试一次再发一条通知），这里是解除那道闸门的唯一入口
+   */
+  const clearLoading = ref(false)
+  const handleClearFailed = async () => {
+    clearLoading.value = true
+    try {
+      const removed: any = await clearPtTransferFailedRecordsApi(recordRuleId.value)
+      message.success(`已清除 ${removed ?? 0} 条失败记录，这些种子会重新参与转移`)
+      await loadRecords(recordRuleId.value)
+    } catch (e) {
+      console.error('[PT转移做种] 清除失败记录失败:', e)
+    } finally {
+      clearLoading.value = false
     }
   }
 
@@ -196,7 +218,7 @@ export function usePtTransferRule(options: ListLoadOptions = {}) {
     downloaderOptions, sourceOptions, downloaderName,
     previewOpen, previewLoading, previewRows, previewRuleName, handlePreview,
     runLoading, handleRun,
-    recordOpen, recordLoading, records, loadRecords,
+    recordOpen, recordLoading, records, loadRecords, clearLoading, handleClearFailed,
     totalPages, prevPage, nextPage, handleSizeChange,
     searchCollapsed
   }

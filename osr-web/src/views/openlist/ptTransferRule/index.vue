@@ -284,6 +284,10 @@
           </v-table>
         </v-card-text>
         <v-card-actions>
+          <!-- 失败太多次的种子后端会停止自动重试，改完配置后要靠这个按钮解除 -->
+          <v-btn variant="text" color="warning" :loading="clearLoading" @click="handleClearFailed">
+            清除失败记录
+          </v-btn>
           <v-spacer />
           <v-btn variant="outlined" @click="recordOpen = false">关闭</v-btn>
         </v-card-actions>
@@ -311,7 +315,7 @@ const {
   downloaderOptions, sourceOptions, downloaderName,
   previewOpen, previewLoading, previewRows, previewRuleName, handlePreview,
   runLoading, handleRun,
-  recordOpen, recordLoading, records, loadRecords
+  recordOpen, recordLoading, records, loadRecords, clearLoading, handleClearFailed
 } = usePtTransferRule({ autoLoad: false })
 
 // 每页条数按网格实际列数取整到整行，窗口宽度变了跟着重算

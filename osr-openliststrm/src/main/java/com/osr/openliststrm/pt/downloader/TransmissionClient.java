@@ -292,7 +292,8 @@ public class TransmissionClient implements IDownloaderClient {
     public List<DownloaderTorrentFile> listFiles(PtDownloaderPlus config, String hash) throws IOException {
         JSONObject args = new JSONObject();
         args.put("ids", List.of(hash));
-        args.put("fields", List.of("files"));
+        // fileStats 与 files 一一对应，wanted 只在前者里。转移做种要靠它把源端的文件选择搬过去
+        args.put("fields", List.of("files", "fileStats"));
         JSONObject result = call(config, "torrent-get", args);
 
         List<DownloaderTorrentFile> files = new ArrayList<>();
@@ -302,16 +303,26 @@ public class TransmissionClient implements IDownloaderClient {
             // 元数据尚未解析完成、或种子不存在时返回空列表，交由调用方判断下一轮重试
             return files;
         }
-        JSONArray rawFiles = torrents.getJSONObject(0).getJSONArray("files");
+        JSONObject torrent = torrents.getJSONObject(0);
+        JSONArray rawFiles = torrent.getJSONArray("files");
         if (rawFiles == null) {
             return files;
         }
+        JSONArray stats = torrent.getJSONArray("fileStats");
         for (int i = 0; i < rawFiles.size(); i++) {
             JSONObject item = rawFiles.getJSONObject(i);
             DownloaderTorrentFile file = new DownloaderTorrentFile();
             file.setIndex(i);
             file.setName(item.getString("name"));
             file.setSize(item.getLongValue("length"));
+            // fileStats 缺失或长度对不上时保持默认的 wanted=true——宁可多校验几个文件，
+            // 也不要因为下标错位把某个本该做种的文件排除掉
+            if (stats != null && i < stats.size()) {
+                JSONObject stat = stats.getJSONObject(i);
+                if (stat != null && stat.containsKey("wanted")) {
+                    file.setWanted(stat.getBooleanValue("wanted"));
+                }
+            }
             files.add(file);
         }
         return files;

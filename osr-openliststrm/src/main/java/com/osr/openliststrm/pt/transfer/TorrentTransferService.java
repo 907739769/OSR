@@ -19,6 +19,7 @@ import com.osr.openliststrm.pt.downloader.DownloaderClientFactory;
 import com.osr.openliststrm.pt.downloader.IDownloaderClient;
 import com.osr.openliststrm.pt.downloader.model.AddTorrentOutcome;
 import com.osr.openliststrm.pt.downloader.model.DownloaderTorrent;
+import com.osr.openliststrm.pt.downloader.model.DownloaderTorrentFile;
 import com.osr.openliststrm.pt.model.ProtectedTorrents;
 import com.osr.openliststrm.pt.subscription.SubscriptionEpisodeState;
 import com.osr.openliststrm.pt.task.HitAndRunState;
@@ -28,9 +29,11 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -88,6 +91,24 @@ public class TorrentTransferService {
 
     /** Transmission 的 status 数值：1=等待校验，2=校验中 */
     private static final Set<String> TR_BUSY_STATES = Set.of("1", "2");
+
+    /** 加种后等待种子在目标端可见的轮询次数与间隔 */
+    private static final int VISIBILITY_ATTEMPTS = 10;
+    private static final long VISIBILITY_INTERVAL_MS = 1000L;
+
+    /**
+     * 同一个种子在同一条规则下允许失败的次数，超过就不再自动重试。
+     * <p>
+     * 源端种子在一次失败之后状态不会变，条件依旧满足，不拦的话每一轮都会原样再试一次、
+     * 再失败一次、再发一条通知——用户看到的是「一直在报同一个错」。留 3 次是为了让
+     * 网络抖动、下载器重启这类一次性故障还能自愈；持续性的故障（路径映射配错是最常见的
+     * 那个）第 4 轮起就安静下来，改完配置删掉记录即可重来。
+     * </p>
+     */
+    private static final long MAX_FAILURES_PER_TORRENT = 3;
+
+    /** 两次重试之间的最小间隔：失败原因多半要人去改配置，几分钟一轮地重试没有意义 */
+    private static final long RETRY_COOLDOWN_MS = 6 * 60 * 60 * 1000L;
 
     private final IPtTransferRulePlusService ruleService;
     private final IPtTransferRecordPlusService recordService;
@@ -198,11 +219,12 @@ public class TorrentTransferService {
         Set<String> excludeTags = rule.excludeTagSet();
         ProtectedTorrents hrProtected = ProtectedTorrents.of(loadHitAndRunPending());
         ProtectedTorrents uploadProtected = ProtectedTorrents.of(loadRecordsWithUnsettledEpisodes());
+        Map<String, FailureStat> failures = loadFailureStats(rule.getId());
 
         List<TransferCandidate> candidates = new ArrayList<>();
         for (DownloaderTorrent torrent : torrents) {
             candidates.add(judge(rule, torrent, mapping, targetHashes, includeTags, excludeTags,
-                    hrProtected, uploadProtected));
+                    hrProtected, uploadProtected, failures));
         }
         // 体积从大到小：每轮有上限，先搬大的才能用最少的转移次数腾出最多空间，
         // 口径与自动删种一致
@@ -220,7 +242,8 @@ public class TorrentTransferService {
      */
     private TransferCandidate judge(PtTransferRulePlus rule, DownloaderTorrent torrent, PathMapping mapping,
                                     Set<String> targetHashes, Set<String> includeTags, Set<String> excludeTags,
-                                    ProtectedTorrents hrProtected, ProtectedTorrents uploadProtected) {
+                                    ProtectedTorrents hrProtected, ProtectedTorrents uploadProtected,
+                                    Map<String, FailureStat> failures) {
         String targetPath = mapping.apply(torrent.getSavePath());
         String hash = torrent.getHash() == null ? "" : torrent.getHash().toLowerCase(Locale.ROOT);
 
@@ -254,7 +277,65 @@ public class TorrentTransferService {
         if (uploadProtected.covers(torrent)) {
             return TransferCandidate.skip(torrent, TransferSkipReason.EPISODE_UNSETTLED, targetPath);
         }
+        // 失败历史放在最后判：这样列表里带「冷却中/失败过多」的都是本来会被转移的种子，
+        // 不会出现"体积根本不符合规则、却报着失败次数"这种指错方向的原因
+        TransferSkipReason retryBlock = retryBlockedBy(failures.get(hash));
+        if (retryBlock != null) {
+            return TransferCandidate.skip(torrent, retryBlock, targetPath);
+        }
         return TransferCandidate.transferable(torrent, targetPath);
+    }
+
+    /**
+     * 这个种子的失败历史是否挡住了本轮重试，挡住时返回对应的原因。
+     * <p>
+     * 没有这道闸门的话，任何一种<b>持续性</b>失败都会变成"每轮转移一次、每轮失败一次、
+     * 每轮发一条通知"的死循环——失败不改变源端种子的状态，下一轮的判定条件与上一轮
+     * 完全相同。踩过的具体案例：部分下载的种子转移后校验到不了 100%
+     * （见 {@link #unwantedFileIndexes}），用户侧的现象就是同一个错误一直在报。
+     * </p>
+     */
+    private TransferSkipReason retryBlockedBy(FailureStat stat) {
+        if (stat == null) {
+            return null;
+        }
+        if (stat.count() >= MAX_FAILURES_PER_TORRENT) {
+            return TransferSkipReason.TOO_MANY_FAILURES;
+        }
+        if (stat.lastFinishMs() > 0
+                && System.currentTimeMillis() - stat.lastFinishMs() < RETRY_COOLDOWN_MS) {
+            return TransferSkipReason.RETRY_COOLDOWN;
+        }
+        return null;
+    }
+
+    /**
+     * 本规则下每个种子的失败次数与最近一次失败时间。整规则查一次，不逐个种子去问——
+     * 一台下载器上挂几百个种子是常态。
+     */
+    private Map<String, FailureStat> loadFailureStats(Integer ruleId) {
+        if (ruleId == null) {
+            return Map.of();
+        }
+        List<PtTransferRecordPlus> failed = recordService.list(new QueryWrapper<PtTransferRecordPlus>()
+                .select("torrent_hash", "finish_time")
+                .eq("rule_id", ruleId)
+                .eq("state", TransferState.FAILED.value()));
+        Map<String, FailureStat> stats = new HashMap<>();
+        for (PtTransferRecordPlus record : failed) {
+            String hash = record.getTorrentHash();
+            if (StringUtils.isBlank(hash)) {
+                continue;
+            }
+            long finish = record.getFinishTime() == null ? 0L : record.getFinishTime().getTime();
+            stats.merge(hash.toLowerCase(Locale.ROOT), new FailureStat(1, finish),
+                    (a, b) -> new FailureStat(a.count() + b.count(), Math.max(a.lastFinishMs(), b.lastFinishMs())));
+        }
+        return stats;
+    }
+
+    /** 某个种子在本规则下的失败次数与最近一次失败时间（毫秒，缺失为 0） */
+    private record FailureStat(long count, long lastFinishMs) {
     }
 
     /**
@@ -311,6 +392,16 @@ public class TorrentTransferService {
             return;
         }
 
+        // 源端的文件选择必须在加种之前读出来：一旦源端种子在中途被删掉，这里失败还不留任何痕迹，
+        // 而加种之后再失败就得回滚
+        Set<Integer> unwanted;
+        try {
+            unwanted = unwantedFileIndexes(sourceClient, source, hash);
+        } catch (Exception e) {
+            saveFailed(record, "读取源端文件选择失败：" + e.getMessage(), summary);
+            return;
+        }
+
         AddTorrentOutcome outcome;
         try {
             outcome = targetClient.addTorrentFile(target, metainfo, candidate.getTargetSavePath(),
@@ -330,6 +421,18 @@ public class TorrentTransferService {
             return;
         }
 
+        if (!unwanted.isEmpty()) {
+            try {
+                applyFileSelection(targetClient, target, hash, unwanted);
+            } catch (Exception e) {
+                // 选择没搬过去就校验，必然得到一个不到 100% 的进度、被判成「路径下没有这份数据」。
+                // 种子还停在暂停态，撤掉它是安全的（deleteFiles=false）
+                rollbackTarget(targetClient, target, hash);
+                saveFailed(record, "同步源端的文件选择失败：" + e.getMessage(), summary);
+                return;
+            }
+        }
+
         try {
             targetClient.recheckTorrent(target, hash);
         } catch (Exception e) {
@@ -343,8 +446,75 @@ public class TorrentTransferService {
         record.setVerifyStartTime(new Date());
         recordService.save(record);
         summary.setStarted(summary.getStarted() + 1);
-        log.info("转移规则[{}] 已把种子「{}」加入下载器[{}]并开始校验", rule.getName(),
-                torrent.getName(), target.getName());
+        log.info("转移规则[{}] 已把种子「{}」加入下载器[{}]并开始校验{}", rule.getName(),
+                torrent.getName(), target.getName(),
+                unwanted.isEmpty() ? "" : "（已同步排除 " + unwanted.size() + " 个源端未选中的文件）");
+    }
+
+    /**
+     * 读出源端种子里<b>没被选中下载</b>的文件序号。
+     * <p>
+     * 这是「部分下载的种子转移后校验永远到不了 100%」的修复点。qBittorrent 的
+     * {@code progress} 是相对<b>已选文件</b>算的，源端一个只下了其中几集的种子照样显示
+     * 100%、照样满足转移条件；而 {@code exportTorrent} 导出的 .torrent 里<b>不含</b>
+     * 文件优先级，原样加到目标端就是全选，校验后进度必然不到 1，被
+     * {@link #advanceVerifying} 判成「该路径下没有这份数据」，回滚、失败、发通知，
+     * 下一轮再来一遍——源端种子条件没变，这个循环不会自己停。
+     * </p>
+     * <p>
+     * 这在本项目里不是边缘情况：OSR 自己给季包排除非目标集文件
+     * （{@code IDownloaderClient#excludeFiles}），下载器里留下的正是这种部分下载的种子。
+     * </p>
+     * <p>
+     * 文件列表读不出来时<b>直接失败</b>而不是当作全选继续：这时候的实际情况只有两种——
+     * 种子已经不在源端（那样加到目标端只会得到一个校验不过的任务），或者下载器这一刻答不了
+     * （留到下一轮重试即可）。两种都不该硬着头皮往下走。
+     * </p>
+     */
+    private Set<Integer> unwantedFileIndexes(IDownloaderClient sourceClient, PtDownloaderPlus source, String hash)
+            throws Exception {
+        List<DownloaderTorrentFile> files = sourceClient.listFiles(source, hash);
+        if (files.isEmpty()) {
+            throw new IllegalStateException("源下载器返回的文件列表为空，种子可能已被移除");
+        }
+        Set<Integer> unwanted = new HashSet<>();
+        for (DownloaderTorrentFile file : files) {
+            if (!file.isWanted()) {
+                unwanted.add(file.getIndex());
+            }
+        }
+        if (unwanted.size() == files.size()) {
+            // 一个文件都不选，加过去也是个空壳。真出现只可能是 wanted 解析反了，宁可整次失败
+            throw new IllegalStateException("源端种子的文件全部处于未选中状态，不予转移");
+        }
+        return unwanted;
+    }
+
+    /**
+     * 把源端的「不下载」选择应用到刚加进目标端的种子上。
+     * <p>
+     * 加种接口返回成功不等于种子已经在下载器的列表里可见（qB 的
+     * {@code /torrents/add} 是异步落库的），此刻直接设文件优先级会得到 404/409。
+     * 因此先轮询等它出现——等不到就抛异常，由调用方回滚。
+     * </p>
+     */
+    private void applyFileSelection(IDownloaderClient targetClient, PtDownloaderPlus target, String hash,
+                                    Set<Integer> unwanted) throws Exception {
+        awaitTorrentVisible(targetClient, target, hash);
+        targetClient.excludeFiles(target, hash, unwanted);
+    }
+
+    /** 加种之后等种子在目标端可见，最多等 {@link #VISIBILITY_ATTEMPTS} 次、每次间隔 1 秒 */
+    private void awaitTorrentVisible(IDownloaderClient targetClient, PtDownloaderPlus target, String hash)
+            throws Exception {
+        for (int attempt = 1; attempt <= VISIBILITY_ATTEMPTS; attempt++) {
+            if (targetClient.getTorrent(target, hash) != null) {
+                return;
+            }
+            Thread.sleep(VISIBILITY_INTERVAL_MS);
+        }
+        throw new IllegalStateException("加种后 " + (VISIBILITY_ATTEMPTS * VISIBILITY_INTERVAL_MS / 1000)
+                + " 秒内目标下载器仍看不到该种子");
     }
 
     /**

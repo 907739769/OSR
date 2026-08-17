@@ -216,6 +216,11 @@ public class QbittorrentClient implements IDownloaderClient {
             file.setIndex(item.getIntValue("index"));
             file.setName(item.getString("name"));
             file.setSize(item.getLongValue("size"));
+            // priority 0 = 不下载。字段缺失时 getIntValue 返回 0，那会把整个种子判成一个都不下载，
+            // 因此显式判断字段在不在，缺失时保持默认的 wanted=true
+            if (item.containsKey("priority")) {
+                file.setWanted(item.getIntValue("priority") != 0);
+            }
             result.add(file);
         }
         return result;

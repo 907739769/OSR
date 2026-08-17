@@ -34,3 +34,12 @@ export function runPtTransferRuleApi(id: number) {
 export function getPtTransferRecordListApi(params: SearchParams) {
   return request.get<any, PageResult<any>>('/openliststrm/pt-transfer-records', { params })
 }
+
+/**
+ * 清除失败记录，返回删除条数。
+ * 同一个种子失败太多次后后端不再自动重试，这是唯一的解除入口——配置改对之后
+ * 得先把历史失败清掉，那些种子才会重新参与转移
+ */
+export function clearPtTransferFailedRecordsApi(ruleId?: number) {
+  return request.delete<any, number>('/openliststrm/pt-transfer-records/failed', { params: { ruleId } })
+}
