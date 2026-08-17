@@ -145,7 +145,7 @@
               v-model="form.pathMapping"
               label="保存路径映射"
               rows="2"
-              placeholder='挂载一致时留空；否则 [{"from":"/downloads","to":"/data/downloads"}]'
+              placeholder="挂载一致时留空；否则 [{&quot;from&quot;:&quot;/downloads&quot;,&quot;to&quot;:&quot;/data/downloads&quot;}]"
               hint="目标下载器要能在映射后的路径下找到同一份文件"
               persistent-hint
               class="mb-3"

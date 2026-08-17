@@ -168,7 +168,17 @@ jobs:
   create-release:
     needs: [detect-changes, build-backend, build-frontend]
     runs-on: ubuntu-latest
-    if: github.event_name == 'push'
+    # 必须带 !cancelled()：GitHub Actions 默认把「依赖被跳过」也当作不满足 needs，
+    # 于是只改了后端的版本（build-frontend 被 detect-changes 跳过）会连带跳过本 job，
+    # 打了 tag、镜像也推了，却没有 release——v3.3.6 就是这么漏的，只能事后手工补建。
+    # 放开跳过的同时必须挡住真失败：构建挂了还发 release，等于对外宣告一个装着旧镜像的版本。
+    # 因此逐个依赖判 success/skipped，而不是笼统的 always()。
+    if: >-
+      !cancelled()
+      && github.event_name == 'push'
+      && needs.detect-changes.result == 'success'
+      && (needs.build-backend.result == 'success' || needs.build-backend.result == 'skipped')
+      && (needs.build-frontend.result == 'success' || needs.build-frontend.result == 'skipped')
     steps:
       - name: Extract version
         id: version
