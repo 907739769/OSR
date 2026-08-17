@@ -15,6 +15,7 @@ import java.util.Map;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * 按绝对集号发布的种子能否匹配到正确的一集。
@@ -122,6 +123,31 @@ class AbsoluteEpisodeMatchTest {
         }
         assertNull(matcher.match(torrent("Breaking Bad S01E05 1080p WEB-DL"), List.of(normal),
                 Map.of(1, AbsoluteEpisodeMap.from(same))));
+    }
+
+    // ---------- 绝对号 ↔ 本地集号 双向换算 ----------
+
+    @Test
+    void 本地集号可换算回绝对号_供拼检索关键词用() {
+        AbsoluteEpisodeMap map = onePieceSeason23();
+
+        assertEquals(1174, map.toAbsolute(19), "第 19 集 = 绝对号 1174");
+        assertEquals(1156, map.toAbsolute(1));
+        assertNull(map.toAbsolute(99), "不属于本季的集号换算不出绝对号");
+        assertNull(map.toAbsolute(null));
+    }
+
+    @Test
+    void 普通剧集换算不出绝对号_不会多打一次检索() {
+        // 映射为空（TMDb 集号与本地集号相同），absoluteKeywords 据此跳过额外检索
+        List<PtSubscriptionEpisodePlus> same = new ArrayList<>();
+        for (int i = 1; i <= 5; i++) {
+            PtSubscriptionEpisodePlus ep = new PtSubscriptionEpisodePlus();
+            ep.setEpisode(i);
+            ep.setTmdbEpisodeNumber(i);
+            same.add(ep);
+        }
+        assertTrue(AbsoluteEpisodeMap.from(same).isEmpty());
     }
 
     @Test

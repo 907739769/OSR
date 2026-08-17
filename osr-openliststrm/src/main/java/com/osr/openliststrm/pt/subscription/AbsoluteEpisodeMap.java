@@ -73,6 +73,19 @@ public final class AbsoluteEpisodeMap {
         return absolute == null ? null : absoluteToLocal.get(absolute);
     }
 
+    /** 本地集号对应的绝对号；不是本订阅的集、或该剧不用绝对编号时返回 null */
+    public Integer toAbsolute(Integer localEpisode) {
+        if (localEpisode == null) {
+            return null;
+        }
+        for (Map.Entry<Integer, Integer> entry : absoluteToLocal.entrySet()) {
+            if (entry.getValue().equals(localEpisode)) {
+                return entry.getKey();
+            }
+        }
+        return null;
+    }
+
     /**
      * 把一个「来源不明的集号」归一化成本地集号：认得出的绝对号转成本地号，认不出的原样返回。
      * <p>

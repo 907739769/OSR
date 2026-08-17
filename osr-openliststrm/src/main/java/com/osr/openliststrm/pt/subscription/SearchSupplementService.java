@@ -139,7 +139,16 @@ public class SearchSupplementService {
         int totalCandidates = 0;
 
         // 第一优先级：IMDB/TMDB ID 精确搜索
-        List<TorrentInfo> idCandidates = searchByExternalId(sub, episode);
+        List<TorrentInfo> idCandidates = new ArrayList<>(searchByExternalId(sub, episode));
+        // 绝对编号的剧集要再搜一次「不带季号」：上面那次把 season=23 传给了索引器，
+        // 而这类资源在站上标的是 S01（One Piece S01E1174），带季号过滤在索引器那一层
+        // 就被排除在结果之外了，后面的匹配再宽松也无米下锅
+        if (!absoluteMapOf(sub).isEmpty()) {
+            Set<String> seen = idCandidates.stream()
+                    .map(t -> t.getIndexerId() + ":" + t.getGuid())
+                    .collect(java.util.stream.Collectors.toSet());
+            addDeduped(idCandidates, seen, searchByExternalIdWithoutSeason(sub));
+        }
         fillParsedAll(idCandidates);
         totalCandidates += idCandidates.size();
 
@@ -158,7 +167,7 @@ public class SearchSupplementService {
             allMatched.addAll(filterIdCandidates(sub, episode, idCandidates, missingEpisodes));
 
             // 关键词搜索
-            List<TorrentInfo> kwCandidates = searchAcrossIndexers(keyword);
+            List<TorrentInfo> kwCandidates = searchByKeywordWithAbsoluteVariants(sub, episode, keyword);
             fillParsedAll(kwCandidates);
             totalCandidates += kwCandidates.size();
             allMatched.addAll(filterByTargetManual(sub, episode, kwCandidates, missingEpisodes));
@@ -231,7 +240,7 @@ public class SearchSupplementService {
 
         List<TorrentInfo> matched = new ArrayList<>();
         if (!pushed) {
-            List<TorrentInfo> candidates = searchAcrossIndexers(keyword);
+            List<TorrentInfo> candidates = searchByKeywordWithAbsoluteVariants(sub, episode, keyword);
             fillParsedAll(candidates);
             totalCandidates += candidates.size();
             matched = filterByTarget(sub, episode, candidates);
@@ -547,6 +556,57 @@ public class SearchSupplementService {
     }
 
     /** 按 (indexerId, guid) 去重后追加，与手动搜索模式（见 {@link #supplement}）用同一去重口径 */
+    /**
+     * 关键词检索，外加「绝对集号」形式的关键词变体。
+     * <p>
+     * 用户（以及 buildAltKeyword）给出的关键词形如 {@code 航海王 S23E19}，而站上这类资源叫
+     * {@code One Piece S01E1174}——既不含中文名也不含 S23E19，索引器按文本匹配一条都返不回来。
+     * 用户实际就是这么搜的，得到「0 个候选」后完全无从判断问题在哪。
+     * </p>
+     * <p>
+     * 变体只用「片名 + 绝对号」而不拼 S01E：Torznab 的 q 参数在 Prowlarr/Jackett 那边是按
+     * 空格切词后 AND 匹配，{@code One Piece 1174} 能命中标题里含 One / Piece / 1174 的种子，
+     * 而写死 S01E 会把「用别的季号标注同一集」的发布组排除掉。
+     * </p>
+     */
+    private List<TorrentInfo> searchByKeywordWithAbsoluteVariants(PtSubscriptionPlus sub, int episode, String keyword) {
+        List<TorrentInfo> merged = new ArrayList<>(searchAcrossIndexers(keyword));
+        Set<String> seen = merged.stream()
+                .map(t -> t.getIndexerId() + ":" + t.getGuid())
+                .collect(java.util.stream.Collectors.toSet());
+        for (String variant : absoluteKeywords(sub, episode)) {
+            addDeduped(merged, seen, searchAcrossIndexers(variant));
+        }
+        return merged;
+    }
+
+    /**
+     * 「片名 + 绝对集号」的关键词变体，中英文各一条；非绝对编号的剧集返回空表（不多打请求）。
+     */
+    private List<String> absoluteKeywords(PtSubscriptionPlus sub, int episode) {
+        if (episode == SubscriptionMatcher.SEASON_PACK
+                || SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType())) {
+            return List.of();
+        }
+        AbsoluteEpisodeMap absolutes = absoluteMapOf(sub);
+        if (absolutes.isEmpty()) {
+            return List.of();
+        }
+        Integer absolute = absolutes.toAbsolute(episode);
+        if (absolute == null || absolute == episode) {
+            return List.of();
+        }
+        List<String> keywords = new ArrayList<>();
+        if (StringUtils.isNotBlank(sub.getTitle())) {
+            keywords.add(sub.getTitle() + " " + absolute);
+        }
+        String alt = resolveAltTitle(sub);
+        if (StringUtils.isNotBlank(alt)) {
+            keywords.add(alt + " " + absolute);
+        }
+        return keywords;
+    }
+
     private void addDeduped(List<TorrentInfo> target, Set<String> seenGuids, List<TorrentInfo> source) {
         for (TorrentInfo t : source) {
             if (seenGuids.add(t.getIndexerId() + ":" + t.getGuid())) {
@@ -752,6 +812,24 @@ public class SearchSupplementService {
             throw new IllegalArgumentException("订阅未在订阅中(当前状态 " + sub.getStatus() + ")，无法搜索补集");
         }
         return sub;
+    }
+
+    /**
+     * 是否一个启用中的索引器都没有。供接口层在发起手动搜索前提示用户。
+     * <p>
+     * {@code searchAcrossIndexers} / {@code searchByExternalId} 在没有索引器时都会立刻返回空表，
+     * 于是日志和页面都显示「原始 0 个，季集匹配后 0 个」——这与「搜了但站上确实没有」
+     * 长得一模一样，用户会照着去翻过滤规则、改关键词，而真正的原因是压根没发出去过请求。
+     * 用户实际就这么排查过一轮（索引器被停用/删除后，仍以为是集号匹配逻辑的问题）。
+     * </p>
+     * <p>
+     * 判断放在这里而不是塞进 {@code supplement()}：后者被自动补搜与建订阅触发共用，
+     * 在那里抛异常会把「后台任务本轮无事可做」也变成异常路径。自动侧的处理见
+     * {@code AutoSearchService#run}，它整轮跳过并记一条说明性的 warn。
+     * </p>
+     */
+    public boolean hasNoEnabledIndexer() {
+        return indexerService.listEnabled().isEmpty();
     }
 
     private void validateEpisode(PtSubscriptionPlus sub, int episode) {

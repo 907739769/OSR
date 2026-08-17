@@ -275,6 +275,10 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
         if (denied != null) {
             return denied;
         }
+        // 没有启用中的索引器时直说，别让用户拿着「0 个候选」去翻过滤规则和关键词
+        if (searchSupplementService.hasNoEnabledIndexer()) {
+            return Result.error("没有启用中的索引器，无法搜索。请到「PT索引器」页面添加或启用至少一个索引器");
+        }
         try {
             return Result.success(searchSupplementService.supplement(id, request.getEpisode(), request.getKeyword(), request.isManualSelect()));
         } catch (IllegalArgumentException e) {

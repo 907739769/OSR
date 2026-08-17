@@ -3,6 +3,8 @@ package com.osr.openliststrm.pt.task;
 import com.osr.openliststrm.helper.TgHelper;
 import com.osr.openliststrm.notify.NotificationType;
 import com.osr.openliststrm.mybatisplus.domain.PtFilterConfigPlus;
+import com.osr.openliststrm.mybatisplus.domain.PtIndexerPlus;
+import com.osr.openliststrm.mybatisplus.service.IPtIndexerPlusService;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtFilterConfigPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
@@ -37,9 +39,13 @@ class AutoSearchServiceTest {
     @Mock private IPtSubscriptionPlusService subscriptionService;
     @Mock private IPtFilterConfigPlusService filterConfigService;
     @Mock private SearchSupplementService searchSupplementService;
+    @Mock private IPtIndexerPlusService indexerService;
 
     private AutoSearchService service() {
-        return new AutoSearchService(subscriptionService, filterConfigService, searchSupplementService);
+        // 默认有启用中的索引器：一个都没有时整轮会被跳过（见 AutoSearchService#run）
+        when(indexerService.listEnabled()).thenReturn(List.of(new PtIndexerPlus()));
+        return new AutoSearchService(subscriptionService, filterConfigService, searchSupplementService,
+                indexerService);
     }
 
     private PtSubscriptionPlus sub(int id, String mediaType, int season, String autoSearch, Date lastSearchTime) {

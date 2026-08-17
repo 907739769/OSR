@@ -7,6 +7,7 @@ import com.osr.openliststrm.notify.NotifyTarget;
 import com.osr.openliststrm.mybatisplus.domain.PtFilterConfigPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtFilterConfigPlusService;
+import com.osr.openliststrm.mybatisplus.service.IPtIndexerPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.osr.openliststrm.pt.subscription.SearchSupplementService;
 import com.osr.openliststrm.pt.subscription.dto.SearchAndPushSummary;
@@ -34,13 +35,16 @@ public class AutoSearchService {
     private final IPtSubscriptionPlusService subscriptionService;
     private final IPtFilterConfigPlusService filterConfigService;
     private final SearchSupplementService searchSupplementService;
+    private final IPtIndexerPlusService indexerService;
 
     public AutoSearchService(IPtSubscriptionPlusService subscriptionService,
                              IPtFilterConfigPlusService filterConfigService,
-                             SearchSupplementService searchSupplementService) {
+                             SearchSupplementService searchSupplementService,
+                             IPtIndexerPlusService indexerService) {
         this.subscriptionService = subscriptionService;
         this.filterConfigService = filterConfigService;
         this.searchSupplementService = searchSupplementService;
+        this.indexerService = indexerService;
     }
 
     /**
@@ -49,6 +53,13 @@ public class AutoSearchService {
     public void run() {
         List<PtSubscriptionPlus> active = subscriptionService.listActive();
         if (active.isEmpty()) {
+            return;
+        }
+        // 一个启用中的索引器都没有时整轮直接跳过并说明原因。否则每个订阅都会走完一遍
+        // 搜索流程、各自得到「0 个候选」，日志里看起来像是「站上都没资源」，
+        // 而实际上一个请求都没发出去过——用户会照着去改过滤规则和关键词
+        if (indexerService.listEnabled().isEmpty()) {
+            log.warn("没有启用中的索引器，本轮自动补搜跳过（共 {} 个活跃订阅待搜）", active.size());
             return;
         }
         int intervalHours = resolveIntervalHours();
