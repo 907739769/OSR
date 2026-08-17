@@ -1131,6 +1131,66 @@ class SearchSupplementServiceTest {
         return req;
     }
 
+    /** 航海王第 23 季：本地 1..26 ↔ 绝对 1156..1181，落在集行的 tmdb_episode_number 上 */
+    private void stubAbsoluteEpisodes(int subId) {
+        List<PtSubscriptionEpisodePlus> episodes = new java.util.ArrayList<>();
+        for (int i = 1; i <= 26; i++) {
+            PtSubscriptionEpisodePlus ep = new PtSubscriptionEpisodePlus();
+            ep.setSubId(subId);
+            ep.setEpisode(i);
+            ep.setTmdbEpisodeNumber(1155 + i);
+            episodes.add(ep);
+        }
+        when(episodeService.list(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class))).thenReturn(episodes);
+    }
+
+    /**
+     * 用户实际遇到的报错：手动搜索选中 One Piece S01E1174 推送时报「集号超出范围：1174」。
+     * 前端把候选解析出的集号原样传上来，绝对编号的剧那是绝对号，而订阅只有 26 集。
+     */
+    @Test
+    void pushSelected_绝对集号_归一化成本地集号而不是报超出范围() {
+        PtSubscriptionPlus sub = tvSub(10, 23, 26);
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        stubAbsoluteEpisodes(10);
+        stubFillParsed(1, 1174, null);
+        when(subscriptionEngine.pushBest(same(sub), eq(19), anyList())).thenReturn(true);
+
+        assertTrue(service.pushSelected(10, 1174,
+                pushRequest("One Piece S01E1174 1999 2160p WEB-DL H265 AAC-ADWeb", 1174)));
+
+        // 必须按本地第 19 集占位，不能拿 1174 去占
+        verify(subscriptionEngine).pushBest(same(sub), eq(19), anyList());
+    }
+
+    /** 绝对编号的资源在站上标的季号恒为 1，季号检查不能把它当成「第 1 季的资源」拒掉 */
+    @Test
+    void pushSelected_绝对集号_季号为1不再被判成别的季() {
+        PtSubscriptionPlus sub = tvSub(10, 23, 26);
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        stubAbsoluteEpisodes(10);
+        stubFillParsed(1, 1174, null);
+        when(subscriptionEngine.pushBest(same(sub), eq(19), anyList())).thenReturn(true);
+
+        assertTrue(service.pushSelected(10, 19,
+                pushRequest("One Piece S01E1174 1999 2160p WEB-DL", 19)));
+    }
+
+    /** 普通剧集的季号检查不能被放宽：S01 的资源推给第 3 季订阅仍要拒 */
+    @Test
+    void pushSelected_普通剧集_季号不符仍然拒绝() {
+        PtSubscriptionPlus sub = tvSub(10, 3, 10);
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        when(episodeService.list(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class)))
+                .thenReturn(List.of());
+        stubFillParsed(1, 5, null);
+
+        IllegalArgumentException e = org.junit.jupiter.api.Assertions.assertThrows(
+                IllegalArgumentException.class,
+                () -> service.pushSelected(10, 5, pushRequest("Show S01E05 1080p", 5)));
+        assertTrue(e.getMessage().contains("第 1 季"), "实际提示=" + e.getMessage());
+    }
+
     @Test
     void pushSelected_整季目标选中单集种子_按种子实际集号占位而非占全部缺失集() {
         PtSubscriptionPlus sub = tvSub(10, 8, 10);

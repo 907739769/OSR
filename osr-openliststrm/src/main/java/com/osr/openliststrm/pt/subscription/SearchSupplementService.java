@@ -279,7 +279,12 @@ public class SearchSupplementService {
      */
     public boolean pushSelected(Integer subId, int episode, PushSelectedRequest request) {
         PtSubscriptionPlus sub = requireSearchable(subId);
-        validateEpisode(sub, episode);
+        // 前端把候选解析出的集号原样传上来（见 usePtSubscription#pushSelectedCandidate），
+        // 绝对编号的剧那是 1174 这样的绝对号，直接校验会报「集号超出范围：1174」
+        AbsoluteEpisodeMap absolutes = absoluteMapOf(sub);
+        int targetEpisode = episode == SubscriptionMatcher.SEASON_PACK
+                ? episode : absolutes.toLocalOrSelf(episode);
+        validateEpisode(sub, targetEpisode);
 
         TorrentInfo torrent = new TorrentInfo();
         torrent.setTitle(request.getTitle());
@@ -295,7 +300,7 @@ public class SearchSupplementService {
         torrent.setPubDate(request.getPubDate());
 
         subscriptionEngine.fillParsed(torrent);
-        int target = resolvePushTarget(sub, episode, torrent);
+        int target = resolvePushTarget(sub, targetEpisode, torrent, absolutes);
         boolean pushed = subscriptionEngine.pushBest(sub, target, List.of(torrent));
 
         log.info("订阅[{}] {} 手动选择推送[{}] 目标{}：{}",
@@ -327,33 +332,45 @@ public class SearchSupplementService {
      * @return 实际用于占位的目标集号
      * @throws IllegalArgumentException 种子与目标明显不符，拒绝推送（原因会原样回给前端）
      */
-    private int resolvePushTarget(PtSubscriptionPlus sub, int episode, TorrentInfo torrent) {
+    private int resolvePushTarget(PtSubscriptionPlus sub, int episode, TorrentInfo torrent,
+                                  AbsoluteEpisodeMap absolutes) {
         if (SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType())) {
             return episode;
         }
+        Integer parsedEpisode = torrent.getParsedEpisode();
+        // 绝对编号的剧集：站上标的季号恒为 1（One Piece S01E1174 其实是第 23 季第 19 集），
+        // 季号对不上不代表不是这部剧的资源。判据与 SubscriptionMatcher#matchByAbsolute 一致：
+        // 该订阅确实用绝对编号 + 种子季号缺失或为 1 + 该绝对号确实属于本季
+        boolean absoluteNumbered = !absolutes.isEmpty()
+                && parsedEpisode != null
+                && absolutes.toLocal(parsedEpisode) != null
+                && (torrent.getParsedSeason() == null || torrent.getParsedSeason() == 1);
+
         Integer parsedSeason = torrent.getParsedSeason();
-        if (parsedSeason != null && !parsedSeason.equals(sub.getSeason())) {
+        if (!absoluteNumbered && parsedSeason != null && !parsedSeason.equals(sub.getSeason())) {
             throw new IllegalArgumentException("该种子是第 " + parsedSeason + " 季的资源，本订阅是第 "
                     + sub.getSeason() + " 季，已拒绝推送");
         }
-        Integer parsedEpisode = torrent.getParsedEpisode();
         if (parsedEpisode == null) {
             return episode;
         }
+        // 归一化到本地集号后再比较：下面的区间判断与报错文案都按本地编号说事，
+        // 否则用户会看到「该种子是第 1174 集的资源，不含第 19 集」这种自相矛盾的提示
+        int localParsed = absolutes.toLocalOrSelf(parsedEpisode);
+        Integer parsedEnd = torrent.getParsedEpisodeEnd();
+        Integer localParsedEnd = parsedEnd == null ? null : absolutes.toLocalOrSelf(parsedEnd);
         if (episode == SubscriptionMatcher.SEASON_PACK) {
-            return parsedEpisode;
+            return localParsed;
         }
-        if (!episodeInRange(episode, parsedEpisode, torrent.getParsedEpisodeEnd())) {
-            throw new IllegalArgumentException("该种子是" + describeParsedEpisodes(torrent)
+        if (!episodeInRange(episode, localParsed, localParsedEnd)) {
+            throw new IllegalArgumentException("该种子是" + describeParsedEpisodes(localParsed, localParsedEnd)
                     + "的资源，不含第 " + episode + " 集，已拒绝推送");
         }
         return episode;
     }
 
-    /** 候选解析出的集号范围，用于拒绝推送时把原因说清楚 */
-    private String describeParsedEpisodes(TorrentInfo torrent) {
-        Integer start = torrent.getParsedEpisode();
-        Integer end = torrent.getParsedEpisodeEnd();
+    /** 候选解析出的集号范围（已归一化成本地编号），用于拒绝推送时把原因说清楚 */
+    private String describeParsedEpisodes(int start, Integer end) {
         return (end != null && end > start) ? "第 " + start + "-" + end + " 集" : "第 " + start + " 集";
     }
 
