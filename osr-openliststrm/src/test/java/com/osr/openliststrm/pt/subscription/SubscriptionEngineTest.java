@@ -297,6 +297,80 @@ class SubscriptionEngineTest {
     }
 
     @Test
+    void 手动推送_不可重试的失败记录也放行_复用原行() throws Exception {
+        // 用户实际遇到的死结：航海王的种子因集号解析 bug 被判过 NO_TARGET_EPISODE（不可重试），
+        // bug 修好后这条结论仍躺在库里，手动点推送被 excludeAlreadyRecorded 挡回来，
+        // 而界面上没有任何入口能撤销它——下载记录页只有重试与拉黑，重试又会撞同一道门。
+        PtSubscriptionPlus sub = tvSub(10, "Some Show", 1, 2);
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(102, 2, "MISSING")));
+        PtDownloadRecordPlus failed = failedRecord(777, "g1", "NO_TARGET_EPISODE");
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(failed));
+        when(recordService.getOne(any(Wrapper.class), eq(false))).thenReturn(failed);
+        when(recordService.update(any(), any(Wrapper.class))).thenReturn(true);
+
+        PushOutcome outcome = engine.pushManual(sub, 2,
+                List.of(torrent("Some.Show.S01E02.1080p", "g1", 10, "1080p")));
+
+        assertTrue(outcome.pushed(), () -> "未推送，原因=" + outcome.reason());
+        // 那条 FAILED 行还在，插新行必撞 uk_indexer_guid：放行了排除就必须同时放宽复用判据，
+        // 否则推送会以「保存下载记录失败」告终——一个与真实原因毫不相干的错
+        verify(recordService, never()).save(any());
+        verify(recordService).update(any(), any(Wrapper.class));
+        verify(downloaderClient).addTorrent(any(), anyString(), anyString(), anyString(), anyBoolean());
+    }
+
+    @Test
+    void 自动路径_不可重试的失败记录仍然排除() throws Exception {
+        // 手动放行是「人工决定不构成循环」，自动路径没有这个前提，护栏必须还在
+        PtSubscriptionPlus sub = tvSub(10, "Some Show", 1, 2);
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(102, 2, "MISSING")));
+        when(recordService.list(any(Wrapper.class)))
+                .thenReturn(List.of(failedRecord(777, "g1", "NO_TARGET_EPISODE")));
+
+        assertFalse(engine.pushBest(sub, 2, List.of(torrent("Some.Show.S01E02.1080p", "g1", 10, "1080p"))));
+        verify(downloaderClient, never()).addTorrent(any(), anyString(), anyString(), anyString(), anyBoolean());
+    }
+
+    @Test
+    void 手动推送未成功_返回的原因就是搜索日志里那条摘要() {
+        // 改造前这里一律回「推送失败，可能该集已无可用缺额或下载器不可用」——把两种不相干的
+        // 原因并列成猜测，而真实原因（候选被过滤规则清光）根本不在这两个里面
+        PtFilterConfigPlus strict = new PtFilterConfigPlus();
+        strict.setMinSeeders(100);
+        strict.setMinSize(0L);
+        strict.setMaxSize(0L);
+        strict.setFreeOnly("0");
+        strict.setResolutionPriority("1080p");
+        strict.setSortPriority("SEEDERS");
+        strict.setPreferredSize(0L);
+        when(filterConfigService.getConfig()).thenReturn(strict);
+        PtSubscriptionPlus sub = tvSub(10, "Some Show", 1, 1);
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "MISSING")));
+
+        PushOutcome outcome = engine.pushManual(sub, 1,
+                List.of(torrent("Some.Show.S01E01.1080p", "g1", 3, "1080p")));
+
+        assertFalse(outcome.pushed());
+        assertTrue(outcome.reason().contains("做种数"), "实际原因=" + outcome.reason());
+        // 回给用户的原因与落进搜索日志的摘要必须是同一份，分叉了排查时两边对不上
+        verify(searchLogService).recordSummary(eq(10), eq(1), eq(SearchLogService.SOURCE_MANUAL),
+                eq(outcome.reason()));
+    }
+
+    @Test
+    void 手动推送_没有可用下载器_原因指向下载器页面() {
+        PtSubscriptionPlus sub = tvSub(10, "Some Show", 1, 1);
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(101, 1, "MISSING")));
+        when(downloaderService.list(any(Wrapper.class))).thenReturn(List.of());
+
+        PushOutcome outcome = engine.pushManual(sub, 1,
+                List.of(torrent("Some.Show.S01E01.1080p", "g1", 10, "1080p")));
+
+        assertFalse(outcome.pushed());
+        assertTrue(outcome.reason().contains("下载器"), "实际原因=" + outcome.reason());
+    }
+
+    @Test
     void 失败原因码为空的历史记录_按不可重试处理() throws Exception {
         // fail_reason_code 是 20260738 迁移才加的列，更早的失败记录该列为空。
         // 把它们当成可重试，会让一批陈年失败种子在升级后突然重新涌入候选池。
@@ -866,7 +940,7 @@ class SubscriptionEngineTest {
                 List.of(downloader),
                 new LinkedHashMap<>(),
                 SearchLogService.SOURCE_RSS,
-                TorrentBlacklist.EMPTY, PushMode.FILL_MISSING);
+                TorrentBlacklist.EMPTY, PushMode.FILL_MISSING).pushed();
 
         assertTrue(pushed);
         // 只占位第 2、3、4 集，第 1 集不动
@@ -1034,7 +1108,7 @@ class SubscriptionEngineTest {
                     List.of(downloader),
                     new LinkedHashMap<>(),
                     SearchLogService.SOURCE_RSS,
-                    TorrentBlacklist.EMPTY, PushMode.FILL_MISSING);
+                    TorrentBlacklist.EMPTY, PushMode.FILL_MISSING).pushed();
 
             assertTrue(pushed);
             ws.verify(() -> PtStatusWebSocket.pushSubscriptionEvent(same(sub)));

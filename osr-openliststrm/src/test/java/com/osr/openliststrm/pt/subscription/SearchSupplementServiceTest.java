@@ -1154,13 +1154,13 @@ class SearchSupplementServiceTest {
         when(subscriptionService.getById(10)).thenReturn(sub);
         stubAbsoluteEpisodes(10);
         stubFillParsed(1, 1174, null);
-        when(subscriptionEngine.pushBest(same(sub), eq(19), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushManual(same(sub), eq(19), anyList())).thenReturn(PushOutcome.ok());
 
         assertTrue(service.pushSelected(10, 1174,
-                pushRequest("One Piece S01E1174 1999 2160p WEB-DL H265 AAC-ADWeb", 1174)));
+                pushRequest("One Piece S01E1174 1999 2160p WEB-DL H265 AAC-ADWeb", 1174)).pushed());
 
         // 必须按本地第 19 集占位，不能拿 1174 去占
-        verify(subscriptionEngine).pushBest(same(sub), eq(19), anyList());
+        verify(subscriptionEngine).pushManual(same(sub), eq(19), anyList());
     }
 
     /** 绝对编号的资源在站上标的季号恒为 1，季号检查不能把它当成「第 1 季的资源」拒掉 */
@@ -1170,10 +1170,10 @@ class SearchSupplementServiceTest {
         when(subscriptionService.getById(10)).thenReturn(sub);
         stubAbsoluteEpisodes(10);
         stubFillParsed(1, 1174, null);
-        when(subscriptionEngine.pushBest(same(sub), eq(19), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushManual(same(sub), eq(19), anyList())).thenReturn(PushOutcome.ok());
 
         assertTrue(service.pushSelected(10, 19,
-                pushRequest("One Piece S01E1174 1999 2160p WEB-DL", 19)));
+                pushRequest("One Piece S01E1174 1999 2160p WEB-DL", 19)).pushed());
     }
 
     /** 普通剧集的季号检查不能被放宽：S01 的资源推给第 3 季订阅仍要拒 */
@@ -1196,13 +1196,13 @@ class SearchSupplementServiceTest {
         PtSubscriptionPlus sub = tvSub(10, 8, 10);
         when(subscriptionService.getById(10)).thenReturn(sub);
         stubFillParsed(8, 7, null);
-        when(subscriptionEngine.pushBest(same(sub), eq(7), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushManual(same(sub), eq(7), anyList())).thenReturn(PushOutcome.ok());
 
         assertTrue(service.pushSelected(10, SubscriptionMatcher.SEASON_PACK,
-                pushRequest("Great Escape S08E07 2026 1080p WEB-DL", SubscriptionMatcher.SEASON_PACK)));
+                pushRequest("Great Escape S08E07 2026 1080p WEB-DL", SubscriptionMatcher.SEASON_PACK)).pushed());
 
         // 关键：不能再用 -1 去占位——那会把当前所有缺失集都标成在途，而包里只有第 7 集
-        verify(subscriptionEngine, never()).pushBest(any(), eq(SubscriptionMatcher.SEASON_PACK), anyList());
+        verify(subscriptionEngine, never()).pushManual(any(), eq(SubscriptionMatcher.SEASON_PACK), anyList());
     }
 
     @Test
@@ -1216,7 +1216,7 @@ class SearchSupplementServiceTest {
 
         assertTrue(e.getMessage().contains("第 7 集"), e.getMessage());
         assertTrue(e.getMessage().contains("不含第 8 集"), e.getMessage());
-        verify(subscriptionEngine, never()).pushBest(any(), anyInt(), anyList());
+        verify(subscriptionEngine, never()).pushManual(any(), anyInt(), anyList());
     }
 
     @Test
@@ -1224,9 +1224,9 @@ class SearchSupplementServiceTest {
         PtSubscriptionPlus sub = tvSub(10, 8, 10);
         when(subscriptionService.getById(10)).thenReturn(sub);
         stubFillParsed(8, 7, 9);
-        when(subscriptionEngine.pushBest(same(sub), eq(8), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushManual(same(sub), eq(8), anyList())).thenReturn(PushOutcome.ok());
 
-        assertTrue(service.pushSelected(10, 8, pushRequest("Great Escape S08E07-E09 1080p", 8)));
+        assertTrue(service.pushSelected(10, 8, pushRequest("Great Escape S08E07-E09 1080p", 8)).pushed());
     }
 
     @Test
@@ -1234,10 +1234,10 @@ class SearchSupplementServiceTest {
         PtSubscriptionPlus sub = tvSub(10, 8, 10);
         when(subscriptionService.getById(10)).thenReturn(sub);
         stubFillParsed(8, null, null);
-        when(subscriptionEngine.pushBest(same(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushManual(same(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList())).thenReturn(PushOutcome.ok());
 
         assertTrue(service.pushSelected(10, SubscriptionMatcher.SEASON_PACK,
-                pushRequest("Great Escape S08 2026 1080p WEB-DL", SubscriptionMatcher.SEASON_PACK)));
+                pushRequest("Great Escape S08 2026 1080p WEB-DL", SubscriptionMatcher.SEASON_PACK)).pushed());
     }
 
     @Test
@@ -1250,7 +1250,7 @@ class SearchSupplementServiceTest {
                 () -> service.pushSelected(10, 7, pushRequest("Great Escape S07E07 1080p", 7)));
 
         assertTrue(e.getMessage().contains("第 7 季"), e.getMessage());
-        verify(subscriptionEngine, never()).pushBest(any(), anyInt(), anyList());
+        verify(subscriptionEngine, never()).pushManual(any(), anyInt(), anyList());
     }
 
     @Test
@@ -1258,8 +1258,8 @@ class SearchSupplementServiceTest {
         PtSubscriptionPlus sub = movieSub(20, "Some Movie", "2026");
         when(subscriptionService.getById(20)).thenReturn(sub);
         stubFillParsed(null, null, null);
-        when(subscriptionEngine.pushBest(same(sub), eq(0), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushManual(same(sub), eq(0), anyList())).thenReturn(PushOutcome.ok());
 
-        assertTrue(service.pushSelected(20, 0, pushRequest("Some Movie 2026 2160p WEB-DL", 0)));
+        assertTrue(service.pushSelected(20, 0, pushRequest("Some Movie 2026 2160p WEB-DL", 0)).pushed());
     }
 }

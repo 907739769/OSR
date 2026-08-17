@@ -25,6 +25,15 @@ public class SearchLogService {
 
     public static final String SOURCE_RSS = "RSS";
     public static final String SOURCE_SUPPLEMENT = "SUPPLEMENT";
+    /**
+     * 用户在手动搜索列表里点选某个候选推送。
+     * <p>
+     * 与 SUPPLEMENT 分开不只是为了日志好看：{@code SubscriptionEngine} 用它判断这次推送是不是
+     * 人工决定，从而放行「有不可重试失败记录」的候选（见 {@code SubscriptionEngine#excludeAlreadyRecorded}）。
+     * 判据只此一处、不另设并行的布尔参数，免得来源与语义各说各话。
+     * </p>
+     */
+    public static final String SOURCE_MANUAL = "MANUAL";
 
     /** 每个订阅最多保留的日志条数，超出的旧记录清理掉，避免无限增长 */
     private static final int RETENTION_PER_SUBSCRIPTION = 200;

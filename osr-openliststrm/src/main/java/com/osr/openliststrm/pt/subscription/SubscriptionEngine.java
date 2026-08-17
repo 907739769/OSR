@@ -185,7 +185,8 @@ public class SubscriptionEngine {
                         MatchResult match = groupMatch.get(entry.getKey());
                         return handleGroup(match, entry.getValue(), globalConfig,
                                 episodeCache, enabledDownloaders, downloaderLoadCache,
-                                SearchLogService.SOURCE_RSS, blacklist, PushMode.FILL_MISSING);
+                                SearchLogService.SOURCE_RSS, blacklist, PushMode.FILL_MISSING)
+                                .pushed();
                     }), executor))
                     .toList();
             int pushed = 0;
@@ -205,6 +206,24 @@ public class SubscriptionEngine {
      * @return 是否成功推送了一个种子
      */
     public boolean pushBest(PtSubscriptionPlus sub, int episode, List<TorrentInfo> candidates) {
+        return push(sub, episode, candidates, PushMode.FILL_MISSING,
+                SearchLogService.SOURCE_SUPPLEMENT).pushed();
+    }
+
+    /**
+     * 手动选择推送：用户在搜索结果里点选了具体某个种子。
+     * <p>
+     * 与 {@link #pushBest} 的两点差异都源于「这是人工决定」：失败时把<b>真实原因</b>回给调用方
+     * 而不是让前端去猜；候选带着不可重试的失败记录时照样放行（详见
+     * {@link #excludeAlreadyRecorded}）。
+     * </p>
+     */
+    public PushOutcome pushManual(PtSubscriptionPlus sub, int episode, List<TorrentInfo> candidates) {
+        return push(sub, episode, candidates, PushMode.FILL_MISSING, SearchLogService.SOURCE_MANUAL);
+    }
+
+    private PushOutcome push(PtSubscriptionPlus sub, int episode, List<TorrentInfo> candidates,
+                             PushMode mode, String source) {
         PtFilterConfigPlus globalConfig = filterConfigService.getConfig();
         TorrentBlacklist blacklist = TorrentBlacklist.from(blacklistService.list());
         // 调用方（如 SearchSupplementService）通常已经调用过 fillParsed，这里幂等地补一遍，
@@ -220,8 +239,7 @@ public class SubscriptionEngine {
         List<PtDownloaderPlus> enabledDownloaders = loadEnabledDownloaders();
         Map<Integer, Long> downloaderLoadCache = loadDownloaderLoadCounts(enabledDownloaders);
         return handleGroup(match, candidates, globalConfig, episodeCache,
-                enabledDownloaders, downloaderLoadCache, SearchLogService.SOURCE_SUPPLEMENT, blacklist,
-                PushMode.FILL_MISSING);
+                enabledDownloaders, downloaderLoadCache, source, blacklist, mode);
     }
 
     /**
@@ -236,25 +254,14 @@ public class SubscriptionEngine {
      * @return 是否成功推送了一个种子
      */
     public boolean pushUpgrade(PtSubscriptionPlus sub, int episode, List<TorrentInfo> candidates) {
-        PtFilterConfigPlus globalConfig = filterConfigService.getConfig();
-        TorrentBlacklist blacklist = TorrentBlacklist.from(blacklistService.list());
-        for (TorrentInfo candidate : candidates) {
-            fillParsed(candidate);
-        }
-        markHitAndRun(candidates);
-        MatchResult match = new MatchResult(sub, episode);
-        Map<Integer, List<PtSubscriptionEpisodePlus>> episodeCache = new LinkedHashMap<>();
-        List<PtDownloaderPlus> enabledDownloaders = loadEnabledDownloaders();
-        Map<Integer, Long> downloaderLoadCache = loadDownloaderLoadCounts(enabledDownloaders);
-        return handleGroup(match, candidates, globalConfig, episodeCache,
-                enabledDownloaders, downloaderLoadCache, SearchLogService.SOURCE_SUPPLEMENT, blacklist,
-                PushMode.UPGRADE);
+        return push(sub, episode, candidates, PushMode.UPGRADE,
+                SearchLogService.SOURCE_SUPPLEMENT).pushed();
     }
 
     /**
      * @return 是否成功推送了一个种子
      */
-    boolean handleGroup(MatchResult match, List<TorrentInfo> candidates,
+    PushOutcome handleGroup(MatchResult match, List<TorrentInfo> candidates,
                                 PtFilterConfigPlus globalConfig,
                                 Map<Integer, List<PtSubscriptionEpisodePlus>> episodeCache,
                                 List<PtDownloaderPlus> enabledDownloaders,
@@ -273,19 +280,23 @@ public class SubscriptionEngine {
                     : "无可占位的缺失集（可能已入库或在途）";
             log.debug("订阅[{}] 集{} {}，跳过", sub.getId(), match.getEpisode(), reason);
             searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, reason);
-            return false;
+            return PushOutcome.fail(reason);
         }
 
-        List<TorrentInfo> fresh = excludeAlreadyRecorded(candidates);
+        List<TorrentInfo> fresh = excludeAlreadyRecorded(candidates, source);
         if (fresh.isEmpty()) {
+            String reason;
             if (candidates.isEmpty()) {
+                reason = "搜索未返回任何候选种子";
                 log.debug("订阅[{}] 集{} 无可用候选种子（搜索未返回结果），跳过", sub.getId(), match.getEpisode());
-                searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, "搜索未返回任何候选种子");
             } else {
+                // 手动推送走不到这个分支：excludeAlreadyRecorded 对人工决定不做排除，
+                // 所以这句文案只会出现在自动路径上，可以放心地写成「本轮跳过」
+                reason = "候选种子都已推送过，本轮跳过";
                 log.debug("订阅[{}] 集{} 的候选都有已有下载记录，跳过", sub.getId(), match.getEpisode());
-                searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, "候选种子都已推送过，本轮跳过");
             }
-            return false;
+            searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, reason);
+            return PushOutcome.fail(reason);
         }
 
         // 季包目标下，先把「文件数证明覆盖不全」的候选让位给不矛盾的候选，再进过滤择优
@@ -314,7 +325,7 @@ public class SubscriptionEngine {
             String summary = summarizeRejections(verdicts);
             log.info("订阅[{}] 集{} {}", sub.getId(), match.getEpisode(), summary);
             searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, summary);
-            return false;
+            return PushOutcome.fail(summary);
         }
 
         // 选中的种子可能是区间打包（如 E01-E02），实际覆盖的集数比调用方传入的单集目标（match.episode）更多——
@@ -347,14 +358,15 @@ public class SubscriptionEngine {
             if (downloader == null) {
                 log.warn("没有可用的下载器，订阅[{}] 本轮跳过", sub.getId());
                 searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, "没有可用的下载器");
-                return false;
+                return PushOutcome.fail("没有可用的下载器，请到「下载器」页面添加或启用至少一个");
             }
 
             if (isOverCapacity(downloader, downloaderLoadCache)) {
                 log.debug("下载器[{}] 已达最大并发 {}，订阅[{}] 集{} 本轮跳过",
                         downloader.getId(), downloader.getMaxConcurrent(), sub.getId(), match.getEpisode());
                 searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, "下载器并发已达上限");
-                return false;
+                return PushOutcome.fail("下载器「" + downloader.getName() + "」已达最大并发 "
+                        + downloader.getMaxConcurrent() + "，请等待在途任务完成或调高上限");
             }
 
             // 选中即先行 +1：让同一批次内后续分组（哪怕并发执行）也能立刻感知到这次占用，
@@ -372,7 +384,7 @@ public class SubscriptionEngine {
         if (claimed.isEmpty()) {
             log.debug("订阅[{}] 集{} 已被并发轮询占位，跳过", sub.getId(), match.getEpisode());
             downloaderLoadCache.merge(downloader.getId(), -1L, Long::sum);
-            return false;
+            return PushOutcome.fail("该集刚被另一次推送占位（可能是 RSS 轮询或自动搜索），无需重复推送");
         }
 
         String guidHash = GuidHasher.hash(best.getGuid());
@@ -382,7 +394,7 @@ public class SubscriptionEngine {
             // excludeAlreadyRecorded 放行了可重试的 FAILED 记录，此时表里已有同 (indexer_id, guid_hash)
             // 的那一行，插新行必撞 uk_indexer_guid。复用原行而不是先删后插：下载记录页保留同一个 id，
             // tracking_tag 本就由 guidHash 派生、复用后仍与下载器里的种子标签对得上。
-            PtDownloadRecordPlus reusable = reusableFailedRecord(best.getIndexerId(), guidHash);
+            PtDownloadRecordPlus reusable = reusableFailedRecord(best.getIndexerId(), guidHash, source);
             saved = (reusable == null) ? recordService.save(record) : reuse(reusable, record);
         } catch (Exception e) {
             // 并发轮询下同一 guid 可能同时通过 excludeAlreadyRecorded 检查，
@@ -394,7 +406,7 @@ public class SubscriptionEngine {
         if (!saved) {
             releaseAll(claimed, mode);
             downloaderLoadCache.merge(downloader.getId(), -1L, Long::sum);
-            return false;
+            return PushOutcome.fail("保存下载记录失败，已回滚，请查看后端日志");
         }
 
         try {
@@ -409,7 +421,7 @@ public class SubscriptionEngine {
             recordService.removeById(record.getId());
             releaseAll(claimed, mode);
             downloaderLoadCache.merge(downloader.getId(), -1L, Long::sum);
-            return false;
+            return PushOutcome.fail("推送到下载器「" + downloader.getName() + "」失败：" + e.getMessage());
         }
 
         for (PtSubscriptionEpisodePlus ep : claimed) {
@@ -448,7 +460,7 @@ public class SubscriptionEngine {
                     + describeTorrentProfile(best)
                     + "\n已推送至下载器：" + StringUtils.escapeHtml(downloader.getName()), sub);
         }
-        return true;
+        return PushOutcome.ok();
     }
 
     /**
@@ -884,8 +896,23 @@ public class SubscriptionEngine {
      * 同一个种子在多站转发造成的重复推送，靠 {@code SubscriptionEngine#fillParsed} 从
      * description 补出集号来根治——那才是能把它们区分开的判据。
      * </p>
+     * <p>
+     * <b>手动推送（{@link SearchLogService#SOURCE_MANUAL}）完全不做这层剔除。</b>
+     * 「不可重试」是自动路径的护栏——它防的是同一个包被一轮轮反复选中、每次空跑一次轮询再中止；
+     * 而用户盯着搜索结果点下某一个种子是一次<b>人工决定</b>，不构成循环，也不该被一条历史结论否掉。
+     * 更要紧的是这些结论会过期：{@code NO_TARGET_EPISODE} 判「包内不含目标集」依据的是解析出的
+     * 集号，而集号解析本身出过 bug（绝对集号的剧被误判，见 {@code AbsoluteEpisodeMap}）——
+     * bug 修好后，那批误判仍原样躺在库里，把一批本来能下的种子永久封死，且
+     * <b>界面上没有任何入口能撤销</b>（下载记录页只有重试与拉黑，重试又会被这同一道门挡回来）。
+     * 放行后的落库由 {@link #reusableFailedRecord} 复用原行，不会撞唯一索引。
+     * </p>
+     *
+     * @param source 本次推送来源，仅用于识别是不是人工决定
      */
-    private List<TorrentInfo> excludeAlreadyRecorded(List<TorrentInfo> candidates) {
+    private List<TorrentInfo> excludeAlreadyRecorded(List<TorrentInfo> candidates, String source) {
+        if (SearchLogService.SOURCE_MANUAL.equals(source)) {
+            return candidates;
+        }
         if (candidates.isEmpty()) {
             // 空列表直接返回：MyBatis-Plus 的 in() 遇到空集合会生成 "IN ()"，MySQL 语法错误。
             // RSS 路径下 candidates 恒非空（由 process() 的分组逻辑保证），但搜索补集路径
@@ -931,12 +958,19 @@ public class SubscriptionEngine {
      * 查该 {@code (indexer_id, guid_hash)} 上是否躺着一条可重试的 FAILED 记录。
      * 只对择优选中的那一个种子查一次，不是对全部候选逐条查。
      */
-    private PtDownloadRecordPlus reusableFailedRecord(Integer indexerId, String guidHash) {
+    private PtDownloadRecordPlus reusableFailedRecord(Integer indexerId, String guidHash, String source) {
         PtDownloadRecordPlus existing = recordService.getOne(new QueryWrapper<PtDownloadRecordPlus>()
                 .eq("indexer_id", indexerId)
                 .eq("guid_hash", guidHash)
                 .eq("state", RECORD_FAILED), false);
-        return (existing != null && isRetryableFailure(existing)) ? existing : null;
+        if (existing == null) {
+            return null;
+        }
+        // 手动推送放行了不可重试的候选（见 excludeAlreadyRecorded），复用判据必须跟着放宽，
+        // 否则那条 FAILED 行还在、插新行必撞 uk_indexer_guid，推送会以「保存下载记录失败」告终——
+        // 等于把刚放开的门在下一步又关上，而且报的是一个与真实原因毫不相干的错。
+        return (isRetryableFailure(existing) || SearchLogService.SOURCE_MANUAL.equals(source))
+                ? existing : null;
     }
 
     /**

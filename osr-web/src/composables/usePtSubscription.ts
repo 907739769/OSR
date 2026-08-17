@@ -433,8 +433,10 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
         progress.value = await getSubscriptionProgressApi(searchDialogTarget.value.subId)
       }
     } catch (e) {
+      // 拦截器已经把后端给出的具体原因弹出来了（「候选被过滤规则清光」「下载器并发已满」等，
+      // 见 SubscriptionEngine 逐条失败路径）。这里再补一条「推送失败」只会把那条盖掉，
+      // 用户看到的又变回没有原因的通用提示——本文件其余 catch 全都只 console.error
       console.error(e)
-      message.error('推送失败')
     } finally {
       pushingSelected.value = false
     }

@@ -12,6 +12,7 @@ import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtSearchLogPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
+import com.osr.openliststrm.pt.subscription.PushOutcome;
 import com.osr.openliststrm.pt.subscription.SearchSupplementService;
 import com.osr.openliststrm.pt.subscription.SubscriptionSearchOnCreateTrigger;
 import com.osr.openliststrm.pt.subscription.SubscriptionService;
@@ -296,11 +297,14 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
             return denied;
         }
         try {
-            boolean pushed = searchSupplementService.pushSelected(id, request.getEpisode(), request);
-            if (pushed) {
+            PushOutcome outcome = searchSupplementService.pushSelected(id, request.getEpisode(), request);
+            if (outcome.pushed()) {
                 return Result.success();
             }
-            return Result.error("推送失败，可能该集已无可用缺额或下载器不可用");
+            // 原因由 SubscriptionEngine 逐条路径给出，不要退回成一句笼统的猜测：
+            // 「无可用缺额」与「下载器不可用」是两种不相干的故障，处置动作完全不同，
+            // 而真实原因还可能是第三种（候选被过滤规则清光、被并发轮询抢先占位等）
+            return Result.error("推送失败：" + outcome.reason());
         } catch (IllegalArgumentException e) {
             return Result.error(e.getMessage());
         }

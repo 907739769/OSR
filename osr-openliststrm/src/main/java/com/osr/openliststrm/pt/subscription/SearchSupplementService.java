@@ -274,10 +274,10 @@ public class SearchSupplementService {
      * 本方法构造一个 {@link TorrentInfo} 后走既有推送链路。
      * </p>
      *
-     * @return 是否成功推送
+     * @return 推送结果；未推送时带着可直接展示给用户的原因
      * @throws IllegalArgumentException 订阅不存在、订阅未在订阅中(ACTIVE)，或 episode 不合法
      */
-    public boolean pushSelected(Integer subId, int episode, PushSelectedRequest request) {
+    public PushOutcome pushSelected(Integer subId, int episode, PushSelectedRequest request) {
         PtSubscriptionPlus sub = requireSearchable(subId);
         // 前端把候选解析出的集号原样传上来（见 usePtSubscription#pushSelectedCandidate），
         // 绝对编号的剧那是 1174 这样的绝对号，直接校验会报「集号超出范围：1174」
@@ -301,13 +301,15 @@ public class SearchSupplementService {
 
         subscriptionEngine.fillParsed(torrent);
         int target = resolvePushTarget(sub, targetEpisode, torrent, absolutes);
-        boolean pushed = subscriptionEngine.pushBest(sub, target, List.of(torrent));
+        // 走 pushManual 而不是 pushBest：手动推送要拿到未推送的真实原因，
+        // 且不受「该种子有一条不可重试的失败记录」这层自动路径护栏约束
+        PushOutcome outcome = subscriptionEngine.pushManual(sub, target, List.of(torrent));
 
         log.info("订阅[{}] {} 手动选择推送[{}] 目标{}：{}",
                 sub.getId(), sub.getTitle(), torrent.getTitle(),
                 target == SubscriptionMatcher.SEASON_PACK ? "整季" : "第" + target + "集",
-                pushed ? "已推送" : "推送失败");
-        return pushed;
+                outcome.pushed() ? "已推送" : "推送失败（" + outcome.reason() + "）");
+        return outcome;
     }
 
     /**
