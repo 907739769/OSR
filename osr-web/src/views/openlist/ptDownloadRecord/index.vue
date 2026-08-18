@@ -80,7 +80,7 @@
         </div>
       </div>
       <div class="card-grid" ref="gridRef" v-else>
-        <v-progress-linear v-if="loading" indeterminate color="primary" class="list-loading" />
+        <v-progress-linear v-if="loading" indeterminate color="primary" />
         <div
           v-for="item in taskList"
           :key="item.id"
@@ -330,10 +330,6 @@ const formatSize = (bytes: number): string => {
 </script>
 
 <style scoped lang="scss">
-.list-loading {
-  grid-column: 1 / -1;
-}
-
 .item-card-checkbox {
   position: absolute;
   top: 4px;

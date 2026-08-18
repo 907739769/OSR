@@ -405,3 +405,29 @@ describe('PtSubscription 排序下拉', () => {
     expect(handleQuery).toHaveBeenCalled()
   })
 })
+
+describe('PtSubscription 网格里的空态与加载条', () => {
+  /**
+   * list.scss 用 `.card-grid > .v-empty-state / > .v-progress-linear` 让这两者横跨整行。
+   * 选择器成立的前提是「它们确实是 .card-grid 的直接子元素，且根元素带这两个类名」——
+   * 这条不成立的话样式静默失效（不报错，只是空态挤在左上角那一格里），所以钉在这里。
+   */
+  it('空态是 card-grid 的直接子元素，根元素类名为 v-empty-state', () => {
+    (usePtSubscription as any).mockReturnValue(baseComposable({
+      taskList: ref([]),
+      loading: ref(false)
+    }))
+    const wrapper = mount(PtSubscriptionPage)
+    const empty = wrapper.find('.card-grid > .v-empty-state')
+    expect(empty.exists()).toBe(true)
+  })
+
+  it('加载条是 card-grid 的直接子元素，根元素类名为 v-progress-linear', () => {
+    (usePtSubscription as any).mockReturnValue(baseComposable({
+      taskList: ref([{ id: 1, title: 'A', status: 'ACTIVE', mediaType: 'TV', season: 1, totalEpisodes: 12 }]),
+      loading: ref(true)
+    }))
+    const wrapper = mount(PtSubscriptionPage)
+    expect(wrapper.find('.card-grid > .v-progress-linear').exists()).toBe(true)
+  })
+})

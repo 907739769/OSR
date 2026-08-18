@@ -112,7 +112,7 @@
         </div>
       </div>
       <div v-else class="card-grid card-grid--wide" ref="gridRef">
-        <v-progress-linear v-if="loading" indeterminate color="primary" class="list-loading" />
+        <v-progress-linear v-if="loading" indeterminate color="primary" />
         <div
           v-for="item in taskList"
           :key="item.id"
@@ -238,7 +238,7 @@
             </v-menu>
           </div>
         </div>
-        <v-empty-state v-if="!loading && taskList.length === 0" class="list-empty" icon="mdi-inbox-outline" title="暂无订阅" />
+        <v-empty-state v-if="!loading && taskList.length === 0" icon="mdi-inbox-outline" title="暂无订阅" />
       </div>
 
       <div class="pagination-wrapper">
@@ -920,12 +920,6 @@ const searchLogHeaders = [
 <style scoped lang="scss">
 /* 卡片外壳（边框/圆角/hover/可点选/紧凑内距）全部来自 styles/list.scss 的 .item-card，
    这里只写订阅卡特有的：海报横排、进度条、开关行。 */
-
-.list-loading,
-.list-empty {
-  /* 网格的直接子元素默认只占一列，加载条和空态要横跨整行才不会挤在最左边那一格里 */
-  grid-column: 1 / -1;
-}
 
 .item-card-checkbox {
   position: absolute;
