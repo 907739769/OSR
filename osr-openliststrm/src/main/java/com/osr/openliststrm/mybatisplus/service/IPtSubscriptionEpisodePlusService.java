@@ -47,9 +47,13 @@ public interface IPtSubscriptionEpisodePlusService extends IService<PtSubscripti
      * </p>
      * <p>
      * <b>{@code air_date IS NULL} 的行也要捞回来</b>，交给上层单独分档。在这里就把它们滤掉
-     * 看似干净，代价是电影订阅（压根不参与日期同步，{@code air_date} 恒为 NULL）
-     * 与尚未被 {@code EpisodeAirDateSyncTask} 扫到的存量行会整批从体检里消失——
+     * 看似干净，代价是尚未被 {@code EpisodeAirDateSyncTask} 扫到的存量行会整批从体检里消失——
      * 而「缺了却看不见」正是这个功能要解决的问题本身。
+     * </p>
+     * <p>
+     * 电影订阅的过滤<b>不在这里做</b>，在 {@code EpisodeHealthService#scan}：电影每条订阅只贡献
+     * 一行集记录（哨兵集号），推到 SQL 省不下什么，放在 Java 侧反而能被单测直接盖住，
+     * 「为什么不报电影」这个判断也该和分档/诊断的逻辑待在一起。
      * </p>
      * <p>
      * 未播出的集靠 {@code airedBefore} 上界排除，与 {@code SearchSupplementService#aired}

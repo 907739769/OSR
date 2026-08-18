@@ -10,6 +10,7 @@ import com.osr.openliststrm.pt.health.dto.EpisodeHealthItem;
 import com.osr.openliststrm.pt.health.dto.EpisodeHealthReport;
 import com.osr.openliststrm.pt.health.dto.SubscriptionHealthItem;
 import com.osr.openliststrm.pt.subscription.SubscriptionEpisodeState;
+import com.osr.openliststrm.pt.subscription.SubscriptionService;
 import com.osr.openliststrm.pt.task.DownloadTrackService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -115,6 +116,7 @@ public class EpisodeHealthService {
         // 保持 SQL 给出的 subId/episode 升序，聚合后订阅之间的先后由调用方按逾期天数重排
         Map<Integer, List<PtSubscriptionEpisodePlus>> bySub = candidates.stream()
                 .filter(e -> subs.containsKey(e.getSubId()))
+                .filter(e -> !isMovie(subs.get(e.getSubId())))
                 .collect(Collectors.groupingBy(PtSubscriptionEpisodePlus::getSubId,
                         LinkedHashMap::new, Collectors.toList()));
 
@@ -271,6 +273,28 @@ public class EpisodeHealthService {
         return StringUtils.isBlank(sign) || NO_CANDIDATE_SIGN.equals(sign)
                 ? EpisodeHealthDiagnosis.SEARCH_NO_CANDIDATE
                 : EpisodeHealthDiagnosis.SEARCH_ALL_REJECTED;
+    }
+
+    /**
+     * 电影订阅整体不参与体检。
+     * <p>
+     * 不是因为它们不重要，而是因为对电影<b>算不出「逾期」这件事</b>：体检的全部判断力来自
+     * 「播出多久了还没入库」，而电影没有播出日期（{@code EpisodeAirDateSyncService} 按
+     * {@code media_type != MOVIE} 取订阅，air_date 恒为 NULL），于是每一部没下到的电影都会
+     * 恒定地落在 {@link EpisodeHealthBucket#NO_AIR_DATE} 档里躺着。
+     * </p>
+     * <p>
+     * 更要紧的是<b>那样报出来是错的</b>：电影上映后短期内本来就不会有资源，等上几周乃至几个月
+     * 是正常状态、不是故障。把它列进「有问题的作品」，用户唯一能做的是反复确认"哦，还是没有"，
+     * 而真正需要动手的剧集缺集会被这批常驻条目淹掉——实测库里电影数比剧集还多。
+     * </p>
+     * <p>
+     * 这只影响体检的<b>可见性</b>：电影订阅的 RSS 匹配、自动补搜、手动搜索一律照常，
+     * 该下到的时候仍然会下到。
+     * </p>
+     */
+    private boolean isMovie(PtSubscriptionPlus sub) {
+        return SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType());
     }
 
     private boolean autoSearchOn(PtSubscriptionPlus sub) {

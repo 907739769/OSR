@@ -3,7 +3,7 @@ package com.osr.openliststrm.pt.health.dto;
 /**
  * 体检结果里的一集。
  *
- * @param episode     集号（电影恒为 0）
+ * @param episode     集号（电影订阅不参与体检，因此这里恒为真实集号）
  * @param state       集状态 MISSING/IN_FLIGHT/BLOCKED（UPGRADING 不纳入体检——那一集本来就在库里）
  * @param airDate     播出日期 yyyy-MM-dd，无日期时为 null
  * @param overdueDays 已播出天数（今天 − airDate），无日期时为 null 而不是 0——

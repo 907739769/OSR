@@ -13,8 +13,9 @@ import java.util.List;
  * @param tmdbId         TMDb ID
  * @param title          作品标题
  * @param posterPath     TMDb 海报相对路径
- * @param mediaType      TV/MOVIE
- * @param season         季号（电影为 0）
+ * @param mediaType      媒体类型。体检不含电影，因此恒为 TV——保留该字段是为了让前端
+ *                       不必假设这一点（口径变了页面不用跟着改）
+ * @param season         季号（特别篇为 0）
  * @param autoSearch     是否已开启自动补搜，前端据此决定要不要给「一键开启」按钮
  * @param lastSearchTime 上次发起补搜的时间 yyyy-MM-dd HH:mm:ss，从未搜过为 null
  * @param missStreak     连续落空轮数，0 表示上轮有命中或还没跑过

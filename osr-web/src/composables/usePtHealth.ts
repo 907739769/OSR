@@ -37,7 +37,7 @@ export const BUCKET_META: Record<string, { label: string; color: string; icon: s
     label: '无播出日期',
     color: 'default',
     icon: 'mdi-calendar-question',
-    hint: '未定档、TMDb 未录入、或还没被同步任务扫到；电影订阅恒在这一档。算不出逾期天数'
+    hint: '未定档、TMDb 未录入、或还没被同步任务扫到，算不出逾期天数。电影订阅不参与体检，不会出现在这里'
   }
 }
 

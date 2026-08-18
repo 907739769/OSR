@@ -106,7 +106,7 @@ class EpisodeHealthServiceTest {
     void 没有播出日期时逾期天数为null而不是0_并单独分档() {
         // 0 的语义是「今天刚播」，与「算不出来」是两回事。混用会让前端按天数倒序时
         // 把一批未定档的集顶到最前面，把真正逾期的挤下去
-        given(List.of(ep(1, 5, null, "MISSING")), sub(1, "某电影", "1"));
+        given(List.of(ep(1, 5, null, "MISSING")), sub(1, "尚未定档的剧", "1"));
 
         EpisodeHealthItem item = only(service(3).scan(TODAY));
 
@@ -167,6 +167,36 @@ class EpisodeHealthServiceTest {
         assertEquals(EpisodeHealthDiagnosis.UPLOAD_PENDING.name(), items.get(0).diagnosis());
         assertEquals(EpisodeHealthDiagnosis.DOWNLOADING.name(), items.get(1).diagnosis());
         assertTrue(items.stream().allMatch(i -> EpisodeHealthBucket.OVERDUE_IN_FLIGHT.name().equals(i.bucket())));
+    }
+
+    @Test
+    void 电影订阅整体不参与体检_连同它唯一那行哨兵集记录一起被丢掉() {
+        // 电影没有播出日期（日期同步按 media_type != MOVIE 取订阅），逾期天数恒为 null，
+        // 于是每部没下到的电影都会常驻「无播出日期」档。而那样报出来是错的：电影上映后
+        // 短期内本来就不会有资源，等几周是正常状态不是故障，只会把真正缺集的剧集淹掉
+        PtSubscriptionPlus movie = sub(1, "某部电影", "1");
+        movie.setMediaType("MOVIE");
+        movie.setSeason(0);
+        PtSubscriptionPlus tv = sub(2, "某部剧", "1");
+        given(List.of(ep(1, 0, null, "MISSING"), ep(2, 3, "2026-08-10", "MISSING")), movie, tv);
+
+        List<SubscriptionHealth> scanned = service(3).scan(TODAY);
+
+        assertEquals(1, scanned.size());
+        assertEquals("某部剧", scanned.get(0).subscription().getTitle());
+    }
+
+    @Test
+    void 全是电影时报告为空_不残留空的订阅条目() {
+        PtSubscriptionPlus movie = sub(1, "某部电影", "0");
+        movie.setMediaType("MOVIE");
+        given(List.of(ep(1, 0, null, "MISSING")), movie);
+
+        EpisodeHealthReport report = service(3).report(s -> true);
+
+        assertEquals(0, report.subscriptionCount());
+        assertEquals(0, report.episodeCount());
+        assertTrue(report.subscriptions().isEmpty());
     }
 
     @Test

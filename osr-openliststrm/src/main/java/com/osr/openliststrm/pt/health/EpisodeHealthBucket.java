@@ -41,8 +41,11 @@ public enum EpisodeHealthBucket {
      * <p>
      * 不能并进 {@link #OVERDUE_MISSING}：{@code air_date} 为 NULL 的成因有三种——未定档、
      * TMDb 未录入、存量行还没被 {@code EpisodeAirDateSyncTask} 扫到，把它们一律当成
-     * 「逾期无穷天」会在升级后的第一天刷出一整屏假告警。电影订阅压根不参与日期同步，
-     * 它的缺失也恒落在这一档。
+     * 「逾期无穷天」会在升级后的第一天刷出一整屏假告警。
+     * <p>
+     * 电影订阅<b>整体不参与体检</b>（见 {@code EpisodeHealthService#isMovie}），因此这一档
+     * 只会是剧集：电影没有播出日期、上映后短期内本来就不该有资源，全堆在这里既报不出问题、
+     * 又会把真正缺集的剧集淹掉。
      * </p>
      */
     NO_AIR_DATE("无播出日期");
