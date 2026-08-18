@@ -3,7 +3,7 @@
     <PageHeader
       icon="mdi-calendar-month-outline"
       title="追剧日历"
-      desc="按播出日期排布已订阅剧集的每一集，颜色即该集当前状态"
+      desc="按播出日期排布已订阅剧集的每一集，颜色即该集当前状态；暂停的订阅不入历"
     >
       <template #actions>
         <v-btn variant="outlined" prepend-icon="mdi-calendar-today" @click="goToday">回到本月</v-btn>
@@ -16,57 +16,160 @@
           <v-btn icon="mdi-chevron-left" variant="text" density="comfortable" @click="goPrevMonth" />
           <span class="month-label">{{ monthLabel }}</span>
           <v-btn icon="mdi-chevron-right" variant="text" density="comfortable" @click="goNextMonth" />
+          <!-- 只能一格格翻的话，看三个月前要点三次、看去年要点十二次 -->
+          <v-text-field
+            :model-value="anchorMonth"
+            type="month"
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="month-picker"
+            @update:model-value="goMonth"
+          />
         </div>
+        <!-- 图例本来就是这套颜色的说明，顺手让它可点：日历上绝大多数是已入库的绿色，
+             不筛的话真正要找的缺失/阻塞会被淹掉 -->
         <div class="legend">
-          <span v-for="s in LEGEND" :key="s.key" class="legend-item">
+          <button
+            type="button"
+            class="legend-item"
+            :class="{ 'legend-item--active': activeState === '' }"
+            @click="setState('')"
+          >全部 {{ entries.length }}</button>
+          <button
+            v-for="s in LEGEND"
+            :key="s.key"
+            type="button"
+            class="legend-item"
+            :class="{ 'legend-item--active': activeState === s.key }"
+            @click="setState(s.key)"
+          >
             <i class="legend-dot" :class="`legend-dot--${s.key.toLowerCase()}`" />{{ s.label }}
-          </span>
+            <span class="legend-count">{{ stateCounts[s.key] || 0 }}</span>
+          </button>
         </div>
       </div>
 
       <v-progress-linear v-if="loading" indeterminate color="primary" />
 
-      <div class="calendar-grid">
-        <div v-for="label in WEEKDAY_LABELS" :key="label" class="weekday-cell">{{ label }}</div>
-
-        <template v-for="(week, wi) in weeks" :key="wi">
-          <div
-            v-for="cell in week"
-            :key="cell.key"
-            class="day-cell"
-            :class="{ 'day-cell--muted': !cell.inMonth, 'day-cell--today': cell.isToday }"
-          >
-            <div class="day-number">{{ cell.day }}</div>
-            <div class="day-entries">
-              <button
-                v-for="entry in entriesByDate[cell.key] || []"
-                :key="`${entry.subId}-${entry.episode}`"
-                type="button"
-                class="entry"
-                :class="`entry--${entry.state.toLowerCase()}`"
-                :title="`${entry.title} S${pad(entry.season)}E${pad(entry.episode)} · ${stateMeta(entry.state).label}`"
-                @click="openSubscription(entry)"
-              >
-                <span class="entry-ep">E{{ pad(entry.episode) }}</span>
-                <span class="entry-title">{{ entry.title }}</span>
-              </button>
-            </div>
-          </div>
+      <!-- 加载失败要单独说：塞回空结果的话渲染出来是「本月没有排播」，
+           而用户对「某个月没排播」本来就没有预期，只会当成真的 -->
+      <v-empty-state
+        v-if="!loading && loadFailed"
+        icon="mdi-alert-circle-outline"
+        color="error"
+        title="日历加载失败"
+        text="没能拿到排播数据，下面的空白不代表这个月没有更新。"
+      >
+        <template #actions>
+          <v-btn color="primary" variant="flat" prepend-icon="mdi-refresh" @click="load">重试</v-btn>
         </template>
-      </div>
+      </v-empty-state>
 
-      <div v-if="!loading && entries.length === 0" class="calendar-empty">
-        <v-empty-state
-          icon="mdi-calendar-blank-outline"
-          title="本月没有排播"
-          text="只有剧集订阅会出现在这里；播出日期由 TMDb 同步，新订阅可能需要等一轮同步任务"
-        />
-      </div>
+      <template v-else>
+        <div class="calendar-grid">
+          <div v-for="label in WEEKDAY_LABELS" :key="label" class="weekday-cell">{{ label }}</div>
+
+          <template v-for="(week, wi) in weeks" :key="wi">
+            <div
+              v-for="cell in week"
+              :key="cell.key"
+              class="day-cell"
+              :class="{ 'day-cell--muted': !cell.inMonth, 'day-cell--today': cell.isToday }"
+            >
+              <div class="day-number">{{ cell.day }}</div>
+              <div class="day-entries">
+                <button
+                  v-for="entry in previewOf(cell.key)"
+                  :key="`${entry.subId}-${entry.episode}`"
+                  type="button"
+                  class="entry"
+                  :class="`entry--${entry.state.toLowerCase()}`"
+                  :title="`${entry.title} S${pad(entry.season)}E${pad(entry.episode)} · ${stateMeta(entry.state).label}`"
+                  @click="openEntry(entry)"
+                >
+                  <span class="entry-ep">E{{ pad(entry.episode) }}</span>
+                  <span class="entry-title">{{ entry.title }}</span>
+                </button>
+                <!-- 原先超出的部分在格子里内部滚动：看不出还有几集，鼠标划过日历还会误触 -->
+                <button
+                  v-if="hiddenCountOf(cell.key) > 0"
+                  type="button"
+                  class="day-more"
+                  @click="openDay(cell.key)"
+                >
+                  +{{ hiddenCountOf(cell.key) }} 集
+                </button>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <div v-if="!loading && !hasEntriesInMonth" class="calendar-empty">
+          <v-empty-state
+            icon="mdi-calendar-blank-outline"
+            :title="activeState ? '本月没有该状态的排播' : '本月没有排播'"
+            :text="activeState
+              ? '换一个状态筛选看看，或点「全部」'
+              : '只有剧集订阅会出现在这里；播出日期由 TMDb 同步，新订阅可能需要等一轮同步任务'"
+          />
+        </div>
+      </template>
     </v-card>
+
+    <!-- 当日全部排播 -->
+    <v-dialog v-model="dayDialogOpen" max-width="480">
+      <v-card :title="dayDialogTitle">
+        <v-card-text>
+          <div v-for="entry in dayDialogEntries" :key="`${entry.subId}-${entry.episode}`" class="day-row">
+            <i class="legend-dot" :class="`legend-dot--${entry.state.toLowerCase()}`" />
+            <span class="day-row-title">{{ entry.title }}</span>
+            <span class="day-row-ep">S{{ pad(entry.season) }}E{{ pad(entry.episode) }}</span>
+            <v-chip size="x-small" :color="stateColor(entry.state)" variant="tonal">
+              {{ stateMeta(entry.state).label }}
+            </v-chip>
+            <v-btn variant="text" size="small" @click="openSubscription(entry)">查看订阅</v-btn>
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="outlined" @click="dayDialogOpen = false">关闭</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- 单集详情：点一集问的多半是「这一集怎么了」，直接跳走会丢掉日历上下文 -->
+    <v-dialog v-model="entryDialogOpen" max-width="420">
+      <v-card v-if="activeEntry" title="这一集">
+        <v-card-text>
+          <p class="entry-dialog-title">{{ activeEntry.title }}</p>
+          <div class="entry-dialog-row">
+            <span class="label">集号</span>
+            <span class="value">S{{ pad(activeEntry.season) }}E{{ pad(activeEntry.episode) }}</span>
+          </div>
+          <div class="entry-dialog-row">
+            <span class="label">播出日期</span>
+            <span class="value">{{ activeEntry.airDate }}</span>
+          </div>
+          <div class="entry-dialog-row">
+            <span class="label">状态</span>
+            <v-chip size="small" :color="stateColor(activeEntry.state)" variant="tonal">
+              {{ stateMeta(activeEntry.state).label }}
+            </v-chip>
+          </div>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="outlined" @click="entryDialogOpen = false">关闭</v-btn>
+          <v-btn color="primary" variant="flat" @click="openSubscription(activeEntry)">查看订阅</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
+import { ref, computed } from 'vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { useRouter } from 'vue-router'
 import { usePtCalendar, stateMeta, WEEKDAY_LABELS } from '@/composables/usePtCalendar'
@@ -74,8 +177,9 @@ import { getRoutePathForComponent } from '@/router'
 import type { CalendarEntry } from '@/api/openlist/ptCalendar'
 
 const {
-  loading, entries, monthLabel, weeks, entriesByDate,
-  goPrevMonth, goNextMonth, goToday
+  loading, loadFailed, entries, anchor, monthLabel, weeks, entriesByDate,
+  activeState, stateCounts, setState, hasEntriesInMonth,
+  load, goPrevMonth, goNextMonth, goToday, goMonth
 } = usePtCalendar()
 
 const LEGEND = [
@@ -88,9 +192,46 @@ const LEGEND = [
 
 const pad = (n: number) => String(n ?? 0).padStart(2, '0')
 
+/** 月份选择器的值（yyyy-MM），与 anchor 同步 */
+const anchorMonth = computed(() => anchor.value.format('YYYY-MM'))
+
+/**
+ * 一格里最多平铺 4 条，其余收进「+N 集」。
+ * 原先是给格子设 max-height 让内部滚动：一天排播多时多出来的只能靠在 100px 的小框里
+ * 滚动才发现，鼠标划过日历还会误触。
+ */
+const DAY_PREVIEW_LIMIT = 4
+const entriesOf = (key: string) => entriesByDate.value[key] || []
+const previewOf = (key: string) => entriesOf(key).slice(0, DAY_PREVIEW_LIMIT)
+const hiddenCountOf = (key: string) => Math.max(0, entriesOf(key).length - DAY_PREVIEW_LIMIT)
+
+/** 当日全部排播 */
+const dayDialogOpen = ref(false)
+const dayDialogKey = ref('')
+const dayDialogEntries = computed(() => entriesOf(dayDialogKey.value))
+const dayDialogTitle = computed(() => `${dayDialogKey.value} 的排播（${dayDialogEntries.value.length} 集）`)
+const openDay = (key: string) => {
+  dayDialogKey.value = key
+  dayDialogOpen.value = true
+}
+
+/** 单集详情 */
+const entryDialogOpen = ref(false)
+const activeEntry = ref<CalendarEntry | null>(null)
+const openEntry = (entry: CalendarEntry) => {
+  activeEntry.value = entry
+  entryDialogOpen.value = true
+}
+
+/** 状态色。stateMeta 给的 default 不是 Vuetify 的合法色名，转成 undefined 让 chip 用默认色 */
+const stateColor = (state: string) => {
+  const color = stateMeta(state).color
+  return color === 'default' ? undefined : color
+}
+
 const router = useRouter()
 /**
- * 点一集跳到订阅页并直接展开它的进度弹窗。
+ * 跳到订阅页并直接展开它的进度弹窗。
  * query 用 id 而不是 subId —— 订阅页两端读的都是 route.query.id（见其 onMounted）。
  * 路径不写死：后端菜单 path 历史上有 /openlist 与 /openliststrm 两种前缀，写死会跳 404。
  */

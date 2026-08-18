@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 
 /**
@@ -44,14 +45,29 @@ public class PtCalendarService {
         this.subscriptionService = subscriptionService;
     }
 
+    /** 暂停的订阅不进日历：用户已经明确表态不再追它，占着格子只是噪音（口径同缺集体检） */
+    private static final String STATUS_PAUSED = "PAUSED";
+
     /**
      * 查询区间内有播出日期的集，按「日期 → 剧名 → 集号」排序。
      *
-     * @param start 起始日期（含）
-     * @param end   结束日期（含）
+     * @param start      起始日期（含）
+     * @param end        结束日期（含）
+     * @param accessible 归属过滤：只保留当前用户能看到的订阅。放在这里而不是 SQL 里，
+     *                   是因为「谁能看什么」的判据在 Controller 层（管理员看全部、
+     *                   其余人看自己的与无归属的），服务层不该知道当前登录用户是谁——
+     *                   与 {@code EpisodeHealthService#report} 同一个姿势。
+     *                   <p>
+     *                   <b>这层过滤不能省。</b>日历是 pt_subscription 的第三个消费者，
+     *                   另外两个（{@code PtSubscriptionRestController#buildQueryWrapper}、
+     *                   {@code PtHealthRestController#report}）都做了归属判定；漏掉的话
+     *                   非管理员会在日历格子里看到全站所有人订阅的剧名、海报与季集号，
+     *                   而点进去时订阅页才拦下——内容早就露出去了。
+     *                   </p>
      * @throws IllegalArgumentException 区间非法或跨度超过 {@link #MAX_RANGE_DAYS}
      */
-    public List<CalendarEntry> query(LocalDate start, LocalDate end) {
+    public List<CalendarEntry> query(LocalDate start, LocalDate end,
+                                     Predicate<PtSubscriptionPlus> accessible) {
         if (start == null || end == null) {
             throw new IllegalArgumentException("起止日期不能为空");
         }
@@ -84,6 +100,10 @@ public class PtCalendarService {
         return episodes.stream()
                 // 订阅已被删除但集行还在时跳过：拼不出剧名的格子对用户没有意义
                 .filter(e -> subs.containsKey(e.getSubId()))
+                // 归属过滤与暂停过滤都在这里做：上面那次 listByIds 是按集表出现过的 id 捞的，
+                // 到这一步才有订阅实体可判
+                .filter(e -> accessible.test(subs.get(e.getSubId())))
+                .filter(e -> !STATUS_PAUSED.equals(subs.get(e.getSubId()).getStatus()))
                 .map(e -> {
                     PtSubscriptionPlus sub = subs.get(e.getSubId());
                     return new CalendarEntry(
