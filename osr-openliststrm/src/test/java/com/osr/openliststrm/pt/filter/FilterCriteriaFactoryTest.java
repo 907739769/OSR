@@ -185,7 +185,9 @@ class FilterCriteriaFactoryTest {
 
         FilterCriteria c = FilterCriteriaFactory.build(empty, null);
 
-        assertEquals(0, c.minSeeders());
+        assertEquals(FilterCriteriaFactory.DEFAULT_MIN_SEEDERS, c.minSeeders(),
+                "做种数下限读不到时必须退回默认的 1，不能是类型零值 0——0 的语义是「关掉这条过滤」，"
+                        + "会静默放行所有无人做种的种子");
         assertEquals(0L, c.minSize());
         assertEquals(0L, c.maxSize());
         assertFalse(c.freeOnly());
@@ -204,6 +206,17 @@ class FilterCriteriaFactoryTest {
                 () -> FilterCriteriaFactory.build(globalConfig(), "{\"minSize\":\"5GB\"}"));
 
         assertEquals(1_000L, c.minSize(), "取值失败时应回退全局值，而不是 0 或抛异常");
+    }
+
+    @Test
+    void 显式配成0仍然是0_兜底只对缺失生效() {
+        // 「不限」是正当用法：部分索引器不返回 seeders 属性，这些站点的候选全解析成 0 做种，
+        // 硬性下限一刀切会让它们一条都下不了。兜底只负责"读不到"，不能改写用户的显式选择
+        PtFilterConfigPlus zero = globalConfig();
+        zero.setMinSeeders(0);
+
+        assertEquals(0, FilterCriteriaFactory.build(zero, null).minSeeders());
+        assertEquals(0, FilterCriteriaFactory.build(globalConfig(), "{\"minSeeders\":0}").minSeeders());
     }
 
     @Test
@@ -241,7 +254,8 @@ class FilterCriteriaFactoryTest {
     void global参数为null_不抛异常且使用安全默认值() {
         FilterCriteria c = assertDoesNotThrow(() -> FilterCriteriaFactory.build(null, null));
 
-        assertEquals(0, c.minSeeders());
+        assertEquals(FilterCriteriaFactory.DEFAULT_MIN_SEEDERS, c.minSeeders(),
+                "整份全局配置都读不到时同理：兜底值取安全的那一侧，不是类型零值");
         assertEquals(0L, c.minSize());
         assertEquals(0L, c.maxSize());
         assertFalse(c.freeOnly());

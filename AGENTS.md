@@ -74,6 +74,7 @@
   - `Threads.wrapCallable(Callable)` → 返回 Callable（同上），用于 executor.submit(Callable)
   - 方法定义在 `osr-common/src/main/java/com/osr/common/utils/Threads.java`，被所有模块共用
   - 常见遗漏点：PT 模块的 `SubscriptionEngine`、`SearchSupplementService`、`RssPollService` 的 CompletableFuture；`RssPollTask`/`AutoSearchTask`/`DownloadTrackTask`/`LibrarySyncTask` 的 scheduler.scheduleAtFixedRate；`SubscriptionSearchOnCreateTrigger`/`DownloadCompletionSyncTrigger` 的 scheduler.schedule；`AsynHelper` 的全部 scheduler.schedule + CompletableFuture。新增任何异步代码时复制这些位置的做法。
+- **配置字段读不到时的兜底值，要取「安全的那一侧」，绝不是类型零值**。踩过两次，形态完全相同：`FilterCriteriaFactory` 的 `minSeeders` 在全局配置字段为 null 时兜底成 `0`，而 0 对这个字段的语义恰好是「关掉做种数过滤」——一个读不出来的配置于是静默放行所有无人做种的种子，它们推给下载器后一动不动，占着并发名额到 24 小时僵尸超时；`PushSelectedRequest#downloadVolumeFactor` 用原始类型 `double`，缺省值 `0.0` 恰好是「免费种」，所有不带该字段的请求整批绕过 freeOnly 过滤。两处的共性是**零值恰好落在"关闭校验"那一侧**，而这类 bug 不报错、不告警，功能看起来完全正常。写兜底前先问一句「这个值代表的是最宽松还是最严格」：`minSeeders` 兜 `DEFAULT_MIN_SEEDERS`(1，与 `getConfig()` 的整行缺失兜底一致，改一处必须改另一处)，`downloadVolumeFactor` 兜 1.0。反例是 `minSize`/`maxSize`：0 的语义本来就是"不限"且用户也这么用，兜 0 是对的——**判据是语义，不是"别用 0"这条表面规则**。兜底生效时要 warn，否则"配置没读到"与"用户自己配成了 0"在现象上完全无法区分。
 
 ## ANTI-PATTERNS
 - 不要在 `osr-system` 中新增业务模块 (那是标准系统管理模块)

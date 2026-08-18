@@ -20,6 +20,24 @@ import java.util.List;
 @Slf4j
 public final class FilterCriteriaFactory {
 
+    /**
+     * 全局配置读不到做种数下限时的兜底值。必须与
+     * {@code PtFilterConfigPlusServiceImpl#getConfig()} 的整行缺失兜底一致（两处都是 1）。
+     * <p>
+     * <b>绝不能兜底成 0</b>：0 对这个字段的语义恰好是「关掉做种数过滤」，把"读不到配置"
+     * 兜底成它，等于让一个读不出来的配置静默放行所有<b>无人做种</b>的种子——而这类种子推给
+     * 下载器后一动不动，占着并发名额直到 24 小时僵尸超时，用户从现象上只看到「下载不动」，
+     * 完全想不到是配置没读到。同构的坑在 {@code PushSelectedRequest#downloadVolumeFactor}
+     * 上踩过一次：那里原始类型的缺省值 {@code 0.0} 恰好是"免费种"，让所有不带该字段的请求
+     * 整批绕过了 freeOnly 过滤。<b>兜底值必须是安全的那一侧，而不是类型的零值。</b>
+     * </p>
+     * <p>
+     * 只对「配置缺失」生效。用户在界面或订阅覆盖里<b>显式</b>填 0 仍然是 0——那是"不限"的
+     * 正当用法（部分索引器不返回 seeders 属性，这些站点的候选全解析成 0 做种）。
+     * </p>
+     */
+    static final int DEFAULT_MIN_SEEDERS = 1;
+
     private FilterCriteriaFactory() {
     }
 
@@ -35,7 +53,7 @@ public final class FilterCriteriaFactory {
         JSONObject patch = parseOverride(override);
 
         return FilterCriteria.builder()
-                .minSeeders(intOf(patch, "minSeeders", global.getMinSeeders()))
+                .minSeeders(intOf(patch, "minSeeders", minSeedersFallback(global)))
                 .minSize(longOf(patch, "minSize", global.getMinSize()))
                 .maxSize(longOf(patch, "maxSize", global.getMaxSize()))
                 .freeOnly(isTruthy(strOf(patch, "freeOnly", global.getFreeOnly())))
@@ -105,6 +123,21 @@ public final class FilterCriteriaFactory {
                     key, patch.get(key), e.getMessage());
             return fallback;
         }
+    }
+
+    /**
+     * 全局配置里的做种数下限，读不到时退回 {@link #DEFAULT_MIN_SEEDERS} 并 warn——
+     * 这条日志是"配置没读到"与"用户自己配成了 0"的唯一区分点，两者的现象完全一样。
+     */
+    private static int minSeedersFallback(PtFilterConfigPlus global) {
+        Integer configured = global.getMinSeeders();
+        if (configured != null) {
+            return configured;
+        }
+        log.warn("全局过滤配置未给出做种数下限（pt_filter_config.min_seeders 为空），"
+                + "已按默认值 {} 兜底；若按 0 处理会关掉这条过滤，无人做种的种子将被放行",
+                DEFAULT_MIN_SEEDERS);
+        return DEFAULT_MIN_SEEDERS;
     }
 
     private static int intOf(JSONObject patch, String key, Integer fallback) {
