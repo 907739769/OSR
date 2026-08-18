@@ -34,7 +34,7 @@
       />
       <v-select
         v-model="queryParams.sortBy"
-        :items="[{ title: '默认（最新创建）', value: '' }, { title: '上次命中时间', value: 'lastMatchTime' }]"
+        :items="sortOptions"
         label="排序"
         placeholder="排序"
         clearable
@@ -54,6 +54,10 @@
     <div class="list-toolbar">
       <v-btn variant="text" size="small" @click="toggleSelectionMode">
         {{ selectionMode ? '退出批量操作' : '批量操作' }}
+      </v-btn>
+      <!-- 缺集体检回答的是「这一格为什么还是灰的」，与 PC 端页头那个入口对齐 -->
+      <v-btn v-if="healthPath" variant="text" size="small" prepend-icon="mdi-stethoscope" @click="goHealth">
+        缺集体检
       </v-btn>
     </div>
 
@@ -118,6 +122,28 @@
             <span>{{ item.mediaType === 'MOVIE' ? '电影' : '剧集' }}</span>
             <span v-if="item.mediaType !== 'MOVIE'">S{{ item.season }}</span>
             <span>共 {{ item.totalEpisodes }} 集</span>
+            <!-- 被单独配过过滤规则的订阅要看得出来，否则只能逐条打开弹窗才知道 -->
+            <v-chip
+              v-if="hasFilterOverride(item)"
+              class="sub-flag"
+              size="x-small"
+              color="info"
+              variant="tonal"
+              prepend-icon="mdi-filter-cog-outline"
+            >过滤覆盖</v-chip>
+          </div>
+          <!-- 入库进度：列表接口已带进度计数，不必逐条点开进度弹窗才知道还缺几集 -->
+          <div v-if="item.inLibraryCount !== undefined && item.inLibraryCount !== null" class="sub-progress">
+            <v-progress-linear
+              :model-value="progressPercent(item)"
+              :color="progressColor(item)"
+              height="6"
+              rounded
+            />
+            <span class="sub-progress-text">
+              {{ item.inLibraryCount }}/{{ item.totalEpisodes }}
+              <span v-if="item.inFlightCount" class="sub-progress-inflight">· 在途 {{ item.inFlightCount }}</span>
+            </span>
           </div>
           <div class="detail-row">
             <span class="label">上次命中</span>
@@ -127,31 +153,32 @@
             <span class="label">上次搜索</span>
             <span class="value">{{ item.lastSearchTime || '-' }}</span>
           </div>
-          <div class="detail-row">
-            <span class="label">自动补搜</span>
-            <v-switch
-              v-model="item.autoSearch"
-              true-value="1"
-              false-value="0"
-              color="primary"
-              density="compact"
-              hide-details
-              @click.stop
-              @update:model-value="() => toggleAutoSearch(item)"
-            />
-          </div>
-          <div class="detail-row">
-            <span class="label">洗版</span>
-            <v-switch
-              v-model="item.upgradeEnabled"
-              true-value="1"
-              false-value="0"
-              color="primary"
-              density="compact"
-              hide-details
-              @click.stop
-              @update:model-value="() => toggleUpgrade(item)"
-            />
+          <!-- 两个开关并作一行：各占一行只为两个布尔值，能吃掉卡片近三分之一的高度 -->
+          <div class="sub-switches" @click.stop>
+            <div class="sub-switch">
+              <span class="label">自动补搜</span>
+              <v-switch
+                v-model="item.autoSearch"
+                true-value="1"
+                false-value="0"
+                color="primary"
+                density="compact"
+                hide-details
+                @update:model-value="() => toggleAutoSearch(item)"
+              />
+            </div>
+            <div class="sub-switch">
+              <span class="label">洗版</span>
+              <v-switch
+                v-model="item.upgradeEnabled"
+                true-value="1"
+                false-value="0"
+                color="primary"
+                density="compact"
+                hide-details
+                @update:model-value="() => toggleUpgrade(item)"
+              />
+            </div>
           </div>
           <div class="card-actions" @click.stop>
             <v-btn variant="text" color="primary" size="small" @click="showProgress(item)">进度</v-btn>
@@ -267,6 +294,12 @@
                 class="season-field"
               />
               季
+              <!-- 季号填错了原本要等订阅建完、回列表看「共 N 集」才发现 -->
+              <span class="picked-season-hint">
+                <template v-if="pickedSeasonCountLoading">查询集数中…</template>
+                <template v-else-if="pickedSeasonEpisodeCount">该季共 {{ pickedSeasonEpisodeCount }} 集</template>
+                <template v-else>TMDb 上查不到这一季</template>
+              </span>
               <span class="sub-year">（第 0 季是特别篇）</span>
             </template>
           </div>
@@ -282,7 +315,8 @@
     </v-dialog>
 
     <!-- 进度 -->
-    <v-dialog v-model="progressOpen" width="92%">
+    <!-- 补齐跑批期间锁住弹窗：关掉它循环也不会停 -->
+    <v-dialog v-model="progressOpen" width="92%" :persistent="searchAllMissingLoading">
       <v-card title="订阅进度">
         <v-card-text>
           <v-progress-linear v-if="progressLoading" indeterminate color="primary" class="mb-3" />
@@ -298,18 +332,21 @@
             <p>已入库 <strong>{{ progress.inLibraryCount }}</strong> / {{ progress.totalEpisodes }} 集</p>
             <p v-if="progress.inFlightCount">在途 {{ progress.inFlightCount }} 集（已推送下载器，尚未入库）</p>
             <div v-if="progress.missingEpisodes && progress.missingEpisodes.length" class="missing-list">
-              仍缺第
-              <span v-for="(ep, idx) in progress.missingEpisodes" :key="ep" class="missing-item">
-                <span v-if="idx > 0">、</span>{{ ep }}
-                <v-btn
-                  v-if="currentSubscription && currentSubscription.mediaType !== 'MOVIE'"
-                  variant="text"
-                  color="primary"
-                  size="small"
-                  @click="openEpisodeSearch(currentSubscription, ep)"
-                >搜</v-btn>
-              </span>
-              集
+              <span class="missing-lead">仍缺 {{ progress.missingEpisodes.length }} 集：</span>
+              <!-- 集号本身就是搜索入口。原先每个集号后面挂一个「搜」按钮，
+                   一季上百集时等于在弹窗里铺上百个按钮组件 -->
+              <button
+                v-for="ep in visibleMissingEpisodes"
+                :key="ep"
+                type="button"
+                class="missing-item"
+                :class="{ 'missing-item--clickable': currentSubscription && currentSubscription.mediaType !== 'MOVIE' }"
+                :disabled="!currentSubscription || currentSubscription.mediaType === 'MOVIE'"
+                @click="openEpisodeSearch(currentSubscription, ep)"
+              >{{ ep }}</button>
+              <button v-if="missingHiddenCount > 0" type="button" class="missing-more" @click="expandMissing">
+                还有 {{ missingHiddenCount }} 集，全部展开
+              </button>
             </div>
             <p v-else class="all-done">全部集已入库</p>
 
@@ -339,20 +376,30 @@
           </template>
         </v-card-text>
         <v-card-actions class="progress-actions">
-          <v-btn v-if="currentSubscription" color="primary" size="small" @click="openSeasonSearch(currentSubscription)">
-            搜索补齐
-          </v-btn>
-          <v-btn
-            v-if="currentSubscription && progress && progress.missingEpisodes && progress.missingEpisodes.length > 1"
-            color="success"
-            size="small"
-            :loading="searchAllMissingLoading"
-            @click="handleSearchAllMissing"
-          >
-            一键补齐（{{ progress.missingEpisodes.length }}集）
-          </v-btn>
+          <template v-if="searchAllMissingLoading">
+            <!-- 跑批期间只留进度与中止：每集要等一次几十秒的检索，一个光转圈的按钮说不清还要多久 -->
+            <span class="batch-search-progress">
+              补齐中 {{ searchAllMissingDone }}/{{ searchAllMissingTotal }}
+            </span>
+            <v-btn variant="text" color="error" size="small" :disabled="searchAllMissingAborted" @click="abortSearchAllMissing">
+              {{ searchAllMissingAborted ? '正在停止…' : '停止' }}
+            </v-btn>
+          </template>
+          <template v-else>
+            <v-btn v-if="currentSubscription" color="primary" size="small" @click="openSeasonSearch(currentSubscription)">
+              搜索补齐
+            </v-btn>
+            <v-btn
+              v-if="currentSubscription && progress && progress.missingEpisodes && progress.missingEpisodes.length > 1"
+              color="success"
+              size="small"
+              @click="handleSearchAllMissing"
+            >
+              一键补齐（{{ progress.missingEpisodes.length }}集）
+            </v-btn>
+          </template>
           <v-spacer />
-          <v-btn variant="outlined" size="small" @click="progressOpen = false">关闭</v-btn>
+          <v-btn variant="outlined" size="small" :disabled="searchAllMissingLoading" @click="progressOpen = false">关闭</v-btn>
         </v-card-actions>
       </v-card>
     </v-dialog>
@@ -362,7 +409,12 @@
       <v-card title="搜索补集">
         <v-card-text>
           <v-text-field v-model="searchDialogKeyword" label="关键词" placeholder="搜索关键词，可编辑后再搜" class="mb-2" />
-          <v-checkbox v-model="searchManualSelect" label="手动选择结果" density="compact" hide-details />
+          <v-checkbox-btn v-model="searchManualSelect" label="手动选择结果" />
+          <p class="field-hint">
+            {{ searchManualSelect
+              ? '搜完列出全部候选种子，由你挑一个推送下载。'
+              : '搜完按过滤规则与优先级自动挑一个推送下载，不再询问。' }}
+          </p>
         </v-card-text>
         <v-card-actions>
           <v-spacer />
@@ -425,8 +477,13 @@
       <v-card title="匹配日志">
         <v-card-text>
           <v-progress-linear v-if="searchLogLoading" indeterminate color="primary" class="mb-2" />
+          <div class="log-toolbar">
+            <!-- 翻这张表基本只为了找「这一轮为什么没抓到」，通过的记录会把淘汰原因冲散 -->
+            <v-checkbox-btn v-model="searchLogRejectedOnly" label="只看淘汰" />
+            <span class="log-count">共 {{ searchLogs.length }} / 显示 {{ visibleSearchLogs.length }}</span>
+          </div>
           <div class="log-list">
-            <div v-for="(log, idx) in searchLogs" :key="idx" class="log-item">
+            <div v-for="(log, idx) in visibleSearchLogs" :key="idx" class="log-item">
               <div class="log-top">
                 <span class="log-time">{{ log.createTime }}</span>
                 <StatusChip :type="log.source === 'RSS' ? 'info' : 'primary'" :text="log.source === 'RSS' ? 'RSS轮询' : '搜索补集'" />
@@ -436,7 +493,11 @@
               <div class="log-title">{{ log.torrentTitle || '-' }}</div>
               <div v-if="log.reason" class="log-reason">{{ log.reason }}</div>
             </div>
-            <v-empty-state v-if="!searchLogLoading && searchLogs.length === 0" icon="mdi-inbox-outline" title="暂无日志" />
+            <v-empty-state
+              v-if="!searchLogLoading && visibleSearchLogs.length === 0"
+              icon="mdi-inbox-outline"
+              :title="searchLogRejectedOnly && searchLogs.length ? '没有被淘汰的记录' : '暂无日志'"
+            />
           </div>
         </v-card-text>
         <v-card-actions>
@@ -448,14 +509,16 @@
 
     <!-- 过滤规则覆盖 -->
     <v-dialog v-model="filterOverrideOpen" width="92%">
-      <v-card title="过滤规则覆盖">
+      <v-card :title="filterOverrideCount ? `过滤规则覆盖（已覆盖 ${filterOverrideCount} 项）` : '过滤规则覆盖'">
         <v-card-text>
-          <p class="override-tip">只勾选需要覆盖的项，不勾选的沿用全局过滤规则。</p>
+          <p class="override-tip">
+            只勾选需要覆盖的项，不勾选的沿用「PT 过滤规则」页的全局配置——每项下方的灰字就是当前的全局取值。
+          </p>
           <v-form>
             <div class="override-field">
               <span class="override-label">最低做种数</span>
               <div class="override-row">
-                <v-checkbox v-model="filterOverrideForm.minSeeders.enabled" hide-details density="compact" />
+                <v-checkbox-btn v-model="filterOverrideForm.minSeeders.enabled" />
                 <v-text-field
                   v-model.number="filterOverrideForm.minSeeders.value"
                   type="number"
@@ -466,11 +529,12 @@
                   hide-details
                 />
               </div>
+              <span v-if="globalFilterHint('minSeeders')" class="override-global">{{ globalFilterHint('minSeeders') }}</span>
             </div>
             <div class="override-field">
               <span class="override-label">体积下限（GB）</span>
               <div class="override-row">
-                <v-checkbox v-model="filterOverrideForm.minSize.enabled" hide-details density="compact" />
+                <v-checkbox-btn v-model="filterOverrideForm.minSize.enabled" />
                 <v-text-field
                   v-model.number="filterOverrideForm.minSize.value"
                   type="number"
@@ -482,11 +546,12 @@
                   hide-details
                 />
               </div>
+              <span v-if="globalFilterHint('minSize')" class="override-global">{{ globalFilterHint('minSize') }}</span>
             </div>
             <div class="override-field">
               <span class="override-label">体积上限（GB）</span>
               <div class="override-row">
-                <v-checkbox v-model="filterOverrideForm.maxSize.enabled" hide-details density="compact" />
+                <v-checkbox-btn v-model="filterOverrideForm.maxSize.enabled" />
                 <v-text-field
                   v-model.number="filterOverrideForm.maxSize.value"
                   type="number"
@@ -498,31 +563,34 @@
                   hide-details
                 />
               </div>
+              <span v-if="globalFilterHint('maxSize')" class="override-global">{{ globalFilterHint('maxSize') }}</span>
             </div>
             <div class="override-field">
               <span class="override-label">仅要免费种</span>
               <div class="override-row">
-                <v-checkbox v-model="filterOverrideForm.freeOnly.enabled" hide-details density="compact" />
+                <v-checkbox-btn v-model="filterOverrideForm.freeOnly.enabled" />
                 <v-radio-group v-model="filterOverrideForm.freeOnly.value" inline hide-details :disabled="!filterOverrideForm.freeOnly.enabled">
                   <v-radio label="否" value="0" />
                   <v-radio label="是" value="1" />
                 </v-radio-group>
               </div>
+              <span v-if="globalFilterHint('freeOnly')" class="override-global">{{ globalFilterHint('freeOnly') }}</span>
             </div>
             <div class="override-field">
               <span class="override-label">外语电影需中字</span>
               <div class="override-row">
-                <v-checkbox v-model="filterOverrideForm.requireChineseSubtitle.enabled" hide-details density="compact" />
+                <v-checkbox-btn v-model="filterOverrideForm.requireChineseSubtitle.enabled" />
                 <v-radio-group v-model="filterOverrideForm.requireChineseSubtitle.value" inline hide-details :disabled="!filterOverrideForm.requireChineseSubtitle.enabled">
                   <v-radio label="否" value="0" />
                   <v-radio label="是" value="1" />
                 </v-radio-group>
               </div>
+              <span v-if="globalFilterHint('requireChineseSubtitle')" class="override-global">{{ globalFilterHint('requireChineseSubtitle') }}</span>
             </div>
             <div class="override-field">
               <span class="override-label">分辨率白名单</span>
               <div class="override-row">
-                <v-checkbox v-model="filterOverrideForm.resolutionWhitelist.enabled" hide-details density="compact" />
+                <v-checkbox-btn v-model="filterOverrideForm.resolutionWhitelist.enabled" />
                 <v-text-field
                   v-model="filterOverrideForm.resolutionWhitelist.value"
                   placeholder="如 2160p,1080p"
@@ -532,11 +600,12 @@
                   hide-details
                 />
               </div>
+              <span v-if="globalFilterHint('resolutionWhitelist')" class="override-global">{{ globalFilterHint('resolutionWhitelist') }}</span>
             </div>
             <div class="override-field">
               <span class="override-label">标题包含词</span>
               <div class="override-row">
-                <v-checkbox v-model="filterOverrideForm.includeKeywords.enabled" hide-details density="compact" />
+                <v-checkbox-btn v-model="filterOverrideForm.includeKeywords.enabled" />
                 <v-text-field
                   v-model="filterOverrideForm.includeKeywords.value"
                   placeholder="逗号分隔，命中其一即可"
@@ -546,11 +615,12 @@
                   hide-details
                 />
               </div>
+              <span v-if="globalFilterHint('includeKeywords')" class="override-global">{{ globalFilterHint('includeKeywords') }}</span>
             </div>
             <div class="override-field">
               <span class="override-label">标题排除词</span>
               <div class="override-row">
-                <v-checkbox v-model="filterOverrideForm.excludeKeywords.enabled" hide-details density="compact" />
+                <v-checkbox-btn v-model="filterOverrideForm.excludeKeywords.enabled" />
                 <v-text-field
                   v-model="filterOverrideForm.excludeKeywords.value"
                   placeholder="逗号分隔，命中任一即淘汰"
@@ -560,11 +630,27 @@
                   hide-details
                 />
               </div>
+              <span v-if="globalFilterHint('excludeKeywords')" class="override-global">{{ globalFilterHint('excludeKeywords') }}</span>
+            </div>
+            <div class="override-field">
+              <span class="override-label">描述排除词</span>
+              <div class="override-row">
+                <v-checkbox-btn v-model="filterOverrideForm.descriptionExcludeKeywords.enabled" />
+                <v-text-field
+                  v-model="filterOverrideForm.descriptionExcludeKeywords.value"
+                  placeholder="如 原盘,BDMV；匹配描述而非标题"
+                  :disabled="!filterOverrideForm.descriptionExcludeKeywords.enabled"
+                  density="compact"
+                  variant="outlined"
+                  hide-details
+                />
+              </div>
+              <span v-if="globalFilterHint('descriptionExcludeKeywords')" class="override-global">{{ globalFilterHint('descriptionExcludeKeywords') }}</span>
             </div>
             <div class="override-field">
               <span class="override-label">分辨率优先级</span>
               <div class="override-row">
-                <v-checkbox v-model="filterOverrideForm.resolutionPriority.enabled" hide-details density="compact" />
+                <v-checkbox-btn v-model="filterOverrideForm.resolutionPriority.enabled" />
                 <v-text-field
                   v-model="filterOverrideForm.resolutionPriority.value"
                   placeholder="如 2160p,1080p,720p"
@@ -574,11 +660,12 @@
                   hide-details
                 />
               </div>
+              <span v-if="globalFilterHint('resolutionPriority')" class="override-global">{{ globalFilterHint('resolutionPriority') }}</span>
             </div>
             <div class="override-field">
               <span class="override-label">偏好体积（GB）</span>
               <div class="override-row">
-                <v-checkbox v-model="filterOverrideForm.preferredSize.enabled" hide-details density="compact" />
+                <v-checkbox-btn v-model="filterOverrideForm.preferredSize.enabled" />
                 <v-text-field
                   v-model.number="filterOverrideForm.preferredSize.value"
                   type="number"
@@ -590,10 +677,13 @@
                   hide-details
                 />
               </div>
+              <span v-if="globalFilterHint('preferredSize')" class="override-global">{{ globalFilterHint('preferredSize') }}</span>
             </div>
           </v-form>
         </v-card-text>
         <v-card-actions>
+          <!-- 「退回全局」是很常见的一次性意图，逐个取消 11 个勾选太啰嗦 -->
+          <v-btn variant="text" size="small" :disabled="!filterOverrideCount" @click="clearFilterOverride">全部清除</v-btn>
           <v-spacer />
           <v-btn variant="outlined" @click="filterOverrideOpen = false">取消</v-btn>
           <v-btn color="primary" variant="flat" :loading="filterOverrideSaving" @click="saveFilterOverride">保存</v-btn>
@@ -604,8 +694,9 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, watch, onMounted } from 'vue'
+import { reactive, ref, computed, watch, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { getRoutePathForComponent } from '@/router'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import StatusChip from '@/components/StatusChip.vue'
@@ -619,35 +710,42 @@ const {
   handleQuery, resetQuery,
   subscribeOpen, searchLoading, subscribeLoading, searchResults, searchForm,
   picked, pickedSeason, openSubscribeDialog, doSearch, pick, confirmSubscribe,
+  pickedSeasonEpisodeCount, pickedSeasonCountLoading,
   progressOpen, progressLoading, progress, currentSubscription, showProgress, showProgressById,
+  visibleMissingEpisodes, missingHiddenCount, expandMissing,
   episodeDetailOpen, episodeDetailLoading, episodeDetail, resettingEpisode,
   loadEpisodeDetail, handleResetEpisode, episodeStateLabel, episodeStateColor,
   qualityLabel, upgradeStateHint,
   searchLogOpen, searchLogLoading, searchLogs, showSearchLogs,
+  searchLogRejectedOnly, visibleSearchLogs,
   filterOverrideOpen, filterOverrideSaving, filterOverrideForm,
   openFilterOverride, saveFilterOverride,
+  globalFilterHint, clearFilterOverride, filterOverrideCount,
   searchDialogOpen, searchDialogLoading, searchDialogKeyword, searchManualSelect,
   openSeasonSearch, openEpisodeSearch, confirmSearch, toggleAutoSearch, toggleUpgrade,
   candidateDialogOpen, candidates, pushingSelected, pushSelectedCandidate, formatSize,
   searchAllMissingLoading, handleSearchAllMissing,
+  searchAllMissingDone, searchAllMissingTotal, searchAllMissingAborted, abortSearchAllMissing,
   handleRefresh, handlePause, handleResume, handleRemove,
   totalPages, prevPage, nextPage, handleSizeChange,
   searchCollapsed,
-  selectionMode, isAllPageSelected, toggleSelectAllPage,
+  selectionMode, toggleSelectionMode, isAllPageSelected, toggleSelectAllPage,
   selectedIds, toggleSubSelect, isSubSelected, handleBatchPause, handleBatchResume, handleDelete
 } = usePtSubscription()
+
+/** 排序档位，与 PC 端同一份取值。缺集数排序需要 ORDER BY 子查询，暂未提供 */
+const sortOptions = [
+  { title: '默认（最新创建）', value: '' },
+  { title: '上次命中时间', value: 'lastMatchTime' },
+  { title: '上次搜索时间', value: 'lastSearchTime' },
+  { title: '标题', value: 'title' }
+]
 
 /** 候选种子弹窗里当前选中的那一条 */
 const selectedCandidate = ref<any>(null)
 watch(candidateDialogOpen, (open) => {
   if (open) selectedCandidate.value = null
 })
-
-/** 退出批量模式时清空已选，避免下次进入还残留上次的选择 */
-const toggleSelectionMode = () => {
-  selectionMode.value = !selectionMode.value
-  if (!selectionMode.value) selectedIds.value = []
-}
 
 /** TMDb 海报路径拼完整图片地址，w200 宽度足够列表缩略图使用 */
 const posterUrl = (path: string) => `https://image.tmdb.org/t/p/w200${path}`
@@ -664,8 +762,35 @@ const openActionDrawer = (row: any) => {
 }
 
 const goDownloadRecords = (row: any) => {
-  router.push({ path: '/openlist/ptDownloadRecord', query: { subId: row.id } })
+  const path = getRoutePathForComponent('openlist/ptDownloadRecord/index')
+  if (path) router.push({ path, query: { subId: row.id } })
 }
+
+/** 缺集体检页入口。菜单没授权时反查不到，按钮整个不渲染 */
+const healthPath = computed(() => getRoutePathForComponent('openlist/ptHealth/index'))
+const goHealth = () => {
+  if (healthPath.value) router.push({ path: healthPath.value })
+}
+
+/** 该订阅是否配了自己的过滤规则覆盖。空字符串同样算「没有覆盖」，与后端一致 */
+const hasFilterOverride = (row: any) => {
+  if (!row?.filterOverride) return false
+  try {
+    return Object.keys(JSON.parse(row.filterOverride) || {}).length > 0
+  } catch {
+    // 脏数据不该让整个列表炸掉，也不该谎报成「有覆盖」
+    return false
+  }
+}
+
+const progressPercent = (row: any) => {
+  const total = Number(row?.totalEpisodes) || 0
+  if (!total) return 0
+  return Math.round(((Number(row.inLibraryCount) || 0) / total) * 100)
+}
+
+/** 满了用成功色，其余用主色——进度条本身不是告警，缺集是常态 */
+const progressColor = (row: any) => (progressPercent(row) >= 100 ? 'success' : 'primary')
 
 // 从下载记录页点订阅名跳过来时带 ?id=，直接弹出该订阅的进度（与 PC 端一致）
 onMounted(() => {
@@ -857,9 +982,52 @@ onMounted(() => {
 
 .sub-meta {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   font-size: 11px;
   color: var(--osr-text-secondary);
+}
+
+.sub-flag {
+  /* chip 自带的高度在这一行里偏大，压到与旁边的文字同高 */
+  height: 18px;
+}
+
+.sub-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sub-progress-text {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--osr-text-secondary);
+}
+
+.sub-progress-inflight {
+  color: var(--osr-primary);
+}
+
+/* 两个开关并作一行 */
+.sub-switches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+}
+
+.sub-switch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+
+  .label {
+    color: var(--osr-text-secondary);
+    white-space: nowrap;
+  }
 }
 
 .progress-title {
@@ -872,16 +1040,70 @@ onMounted(() => {
   color: var(--osr-success);
 }
 
+/* 缺集串：集号本身就是搜索入口，不再每个集号后面挂一个按钮组件 */
 .missing-list {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
   margin: 8px 0;
-  line-height: 1.8;
   font-size: 13px;
 }
 
+.missing-lead {
+  font-size: 12px;
+  color: var(--osr-text-secondary);
+}
+
 .missing-item {
-  display: inline-flex;
+  min-width: 30px;
+  padding: 2px 6px;
+  border: 1px solid var(--osr-border-light);
+  border-radius: var(--osr-radius-sm);
+  background: transparent;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--osr-text-primary);
+  cursor: default;
+
+  &.missing-item--clickable {
+    cursor: pointer;
+  }
+}
+
+.missing-more {
+  padding: 2px 6px;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  color: var(--osr-primary);
+  cursor: pointer;
+}
+
+/* 补齐跑批时的「3/26」 */
+.batch-search-progress {
+  padding: 0 8px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--osr-text-secondary);
+}
+
+.log-toolbar {
+  display: flex;
   align-items: center;
-  margin-right: 4px;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.log-count {
+  font-size: 11px;
+  color: var(--osr-text-secondary);
+}
+
+.field-hint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--osr-text-secondary);
 }
 
 .log-list {
@@ -933,6 +1155,14 @@ onMounted(() => {
 
 .override-field {
   margin-bottom: 12px;
+}
+
+/* 全局取值参照：勾上覆盖那一刻用户得知道自己在把多少改成多少 */
+.override-global {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--osr-text-disabled);
 }
 
 .override-label {
@@ -1057,5 +1287,11 @@ onMounted(() => {
     width: 90px;
     display: inline-flex;
   }
+}
+
+.picked-season-hint {
+  margin-left: 4px;
+  font-size: 12px;
+  color: var(--osr-primary);
 }
 </style>

@@ -158,4 +158,23 @@ public class PtSubscriptionPlus extends BaseEntity {
     /** 排序方式：lastMatchTime=按上次命中时间倒序；其余/空=默认按 id 倒序。仅供列表查询用，不落库 */
     @TableField(exist = false)
     private String sortBy;
+
+    /**
+     * 已入库集数（含洗版中）。列表查询后由一条聚合语句批量填充，不落库。
+     * <p>
+     * 口径必须与进度弹窗的 {@code SubscriptionProgress#inLibraryCount} 完全一致，
+     * 两处都走 {@code SubscriptionService#hasFileInLibrary}——同一条订阅在卡片上
+     * 显示「12/26」、点开弹窗却是「11/26」，比不显示更糟。
+     * </p>
+     */
+    @TableField(exist = false)
+    private Integer inLibraryCount;
+
+    /** 在途集数（已推送下载器尚未入库）。同上，列表查询后填充，不落库 */
+    @TableField(exist = false)
+    private Integer inFlightCount;
+
+    /** 缺失集数。同上，列表查询后填充，不落库 */
+    @TableField(exist = false)
+    private Integer missingCount;
 }

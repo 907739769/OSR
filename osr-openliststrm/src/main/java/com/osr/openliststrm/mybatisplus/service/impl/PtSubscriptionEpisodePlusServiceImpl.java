@@ -1,5 +1,6 @@
 package com.osr.openliststrm.mybatisplus.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.extension.service.impl.ServiceImpl;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
 import com.osr.openliststrm.mybatisplus.mapper.PtSubscriptionEpisodePlusMapper;
@@ -7,8 +8,12 @@ import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusServic
 import com.osr.openliststrm.pt.subscription.SubscriptionEpisodeState;
 import org.springframework.stereotype.Service;
 
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * <p>
@@ -63,5 +68,35 @@ public class PtSubscriptionEpisodePlusServiceImpl extends ServiceImpl<PtSubscrip
                 .orderByAsc(PtSubscriptionEpisodePlus::getSubId)
                 .orderByAsc(PtSubscriptionEpisodePlus::getEpisode)
                 .list();
+    }
+
+    @Override
+    public Map<Integer, Map<String, Integer>> countStatesBySubscriptions(Collection<Integer> subIds) {
+        if (subIds == null || subIds.isEmpty()) {
+            return Collections.emptyMap();
+        }
+        QueryWrapper<PtSubscriptionEpisodePlus> wrapper = new QueryWrapper<>();
+        wrapper.select("sub_id AS subId", "state AS state", "COUNT(*) AS cnt")
+                .in("sub_id", subIds)
+                .groupBy("sub_id", "state");
+        Map<Integer, Map<String, Integer>> grouped = new HashMap<>();
+        for (Map<String, Object> row : listMaps(wrapper)) {
+            Integer subId = toInt(row.get("subId"));
+            String state = row.get("state") == null ? null : String.valueOf(row.get("state"));
+            Integer count = toInt(row.get("cnt"));
+            if (subId == null || state == null || count == null) {
+                continue;
+            }
+            grouped.computeIfAbsent(subId, k -> new HashMap<>()).merge(state, count, Integer::sum);
+        }
+        return grouped;
+    }
+
+    /**
+     * COUNT(*) 在不同驱动下回来的可能是 Long/BigInteger/Integer，统一收成 int。
+     * 直接强转 Integer 在 MySQL 驱动上会 ClassCastException（它给的是 Long）。
+     */
+    private static Integer toInt(Object value) {
+        return value instanceof Number number ? number.intValue() : null;
     }
 }

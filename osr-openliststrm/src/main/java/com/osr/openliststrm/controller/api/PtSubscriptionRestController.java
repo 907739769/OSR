@@ -2,6 +2,7 @@ package com.osr.openliststrm.controller.api;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.osr.common.core.domain.PageResult;
 import com.osr.common.core.domain.Result;
 import com.osr.common.core.domain.entity.SysUser;
 import com.osr.common.core.text.Convert;
@@ -127,12 +128,48 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
         if (StringUtils.isNotBlank(entity.getStatus())) {
             wrapper.eq(PtSubscriptionPlus::getStatus, entity.getStatus());
         }
-        if ("lastMatchTime".equals(entity.getSortBy())) {
-            wrapper.orderByDesc(PtSubscriptionPlus::getLastMatchTime).orderByDesc(PtSubscriptionPlus::getId);
-        } else {
-            wrapper.orderByDesc(PtSubscriptionPlus::getId);
-        }
+        applySort(wrapper, entity.getSortBy());
         return wrapper;
+    }
+
+    /**
+     * 列表排序。次级排序恒为 id 倒序：主键兜底能保证等值行（比如一批 last_search_time
+     * 同为 NULL 的订阅）在翻页之间顺序稳定，否则同一条记录可能在相邻两页里出现两次、
+     * 或者一次都不出现。
+     * <p>
+     * 刻意<b>没有</b>「按缺集数排序」：那要 ORDER BY 一个相关子查询，而这个 wrapper
+     * 同时喂给分页的 count 查询（见 {@code BaseController#selectPage}），
+     * 表达式排序在聚合查询里的行为要连着真实 MySQL 一起验证才敢上。
+     * </p>
+     */
+    private void applySort(LambdaQueryWrapper<PtSubscriptionPlus> wrapper, String sortBy) {
+        if ("lastMatchTime".equals(sortBy)) {
+            wrapper.orderByDesc(PtSubscriptionPlus::getLastMatchTime);
+        } else if ("lastSearchTime".equals(sortBy)) {
+            wrapper.orderByDesc(PtSubscriptionPlus::getLastSearchTime);
+        } else if ("title".equals(sortBy)) {
+            wrapper.orderByAsc(PtSubscriptionPlus::getTitle);
+        }
+        wrapper.orderByDesc(PtSubscriptionPlus::getId);
+    }
+
+    /**
+     * 查订阅列表。覆写基类实现只为给每条补上进度计数——卡片要直接显示「12/26」，
+     * 否则「这部还缺几集」只能逐条点开进度弹窗问一次。
+     * <p>
+     * 整页只多一条聚合 SQL（见 {@code SubscriptionService#fillProgressCounts}），
+     * 不是每条订阅查一次集表。
+     * </p>
+     */
+    @Override
+    @GetMapping({"", "/list"})
+    public Result<PageResult<PtSubscriptionPlus>> list(PtSubscriptionPlus entity) {
+        Result<PageResult<PtSubscriptionPlus>> result = super.list(entity);
+        PageResult<PtSubscriptionPlus> page = result.getData();
+        if (page != null) {
+            subscriptionBiz.fillProgressCounts(page.getRecords());
+        }
+        return result;
     }
 
     /**

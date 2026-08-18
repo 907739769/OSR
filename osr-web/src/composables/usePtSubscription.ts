@@ -1,4 +1,4 @@
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
 import { message } from '@/composables/useMessage'
 import { confirm } from '@/composables/useConfirm'
 import { useTaskList } from './useTaskList'
@@ -10,6 +10,7 @@ import {
   updatePtSubscriptionApi,
   deletePtSubscriptionApi,
   tmdbSearchApi,
+  tmdbSeasonEpisodeCountApi,
   subscribeApi,
   getSubscriptionProgressApi,
   getSubscriptionEpisodesApi,
@@ -25,6 +26,7 @@ import {
   batchDeletePtSubscriptionApi,
   getPtSubscriptionByIdApi
 } from '@/api/openlist/ptSubscription'
+import { getPtFilterConfigApi } from '@/api/openlist/ptFilterConfig'
 import type { SearchParams } from '@/types'
 import type { ListLoadOptions } from './useGridPageSize'
 
@@ -84,6 +86,7 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
     searchResults.value = []
     picked.value = null
     pickedSeason.value = 1
+    pickedSeasonEpisodeCount.value = null
     subscribeOpen.value = true
   }
 
@@ -108,10 +111,46 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
     }
   }
 
+  /**
+   * 所选季在 TMDb 上的集数。季号原本是个裸数字输入框，用户填错了要等订阅建完、
+   * 回到列表看「共 N 集」才发现——而 `/tmdb-seasons` 这个接口一直都在，只是没人调。
+   * null 表示还没查/查不到，此时整段提示不渲染。
+   */
+  const pickedSeasonEpisodeCount = ref<number | null>(null)
+  const pickedSeasonCountLoading = ref(false)
+  /** 只采信最后一次请求的结果：用户连点季号上下箭头会并发发出好几个请求，先发的可能后到 */
+  let seasonCountRequestId = 0
+
+  const loadPickedSeasonEpisodeCount = async () => {
+    pickedSeasonEpisodeCount.value = null
+    if (!picked.value || searchForm.mediaType === 'MOVIE') return
+    const season = pickedSeason.value
+    if (season === null || season === undefined || season < 0) return
+    const requestId = ++seasonCountRequestId
+    pickedSeasonCountLoading.value = true
+    try {
+      const count = await tmdbSeasonEpisodeCountApi(picked.value.tmdbId, season)
+      if (requestId === seasonCountRequestId) {
+        pickedSeasonEpisodeCount.value = typeof count === 'number' ? count : null
+      }
+    } catch (e) {
+      // 查不到集数（季号不存在、TMDb 不可达）只是少了个提示，不该拦住用户订阅
+      if (requestId === seasonCountRequestId) pickedSeasonEpisodeCount.value = null
+      console.error(e)
+    } finally {
+      if (requestId === seasonCountRequestId) pickedSeasonCountLoading.value = false
+    }
+  }
+
   const pick = (item: any) => {
     picked.value = item
     pickedSeason.value = 1
+    loadPickedSeasonEpisodeCount()
   }
+
+  // 季号改了就重查集数。用 watch 而不是绑 @change：季号既能敲也能用数字框的上下箭头改，
+  // 两条路径都要覆盖
+  watch(pickedSeason, () => { loadPickedSeasonEpisodeCount() })
 
   const confirmSubscribe = async () => {
     if (!picked.value) {
@@ -143,11 +182,27 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
 
   const currentSubscription = ref<any>(null)
 
+  /**
+   * 缺集串默认只铺前 30 个。集号是逐个渲染的（每个还带一次点击入口），而一季的集数没有
+   * 上界——TMDb 上长篇动画把上千集平铺在一季里是实际存在的形态，全量铺开会在一个几百像素
+   * 宽的弹窗里塞进上千个节点。
+   */
+  const MISSING_PREVIEW_LIMIT = 30
+  const missingExpanded = ref(false)
+
+  const allMissingEpisodes = computed<number[]>(() => (progress.value?.missingEpisodes || []) as number[])
+  const visibleMissingEpisodes = computed<number[]>(() =>
+    missingExpanded.value ? allMissingEpisodes.value : allMissingEpisodes.value.slice(0, MISSING_PREVIEW_LIMIT)
+  )
+  const missingHiddenCount = computed(() => allMissingEpisodes.value.length - visibleMissingEpisodes.value.length)
+  const expandMissing = () => { missingExpanded.value = true }
+
   const showProgress = async (row: any) => {
     currentSubscription.value = row
     progressOpen.value = true
     progressLoading.value = true
     progress.value = null
+    missingExpanded.value = false
     episodeDetailOpen.value = false
     episodeDetail.value = []
     try {
@@ -237,11 +292,20 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
   const searchLogOpen = ref(false)
   const searchLogLoading = ref(false)
   const searchLogs = ref<any[]>([])
+  /**
+   * 只看被淘汰的记录。用户翻这张表基本只有一个目的——「这一轮为什么没抓到」，
+   * 而通过的记录会把淘汰原因冲散（后端固定回最近 100 条，不分页）。
+   */
+  const searchLogRejectedOnly = ref(false)
+  const visibleSearchLogs = computed(() =>
+    searchLogRejectedOnly.value ? searchLogs.value.filter((log: any) => log.accepted !== '1') : searchLogs.value
+  )
 
   const showSearchLogs = async (row: any) => {
     searchLogOpen.value = true
     searchLogLoading.value = true
     searchLogs.value = []
+    searchLogRejectedOnly.value = false
     try {
       searchLogs.value = (await getSubscriptionSearchLogsApi(row.id)) || []
     } catch (e) {
@@ -277,6 +341,61 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
   /** 前端用 GB 显示，后端存字节；换算见 composables/sizeUnits */
   const sizeFields = new Set<keyof typeof filterOverrideForm>(['minSize', 'maxSize', 'preferredSize'])
 
+  /**
+   * 全局过滤配置的快照，只用于在每一行旁边标一句「全局：40 GB」。
+   * <p>
+   * 弹窗顶上写着「不勾选的沿用全局过滤规则」，但在此之前页面并不说全局是多少——用户勾上
+   * 「体积上限」的那一刻，输入框里是 0，他不知道自己正在把多少改成多少。
+   * </p>
+   * 整个会话只拉一次：这份配置在 PT 过滤规则页改动，改完再打开本弹窗时页面早已重新加载过。
+   */
+  const filterOverrideGlobal = ref<Record<string, any> | null>(null)
+
+  /** 布尔型覆盖项的取值文案，与弹窗里的单选按钮保持同一套说法 */
+  const BOOLEAN_OVERRIDE_LABELS: Record<string, string> = { '1': '是', '0': '否' }
+
+  /**
+   * 某一项的全局取值文案。取不到配置、或该项全局也没设，都返回空串让调用方整段不渲染——
+   * 一句「全局：未知」帮不了任何判断，只会占掉一行。
+   */
+  const globalFilterHint = (key: string): string => {
+    const config = filterOverrideGlobal.value
+    if (!config) return ''
+    const raw = (config as Record<string, any>)[key]
+    if (raw === null || raw === undefined || raw === '') return ''
+    if (sizeFields.has(key as keyof typeof filterOverrideForm)) {
+      const gb = bytesToGb(raw as number)
+      return gb ? `全局：${gb} GB` : '全局：不限'
+    }
+    if (key === 'freeOnly' || key === 'requireChineseSubtitle') {
+      return `全局：${BOOLEAN_OVERRIDE_LABELS[String(raw)] ?? String(raw)}`
+    }
+    return `全局：${raw}`
+  }
+
+  const loadFilterOverrideGlobal = async () => {
+    if (filterOverrideGlobal.value) return
+    try {
+      filterOverrideGlobal.value = (await getPtFilterConfigApi()) || {}
+    } catch (e) {
+      // 拿不到全局配置只是少了个参照，不该挡住用户配置覆盖项本身
+      console.error('读取全局过滤配置失败，覆盖弹窗不展示全局参照', e)
+      filterOverrideGlobal.value = {}
+    }
+  }
+
+  /** 取消全部覆盖项。11 项逐个取消勾选太啰嗦，而「退回全局」是很常见的一次性意图 */
+  const clearFilterOverride = () => {
+    FILTER_OVERRIDE_KEYS.forEach((key) => {
+      filterOverrideForm[key].enabled = false
+    })
+  }
+
+  /** 当前有几项覆盖生效，用于弹窗标题与「全部清除」的禁用态 */
+  const filterOverrideCount = computed(() =>
+    FILTER_OVERRIDE_KEYS.filter((key) => filterOverrideForm[key].enabled).length
+  )
+
   const openFilterOverride = (row: any) => {
     filterOverrideSubId.value = row.id
     FILTER_OVERRIDE_KEYS.forEach((key) => {
@@ -300,6 +419,8 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
       }
     })
     filterOverrideOpen.value = true
+    // 不 await：弹窗要立刻打开，全局参照晚一个往返再出现即可
+    loadFilterOverrideGlobal()
   }
 
   const saveFilterOverride = async () => {
@@ -454,31 +575,50 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
   // ---------- 一键补齐全部缺集 ----------
 
   const searchAllMissingLoading = ref(false)
+  /** 已跑完的集数 / 总集数，供弹窗显示「补齐中 3/26」 */
+  const searchAllMissingDone = ref(0)
+  const searchAllMissingTotal = ref(0)
+  /** 用户点了「停止」：当前这一集搜完就收尾，不打断已发出的请求 */
+  const searchAllMissingAborted = ref(false)
+
+  const abortSearchAllMissing = () => { searchAllMissingAborted.value = true }
 
   const handleSearchAllMissing = async () => {
     if (!currentSubscription.value || !progress.value?.missingEpisodes?.length) return
-    searchAllMissingLoading.value = true
+    // 订阅要和集号一起快照。这个循环每集都要等一次几十秒的检索（后端单索引器预算 30 秒是
+    // 软上限），几十集就是十几二十分钟；期间弹窗点遮罩就能关，用户完全可能去点开另一条
+    // 订阅的进度——那会改掉 currentSubscription.value，循环里剩下的集就变成「拿 A 的集号、
+    // 按 B 的标题、推给 B 的订阅」，而界面上没有任何迹象。
+    const sub = currentSubscription.value
     const missing = [...progress.value.missingEpisodes] as number[]
+    searchAllMissingAborted.value = false
+    searchAllMissingDone.value = 0
+    searchAllMissingTotal.value = missing.length
+    searchAllMissingLoading.value = true
     let pushedCount = 0
-    for (const ep of missing) {
-      const keyword = `${currentSubscription.value.title} S${String(currentSubscription.value.season).padStart(2, '0')}E${String(ep).padStart(2, '0')}`
-      try {
-        const result = await searchSupplementApi(currentSubscription.value.id, {
-          episode: ep,
-          keyword
-        })
-        if (result.pushed) pushedCount++
-      } catch (e) {
-        console.error(`第${ep}集补搜失败：`, e)
+    try {
+      for (const ep of missing) {
+        if (searchAllMissingAborted.value) break
+        const keyword = `${sub.title} S${pad2(sub.season)}E${pad2(ep)}`
+        try {
+          const result = await searchSupplementApi(sub.id, { episode: ep, keyword })
+          if (result.pushed) pushedCount++
+        } catch (e) {
+          console.error(`第${ep}集补搜失败：`, e)
+        }
+        searchAllMissingDone.value++
       }
+      const done = searchAllMissingDone.value
+      const stoppedTip = searchAllMissingAborted.value ? '（已中止）' : ''
+      message.success(`已搜索 ${done}/${missing.length} 集${stoppedTip}：${pushedCount} 集已推送下载`)
+      // 进度只在用户还停在这条订阅上时回写，否则会把他正在看的另一条订阅的弹窗内容改掉
+      if (currentSubscription.value?.id === sub.id) {
+        progress.value = await getSubscriptionProgressApi(sub.id)
+      }
+      base.getList()
+    } finally {
+      searchAllMissingLoading.value = false
     }
-    message.success(`已完成搜索：${pushedCount}/${missing.length} 集已推送下载`)
-    // 刷新进度
-    if (currentSubscription.value) {
-      progress.value = await getSubscriptionProgressApi(currentSubscription.value.id)
-    }
-    base.getList()
-    searchAllMissingLoading.value = false
   }
 
   /**
@@ -582,6 +722,19 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
 
   const selectionMode = ref(false)
 
+  /**
+   * 进出批量模式。退出时必须清空已选——勾选框只在批量模式下渲染，残留的选择在界面上
+   * 完全不可见，等用户下次点开「批量操作」，「已选 N 项」会凭空出现。
+   * <p>
+   * 这段原本只有移动端有，PC 页面在模板里内联写的 `selectionMode = !selectionMode`，
+   * 于是两端行为不一致。放进 composable 是为了不再有第二份。
+   * </p>
+   */
+  const toggleSelectionMode = () => {
+    selectionMode.value = !selectionMode.value
+    if (!selectionMode.value) base.selectedIds.value = []
+  }
+
   /** 卡片选中（兼容原接口签名：入参是行对象，内部取 id）。全选/半选判定走 useTaskList 内置的 usePageSelection */
   const toggleSubSelect = (row: any) => base.toggleSelect(row.id)
 
@@ -652,17 +805,22 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
     // 建订阅向导
     subscribeOpen, searchLoading, subscribeLoading, searchResults, searchForm,
     picked, pickedSeason, openSubscribeDialog, doSearch, pick, confirmSubscribe,
+    pickedSeasonEpisodeCount, pickedSeasonCountLoading,
     // 进度
     progressOpen, progressLoading, progress, currentSubscription, showProgress, showProgressById,
+    // 缺集串截断展示
+    visibleMissingEpisodes, missingHiddenCount, missingExpanded, expandMissing,
     // 每集明细 + 手动重置
     episodeDetailOpen, episodeDetailLoading, episodeDetail, resettingEpisode,
     loadEpisodeDetail, handleResetEpisode, episodeStateLabel, episodeStateColor,
     qualityLabel, upgradeStateHint,
     // 匹配日志
     searchLogOpen, searchLogLoading, searchLogs, showSearchLogs,
+    searchLogRejectedOnly, visibleSearchLogs,
     // 过滤规则覆盖
     filterOverrideOpen, filterOverrideSaving, filterOverrideForm,
     openFilterOverride, saveFilterOverride,
+    globalFilterHint, clearFilterOverride, filterOverrideCount,
     // 搜索补集
     searchDialogOpen, searchDialogLoading, searchDialogKeyword, searchManualSelect,
     openSeasonSearch, openEpisodeSearch, confirmSearch,
@@ -670,10 +828,11 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
     candidateDialogOpen, candidates, pushingSelected, pushSelectedCandidate, formatSize,
     // 一键补齐全部缺集
     searchAllMissingLoading, handleSearchAllMissing, toggleAutoSearch, toggleUpgrade,
+    searchAllMissingDone, searchAllMissingTotal, searchAllMissingAborted, abortSearchAllMissing,
     // 行操作
     handleRefresh, handlePause, handleResume, handleRemove,
     // 批量操作
-    selectionMode,
+    selectionMode, toggleSelectionMode,
     toggleSubSelect, isSubSelected, handleBatchPause, handleBatchResume,
     // 移动端分页 & 搜索面板
     totalPages, prevPage, nextPage, handleSizeChange, searchCollapsed

@@ -73,7 +73,16 @@ public class SubscriptionService {
      * 把它算成"未入库"会让订阅从 COMPLETED 退回 ACTIVE、进度条倒退，而实际什么都没少。
      */
     private static boolean hasFileInLibrary(PtSubscriptionEpisodePlus episode) {
-        return STATE_IN_LIBRARY.equals(episode.getState()) || STATE_UPGRADING.equals(episode.getState());
+        return hasFileInLibrary(episode.getState());
+    }
+
+    /**
+     * 同上，只按状态值判定。列表页的进度计数是聚合出来的（只有 state 和条数，没有集实体），
+     * 需要这个重载才能与逐集判定共用同一条判据，而不是在聚合那侧再抄一遍
+     * 「IN_LIBRARY 或 UPGRADING」。
+     */
+    private static boolean hasFileInLibrary(String state) {
+        return STATE_IN_LIBRARY.equals(state) || STATE_UPGRADING.equals(state);
     }
 
     @Autowired
@@ -345,6 +354,49 @@ public class SubscriptionService {
                 .sorted()
                 .toList());
         return progress;
+    }
+
+    /**
+     * 给列表页的订阅批量填上进度计数（已入库/在途/缺失），让卡片能直接显示「12/26」。
+     * <p>
+     * 在此之前，「这部还缺几集」——用户打开这个页面的头号问题——只能逐条点开进度弹窗，
+     * 一页几十条就是几十次点击加几十个单条请求。
+     * </p>
+     * <p>
+     * 口径与 {@link #getProgress} 完全一致，共用 {@link #hasFileInLibrary(String)}：
+     * 卡片显示「12/26」而点开弹窗是「11/26」，比不显示更糟。
+     * </p>
+     * <p>
+     * 整批只发一条聚合 SQL。查不到集记录的订阅（刚建好、集表还没铺开）三项都填 0 而不是
+     * 留 null，前端就不必为「字段缺失」和「确实是 0」分两条渲染路径。
+     * </p>
+     */
+    public void fillProgressCounts(List<PtSubscriptionPlus> subs) {
+        if (subs == null || subs.isEmpty()) {
+            return;
+        }
+        List<Integer> ids = subs.stream().map(PtSubscriptionPlus::getId).filter(java.util.Objects::nonNull).toList();
+        Map<Integer, Map<String, Integer>> grouped = episodeService.countStatesBySubscriptions(ids);
+        for (PtSubscriptionPlus sub : subs) {
+            Map<String, Integer> counts = grouped.getOrDefault(sub.getId(), Collections.emptyMap());
+            int inLibrary = 0;
+            int inFlight = 0;
+            int missing = 0;
+            for (Map.Entry<String, Integer> entry : counts.entrySet()) {
+                String state = entry.getKey();
+                int count = entry.getValue();
+                if (hasFileInLibrary(state)) {
+                    inLibrary += count;
+                } else if (STATE_IN_FLIGHT.equals(state)) {
+                    inFlight += count;
+                } else if (STATE_MISSING.equals(state)) {
+                    missing += count;
+                }
+            }
+            sub.setInLibraryCount(inLibrary);
+            sub.setInFlightCount(inFlight);
+            sub.setMissingCount(missing);
+        }
     }
 
     /** 暂停订阅，暂停期间不参与 RSS 匹配 */

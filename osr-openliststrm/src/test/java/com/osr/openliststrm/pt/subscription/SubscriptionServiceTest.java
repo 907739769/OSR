@@ -23,6 +23,7 @@ import org.mockito.quality.Strictness;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -610,5 +611,87 @@ class SubscriptionServiceTest {
         service.subscribe(tvRequest());
 
         verify(mediaServerClient, times(1)).listAllEpisodeNumbers(any(), anyString());
+    }
+
+    // ---------- 列表页进度计数 ----------
+
+    /**
+     * 卡片上的「12/26」与进度弹窗里的必须是同一个口径：UPGRADING 也算已入库
+     * （洗版期间旧版本一直在库里可正常观看）。两处对不上比不显示更糟。
+     */
+    @Test
+    void 列表进度计数把洗版中算作已入库() {
+        PtSubscriptionPlus sub = new PtSubscriptionPlus();
+        sub.setId(1);
+        sub.setTotalEpisodes(10);
+        when(episodeService.countStatesBySubscriptions(List.of(1)))
+                .thenReturn(Map.of(1, Map.of(
+                        "IN_LIBRARY", 5,
+                        "UPGRADING", 2,
+                        "IN_FLIGHT", 1,
+                        "MISSING", 2)));
+
+        service.fillProgressCounts(List.of(sub));
+
+        assertEquals(7, sub.getInLibraryCount());
+        assertEquals(1, sub.getInFlightCount());
+        assertEquals(2, sub.getMissingCount());
+    }
+
+    /** 集表还没铺开的订阅三项都填 0，前端不必为「字段缺失」和「确实是 0」分两条渲染路径 */
+    @Test
+    void 列表进度计数对没有集记录的订阅填零而不是留空() {
+        PtSubscriptionPlus sub = new PtSubscriptionPlus();
+        sub.setId(2);
+        sub.setTotalEpisodes(12);
+        when(episodeService.countStatesBySubscriptions(List.of(2))).thenReturn(Map.of());
+
+        service.fillProgressCounts(List.of(sub));
+
+        assertEquals(0, sub.getInLibraryCount());
+        assertEquals(0, sub.getInFlightCount());
+        assertEquals(0, sub.getMissingCount());
+    }
+
+    /** 整页只发一条聚合语句，不是每条订阅查一次集表 */
+    @Test
+    void 列表进度计数整批只查一次() {
+        PtSubscriptionPlus a = new PtSubscriptionPlus();
+        a.setId(1);
+        a.setTotalEpisodes(10);
+        PtSubscriptionPlus b = new PtSubscriptionPlus();
+        b.setId(2);
+        b.setTotalEpisodes(10);
+        when(episodeService.countStatesBySubscriptions(List.of(1, 2)))
+                .thenReturn(Map.of(1, Map.of("IN_LIBRARY", 3), 2, Map.of("MISSING", 4)));
+
+        service.fillProgressCounts(List.of(a, b));
+
+        verify(episodeService, times(1)).countStatesBySubscriptions(List.of(1, 2));
+        assertEquals(3, a.getInLibraryCount());
+        assertEquals(4, b.getMissingCount());
+    }
+
+    /** BLOCKED 这类既不算入库也不算在途、更不是 MISSING 的状态不参与三项计数 */
+    @Test
+    void 列表进度计数忽略熔断等其它状态() {
+        PtSubscriptionPlus sub = new PtSubscriptionPlus();
+        sub.setId(3);
+        sub.setTotalEpisodes(10);
+        when(episodeService.countStatesBySubscriptions(List.of(3)))
+                .thenReturn(Map.of(3, Map.of("IN_LIBRARY", 4, "BLOCKED", 6)));
+
+        service.fillProgressCounts(List.of(sub));
+
+        assertEquals(4, sub.getInLibraryCount());
+        assertEquals(0, sub.getInFlightCount());
+        assertEquals(0, sub.getMissingCount());
+    }
+
+    /** 空列表不发 SQL，也不该抛 */
+    @Test
+    void 列表进度计数对空列表不发查询() {
+        service.fillProgressCounts(List.of());
+        verify(episodeService, never()).countStatesBySubscriptions(any());
     }
 }

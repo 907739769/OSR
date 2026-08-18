@@ -3,8 +3,10 @@ package com.osr.openliststrm.mybatisplus.service;
 import com.baomidou.mybatisplus.extension.service.IService;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
 
+import java.util.Collection;
 import java.util.Date;
 import java.util.List;
+import java.util.Map;
 
 /**
  * <p>
@@ -63,4 +65,20 @@ public interface IPtSubscriptionEpisodePlusService extends IService<PtSubscripti
      * @param airedBefore 播出日期上界（含当天）；比它晚的集视为「还没播够时间」不纳入
      */
     List<PtSubscriptionEpisodePlus> listHealthCandidates(Date airedBefore);
+
+    /**
+     * 批量统计一批订阅各状态的集数，返回 {@code {subId -> {state -> count}}}。
+     * <p>
+     * 走一条 {@code GROUP BY sub_id, state} 聚合，而不是每条订阅查一次集表：列表页一页
+     * 最多接近百条订阅，逐条查就是近百次往返，而集表是本项目最大的一张表（订阅数 × 集数），
+     * 把整季的集记录拉回内存只为了数个数更是白费。
+     * </p>
+     * <p>
+     * 只返回聚合行，<b>不做任何业务口径的换算</b>（比如「洗版中也算已入库」）——那条判据
+     * 属于 {@code SubscriptionService}，放在这里会变成第二处定义。
+     * </p>
+     *
+     * @param subIds 订阅 id；为空时返回空 Map，不发 SQL
+     */
+    Map<Integer, Map<String, Integer>> countStatesBySubscriptions(Collection<Integer> subIds);
 }
