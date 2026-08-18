@@ -1,6 +1,7 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from '@/composables/useMessage'
+import { confirm } from '@/composables/useConfirm'
 import { getRoutePathForComponent } from '@/router'
 import {
   getPtHealthApi,
@@ -96,14 +97,18 @@ export function posterUrl(path: string | null) {
   return path ? `https://image.tmdb.org/t/p/w92${path}` : ''
 }
 
-const EMPTY_REPORT: EpisodeHealthReport = {
+/**
+ * 空报告。做成工厂而不是模块级常量：常量会被多个 usePtHealth() 实例共享同一份引用，
+ * 将来任何一处就地改动 report.value 都会污染到别的实例，而那种 bug 极难追。
+ */
+const emptyReport = (): EpisodeHealthReport => ({
   overdueDays: 3,
   subscriptionCount: 0,
   episodeCount: 0,
   bucketCounts: {},
   diagnosisCounts: {},
   subscriptions: []
-}
+})
 
 /**
  * 缺集体检共享逻辑，PC 与移动端共用。
@@ -113,37 +118,112 @@ const EMPTY_REPORT: EpisodeHealthReport = {
  */
 export function usePtHealth() {
   const loading = ref(false)
-  const acting = ref(false)
-  const report = ref<EpisodeHealthReport>(EMPTY_REPORT)
+  /**
+   * 正在执行动作的那一条订阅 id；null 表示没有。
+   * <p>
+   * 原先是一个全局的 acting 布尔量，整页每一行的按钮都绑它——点第 3 行的「立即补搜」，
+   * 十几行的按钮同时转圈并禁用，用户看不出到底是哪一行在跑；而这个动作本来就要跑
+   * 三十秒到一分钟，整页看起来就是卡死了。请求级/行级的状态不能存进一个共享槽位。
+   * </p>
+   */
+  const actingSubId = ref<number | null>(null)
+  /** 批量开启自动补搜的进行中标志，与逐行动作分开 */
+  const batchActing = ref(false)
+  const report = ref<EpisodeHealthReport>(emptyReport())
+  /**
+   * 这次加载是否失败了。
+   * <p>
+   * 不能只靠「报告为空」来表达失败：空报告渲染出来是一个绿色对勾 +「没有发现缺集」——
+   * <b>接口挂了和一切正常长得一模一样</b>，而拦截器那条错误提示几秒后就消失了。
+   * 对一个体检页来说这是最不该给的错误答案。
+   * </p>
+   */
+  const loadFailed = ref(false)
+  /** 上次成功加载的时刻，页面开着放一天时用来提示数据有多旧 */
+  const lastLoadedAt = ref<Date | null>(null)
   /** 当前筛选的分档；空串=全部 */
   const activeBucket = ref('')
+  /** 当前筛选的诊断；空串=全部。与分档是两个维度，可叠加 */
+  const activeDiagnosis = ref('')
 
   const load = async () => {
     loading.value = true
     try {
-      report.value = (await getPtHealthApi()) || EMPTY_REPORT
+      report.value = (await getPtHealthApi()) || emptyReport()
+      loadFailed.value = false
+      lastLoadedAt.value = new Date()
+      // 选中的档/诊断可能被这一轮动作清空（比如刚把「已熔断」那两集处理掉）。
+      // 标签会因为计数归零而消失，筛选却还留着——那时列表是空的、没有任何 chip 是选中态、
+      // 顶上却写着「12 部作品 47 集」，用户根本看不出自己还在筛选中。
+      resetFiltersIfGone()
     } catch (e) {
       console.error(e)
-      report.value = EMPTY_REPORT
+      report.value = emptyReport()
+      loadFailed.value = true
     } finally {
       loading.value = false
     }
   }
 
-  /** 只保留在该分档下确实有集的订阅，且订阅里的集也只留该分档的——否则筛完还是整条全展开 */
+  /** 选中的筛选项在新报告里已经没有条目了就退回「全部」 */
+  const resetFiltersIfGone = () => {
+    if (activeBucket.value && !(report.value.bucketCounts[activeBucket.value] > 0)) {
+      activeBucket.value = ''
+    }
+    if (activeDiagnosis.value && !(report.value.diagnosisCounts[activeDiagnosis.value] > 0)) {
+      activeDiagnosis.value = ''
+    }
+  }
+
+  /**
+   * 按分档 + 诊断两维筛选。
+   * <p>
+   * 命中的订阅里，集也只留符合条件的那些——否则筛完还是整条全展开，等于没筛。
+   * 两维是叠加关系（「逾期缺失」且「候选被过滤」），因为它们回答的是不同的问题：
+   * 分档说的是处置方向（去看搜索链路还是去看下载链路），诊断说的是具体成因。
+   * </p>
+   */
   const subscriptions = computed<SubscriptionHealthItem[]>(() => {
     const bucket = activeBucket.value
-    if (!bucket) return report.value.subscriptions
+    const diagnosis = activeDiagnosis.value
+    if (!bucket && !diagnosis) return report.value.subscriptions
     return report.value.subscriptions
-      .filter((s) => s.buckets.includes(bucket))
-      .map((s) => ({ ...s, episodes: s.episodes.filter((e) => e.bucket === bucket) }))
+      .filter((s) => (!bucket || s.buckets.includes(bucket))
+        && (!diagnosis || s.diagnoses.includes(diagnosis)))
+      .map((s) => ({
+        ...s,
+        episodes: s.episodes.filter((e) => (!bucket || e.bucket === bucket)
+          && (!diagnosis || e.diagnosis === diagnosis))
+      }))
+      // 诊断挂在集上，按诊断筛完可能把一条订阅的集全滤光（该订阅的其它集是别的诊断）
+      .filter((s) => s.episodes.length > 0)
   })
+
+  /** 当前筛选下的作品数与集数。左上角的汇总要跟着筛选走，否则会和选中的档位数字打架 */
+  const filteredCount = computed(() => ({
+    subscriptionCount: subscriptions.value.length,
+    episodeCount: subscriptions.value.reduce((sum, s) => sum + s.episodes.length, 0)
+  }))
+
+  /** 是否处于筛选态，供页面决定汇总文案说「共」还是「筛出」 */
+  const filtering = computed(() => Boolean(activeBucket.value || activeDiagnosis.value))
 
   /** 有集在场的分档才做成标签页，空档不显示 */
   const bucketTabs = computed(() =>
     Object.keys(BUCKET_META)
       .filter((key) => (report.value.bucketCounts[key] || 0) > 0)
       .map((key) => ({ key, count: report.value.bucketCounts[key], ...bucketMeta(key) }))
+  )
+
+  /**
+   * 诊断标签页。后端一直在算并返回 diagnosisCounts，此前前端一次都没用过。
+   * 诊断比分档更贴近「我现在该做什么」：「未开启自动补搜」这一档正好对应页头那个批量按钮，
+   * 「候选被过滤」对应去松过滤规则，两者的动作完全不同。
+   */
+  const diagnosisTabs = computed(() =>
+    Object.keys(DIAGNOSIS_META)
+      .filter((key) => (report.value.diagnosisCounts[key] || 0) > 0)
+      .map((key) => ({ key, count: report.value.diagnosisCounts[key], ...diagnosisMeta(key) }))
   )
 
   /**
@@ -154,13 +234,35 @@ export function usePtHealth() {
     subscriptions.value.filter((s) => !s.autoSearch).map((s) => s.subId)
   )
 
+  /**
+   * 开启自动补搜。不传 ids 就是批量开启当前筛选下的全部。
+   * <p>
+   * 批量那条要二次确认：auto_search 默认关是刻意的设计（每条开着的订阅每轮都要向每个
+   * 索引器打满一整份检索计划，追完的老剧全开会长期空转），一次开几十条是有持续代价的
+   * 配置变更，不是一次性动作。逐行开启只影响一条，不打断用户。
+   * </p>
+   */
   const handleEnableAutoSearch = async (ids?: number[]) => {
-    const targets = ids && ids.length > 0 ? ids : autoSearchOffIds.value
+    const isBatch = !ids || ids.length === 0
+    const targets = isBatch ? autoSearchOffIds.value : ids
     if (targets.length === 0) {
       message.info('当前列表里没有需要开启自动补搜的订阅')
       return
     }
-    acting.value = true
+    if (isBatch) {
+      try {
+        await confirm({
+          message: `确认为当前列表里的 ${targets.length} 条订阅开启自动补搜？`
+            + '开启后它们每轮心跳都会向所有索引器发起检索，直到缺集补齐或你手动关掉。',
+          title: '提示',
+          type: 'warning'
+        })
+      } catch {
+        return
+      }
+    }
+    batchActing.value = isBatch
+    if (!isBatch) actingSubId.value = targets[0]
     try {
       const count = await enableAutoSearchApi(targets)
       message.success(`已为 ${count} 条订阅开启自动补搜`)
@@ -169,12 +271,13 @@ export function usePtHealth() {
       // 拦截器已经弹过后端的真实原因，这里再补一句通用文案只会把它盖掉
       console.error(e)
     } finally {
-      acting.value = false
+      batchActing.value = false
+      actingSubId.value = null
     }
   }
 
   const handleSearchNow = async (subId: number) => {
-    acting.value = true
+    actingSubId.value = subId
     try {
       const msg = await searchMissingApi(subId)
       message.success(msg || '补搜完成')
@@ -182,9 +285,14 @@ export function usePtHealth() {
     } catch (e) {
       console.error(e)
     } finally {
-      acting.value = false
+      actingSubId.value = null
     }
   }
+
+  /** 这一行是不是正在跑动作。批量进行中时所有行也一并锁住，避免并发改同一批数据 */
+  const isActing = (subId: number) => batchActing.value || actingSubId.value === subId
+  /** 有任何动作在跑（批量按钮与刷新按钮据此禁用） */
+  const anyActing = computed(() => batchActing.value || actingSubId.value !== null)
 
   const router = useRouter()
   /**
@@ -196,14 +304,22 @@ export function usePtHealth() {
     if (path) router.push({ path, query: { id: String(subId) } })
   }
 
+  /** 点已选中的档再点一次就取消筛选——比强迫用户去找「全部」那颗 chip 顺手 */
   const setBucket = (bucket: string) => {
-    activeBucket.value = bucket
+    activeBucket.value = activeBucket.value === bucket ? '' : bucket
+  }
+
+  const setDiagnosis = (diagnosis: string) => {
+    activeDiagnosis.value = activeDiagnosis.value === diagnosis ? '' : diagnosis
   }
 
   load()
 
   return {
-    loading, acting, report, activeBucket, subscriptions, bucketTabs, autoSearchOffIds,
-    load, handleEnableAutoSearch, handleSearchNow, openSubscription, setBucket
+    loading, loadFailed, lastLoadedAt, report,
+    activeBucket, activeDiagnosis, subscriptions, filteredCount, filtering,
+    bucketTabs, diagnosisTabs, autoSearchOffIds,
+    actingSubId, batchActing, isActing, anyActing,
+    load, handleEnableAutoSearch, handleSearchNow, openSubscription, setBucket, setDiagnosis
   }
 }

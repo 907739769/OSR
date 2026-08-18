@@ -56,7 +56,15 @@ export function enableAutoSearchApi(ids: number[]) {
  * 对一条订阅立刻补搜它当前所有缺集，返回一句人话结果。
  * 落空时后端走 Result.error，由 request 拦截器统一弹出真实原因（候选被过滤 / 压根没搜到），
  * 业务层 catch 里不要再补一句通用的「补搜失败」把它盖掉。
+ *
+ * **必须覆盖默认超时**：request.ts 的默认值是 15 秒，而这个接口是同步跑完整轮检索才返回的，
+ * 后端自己给的量级是「每个索引器 30 秒软上限、索引器之间并发」——按默认值它会稳定地在
+ * 15 秒被前端掐断，而后端还在跑、多半还真的推送成功了。用户看到的是一句网络错误，
+ * 于是再点一次，索引器被打两遍。订阅页的 searchSupplementApi 早就为此写了 60 秒，
+ * 这里当初漏了。
  */
 export function searchMissingApi(subId: number) {
-  return request.post<any, string>(`/openliststrm/pt-health/${subId}/search-missing`)
+  return request.post<any, string>(`/openliststrm/pt-health/${subId}/search-missing`, null, {
+    timeout: 60000
+  })
 }
