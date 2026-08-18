@@ -3,6 +3,7 @@ import { message } from '@/composables/useMessage'
 import { confirm } from '@/composables/useConfirm'
 import { useTaskList } from './useTaskList'
 import { usePtStatusSocket } from './usePtStatusSocket'
+import { bytesToGb, gbToBytes } from './sizeUnits'
 import {
   getPtSubscriptionListApi,
   addPtSubscriptionApi,
@@ -273,8 +274,7 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
 
   const FILTER_OVERRIDE_KEYS = Object.keys(filterOverrideForm) as Array<keyof typeof filterOverrideForm>
 
-  /** 前端用 GB 显示，后端存字节；1 GB = 1073741824 字节 */
-  const GB = 1073741824
+  /** 前端用 GB 显示，后端存字节；换算见 composables/sizeUnits */
   const sizeFields = new Set<keyof typeof filterOverrideForm>(['minSize', 'maxSize', 'preferredSize'])
 
   const openFilterOverride = (row: any) => {
@@ -293,9 +293,9 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
     FILTER_OVERRIDE_KEYS.forEach((key) => {
       if (Object.prototype.hasOwnProperty.call(parsed, key)) {
         filterOverrideForm[key].enabled = true
-        // 体积字段后端存字节，前端显示 GB（除以 GB），未定义或0时展示0
+        // 体积字段后端存字节，前端显示 GB（保留小数），未定义或0时展示0
         filterOverrideForm[key].value = sizeFields.has(key)
-          ? Math.round((parsed[key] as number) / GB)
+          ? bytesToGb(parsed[key] as number)
           : parsed[key]
       }
     })
@@ -309,9 +309,9 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
       const override: Record<string, any> = {}
       FILTER_OVERRIDE_KEYS.forEach((key) => {
         if (filterOverrideForm[key].enabled) {
-          // 体积字段前端显示 GB，后端存字节（乘以 GB）
+          // 体积字段前端显示 GB，后端存字节（取整到整数字节）
           override[key] = sizeFields.has(key)
-            ? (filterOverrideForm[key].value as number) * GB
+            ? gbToBytes(filterOverrideForm[key].value as number)
             : filterOverrideForm[key].value
         }
       })

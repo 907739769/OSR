@@ -6,6 +6,7 @@ import {
   getSortDimensionsApi,
   type PtFilterConfig
 } from '@/api/openlist/ptFilterConfig'
+import { bytesToGb, gbToBytes } from '@/composables/sizeUnits'
 
 /** 各排序维度的中文说明，键必须与后端 SortDimension 枚举名一致 */
 const DIMENSION_LABELS: Record<string, string> = {
@@ -25,9 +26,6 @@ export function usePtFilterConfig() {
   const loading = ref(false)
   const saving = ref(false)
   const formRef = ref<any>()
-
-  /** 1 GB = 1073741824 字节 */
-  const GB = 1073741824
 
   const sizeFields = new Set(['minSize', 'maxSize', 'preferredSize'] as const)
 
@@ -70,10 +68,10 @@ export function usePtFilterConfig() {
         getPtFilterConfigApi(),
         getSortDimensionsApi()
       ])
-      // 体积字段后端存字节，前端显示 GB
+      // 体积字段后端存字节，前端显示 GB（保留小数，见 sizeUnits）
       const gbConfig = { ...config }
       for (const field of sizeFields) {
-        gbConfig[field] = Math.round((config[field] || 0) / GB)
+        gbConfig[field] = bytesToGb(config[field])
       }
       Object.assign(form, gbConfig)
       allDimensions.value = dimensions || []
@@ -115,7 +113,7 @@ export function usePtFilterConfig() {
       // 体积字段前端显示 GB，后端存字节
       const bytesForm: any = { ...form, sortPriority: sortOrder.value.join(',') }
       for (const field of sizeFields) {
-        bytesForm[field] = (form[field] || 0) * GB
+        bytesForm[field] = gbToBytes(form[field])
       }
       await updatePtFilterConfigApi(bytesForm)
       message.success('保存成功')

@@ -192,6 +192,13 @@ ptTorrentBlacklist / wecomUser（即全部 `.card-grid` 页面）。新增卡片
 - 移动端页面不要使用 PC 端组件 (Vuetify PC 组件)
 - 每个页面都要考虑H5端的适配
 - 列表页不要各自实现分页/搜索逻辑，复用 `useTaskList`/`useRecordList`
+- **允许小数的 `type="number"` 必须写 `step`，体积字段的 GB↔字节换算只有 `composables/sizeUnits.ts` 一份**。
+  不写 step 时浏览器默认 step=1，输入 1.5 会被判成非法值、整个表单提交不了——PT 过滤规则的
+  体积下限/上限/偏好体积踩过一次，而报错只是输入框下方一句「请输入有效值」，很容易读成前端坏了。
+  换算侧同样不能取整：`Math.round(bytes / GB)` 会把 500MB 这类阈值显示成 **0**，
+  而 0 在过滤规则里的语义是「不限」——用户一保存，阈值不是变粗了，是静默失效了。
+  step 的粒度（`0.01`）与 `bytesToGb` 的小数位必须一致，否则回填的值不满足 step 约束，
+  浏览器会把一个刚刚存进去的合法值标成非法。提交侧必须 `Math.round` 到整数字节：后端字段是 Long。
 - **勾选逻辑只有一份：`composables/usePageSelection.ts`**，`useTaskList` / `useRecordList` 都内置了它，
   业务 composable 不要再自己写 `toggleSelect` / `handleCardClick` / `clearSelection` / 全选本页。
   曾经这四个函数在 7 个业务 composable 里各抄一份，其中三份还顺手手动同步 `single`/`multiple`
