@@ -170,4 +170,69 @@ class TorrentFilterEnginePickBestTest {
         assertEquals("存活且分辨率较高", best.getTitle(),
                 "赢家应是存活候选中分辨率最高的那个，而不是被淘汰的\"完美种\"");
     }
+
+    /**
+     * 做种数下限配成 0（不限）时，0 做种的候选合法地进入择优池——此时不能让它靠分辨率赢。
+     * <p>
+     * 这是真实事故的回归用例：缺集体检批量开启自动补搜后，补搜把老剧的死种翻了出来，
+     * 默认排序 {@code RESOLUTION,FREE,SEEDERS,SIZE} 把分辨率排在做种数之前，
+     * 于是分辨率最高的那个死种赢下择优、推给下载器后一动不动，占着并发名额直到僵尸超时。
+     * </p>
+     */
+    @Test
+    void 有活种可选时_分辨率最高的死种不该赢() {
+        List<TorrentInfo> candidates = List.of(
+                torrent("4K但无人做种", "2160p", true, 0, 5_000_000_000L),
+                torrent("1080有人做种", "1080p", false, 8, 3_000_000_000L));
+
+        // 做种数下限 0（不限），排序按默认的分辨率优先
+        FilterCriteria criteria = FilterCriteria.builder()
+                .minSeeders(0)
+                .resolutionPriority(List.of("2160p", "1080p", "720p"))
+                .sortPriority(List.of(SortDimension.RESOLUTION, SortDimension.FREE, SortDimension.SEEDERS))
+                .build();
+
+        List<TorrentInfo> survivors = engine.filter(candidates, criteria, TorrentBlacklist.EMPTY, null);
+        TorrentInfo best = engine.pickBest(survivors, criteria);
+
+        assertEquals(2, survivors.size(), "下限为 0 时 0 做种不该被硬过滤淘汰");
+        assertEquals("1080有人做种", best.getTitle(),
+                "「有人做种」自成一档，排在分辨率之前——下不下来与好不好不是同一个量纲");
+    }
+
+    /**
+     * 分档只在「有活种可选」时生效：全场都没人做种时（部分索引器压根不返回 seeders，
+     * 解析后全是 0），所有候选同档，配置的维度顺序照常决定赢家。
+     */
+    @Test
+    void 全场都无人做种时_维度顺序照常决定赢家() {
+        List<TorrentInfo> candidates = List.of(
+                torrent("720死种", "720p", false, 0, 1_000_000_000L),
+                torrent("4K死种", "2160p", false, 0, 5_000_000_000L));
+
+        TorrentInfo best = engine.pickBest(candidates,
+                criteria(List.of(SortDimension.RESOLUTION), 0L));
+
+        assertEquals("4K死种", best.getTitle());
+    }
+
+    /**
+     * 手动搜索候选列表用 {@code sortComparator} 排序、自动推送用 {@code pickBest} 择优，
+     * 两者必须是同一口径：否则用户在列表里看到排第一的那个，与自动推送实际选中的不是同一个种子。
+     */
+    @Test
+    void 列表排序与择优同一口径() {
+        FilterCriteria criteria = criteria(
+                List.of(SortDimension.RESOLUTION, SortDimension.FREE, SortDimension.SEEDERS), 0L);
+        List<TorrentInfo> candidates = new ArrayList<>(List.of(
+                torrent("4K但无人做种", "2160p", true, 0, 5_000_000_000L),
+                torrent("1080有人做种", "1080p", false, 8, 3_000_000_000L),
+                torrent("720多做种", "720p", false, 200, 2_000_000_000L)));
+
+        TorrentInfo best = engine.pickBest(candidates, criteria);
+        candidates.sort(engine.sortComparator(criteria));
+
+        assertEquals(best.getTitle(), candidates.get(0).getTitle());
+        assertEquals("1080有人做种", candidates.get(0).getTitle());
+    }
 }

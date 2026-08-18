@@ -141,11 +141,48 @@ public class TorrentFilterEngine {
     }
 
     /**
+     * 「有做种者」自成一档，排在所有配置维度之前——0 做种的候选只有在<b>全场都没人做种</b>时才会被选中。
+     * <p>
+     * 做种数本身已经是 {@link SortDimension#SEEDERS} 这一维，但那是把它与分辨率、体积放在一起权衡，
+     * 而「没人做种」与画质根本不是同一个量纲：它不是「稍差一点」，是<b>下不下来</b>，价值为零。
+     * 默认排序 {@code RESOLUTION,FREE,SEEDERS,SIZE} 把分辨率排在做种数之前，于是只要死种的分辨率
+     * 最高，它就会赢过所有能下完的候选。踩过一次：缺集体检批量打开自动补搜后，补搜把老剧的死种
+     * 翻了出来（RSS 只看新发布的种子，几乎都有人做种，这条路径长期掩盖了问题），择优挑中它，
+     * 下载器挂着一动不动，占着并发名额直到 24 小时僵尸超时才被收回。
+     * </p>
+     * <p>
+     * 刻意<b>不</b>做成硬过滤——那是 {@link FilterCriteria#minSeeders()} 的职责，两者分工不同：
+     * 部分索引器压根不返回 seeders 属性，{@code TorznabParser} 缺失时按 0 处理，这些站点的候选
+     * 全是 0 做种，硬过滤一刀切会让它们一条都下不了，而把下限配成 0 恰恰是这类用户的正当用法。
+     * 分档只在「有活种可选」时生效，全场皆 0 时所有候选同档，行为与引入前完全一致。
+     * </p>
+     */
+    private static final Comparator<TorrentInfo> SEEDED_FIRST =
+            Comparator.comparingInt(t -> t.getSeeders() > 0 ? 0 : 1);
+
+    /**
+     * 择优与排序用的比较器：{@link #SEEDED_FIRST} 打头，其后按 {@link FilterCriteria#sortPriority()}
+     * 的维度顺序 thenComparing 串联。语义与各维度一致：{@code compare(a, b) < 0} 表示 a 更值得下载。
+     * <p>
+     * 自动择优（{@link #pickBest}）与手动搜索候选列表的展示排序共用本方法，不各写一份：
+     * 两处一旦漂移，用户在候选列表里看到排第一的那个，与自动推送实际选中的那个就不是同一个，
+     * 而这种不一致不报错、不告警，只能靠逐条比对才发现。
+     * </p>
+     */
+    public Comparator<TorrentInfo> sortComparator(FilterCriteria criteria) {
+        Comparator<TorrentInfo> comparator = SEEDED_FIRST;
+        for (SortDimension dimension : criteria.sortPriority()) {
+            comparator = comparator.thenComparing(dimension.comparator(criteria));
+        }
+        return comparator;
+    }
+
+    /**
      * 从候选中挑出最优的一个。
      * <p>
-     * 按 {@link FilterCriteria#sortPriority()} 的维度顺序，把各维度的比较器用
-     * thenComparing 串联后取排在最前的那个。维度顺序由配置决定，因此同一批候选
-     * 在不同配置下会选出不同的赢家——这正是「排序权重可调」的实现方式。
+     * 先按 {@link #SEEDED_FIRST} 分档（有人做种的一律优先），再按 {@link FilterCriteria#sortPriority()}
+     * 的维度顺序比较。维度顺序由配置决定，因此同一批候选在不同配置下会选出不同的赢家——
+     * 这正是「排序权重可调」的实现方式，而分档那一层不可配：它排除的是下不下来，不是好不好。
      * </p>
      * <p>
      * 全部维度都判同级时返回列表中的第一个（比较过程不改变入参列表的顺序）。
@@ -157,15 +194,7 @@ public class TorrentFilterEngine {
         if (candidates.isEmpty()) {
             return null;
         }
-        Comparator<TorrentInfo> comparator = null;
-        for (SortDimension dimension : criteria.sortPriority()) {
-            Comparator<TorrentInfo> next = dimension.comparator(criteria);
-            comparator = (comparator == null) ? next : comparator.thenComparing(next);
-        }
-        if (comparator == null) {
-            // FilterCriteria 保证 sortPriority 非空，这里只是防御
-            return candidates.get(0);
-        }
+        Comparator<TorrentInfo> comparator = sortComparator(criteria);
 
         TorrentInfo best = candidates.get(0);
         for (int i = 1; i < candidates.size(); i++) {
@@ -174,8 +203,16 @@ public class TorrentFilterEngine {
                 best = candidates.get(i);
             }
         }
-        log.debug("择优结果：{}（候选 {} 个，维度顺序 {}）",
-                best.getTitle(), candidates.size(), criteria.sortPriority());
+        if (best.getSeeders() <= 0) {
+            // 走到这里说明候选无一例外都没人做种（有一个有做种者的话 SEEDED_FIRST 就会选它）。
+            // 用 warn 而不是 debug：推下去多半会挂到僵尸超时，而用户从现象上只看到「下载不动」，
+            // 想不到要去查做种数——这一条日志是他唯一的线索
+            log.warn("择优选中的候选无人做种：{}（{} 个候选全部 0 做种，做种数下限 {}；"
+                            + "下限配成 0 表示不限，索引器不返回 seeders 时也会解析成 0）",
+                    best.getTitle(), candidates.size(), criteria.minSeeders());
+        }
+        log.debug("择优结果：{}（{} 做种，候选 {} 个，维度顺序 {}）",
+                best.getTitle(), best.getSeeders(), candidates.size(), criteria.sortPriority());
         return best;
     }
 

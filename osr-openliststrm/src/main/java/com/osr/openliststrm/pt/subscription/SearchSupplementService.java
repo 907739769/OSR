@@ -18,7 +18,6 @@ import com.osr.openliststrm.mybatisplus.service.IPtTorrentBlacklistPlusService;
 import com.osr.openliststrm.pt.filter.EpisodeCountResolver;
 import com.osr.openliststrm.pt.filter.FilterCriteria;
 import com.osr.openliststrm.pt.filter.FilterCriteriaFactory;
-import com.osr.openliststrm.pt.filter.SortDimension;
 import com.osr.openliststrm.pt.filter.TorrentBlacklist;
 import com.osr.openliststrm.pt.filter.TorrentFilterEngine;
 import com.osr.openliststrm.pt.indexer.IndexerCapability;
@@ -37,7 +36,6 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.Date;
 import java.util.EnumMap;
 import java.util.HashSet;
@@ -206,15 +204,10 @@ public class SearchSupplementService {
                     .map(TorrentFilterEngine.Verdict::torrent)
                     .collect(Collectors.toCollection(ArrayList::new));
 
-            // 按配置的排序维度排序（与自动推送模式的择优逻辑一致）
-            Comparator<TorrentInfo> sortComparator = null;
-            for (SortDimension dimension : criteria.sortPriority()) {
-                Comparator<TorrentInfo> next = dimension.comparator(criteria);
-                sortComparator = (sortComparator == null) ? next : sortComparator.thenComparing(next);
-            }
-            if (sortComparator != null) {
-                survivors.sort(sortComparator);
-            }
+            // 排序口径与自动推送模式的择优完全一致：同一个比较器（含「有做种者优先」那一档），
+            // 不在这里另抄一份维度串联逻辑，否则候选列表里排第一的那个与自动推送实际选中的
+            // 那个会悄悄变成两个种子
+            survivors.sort(filterEngine.sortComparator(criteria));
 
             sub.setLastSearchTime(new Date());
             subscriptionService.updateById(sub);

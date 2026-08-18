@@ -204,6 +204,10 @@ docker compose up -d --build --no-deps backend
 - **PT 过滤的关键词有标题、描述两套，判定对象不同、缺失时的取向也相反**。`exclude_keywords` 只匹配标题，`description_exclude_keywords` 只匹配描述（`TorrentFilterEngine#rejectReason`，两条相邻）。加后者是因为有一类属性标题里根本不写——蓝光原盘最典型：国内站只在种子描述里标一句「原盘」，标题与压制版逐字同构，两者都解析成 `source=BluRay`，来源白名单分不开；体积上限虽能挡住原盘，却会连体积区间重叠的 REMUX 一起切掉，而 REMUX 是 mkv、播放器本来吃得下。两条不要改坏的：
   1. **标题为空一律淘汰（`BLANK_TITLE`），描述为空一律放行**。标题是索引器必给的字段，描述不是——不少索引器压根不返回 `<description>`，按「判不出即淘汰」处理会把这些站点的候选整批清光。
   2. **`EXCLUDED_DESCRIPTION_KEYWORD` 与 `EXCLUDED_KEYWORD` 是两个码，别合并**。命中的是标题还是描述，决定用户该去改哪个输入框，聚合成一个就分不出来了。
+- **择优时「有人做种」自成一档，排在所有排序维度之前**（`TorrentFilterEngine#SEEDED_FIRST`，与 `pickBest`/手动列表排序共用的 `sortComparator`）。做种数本来就是 `SortDimension.SEEDERS` 这一维，但那是把它与分辨率、体积放在一起权衡，而「没人做种」与画质根本不是同一个量纲：它不是「稍差一点」，是**下不下来**，价值为零。默认排序 `RESOLUTION,FREE,SEEDERS,SIZE` 把分辨率排在做种数之前，于是分辨率最高的死种会赢过所有能下完的候选。事故：缺集体检批量打开自动补搜后，补搜把老剧的死种翻了出来（**RSS 路径长期掩盖了这个问题**——它只看新发布的种子，几乎都有人做种，做种数这一维平时根本不起作用，配错了也看不出来），择优挑中一个 0 做种的 2160p，下载器挂着一动不动，占着并发名额直到 24 小时僵尸超时才被收回。三条不要改坏的：
+  1. **分档不是硬过滤，硬过滤是 `FilterCriteria#minSeeders` 的职责，两者分工不同**。部分索引器压根不返回 `seeders` 属性，`TorznabParser` 缺失时按 0 处理（**与相邻的 `files` 刻意相反**：那个用 null 表示"索引器没给"），这些站点的候选全是 0 做种，硬拒一刀切会让它们一条都下不了，而把下限配成 0 恰恰是这类用户的正当用法。分档只在「有活种可选」时生效，全场皆 0 时所有候选同档，行为与引入前完全一致。
+  2. **全场皆死种而选中 0 做种时必须 warn**。用户从现象上只看到「下载不动」，而做种数是他最想不到要去查的地方——推下去多半要挂到僵尸超时，这一条日志是唯一的线索。
+  3. **列表排序与择优必须共用 `sortComparator`，不要各写一份维度串联**。手动搜索候选列表按它排序、自动推送按它择优，一旦漂移，用户在列表里看到排第一的那个与自动推送实际选中的就不是同一个种子，而这种不一致不报错、不告警，只能逐条比对才发现（原先 `SearchSupplementService` 里确实抄了一份）。
 - **STRM 生成的「输出根目录 / 是否下字幕 / 最小体积」可按任务覆盖**，存在 `openlist_strm_task.strm_override`（JSON），合并规则见 `StrmSettingsFactory`——照 `pt_subscription.filter_override` 的约定，只有出现在 JSON 里的键才覆盖，该列为空时行为与引入前完全一致。两条不要改坏的约定：
   1. **`strmDir`/`strmOneFile` 按路径反查任务，不要改成让调用方传任务**。半数调用方手里根本没有任务对象（`AsynHelper` 的复制完成触发、`CopyRecoveryTask` 的兜底恢复、TG 的 `/strm <路径>`），它们退回全局配置就会让同一目录因「谁触发的」而输出到不同根目录，长出两棵 STRM 树，一致性检查还会把其中一棵报成孤儿。匹配走 `pickCoveringTask`：落在路径分隔符上、取最长（最具体）的任务、停用的任务照样参与。
   2. **URL 编码开关与视频/字幕扩展名刻意不可覆盖**。encode 有三个解码侧消费者（`RenameOrphanScanServiceImpl`、`RenameCleanupService`、`StrmSourcePathResolver` 都要从 .strm 内容反解回网盘路径），扩展名是 `sys_dict` 全站字典；两者都是「播放器吃什么」的全局属性，分库配置只会制造解不开的历史数据。
