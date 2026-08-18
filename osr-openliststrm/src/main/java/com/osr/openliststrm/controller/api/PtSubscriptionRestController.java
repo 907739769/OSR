@@ -6,9 +6,11 @@ import com.osr.common.core.domain.Result;
 import com.osr.common.core.domain.entity.SysUser;
 import com.osr.common.core.text.Convert;
 import com.osr.common.utils.StringUtils;
+import com.osr.openliststrm.mybatisplus.domain.PtIndexerPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSearchLogPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
+import com.osr.openliststrm.mybatisplus.service.IPtIndexerPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSearchLogPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
@@ -19,6 +21,7 @@ import com.osr.openliststrm.pt.subscription.SubscriptionService;
 import com.osr.openliststrm.pt.subscription.TmdbSearchService;
 import com.osr.openliststrm.pt.subscription.dto.BatchOperationResult;
 import com.osr.openliststrm.pt.subscription.dto.PushSelectedRequest;
+import com.osr.openliststrm.pt.subscription.dto.SearchLogView;
 import com.osr.openliststrm.pt.subscription.dto.SearchRequest;
 import com.osr.openliststrm.pt.subscription.dto.SubscribeRequest;
 import com.osr.openliststrm.pt.subscription.dto.SubscriptionProgress;
@@ -31,6 +34,8 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * PT 订阅 REST API 控制器
@@ -60,6 +65,9 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
 
     @Autowired
     private IPtSearchLogPlusService searchLogService;
+
+    @Autowired
+    private IPtIndexerPlusService indexerService;
 
     /**
      * 当前登录用户是否可以看到/操作所有订阅。管理员可以；其余用户只能碰自己的订阅
@@ -232,10 +240,16 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
 
     /**
      * 查订阅最近的匹配/过滤日志，供排查"这一轮为什么没抓到"。按 id 倒序，最多取 100 条。
+     * <p>
+     * 带上索引器名一起返回：同一个种子会被<b>多个索引器各返回一份</b>（去重键是
+     * {@code (indexerId, guid)}），各家给出的做种数可能互相矛盾——一份报 0 被 {@code LOW_SEEDERS}
+     * 淘汰、另一份报正数照常推送。只显示标题的话，用户看到的是"两条一模一样的记录，
+     * 一条通过一条不通过"，完全无从判断差别在哪。
+     * </p>
      */
     @GetMapping("/{id}/search-logs")
-    public Result<List<PtSearchLogPlus>> searchLogs(@PathVariable("id") Integer id) {
-        Result<List<PtSearchLogPlus>> denied = denyIfInaccessible(id);
+    public Result<List<SearchLogView>> searchLogs(@PathVariable("id") Integer id) {
+        Result<List<SearchLogView>> denied = denyIfInaccessible(id);
         if (denied != null) {
             return denied;
         }
@@ -243,7 +257,25 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
                 .eq(PtSearchLogPlus::getSubId, id)
                 .orderByDesc(PtSearchLogPlus::getId)
                 .last("limit 100"));
-        return Result.success(logs);
+        // 一次查全量索引器建映射：日志最多 100 条但索引器通常只有个位数，
+        // 逐条 getById 会打出几十次重复查询
+        Map<Integer, String> indexerNames = indexerService.list().stream()
+                .collect(Collectors.toMap(PtIndexerPlus::getId, PtIndexerPlus::getName, (a, b) -> a));
+        return Result.success(logs.stream().map(row -> {
+            SearchLogView view = new SearchLogView();
+            view.setId(row.getId());
+            view.setEpisode(row.getEpisode());
+            view.setSource(row.getSource());
+            view.setTorrentTitle(row.getTorrentTitle());
+            view.setIndexerId(row.getIndexerId());
+            // 索引器已被删除时留空，与下载记录页对 indexerName 的处理一致
+            view.setIndexerName(row.getIndexerId() == null ? null : indexerNames.get(row.getIndexerId()));
+            view.setAccepted(row.getAccepted());
+            view.setReasonCode(row.getReasonCode());
+            view.setReason(row.getReason());
+            view.setCreateTime(row.getCreateTime());
+            return view;
+        }).toList());
     }
 
     /**

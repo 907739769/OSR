@@ -461,7 +461,7 @@
     </v-dialog>
 
     <!-- 匹配日志 -->
-    <v-dialog v-model="searchLogOpen" max-width="600">
+    <v-dialog v-model="searchLogOpen" max-width="760">
       <v-card title="匹配日志">
         <v-card-text>
           <v-data-table
@@ -479,6 +479,7 @@
               <StatusChip :type="item.source === 'RSS' ? 'info' : 'primary'" :text="item.source === 'RSS' ? 'RSS轮询' : '搜索补集'" />
             </template>
             <template #item.torrentTitle="{ item }">{{ item.torrentTitle || '-' }}</template>
+            <template #item.indexerName="{ item }">{{ item.indexerName || '-' }}</template>
             <template #item.accepted="{ item }">
               <StatusChip v-if="item.accepted === '1'" type="success" text="通过" />
               <StatusChip v-else type="error" text="淘汰" />
@@ -761,6 +762,9 @@ const searchLogHeaders = [
   { title: '时间', key: 'createTime', sortable: false, width: 160 },
   { title: '来源', key: 'source', sortable: false, width: 90 },
   { title: '种子标题', key: 'torrentTitle', sortable: false, minWidth: '200' },
+  // 同一个种子会被多个索引器各返回一份，各家的做种数可能互相矛盾（一份报 0 被淘汰、
+  // 另一份报正数照常推送）。不显示索引器的话，这两条在页面上是一模一样的两行
+  { title: '索引器', key: 'indexerName', sortable: false, width: 120 },
   { title: '结果', key: 'accepted', sortable: false, width: 80 },
   { title: '原因', key: 'reason', sortable: false, minWidth: '180' }
 ]
