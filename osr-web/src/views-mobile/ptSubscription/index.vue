@@ -321,7 +321,13 @@
         <v-card-text>
           <v-progress-linear v-if="progressLoading" indeterminate color="primary" class="mb-3" />
           <template v-if="progress">
-            <p class="progress-title">{{ progress.title }}</p>
+            <p class="progress-title">
+              {{ progress.title }}
+              <!-- 不带季号的话，同一部剧的两条订阅弹出来的进度长得一模一样 -->
+              <span v-if="seasonLabel(currentSubscription)" class="progress-season">
+                {{ seasonLabel(currentSubscription) }}
+              </span>
+            </p>
             <v-progress-linear
               :model-value="progress.totalEpisodes ? Math.round((progress.inLibraryCount / progress.totalEpisodes) * 100) : 0"
               color="primary"
@@ -359,6 +365,11 @@
               <div v-for="ep in episodeDetail" :key="ep.episode" class="episode-detail-row">
                 <span class="ep-num">第{{ ep.episode }}集</span>
                 <StatusChip :type="episodeStateColor(ep.state)" :text="episodeStateLabel(ep.state)" />
+                <!-- 未播出的集恒为「缺失」，标出来能省掉一整轮「为什么搜不到」的排查 -->
+                <span v-if="episodeAirDate(ep)" class="ep-date">
+                  {{ episodeAirDate(ep) }}
+                  <span v-if="episodeUnaired(ep)" class="ep-unaired">未播出</span>
+                </span>
                 <span v-if="qualityLabel(ep)" class="ep-quality" :title="upgradeStateHint(ep)">
                   {{ qualityLabel(ep) }}
                 </span>
@@ -715,7 +726,7 @@ const {
   visibleMissingEpisodes, missingHiddenCount, expandMissing,
   episodeDetailOpen, episodeDetailLoading, episodeDetail, resettingEpisode,
   loadEpisodeDetail, handleResetEpisode, episodeStateLabel, episodeStateColor,
-  qualityLabel, upgradeStateHint,
+  qualityLabel, upgradeStateHint, seasonLabel, episodeAirDate, episodeUnaired,
   searchLogOpen, searchLogLoading, searchLogs, showSearchLogs,
   searchLogRejectedOnly, visibleSearchLogs,
   filterOverrideOpen, filterOverrideSaving, filterOverrideForm,
@@ -835,10 +846,24 @@ onMounted(() => {
 .episode-detail-row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  /* 移动端宽度有限，多出播出日期后允许换行，否则日期会把质量摘要挤没 */
+  flex-wrap: wrap;
+  gap: 6px 10px;
   padding: 6px 0;
   font-size: 13px;
   border-bottom: 1px solid var(--osr-border-light);
+
+  .ep-date {
+    flex-shrink: 0;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--osr-text-secondary);
+  }
+
+  .ep-unaired {
+    margin-left: 4px;
+    color: var(--osr-text-disabled);
+  }
 
   .ep-quality {
   flex: 1;
@@ -1034,6 +1059,13 @@ onMounted(() => {
   margin: 0 0 12px;
   font-size: 15px;
   font-weight: 600;
+}
+
+.progress-season {
+  margin-left: 6px;
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--osr-text-secondary);
 }
 
 .all-done {

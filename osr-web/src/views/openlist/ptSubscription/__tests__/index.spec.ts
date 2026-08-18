@@ -119,6 +119,15 @@ function baseComposable(overrides: Record<string, any> = {}) {
     resettingEpisode: ref(false),
     loadEpisodeDetail: vi.fn(),
     handleResetEpisode: vi.fn(),
+    // 进度弹窗与每集明细里用到的展示函数。当前用例都不打开这两块，
+    // 但漏了桩的话下次谁给 progress 塞了值就会炸在一个与他改动无关的地方
+    episodeStateLabel: vi.fn(() => '缺失'),
+    episodeStateColor: vi.fn(() => 'info'),
+    qualityLabel: vi.fn(() => ''),
+    upgradeStateHint: vi.fn(() => ''),
+    seasonLabel: vi.fn(() => ''),
+    episodeAirDate: vi.fn(() => ''),
+    episodeUnaired: vi.fn(() => false),
     searchManualSelect: ref(false),
     isAllPageSelected: ref(false),
     toggleSelectAllPage: vi.fn(),

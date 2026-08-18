@@ -250,3 +250,54 @@ describe('usePtSubscription 批量模式开关', () => {
     expect(composable.selectedIds.value).toEqual([])
   })
 })
+
+describe('usePtSubscription 季号与播出日期', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(getPtSubscriptionListApi as any).mockResolvedValue({ records: [], total: 0 })
+  })
+
+  it('剧集给出季号文案，第 0 季按「特别篇」显示', () => {
+    const composable = usePtSubscription()
+    expect(composable.seasonLabel({ mediaType: 'TV', season: 3 })).toBe('第 3 季')
+    // TMDb 把特别篇放在第 0 季，直接写「第 0 季」用户对不上号
+    expect(composable.seasonLabel({ mediaType: 'TV', season: 0 })).toBe('特别篇')
+  })
+
+  it('电影与缺季号的订阅返回空串，让调用方整段不渲染', () => {
+    const composable = usePtSubscription()
+    expect(composable.seasonLabel({ mediaType: 'MOVIE', season: 1 })).toBe('')
+    expect(composable.seasonLabel({ mediaType: 'TV', season: null })).toBe('')
+    expect(composable.seasonLabel(null)).toBe('')
+  })
+
+  it('播出日期只取日期部分，丢掉恒为 0 的时分秒', () => {
+    const composable = usePtSubscription()
+    // /episodes 直接返回实体，airDate 是 java.util.Date，按全局格式序列化带时分秒
+    expect(composable.episodeAirDate({ airDate: '2026-08-12 00:00:00' })).toBe('2026-08-12')
+    expect(composable.episodeAirDate({ airDate: null })).toBe('')
+    expect(composable.episodeAirDate({})).toBe('')
+  })
+
+  it('日期晚于今天算未播出，缺日期一律按已播出处理', () => {
+    const composable = usePtSubscription()
+    const day = 24 * 60 * 60 * 1000
+    const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    const tomorrow = fmt(new Date(Date.now() + day))
+    const yesterday = fmt(new Date(Date.now() - day))
+
+    expect(composable.episodeUnaired({ airDate: `${tomorrow} 00:00:00` })).toBe(true)
+    expect(composable.episodeUnaired({ airDate: `${yesterday} 00:00:00` })).toBe(false)
+    // 判据与后端 SearchSupplementService#aired 一致：日期本身不够可靠，
+    // 缺失时不能让它单方面把这一集判成「还没播」
+    expect(composable.episodeUnaired({ airDate: null })).toBe(false)
+  })
+
+  it('今天播出的集不算未播出', () => {
+    const composable = usePtSubscription()
+    const now = new Date()
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+    expect(composable.episodeUnaired({ airDate: `${today} 00:00:00` })).toBe(false)
+  })
+})
+

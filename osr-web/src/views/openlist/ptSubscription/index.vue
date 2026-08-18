@@ -362,7 +362,13 @@
         <v-card-text>
           <v-progress-linear v-if="progressLoading" indeterminate color="primary" class="mb-3" />
           <template v-if="progress">
-            <p class="progress-title">{{ progress.title }}</p>
+            <p class="progress-title">
+              {{ progress.title }}
+              <!-- 不带季号的话，同一部剧的两条订阅弹出来的进度长得一模一样 -->
+              <span v-if="seasonLabel(currentSubscription)" class="progress-season">
+                {{ seasonLabel(currentSubscription) }}
+              </span>
+            </p>
             <v-progress-linear
               :model-value="progress.totalEpisodes ? Math.round((progress.inLibraryCount / progress.totalEpisodes) * 100) : 0"
               color="primary"
@@ -407,6 +413,11 @@
                 >
                   {{ episodeStateLabel(ep.state) }}
                 </v-chip>
+                <!-- 未播出的集恒为「缺失」，标出来能省掉一整轮「为什么搜不到」的排查 -->
+                <span v-if="episodeAirDate(ep)" class="ep-date">
+                  {{ episodeAirDate(ep) }}
+                  <span v-if="episodeUnaired(ep)" class="ep-unaired">未播出</span>
+                </span>
                 <span v-if="qualityLabel(ep)" class="ep-quality" :title="upgradeStateHint(ep)">
                   {{ qualityLabel(ep) }}
                 </span>
@@ -790,7 +801,7 @@ const {
   visibleMissingEpisodes, missingHiddenCount, expandMissing,
   episodeDetailOpen, episodeDetailLoading, episodeDetail, resettingEpisode,
   loadEpisodeDetail, handleResetEpisode, episodeStateLabel, episodeStateColor,
-  qualityLabel, upgradeStateHint,
+  qualityLabel, upgradeStateHint, seasonLabel, episodeAirDate, episodeUnaired,
   searchLogOpen, searchLogLoading, searchLogs, showSearchLogs,
   searchLogRejectedOnly, visibleSearchLogs,
   filterOverrideOpen, filterOverrideSaving, filterOverrideForm,
@@ -1111,6 +1122,13 @@ const searchLogHeaders = [
   font-weight: 600;
 }
 
+.progress-season {
+  margin-left: 6px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--osr-text-secondary);
+}
+
 .all-done {
   color: var(--osr-success);
 }
@@ -1197,6 +1215,18 @@ const searchLogHeaders = [
     width: 60px;
     flex-shrink: 0;
     color: var(--osr-text-primary);
+  }
+
+  .ep-date {
+    flex-shrink: 0;
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--osr-text-secondary);
+  }
+
+  .ep-unaired {
+    margin-left: 4px;
+    color: var(--osr-text-disabled);
   }
 
   .ep-quality {

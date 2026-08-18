@@ -638,6 +638,50 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
     }
   }
 
+  /**
+   * 季号文案。第 0 季在 TMDb 里是特别篇（建订阅弹窗那里也是这个说法），直接写「第 0 季」
+   * 用户对不上号。电影没有季，返回空串让调用方整段不渲染。
+   */
+  const seasonLabel = (sub: any): string => {
+    if (!sub || sub.mediaType === 'MOVIE') return ''
+    const season = sub.season
+    if (season === null || season === undefined) return ''
+    return season === 0 ? '特别篇' : `第 ${season} 季`
+  }
+
+  /** 本地当天的 yyyy-MM-dd。不能用 toISOString()，那是 UTC，东八区在每天 08:00 前会早一天 */
+  const todayString = (): string => {
+    const now = new Date()
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`
+  }
+
+  /**
+   * 这一集的播出日期，只取日期部分。
+   * <p>
+   * `/episodes` 直接返回实体，`airDate` 是 `java.util.Date`，按全局 Jackson 格式序列化成
+   * `2026-08-12 00:00:00`——时分秒恒为 0（同步任务按当天零点写入），展示出来只是噪音。
+   * </p>
+   * 缺失返回空串、调用方整段不渲染：一句「播出日期：未知」不帮用户做任何判断，只占地方。
+   */
+  const episodeAirDate = (ep: any): string => {
+    const raw = ep?.airDate
+    return raw ? String(raw).slice(0, 10) : ''
+  }
+
+  /**
+   * 这一集还没播。未播出的集恒为 MISSING，而用户看到「缺失」第一反应是去查搜索链路、
+   * 改关键词、换索引器——真实原因只是还没播，标出来能省掉一整轮排查。
+   * <p>
+   * 判据与后端 `SearchSupplementService#aired` 一致：只有日期确实晚于今天才算未播出，
+   * <b>日期缺失一律按已播出处理</b>（未定档、TMDb 未录入、存量行还没被同步任务扫到都会是
+   * 空值，不能让一个不可靠的字段单方面下结论）。
+   */
+  const episodeUnaired = (ep: any): boolean => {
+    const date = episodeAirDate(ep)
+    return date ? date > todayString() : false
+  }
+
   /** 洗版状态的说明文字，挂在质量摘要的 title 上，不占列表宽度 */
   const upgradeStateHint = (ep: any): string => {
     switch (ep?.upgradeState) {
@@ -813,7 +857,7 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
     // 每集明细 + 手动重置
     episodeDetailOpen, episodeDetailLoading, episodeDetail, resettingEpisode,
     loadEpisodeDetail, handleResetEpisode, episodeStateLabel, episodeStateColor,
-    qualityLabel, upgradeStateHint,
+    qualityLabel, upgradeStateHint, seasonLabel, episodeAirDate, episodeUnaired,
     // 匹配日志
     searchLogOpen, searchLogLoading, searchLogs, showSearchLogs,
     searchLogRejectedOnly, visibleSearchLogs,
