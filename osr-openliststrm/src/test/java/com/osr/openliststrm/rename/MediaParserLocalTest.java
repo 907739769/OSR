@@ -177,6 +177,78 @@ class MediaParserLocalTest {
     // ---------- 方括号里的发布组不再被当成作品名 ----------
 
     @Test
+    void parseLocal_中文数字季号后缀_从标题里剥掉_季集仍取自SxxExx() {
+        // 真实事故文件名：带着「第四季」去 TMDb 搜索必然落空（条目名里从来不带季号），
+        // 于是链路降级到英文名 From，撞上《怪奇物语：1985故事集》
+        MediaInfo info = parser.parseLocal("[梦魇绝镇 第四季].From.2026.S04E10.2160p.AMZN.WEB-DL.H265.DDP5.1-UBWEB");
+
+        assertEquals("梦魇绝镇", info.getOriginalTitle());
+        assertEquals("From", info.getEnglishTitle());
+        // 剥后缀只动标题，不动抽取管线：季集仍来自 S04E10，一个都不能丢
+        assertEquals("04", info.getSeason());
+        assertEquals("10", info.getEpisode());
+        assertEquals("2026", info.getYear());
+    }
+
+    @Test
+    void parseLocal_阿拉伯数字季号后缀_与中文数字写法结果一致() {
+        // 两种写法在站点上并存。早先「第4季」会让中文分支提前返回、S04E10 根本不被解析
+        // （season=04 而 episode=null），标题还被切成「[ 某剧」——半个方括号，
+        // TitleProcessor 的括号正则要求成对，作品名整个漏给了 englishTitle。
+        // 「第四季」因为正则只认 \d 反而躲过了这条早退，两种写法结果南辕北辙。
+        MediaInfo digit = parser.parseLocal("[某剧 第4季].Foo.2026.S04E10.2160p.WEB-DL");
+        MediaInfo chinese = parser.parseLocal("[某剧 第四季].Foo.2026.S04E10.2160p.WEB-DL");
+
+        assertEquals("某剧", digit.getOriginalTitle());
+        assertEquals("Foo", digit.getEnglishTitle());
+        assertEquals("04", digit.getSeason());
+        assertEquals("10", digit.getEpisode());
+
+        assertEquals(chinese.getOriginalTitle(), digit.getOriginalTitle());
+        assertEquals(chinese.getEnglishTitle(), digit.getEnglishTitle());
+        assertEquals(chinese.getSeason(), digit.getSeason());
+        assertEquals(chinese.getEpisode(), digit.getEpisode());
+    }
+
+    @Test
+    void parseLocal_中文季号在括号外_仍按它截断标题() {
+        // 括号内的季号不参与截断（会切碎作品名），括号外的照旧参与
+        MediaInfo info = parser.parseLocal("某剧 第4季 第10集 1080p");
+
+        assertEquals("某剧", info.getOriginalTitle());
+        assertEquals("04", info.getSeason());
+        assertEquals("10", info.getEpisode());
+    }
+
+    @Test
+    void parseLocal_只有中文季号加EP集号_两边互补() {
+        // 中文只给季、EP 只给集，早先中文分支提前返回会把 EP10 整个吃掉
+        MediaInfo info = parser.parseLocal("某剧 第4季 EP10 1080p");
+
+        assertEquals("某剧", info.getOriginalTitle());
+        assertEquals("04", info.getSeason());
+        assertEquals("10", info.getEpisode());
+    }
+
+    @Test
+    void parseLocal_英文Season后缀_同样剥掉() {
+        MediaInfo info = parser.parseLocal("Some.Show.Season.3.S03E01.1080p.WEB-DL.mkv");
+
+        assertEquals("Some Show", info.getOriginalTitle());
+        assertEquals("03", info.getSeason());
+        assertEquals("01", info.getEpisode());
+    }
+
+    @Test
+    void parseLocal_整个标题就是季号_不被剥空() {
+        // 比利时片《第五季》(La cinquième saison)：剥掉就只剩空标题，宁可原样保留
+        MediaInfo info = parser.parseLocal("第五季.2012.1080p.BluRay.x264.mkv");
+
+        assertEquals("第五季", info.getOriginalTitle());
+        assertEquals("2012", info.getYear());
+    }
+
+    @Test
     void parseLocal_方括号内是发布组_不当中文标题_作品名取连续中文块() {
         // 曾经的行为：TitleProcessor 的括号正则只要求"括号内非空"，于是发布组 Nekomoe kissaten
         // 被当成 originalTitle，真正的作品名被挤进 englishTitle

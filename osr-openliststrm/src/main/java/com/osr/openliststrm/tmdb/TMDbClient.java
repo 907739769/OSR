@@ -29,6 +29,12 @@ public class TMDbClient {
     /** 同上（CJK）。单个汉字/假名的信息量远高于拉丁字母，两字（「三体」）已足够可辨 */
     private static final int MIN_CONTAINS_LENGTH_CJK = 2;
 
+    /** {@link #titleMatchLevel} 的取值：归一化后逐字相等。最强的标题信号，在 {@link #rankCandidates} 里自成一档 */
+    private static final int TITLE_MATCH_EXACT = 2;
+
+    /** {@link #titleMatchLevel} 的取值：一方包含另一方。它宽松得多，不与全等争同一个名次 */
+    private static final int TITLE_MATCH_CONTAINS = 1;
+
     /**
      * 年份被视为"接近"的最大偏差。与 {@code SubscriptionMatcher#MOVIE_YEAR_TOLERANCE} 同口径：
      * 电影节首映 vs 正式公映、年末跨年上映会让同一部作品在不同来源差一年。
@@ -545,7 +551,7 @@ public class TMDbClient {
         for (String a : mine) {
             for (String b : theirs) {
                 if (a.equals(b)) {
-                    return 2;
+                    return TITLE_MATCH_EXACT;
                 }
             }
         }
@@ -555,7 +561,7 @@ public class TMDbClient {
                 String longer = a.length() <= b.length() ? b : a;
                 int minLen = containsCjk(shorter) ? MIN_CONTAINS_LENGTH_CJK : MIN_CONTAINS_LENGTH_LATIN;
                 if (shorter.length() >= minLen && longer.contains(shorter)) {
-                    return 1;
+                    return TITLE_MATCH_CONTAINS;
                 }
             }
         }
@@ -637,21 +643,43 @@ public class TMDbClient {
      * 返回整个有序列表而不是单个冠军：冠军过不了 {@link #doSearchOnce} 里那两道检验时，
      * 次席仍有机会被采纳。排序是稳定的，同分候选保持 TMDb 的原始相关度顺序。
      * </p>
+     * <p>
+     * <b>全等命中自成一档，排在所有非全等候选之前</b>（{@link #TITLE_MATCH_EXACT}）——
+     * 年份与热度再高也跨不过这一档。单靠分数拉开是不够的：全等与包含只差 40 分，
+     * 而年份挡位本身就能摆动 85 分。真实事故：{@code [梦魇绝镇 第四季].From.2026.S04E10}
+     * 降级到英文名 {@code From} 后，《怪奇物语：1985故事集》（{@code Stranger Things: Tales From 85}）
+     * 的原名包含 {@code from}、首播年恰好是 2026（+40）、热度又高；真正的 {@code From (2022)}
+     * 标题全等拿满 100 分，却因为文件名里的 2026 是<b>本季播出年</b>、而候选侧是首播年
+     * 而被扣 15 分，最终反而输掉。包含判定本就宽松（{@code from} 恰好卡在
+     * {@link #MIN_CONTAINS_LENGTH_LATIN} 的下限上），不该与逐字相等争同一个名次。
+     * </p>
+     * <p>
+     * <b>分档只抬全等，不剔除其余候选</b>：包含命中与无标题信号的候选仍按原来的分数
+     * 相互排序、也仍在列表里——全等候选被集号反证否决时（{@code Perfect World} 那类事故）
+     * 它们还要接着被检验，直接剔掉等于把那条修复路径一并剔掉。
+     * </p>
      */
     private List<JsonNode> rankCandidates(String type, MediaInfo info, JsonNode results) {
         List<JsonNode> nodes = new ArrayList<>();
         java.util.Map<JsonNode, Double> scores = new java.util.IdentityHashMap<>();
+        java.util.Map<JsonNode, Integer> tiers = new java.util.IdentityHashMap<>();
         for (int i = 0; i < results.size(); i++) {
             JsonNode node = results.get(i);
             nodes.add(node);
-            scores.put(node, scoreCandidate(type, info, node) - i * 0.5); // TMDb 原始相关度名次作为兜底权重
+            // titleMatchLevel 算一次就好：分档与打分共用同一个值，不可能分叉
+            int level = titleMatchLevel(type, info, node);
+            tiers.put(node, level == TITLE_MATCH_EXACT ? 1 : 0);
+            scores.put(node, scoreCandidate(type, info, node, level) - i * 0.5); // TMDb 原始相关度名次作为兜底权重
         }
-        // List.sort 是稳定排序：同分时保持 TMDb 原始相关度顺序
-        nodes.sort((a, b) -> Double.compare(scores.get(b), scores.get(a)));
+        // List.sort 是稳定排序：同档同分时保持 TMDb 原始相关度顺序
+        nodes.sort((a, b) -> {
+            int byTier = Integer.compare(tiers.get(b), tiers.get(a));
+            return byTier != 0 ? byTier : Double.compare(scores.get(b), scores.get(a));
+        });
         return nodes;
     }
 
-    private double scoreCandidate(String type, MediaInfo info, JsonNode node) {
+    private double scoreCandidate(String type, MediaInfo info, JsonNode node, int titleMatchLevel) {
         double score = 0;
 
         // 标题匹配：全等最强，一方包含另一方次之。
@@ -660,9 +688,11 @@ public class TMDbClient {
         // 再靠年份混过门槛，而真正的答案 X 连被检验的机会都没有。
         // 旧实现这一项是 getOfficialChineseTitle（要求候选名含中文）的精确相等，
         // 非中文作品恒为 0 分，等于只按年份+热度排序。
-        score += switch (titleMatchLevel(type, info, node)) {
-            case 2 -> 100;
-            case 1 -> 60;
+        // 全等与包含之间的次序不靠这 40 分保证，而靠 rankCandidates 的分档；
+        // 这里的分值只决定同一档内部的相对顺序。
+        score += switch (titleMatchLevel) {
+            case TITLE_MATCH_EXACT -> 100;
+            case TITLE_MATCH_CONTAINS -> 60;
             default -> 0;
         };
 

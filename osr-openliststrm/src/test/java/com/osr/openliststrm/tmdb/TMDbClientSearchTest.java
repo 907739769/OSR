@@ -356,6 +356,67 @@ class TMDbClientSearchTest {
         verify(api).search(anyString(), eq("tv"), eq("开始推理吧"), isNull());
     }
 
+    // ---------- 排序分档：全等命中优先于包含命中 ----------
+
+    /**
+     * 真实事故：{@code [梦魇绝镇 第四季].From.2026.S04E10.2160p.AMZN.WEB-DL.H265.DDP5.1-UBWEB}
+     * 被刮成《怪奇物语：1985故事集》，产出
+     * {@code /电视剧/欧美剧/怪奇物语：1985故事集 (2026)/Season 04}。
+     * <p>
+     * 两处叠加：中文标题带着「第四季」搜不到（由 {@code TitleProcessor} 剥掉后缀修复），
+     * 降级到英文名 {@code From} 后，打分让山寨的赢了——
+     * {@code Stranger Things: Tales From 85} 原名里含 {@code from}（包含命中 +60）、
+     * 首播 2026 与文件名年份完全一致（+40）、热度又高；真正的 {@code From (2022)}
+     * 标题逐字相等（+100）却因为 2026 是<b>第四季播出年</b>、候选侧是首播年而被扣 15 分。
+     * </p>
+     */
+    private static final String FROM_SEARCH = "{\"results\":["
+            + "{\"id\":300,\"name\":\"怪奇物语：1985故事集\","
+            + "\"original_name\":\"Stranger Things: Tales From 85\","
+            + "\"first_air_date\":\"2026-01-01\",\"popularity\":400},"
+            + "{\"id\":138502,\"name\":\"梦魇绝镇\",\"original_name\":\"From\","
+            + "\"first_air_date\":\"2022-02-20\",\"popularity\":60}]}";
+
+    private MediaInfo fromInfo() {
+        MediaInfo info = new MediaInfo("[梦魇绝镇 第四季].From.2026.S04E10.2160p.AMZN.WEB-DL.H265.DDP5.1-UBWEB.strm");
+        info.setOriginalTitle("From");
+        info.setYear("2026");
+        info.setSeason("04");
+        info.setEpisode("10");
+        return info;
+    }
+
+    @Test
+    void 排序_全等命中排在包含命中之前_年份与热度都跨不过这一档() throws Exception {
+        TMDbApiService api = mock(TMDbApiService.class);
+        when(api.search(anyString(), anyString(), anyString(), any())).thenReturn(FROM_SEARCH);
+
+        MediaInfo info = fromInfo();
+
+        // "From" 逐字相等，哪怕年份被扣分、热度低于对方，也必须排在包含式命中之前
+        assertEquals("梦魇绝镇", client.search("tv", info, api));
+        assertEquals("138502", info.getTmdbId());
+        // 年份改写成首播年，目录不会再长成「(2026)」
+        assertEquals("2022", info.getYear());
+    }
+
+    @Test
+    void 排序_全等候选被集号反证否决时_包含候选仍会被检验() throws Exception {
+        // 分档只抬全等、不剔除其余候选：否则 Perfect World 那条修复路径会被一并剔掉
+        TMDbApiService api = mock(TMDbApiService.class);
+        when(api.search(anyString(), anyString(), anyString(), any())).thenReturn(FROM_SEARCH);
+        // 假设 From 只有 3 集（远装不下第 10 集），怪奇物语那部有 8 集
+        when(api.getDetails(anyString(), eq("tv"), eq(138502)))
+                .thenReturn("{\"id\":138502,\"number_of_episodes\":3}");
+        when(api.getDetails(anyString(), eq("tv"), eq(300)))
+                .thenReturn("{\"id\":300,\"number_of_episodes\":8}");
+
+        MediaInfo info = fromInfo();
+
+        assertEquals("怪奇物语：1985故事集", client.search("tv", info, api));
+        assertEquals("300", info.getTmdbId());
+    }
+
     // ---------- 集号反证 + 多候选：字面同名的另一部作品 ----------
 
     /**

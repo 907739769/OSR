@@ -22,6 +22,30 @@ public class TitleProcessor {
     private static final Pattern CHINESE_RUN = Pattern.compile("([\\u4e00-\\u9fa5·．]+)");
 
     /**
+     * 标题<b>尾部</b>的季号后缀：{@code 第四季}、{@code 第 2 部}、{@code Season 3}，允许连写多个。
+     * <p>
+     * <b>为什么必须剥掉</b>：{@link com.osr.openliststrm.tmdb.TMDbClient#search} 拿这个标题去 TMDb
+     * 搜索，而 TMDb 的条目名里从来不带季号——多出的三个字会让整次查询落空，于是最强的信号
+     * （中文作品名）作废，链路降级到 englishTitle 那个弱得多的候选。真实事故：
+     * {@code [梦魇绝镇 第四季].From.2026.S04E10} 里 {@code 梦魇绝镇 第四季} 搜不到任何结果，
+     * 退到英文名 {@code From}——一个四字母常用词——撞上《怪奇物语：1985故事集》
+     * （{@code Stranger Things: Tales From '85}，原名里含 "From"、首播年恰好也是 2026），
+     * 整季被刮成另一部剧。
+     * </p>
+     * <p>
+     * <b>为什么不在 {@code YearSeasonEpisodeExtractor} 里给中文季正则加中文数字</b>：那条分支
+     * 命中后会 early return 并按「第四季」的位置截断标题，{@code S04E10} 根本不会被解析，
+     * 集号直接丢失。剥后缀只影响标题，不动抽取管线。
+     * </p>
+     * <p>
+     * <b>只匹配结尾、且剥空则不剥</b>：《第五季》这类以季号为名的作品（比利时片
+     * {@code La cinquième saison}）整个标题就是这几个字，剥掉会交出一个空标题。
+     * </p>
+     */
+    private static final Pattern SEASON_SUFFIX = Pattern.compile(
+            "(?:\\s*(?:第\\s*[0-9０-９〇零一二两三四五六七八九十百]+\\s*[季部]|[Ss]eason\\s*\\d{1,2}))+\\s*$");
+
+    /**
      * 从剩余字符串中提取标题，优先保留中文（中括号内或连续中文），
      * 同时解析英文点分割的标题（One.Hundred.Thousand... → One Hundred Thousand ...）
      */
@@ -61,9 +85,28 @@ public class TitleProcessor {
             info.setEnglishTitle(eng);
         }
 
+        // 季号后缀对「这是哪部作品」没有任何贡献，却足以让 TMDb 查询整个落空（见 SEASON_SUFFIX 注释）。
+        // PT 订阅侧同样受益：SubscriptionEngine 用 originalTitle 当种子的 parsedTitle 去比对订阅标题，
+        // 而订阅存的是不带季号的作品名。
+        info.setOriginalTitle(stripSeasonSuffix(info.getOriginalTitle()));
+        info.setEnglishTitle(stripSeasonSuffix(info.getEnglishTitle()));
+
 //        if (info.getTitle() == null) {
 //            info.setTitle(info.getOriginalTitle());
 //        }
+    }
+
+    /**
+     * 剥掉标题尾部的季号后缀。剥完为空时返回原值——宁可多带三个字，也不能交出空标题。
+     *
+     * @param title 允许为 null
+     */
+    private String stripSeasonSuffix(String title) {
+        if (title == null) {
+            return null;
+        }
+        String stripped = SEASON_SUFFIX.matcher(title).replaceAll("").trim();
+        return stripped.isEmpty() ? title : stripped;
     }
 
     private String removeRange(String s, int a, int b) {
