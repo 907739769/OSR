@@ -7,36 +7,28 @@
     />
 
     <!-- Search Panel -->
-    <v-card v-if="showSearch" class="search-card">
-      <v-form ref="queryRef" @submit.prevent="handleQuery">
-        <div class="search-fields">
-          <v-text-field
-            v-model="queryParams.name"
-            label="名称"
-            placeholder="请输入名称"
-            clearable
-            density="compact"
-            variant="outlined"
-            hide-details
-            @keyup.enter="handleQuery"
-          />
-          <v-select
-            v-model="queryParams.enabled"
-            label="状态"
-            :items="[{ title: '启用', value: '1' }, { title: '停用', value: '0' }]"
-            clearable
-            density="compact"
-            variant="outlined"
-            hide-details
-            class="status-select"
-          />
-          <div class="search-actions">
-            <v-btn color="primary" prepend-icon="mdi-magnify" @click="handleQuery">搜索</v-btn>
-            <v-btn variant="outlined" prepend-icon="mdi-refresh" @click="resetQuery">重置</v-btn>
-          </div>
-        </div>
-      </v-form>
-    </v-card>
+    <SearchPanel ref="queryRef" :visible="showSearch" @search="handleQuery" @reset="resetQuery">
+      <v-text-field
+        v-model="queryParams.name"
+        label="名称"
+        placeholder="请输入名称"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        @keyup.enter="handleQuery"
+      />
+      <v-select
+        v-model="queryParams.enabled"
+        label="状态"
+        :items="[{ title: '启用', value: '1' }, { title: '停用', value: '0' }]"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        class="status-select"
+      />
+    </SearchPanel>
 
     <!-- Table Card -->
     <v-card class="table-card">
@@ -45,10 +37,10 @@
           <v-btn color="primary" prepend-icon="mdi-plus" @click="handleAdd('新增下载器')">
             新增
           </v-btn>
-          <v-btn color="success" prepend-icon="mdi-pencil-outline" :disabled="single" @click="handleUpdate(undefined, '修改下载器')">
+          <v-btn color="success" prepend-icon="mdi-pencil-outline" :disabled="notOneSelected" @click="handleUpdate(undefined, '修改下载器')">
             修改
           </v-btn>
-          <v-btn color="error" prepend-icon="mdi-delete-outline" :disabled="multiple" @click="handleDelete(undefined, `是否确认删除编号为“${selectedIds}”的下载器？`)">
+          <v-btn color="error" prepend-icon="mdi-delete-outline" :disabled="noneSelected" @click="handleDelete(undefined, `是否确认删除编号为“${selectedIds}”的下载器？`)">
             批量删除
           </v-btn>
           <v-btn variant="text" class="batch-select-all-btn" @click="toggleSelectAllPage(!isAllPageSelected)">
@@ -309,13 +301,14 @@
 <script setup lang="ts">
 import StatusChip from '@/components/StatusChip.vue'
 import PageHeader from '@/components/PageHeader.vue'
-import { ref } from 'vue'
 import FormField from '@/components/FormField.vue'
 import PtCleanRuleDialog from '@/components/PtCleanRuleDialog.vue'
 import { usePtDownloader } from '@/composables/usePtDownloader'
 import { useGridPageSize } from '@/composables/useGridPageSize'
+import { useSearchPanel } from '@/composables/useSearchPanel'
+import SearchPanel from '@/components/SearchPanel.vue'
 
-const showSearch = ref(window.innerWidth >= 768)
+const { showSearch } = useSearchPanel()
 
 const DOWNLOADER_TYPE_LABELS: Record<string, string> = {
   QBITTORRENT: 'qBittorrent',
@@ -341,7 +334,7 @@ const roleLabel = (value: string) =>
 
 const {
   taskList, loading, total, queryParams, getList, handleQuery, resetQuery, queryRef,
-  selectedIds, single, multiple, toggleSelect,
+  selectedIds, notOneSelected, noneSelected, toggleSelect,
   isAllPageSelected, toggleSelectAllPage,
   open, dialogTitle, submitLoading, formRef, form, rules,
   handleAdd, handleUpdate, submitForm, handleDelete,

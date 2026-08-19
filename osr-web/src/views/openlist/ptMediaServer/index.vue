@@ -7,37 +7,29 @@
     />
 
     <!-- Search Panel -->
-    <v-card v-if="showSearch" class="search-card">
-      <v-form @submit.prevent="handleQuery">
-        <div class="search-fields">
-          <v-text-field
-            v-model="queryParams.name"
-            label="名称"
-            placeholder="请输入名称"
-            clearable
-            density="compact"
-            variant="outlined"
-            hide-details
-            @keyup.enter="handleQuery"
-          />
-          <v-select
-            v-model="queryParams.enabled"
-            :items="[{ title: '启用', value: '1' }, { title: '停用', value: '0' }]"
-            label="状态"
-            placeholder="状态"
-            clearable
-            density="compact"
-            variant="outlined"
-            hide-details
-            class="field-sm"
-          />
-          <div class="search-actions">
-            <v-btn color="primary" prepend-icon="mdi-magnify" @click="handleQuery">搜索</v-btn>
-            <v-btn variant="outlined" prepend-icon="mdi-refresh" @click="resetQuery">重置</v-btn>
-          </div>
-        </div>
-      </v-form>
-    </v-card>
+    <SearchPanel :visible="showSearch" @search="handleQuery" @reset="resetQuery">
+      <v-text-field
+        v-model="queryParams.name"
+        label="名称"
+        placeholder="请输入名称"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        @keyup.enter="handleQuery"
+      />
+      <v-select
+        v-model="queryParams.enabled"
+        :items="[{ title: '启用', value: '1' }, { title: '停用', value: '0' }]"
+        label="状态"
+        placeholder="状态"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        class="field-sm"
+      />
+    </SearchPanel>
 
     <!-- Table Card -->
     <v-card class="table-card">
@@ -46,10 +38,10 @@
           <v-btn color="primary" prepend-icon="mdi-plus" @click="handleAdd('新增媒体服务器')">
             新增
           </v-btn>
-          <v-btn color="success" prepend-icon="mdi-pencil-outline" :disabled="single" @click="handleUpdate(undefined, '修改媒体服务器')">
+          <v-btn color="success" prepend-icon="mdi-pencil-outline" :disabled="notOneSelected" @click="handleUpdate(undefined, '修改媒体服务器')">
             修改
           </v-btn>
-          <v-btn color="error" prepend-icon="mdi-delete-outline" :disabled="multiple" @click="handleDelete(undefined, `是否确认删除编号为“${selectedIds}”的媒体服务器？`)">
+          <v-btn color="error" prepend-icon="mdi-delete-outline" :disabled="noneSelected" @click="handleDelete(undefined, `是否确认删除编号为“${selectedIds}”的媒体服务器？`)">
             批量删除
           </v-btn>
           <v-btn variant="text" class="batch-select-all-btn" @click="toggleSelectAllPage(!isAllPageSelected)">
@@ -181,15 +173,17 @@
 <script setup lang="ts">
 import StatusChip from '@/components/StatusChip.vue'
 import PageHeader from '@/components/PageHeader.vue'
-import { ref, computed } from 'vue'
+import { computed } from 'vue'
 import { usePtMediaServer } from '@/composables/usePtMediaServer'
 import { useGridPageSize } from '@/composables/useGridPageSize'
+import { useSearchPanel } from '@/composables/useSearchPanel'
+import SearchPanel from '@/components/SearchPanel.vue'
 
-const showSearch = ref(window.innerWidth >= 768)
+const { showSearch } = useSearchPanel()
 
 const {
   taskList, loading, total, queryParams, getList, handleQuery, resetQuery,
-  selectedIds, single, multiple, toggleSelect,
+  selectedIds, notOneSelected, noneSelected, toggleSelect,
   isAllPageSelected, toggleSelectAllPage,
   open, dialogTitle, submitLoading, formRef, form, rules,
   handleAdd, handleUpdate, submitForm, handleDelete,

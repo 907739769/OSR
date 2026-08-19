@@ -213,7 +213,9 @@ describe('搜索区紧凑度', () => {
     expect(offendersIn('<MobileSearchPanel', '</MobileSearchPanel>')).toEqual([])
   })
 
-  it('PC 端 .search-fields 里的字段都写了 hide-details', () => {
-    expect(offendersIn('<div class="search-fields">', '</v-form>')).toEqual([])
+  // PC 的搜索区已收进 components/SearchPanel.vue，字段作为默认插槽传进去；
+  // 这里的起止标记必须跟着改，否则 section() 找不到片段、这条用例会变成永远通过的空检查
+  it('PC 端 SearchPanel 里的字段都写了 hide-details', () => {
+    expect(offendersIn('<SearchPanel', '</SearchPanel>')).toEqual([])
   })
 })

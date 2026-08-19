@@ -48,7 +48,10 @@ const SHELL_ONLY = new Set([
   'handleSizeChange', // 移动端 MobilePager 换页大小（PC 由表格内置分页处理）
   // 移动端卡片「更多」底部面板（useActionSheet）。PC 是操作列里的「更多 ▾」下拉菜单，
   // 装的是同一批动作 —— 差的只是这层容器怎么弹出来，不是功能。
-  'openSheet'
+  'openSheet',
+  // 搜索区展开状态（PC 走 useSearchPanel，移动端是 MobileSearchPanel 自己的 collapsed）。
+  // 两端都有这个功能，只是 PC 侧把它做成了 composable 才被这条规则扫到。
+  'showSearch'
 ])
 
 /**

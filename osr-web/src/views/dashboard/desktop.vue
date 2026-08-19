@@ -146,9 +146,9 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
-import { useUserStore } from '@/stores/user'
+import { useCurrentUser } from '@/composables/useCurrentUser'
 import { getRoutePathForComponent } from '@/router'
 // 按需引入：仪表盘只用到折线图，避免全量引入 echarts 拖大打包体积
 import * as echarts from 'echarts/core'
@@ -168,8 +168,7 @@ import { useMenuLinks } from '@/composables/useMenuLinks'
 echarts.use([LineChart, TitleComponent, TooltipComponent, GridComponent, LegendComponent, CanvasRenderer])
 
 const router = useRouter()
-const userStore = useUserStore()
-const userName = computed(() => userStore.userInfo?.userName || userStore.userInfo?.loginName || '管理员')
+const { displayName: userName } = useCurrentUser()
 const weekdayText = new Date().toLocaleDateString('zh-CN', { weekday: 'long' })
 const dateText = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })
 

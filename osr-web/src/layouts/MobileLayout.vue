@@ -28,7 +28,7 @@
          就是「破坏性动作优先进菜单，收起来反而更安全」。 -->
     <v-menu location="bottom end">
       <template #activator="{ props: menuProps }">
-        <v-avatar v-bind="menuProps" size="28" color="primary" class="mr-3 user-avatar">管</v-avatar>
+        <v-avatar v-bind="menuProps" size="28" color="primary" class="mr-3 user-avatar">{{ avatarText }}</v-avatar>
       </template>
       <v-list density="compact">
         <v-list-item prepend-icon="mdi-cog-outline" title="修改密码" @click="showPasswordDialog = true" />
@@ -81,6 +81,7 @@ import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { confirm } from '@/composables/useConfirm'
 import { useUserStore } from '@/stores/user'
+import { useCurrentUser } from '@/composables/useCurrentUser'
 import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
 import SidebarMenuItem from '@/components/SidebarMenuItem.vue'
 import MobileTabSettingsDialog from '@/components/mobile/MobileTabSettingsDialog.vue'
@@ -92,6 +93,7 @@ const router = useRouter()
 const userStore = useUserStore()
 const menuOpen = ref(false)
 const showPasswordDialog = ref(false)
+const { avatarText } = useCurrentUser()
 
 const sidebarMenus = computed(() => userStore.routes.filter((r: any) => r.hidden !== true))
 

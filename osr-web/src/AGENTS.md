@@ -14,8 +14,8 @@ src/
 │   ├── monitor/            # 监控相关 API (定时任务)
 │   ├── openlist/           # 业务 API (见下)
 │   └── system/             # 系统管理 API
-├── components/             # 公共组件 (DirectoryTreeSelect, ChangePasswordDialog, PageHeader, StatusChip, ThemeSwitch, MiniTrend, mobile/*)
-├── composables/            # 组合式函数 (useTaskList, useRecordList, useDebounce, useThemeMode, useMenuLinks, useActionSheet, useMobileTabs 等)
+├── components/             # 公共组件 (SearchPanel, PageHeader, DirectoryTreeSelect, ChangePasswordDialog, StatusChip, ThemeSwitch, MiniTrend, mobile/*)
+├── composables/            # 组合式函数 (useTaskList, useRecordList, useDataTable, useSearchPanel, useSidebarGroups, useBreadcrumb, useCurrentUser, useThemeMode, useMenuLinks, useActionSheet, useMobileTabs 等)
 ├── layouts/                # 布局组件 (DesktopLayout, MobileLayout)
 ├── router/                 # 路由配置 (动态路由)
 │   └── index.ts
@@ -141,7 +141,7 @@ ptTorrentBlacklist / wecomUser（即全部 `.card-grid` 页面）。新增卡片
   **需要写覆盖样式本身就是选错组件的信号**。`v-checkbox-btn` 直接渲染 `VSelectionControl`，
   没有那层外壳（`v-data-table` 表头的全选用的就是它），`label` / `indeterminate` /
   `density` 一样都不少，且没有 `hide-details`（那是 `VInput` 的 prop，不需要）。
-- **`PageHeader`**：每个业务页顶部都要有。
+- **`PageHeader`**：每个业务页顶部都要有。标题与描述**同一行**（图标 32px）——竖排时这块要占 57px，而列表页的首行数据本来就已经在半屏以下。
 - **搜索区的输入框一律写 `hide-details`**（PC 的 `.search-fields`、移动端的 `MobileSearchPanel` 插槽）。
   不写的话 Vuetify 会给每个输入框在下方预留 details/hint 行（约 22px），移动端再叠上
   `.search-panel-body` 的 `margin-bottom: 12px`，四个字段就多出近百像素空白，观感上「过于松散」。
@@ -173,6 +173,64 @@ ptTorrentBlacklist / wecomUser（即全部 `.card-grid` 页面）。新增卡片
 - PC 三档：`max-width="480"`（确认类）/ `600`（表单类）/ `900`（数据表类）
 - 移动端统一 `width="92%"`
 - 次要按钮（取消/关闭/测试连接）统一 `variant="outlined"`，主按钮 `variant="flat"`
+
+### PC 列表页外壳
+
+与移动端那轮收口对应的 PC 侧，一次专门的重构收口的。
+
+**搜索区是 `SearchPanel`，默认收起，按页记住**（`useSearchPanel`，localStorage
+`osr-search-panel`）。收起是量出来的决定：1280×800 上首行数据原先在 **y=403**——
+顶栏 48 + 页头 57 + 搜索卡 122 + 操作条 36 + 表头 56，半屏都不是数据。搜索卡默认收起 +
+页头压成一行 + 面包屑进顶栏之后是 **y=244**。字段作为默认插槽传进去，`ref="queryRef"`
+挂在组件上（它 `defineExpose` 了 `resetValidation`，composable 的重置要靠这条链路）。
+**`design-system.spec.ts` 里「搜索区紧凑度」那条用例的起止标记跟着改成了
+`<SearchPanel>`**——留着旧的 `.search-fields` 标记的话，`section()` 找不到片段，
+用例会变成永远通过的空检查。
+
+**表格接线是 `useDataTable`**：承接选中行的本地 ref、转交给 composable、翻页、换每页
+条数。这四件事原先在 10 个页面里逐字重复、每页约 20 行，而其中没有一处是页面自己的判断。
+
+**表格页的批量操作在 `.batch-toolbar` 里，不在 `.action-bar` 里**。改造前勾中一行，
+页面上唯一的变化是几个批量按钮由灰变亮，**全页搜不到「已选」二字**；而选中集是页面局部
+ref、翻页不清空，「批量删除」可能作用在已经翻过去、看不见的行上。现在选中后才出现这条
+（吸顶），带条数与「清空选择」，形态与卡片型列表页一致。`.action-bar` 只留页面级动作
+（新增 / 立即扫描）与搜索开关。
+
+**「操作」列最多留 2 个按钮，其余进「更多 ▾」**（`.more-actions-trigger` +
+`.more-actions-danger`，样式在 `list.scss`）。这条约定早就写着，但只有 3 个页面落实：
+实测同步记录/STRM 记录 3 个按钮 250px 挤在 260px 的列里，**折成两行、行高从 52 涨到 62**。
+另有一个陷阱：多表格页刻意不挂 `.modern-table--fixed`（`table-layout: auto`），
+此时表头里的 `width` 只是建议值——热门自动订阅页 9 列一挤就把声明的 260 压到 **101px**，
+四个按钮折了四行、行高 113。**auto 布局下要用 `minWidth`**。
+
+**表头吸顶的前提是让表格自己成为滚动容器**（`.modern-table .v-table__wrapper` 的
+`max-height: calc(100vh - 280px)`）。只写 `position: sticky` 是没用的：Vuetify 的 wrapper
+是 `overflow: auto`，sticky 会粘在这个不滚动的祖先上，表头照样跟着整页滚走。
+窄屏（<768）走 `.mobile-card*` 表格降级，不参与这条。
+
+**选中态的两个标志叫 `noneSelected` / `notOneSelected`**（原名 `multiple` / `single`，
+RuoYi 遗留）。`:disabled="multiple"` 字面读作「多选时禁用」、实际是「没选时禁用」，
+全站 23 处都得在脑子里做一次取反。
+
+**输入即搜索在 `useTaskList` / `useRecordList` 里，不在页面里**。改造前只有 3 个页面自己
+写了防抖 watch，另外 14 个必须点「搜索」——同一套界面两种反馈，用户会以为某些页面卡住了。
+去重靠「上次真正发出去的条件」指纹：`handleQuery`/`resetQuery` 会立即查一次，不比较的话
+300ms 后 watcher 还会照着同样条件再打一次，**每次搜索发两个请求**。`pageNum`/`pageSize`
+不参与指纹（翻页不是筛选变化）；`useRecordList` 还要把 `dateRange` 算进去——它写进
+`queryParams.params` 是在 `handleQuery` 里发生的，只看 `queryParams` 的话改日期不触发查询。
+`e2e/mobile.spec.ts` 的「返回时保留筛选」用例因此要先等这次自动查询落地再离开，
+否则请求计数变成时序相关（单跑通过、并行跑偶发失败）。
+
+**顶栏放面包屑（分组 / 页面），用户名取真实值**。面包屑刻意不是重复一遍页面标题：菜单
+收敛成两级后页面本身完全不体现自己属于哪一组，而 PT 那四组恰恰靠分组才分得清。用户名与
+头像首字走 `useCurrentUser`——两个 Layout 原先把「管理员」「管」写死在模板里，而
+`userInfo.userName` 一直有值（首页就是这么取的）。
+
+**PC 侧边栏的分组可折叠，默认只展开当前页所在那组**（`useSidebarGroups`，localStorage
+`osr-sidebar-groups`）。菜单摊平后 37 行 1604px，而 1280×800 只装得下 17 行，PT 四组全在
+折叠线以下。**rail 态（64px）下忽略折叠、平铺所有图标**——标题都藏起来了还折叠的话，
+那条 64px 的图标带上一个图标都不剩。这与移动端抽屉保持平铺不矛盾：抽屉是临时浮层、
+开一次点一下就关，多一层展开就是多一次等待；侧边栏常驻，值得让用户收起不用的部分。
 
 ### 移动端外壳（导航 + 列表页骨架）
 

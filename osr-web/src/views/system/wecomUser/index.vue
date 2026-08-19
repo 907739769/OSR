@@ -18,49 +18,41 @@
       </template>
     </PageHeader>
 
-    <v-card v-if="showSearch" class="search-card">
-      <v-form ref="queryRef" @submit.prevent="handleQuery">
-        <div class="search-fields">
-          <v-text-field
-            v-model="queryParams.wecomUserid"
-            label="企微 UserId"
-            placeholder="支持模糊匹配"
-            clearable
-            density="compact"
-            variant="outlined"
-            hide-details
-            class="field-md"
-            @keyup.enter="handleQuery"
-          />
-          <v-text-field
-            v-model="queryParams.sysUserName"
-            label="OSR 登录名"
-            placeholder="支持模糊匹配"
-            clearable
-            density="compact"
-            variant="outlined"
-            hide-details
-            class="field-md"
-            @keyup.enter="handleQuery"
-          />
-          <v-select
-            v-model="queryParams.status"
-            label="状态"
-            :items="[{ title: '正常', value: '0' }, { title: '停用', value: '1' }]"
-            placeholder="全部状态"
-            clearable
-            density="compact"
-            variant="outlined"
-            hide-details
-            class="field-sm"
-          />
-          <div class="search-actions">
-            <v-btn color="primary" prepend-icon="mdi-magnify" @click="handleQuery">搜索</v-btn>
-            <v-btn variant="outlined" prepend-icon="mdi-refresh" @click="resetQuery">重置</v-btn>
-          </div>
-        </div>
-      </v-form>
-    </v-card>
+    <SearchPanel ref="queryRef" :visible="showSearch" @search="handleQuery" @reset="resetQuery">
+      <v-text-field
+        v-model="queryParams.wecomUserid"
+        label="企微 UserId"
+        placeholder="支持模糊匹配"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        class="field-md"
+        @keyup.enter="handleQuery"
+      />
+      <v-text-field
+        v-model="queryParams.sysUserName"
+        label="OSR 登录名"
+        placeholder="支持模糊匹配"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        class="field-md"
+        @keyup.enter="handleQuery"
+      />
+      <v-select
+        v-model="queryParams.status"
+        label="状态"
+        :items="[{ title: '正常', value: '0' }, { title: '停用', value: '1' }]"
+        placeholder="全部状态"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        class="field-sm"
+      />
+    </SearchPanel>
 
     <v-card class="table-card">
       <div class="action-bar">
@@ -171,11 +163,12 @@
 <script setup lang="ts">
 import PageHeader from '@/components/PageHeader.vue'
 import StatusChip from '@/components/StatusChip.vue'
-import { ref } from 'vue'
 import { useWecomUser } from '@/composables/useWecomUser'
 import { useGridPageSize } from '@/composables/useGridPageSize'
+import { useSearchPanel } from '@/composables/useSearchPanel'
+import SearchPanel from '@/components/SearchPanel.vue'
 
-const showSearch = ref(window.innerWidth >= 768)
+const { showSearch } = useSearchPanel()
 
 const {
   taskList, loading, total, queryParams, getList, handleQuery, resetQuery, queryRef,

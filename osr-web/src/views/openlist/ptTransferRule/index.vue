@@ -7,48 +7,40 @@
     />
 
     <!-- Search Panel -->
-    <v-card v-if="showSearch" class="search-card">
-      <v-form @submit.prevent="handleQuery">
-        <div class="search-fields">
-          <v-select
-            v-model="queryParams.sourceDownloaderId"
-            :items="downloaderOptions"
-            label="源下载器"
-            placeholder="全部"
-            clearable
-            density="compact"
-            variant="outlined"
-            hide-details
-            class="field-md"
-          />
-          <v-select
-            v-model="queryParams.targetDownloaderId"
-            :items="downloaderOptions"
-            label="目标下载器"
-            placeholder="全部"
-            clearable
-            density="compact"
-            variant="outlined"
-            hide-details
-            class="field-md"
-          />
-          <div class="search-actions">
-            <v-btn color="primary" prepend-icon="mdi-magnify" @click="handleQuery">搜索</v-btn>
-            <v-btn variant="outlined" prepend-icon="mdi-refresh" @click="resetQuery">重置</v-btn>
-          </div>
-        </div>
-      </v-form>
-    </v-card>
+    <SearchPanel :visible="showSearch" @search="handleQuery" @reset="resetQuery">
+      <v-select
+        v-model="queryParams.sourceDownloaderId"
+        :items="downloaderOptions"
+        label="源下载器"
+        placeholder="全部"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        class="field-md"
+      />
+      <v-select
+        v-model="queryParams.targetDownloaderId"
+        :items="downloaderOptions"
+        label="目标下载器"
+        placeholder="全部"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        class="field-md"
+      />
+    </SearchPanel>
 
     <!-- Table Card -->
     <v-card class="table-card">
       <div class="action-bar">
         <div class="action-left">
           <v-btn color="primary" prepend-icon="mdi-plus" @click="handleAdd('新增转移规则')">新增</v-btn>
-          <v-btn color="success" prepend-icon="mdi-pencil-outline" :disabled="single" @click="handleUpdate(undefined, '修改转移规则')">
+          <v-btn color="success" prepend-icon="mdi-pencil-outline" :disabled="notOneSelected" @click="handleUpdate(undefined, '修改转移规则')">
             修改
           </v-btn>
-          <v-btn color="error" prepend-icon="mdi-delete-outline" :disabled="multiple" @click="handleDelete(undefined, `是否确认删除编号为“${selectedIds}”的转移规则？`)">
+          <v-btn color="error" prepend-icon="mdi-delete-outline" :disabled="noneSelected" @click="handleDelete(undefined, `是否确认删除编号为“${selectedIds}”的转移规则？`)">
             批量删除
           </v-btn>
           <v-btn variant="text" prepend-icon="mdi-history" @click="loadRecords()">转移记录</v-btn>
@@ -300,15 +292,16 @@
 import StatusChip from '@/components/StatusChip.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import FormField from '@/components/FormField.vue'
-import { ref } from 'vue'
 import { usePtTransferRule } from '@/composables/usePtTransferRule'
 import { useGridPageSize } from '@/composables/useGridPageSize'
+import { useSearchPanel } from '@/composables/useSearchPanel'
+import SearchPanel from '@/components/SearchPanel.vue'
 
-const showSearch = ref(window.innerWidth >= 768)
+const { showSearch } = useSearchPanel()
 
 const {
   taskList, loading, total, queryParams, getList, handleQuery, resetQuery,
-  selectedIds, single, multiple, toggleSelect,
+  selectedIds, notOneSelected, noneSelected, toggleSelect,
   isAllPageSelected, toggleSelectAllPage,
   open, dialogTitle, submitLoading, formRef, form, rules,
   handleAdd, handleUpdate, submitForm, handleDelete,

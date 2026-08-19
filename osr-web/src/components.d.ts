@@ -25,6 +25,7 @@ declare module 'vue' {
     PtCleanRuleDialog: typeof import('./components/PtCleanRuleDialog.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    SearchPanel: typeof import('./components/SearchPanel.vue')['default']
     SidebarMenuItem: typeof import('./components/SidebarMenuItem.vue')['default']
     StatusChip: typeof import('./components/StatusChip.vue')['default']
     ThemeSwitch: typeof import('./components/ThemeSwitch.vue')['default']

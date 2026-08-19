@@ -4,7 +4,9 @@
       <div v-if="icon" class="page-header-icon">
         <v-icon :icon="icon" />
       </div>
-      <div>
+      <!-- 标题与描述同行：竖排时这块要占 57px，而 1280×800 上首行数据本来就已经在
+           半屏以下。描述仍然完整保留，只是不再单独占一行 -->
+      <div class="page-header-text">
         <h2 class="page-title">{{ title }}</h2>
         <p v-if="$slots.desc || desc" class="page-desc">
           <slot name="desc">{{ desc }}</slot>
@@ -35,33 +37,43 @@ defineProps<{
   .page-header-left {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  .page-header-text {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    flex-wrap: wrap;
+    min-width: 0;
   }
 
   .page-header-icon {
-    width: 48px;
-    height: 48px;
-    border-radius: var(--osr-radius-lg);
+    width: 32px;
+    height: 32px;
+    border-radius: var(--osr-radius-base);
     background: linear-gradient(135deg, rgb(var(--v-theme-primary)), rgb(var(--v-theme-primary-darken-1)));
     color: rgb(var(--v-theme-on-primary));
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 24px;
-    box-shadow: 0 4px 14px rgba(var(--v-theme-primary), 0.45);
+    font-size: 18px;
+    box-shadow: 0 2px 8px rgba(var(--v-theme-primary), 0.35);
     flex-shrink: 0;
   }
 
   .page-title {
     margin: 0;
-    font-size: 22px;
+    font-size: 18px;
     font-weight: 700;
     color: var(--osr-text-primary);
     letter-spacing: 0.3px;
+    white-space: nowrap;
   }
 
   .page-desc {
-    margin: 4px 0 0;
+    margin: 0;
     font-size: 13px;
     color: var(--osr-text-secondary);
   }
@@ -78,14 +90,8 @@ defineProps<{
     align-items: flex-start;
     flex-wrap: wrap;
 
-    .page-header-icon {
-      width: 42px;
-      height: 42px;
-      font-size: 20px;
-    }
-
     .page-title {
-      font-size: 19px;
+      font-size: 17px;
     }
 
     .page-desc {

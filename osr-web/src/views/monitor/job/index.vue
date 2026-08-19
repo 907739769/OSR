@@ -7,37 +7,29 @@
     />
 
     <!-- Search Panel -->
-    <v-card class="search-card" v-if="showSearch">
-      <v-card-text>
-        <v-form ref="queryRef" @submit.prevent="handleQuery">
-          <div class="search-fields">
-            <v-text-field
-              v-model="queryParams.jobName"
-              label="任务名称"
-              placeholder="请输入任务名称"
-              clearable
-              density="compact"
-              variant="outlined"
-              hide-details
-              @keyup.enter="handleQuery"
-            />
-            <v-select
-              v-model="queryParams.status"
-              :items="[{ title: '正常', value: '0' }, { title: '暂停', value: '1' }]"
-              label="任务状态"
-              placeholder="任务状态"
-              clearable
-              density="compact"
-              variant="outlined"
-              hide-details
-              class="field-sm"
-            />
-            <v-btn color="primary" prepend-icon="mdi-magnify" @click="handleQuery">搜索</v-btn>
-            <v-btn variant="outlined" prepend-icon="mdi-refresh" @click="resetQuery">重置</v-btn>
-          </div>
-        </v-form>
-      </v-card-text>
-    </v-card>
+    <SearchPanel ref="queryRef" :visible="showSearch" @search="handleQuery" @reset="resetQuery">
+      <v-text-field
+        v-model="queryParams.jobName"
+        label="任务名称"
+        placeholder="请输入任务名称"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        @keyup.enter="handleQuery"
+      />
+      <v-select
+        v-model="queryParams.status"
+        :items="[{ title: '正常', value: '0' }, { title: '暂停', value: '1' }]"
+        label="任务状态"
+        placeholder="任务状态"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        class="field-sm"
+      />
+    </SearchPanel>
 
     <!-- Table Card -->
     <v-card class="table-card">
@@ -419,9 +411,11 @@ import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import { useTaskList } from '@/composables/useTaskList'
 import type { SearchParams, PageResult } from '@/types'
+import { useSearchPanel } from '@/composables/useSearchPanel'
+import SearchPanel from '@/components/SearchPanel.vue'
 
 const appStore = useAppStore()
-const showSearch = ref(window.innerWidth >= 768)
+const { showSearch } = useSearchPanel()
 
 const jobHeaders = [
   { title: '任务名称', key: 'jobName', minWidth: '140' },

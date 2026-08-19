@@ -87,6 +87,37 @@ describe('SidebarMenuItem', () => {
     expect(hidden.find('[data-testid="menu-item-/openliststrm/task"]').exists()).toBe(true)
   })
 
+  // PC 常驻侧边栏用 collapsible：菜单摊平后 37 行 1604px，而 1280×800 只装得下 17 行。
+  // 默认收起、点标题展开；移动端抽屉不传这个 prop，保持平铺（见 useSidebarGroups 注释）。
+  it('collapsible 时分组默认收起，点标题展开', async () => {
+    localStorage.clear()
+    const menu: MenuRoute = {
+      path: '/openliststrm',
+      name: '折叠组',
+      meta: { title: '折叠组' },
+      children: [leaf('/openliststrm/task', '同步任务配置')]
+    }
+
+    const wrapper = mountInList(menu, { collapsible: true })
+    expect(wrapper.find('[data-testid="menu-item-/openliststrm/task"]').exists()).toBe(false)
+
+    await wrapper.find('[data-testid="menu-group-折叠组"]').trigger('click')
+    expect(wrapper.find('[data-testid="menu-item-/openliststrm/task"]').exists()).toBe(true)
+  })
+
+  // rail 态（64px）下标题是藏起来的，此时再折叠就一个图标都不剩
+  it('collapsible 但处于 rail 态（showGroupLabel=false）时子项照常显示', () => {
+    localStorage.clear()
+    const menu: MenuRoute = {
+      path: '/openliststrm',
+      name: 'rail 组',
+      meta: { title: 'rail 组' },
+      children: [leaf('/openliststrm/task', '同步任务配置')]
+    }
+    const wrapper = mountInList(menu, { collapsible: true, showGroupLabel: false })
+    expect(wrapper.find('[data-testid="menu-item-/openliststrm/task"]').exists()).toBe(true)
+  })
+
   it('三级嵌套（目录>子目录>叶子）逐级递归渲染，父子目录即使 path 相同，data-testid(name) 也不会撞车', () => {
     const menu: MenuRoute = {
       path: '/openliststrm',

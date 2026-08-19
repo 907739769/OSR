@@ -81,6 +81,7 @@ import { useTaskList } from '@/composables/useTaskList'
 import StatusChip from '@/components/StatusChip.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import type { SearchParams } from '@/types'
+import { useDataTable } from '@/composables/useDataTable'
 
 const appStore = useAppStore()
 const router = useRouter()
@@ -106,16 +107,8 @@ const { taskList, loading, total, queryParams, getList } = useTaskList<SearchPar
   defaultQuery: {}
 })
 
-const onPageChange = (page: number) => {
-  queryParams.pageNum = page
-  getList()
-}
-
-const onSizeChange = (size: number) => {
-  queryParams.pageSize = size
-  queryParams.pageNum = 1
-  getList()
-}
+// 翻页 / 换页长的接线统一在 useDataTable 里（这张表没有勾选，不取 selectedRows）
+const { onPageChange, onSizeChange } = useDataTable({ queryParams, getList })
 
 // ---------- 移动端 - 分页辅助 ----------
 const totalPages = computed(() => Math.ceil(total.value / queryParams.pageSize) || 1)

@@ -95,6 +95,15 @@
   }
 }
 
+/* 表格「操作」列的「更多 ▾」下拉。
+   列宽是加法（勾选 48 + 内容列 + 状态列 + 时间列 170 + 操作列），操作列一超标整张表
+   就宽过内容区；而按钮塞不下时不会报错，只是折行——同步记录页 3 个按钮 250px 挤在
+   260px 的列里，折成两行、行高从 52 涨到 62，一屏少看一行多。
+   破坏性动作优先进菜单：点错了要命的收起来反而更安全，留在外面的是高频的正向动作。 */
+.more-actions-danger {
+  color: rgb(var(--v-theme-error));
+}
+
 /* 批量操作条：吸顶，长列表滚动时批量按钮仍可见 */
 .batch-toolbar {
   display: flex;
@@ -163,6 +172,26 @@
   /* 行内文字按钮（修改/删除/执行等）间距统一 */
   td .v-btn {
     letter-spacing: 0;
+  }
+
+  /* 表头吸顶。
+     前提是让表格自己成为滚动容器（给 .v-table__wrapper 一个 max-height）——
+     不然 sticky 粘的是那个 overflow:auto 的 wrapper，而 wrapper 本身不滚动，
+     表头会跟着整页一起滚出视口，等于没写。
+     280px 是顶栏 + 页头 + 卡片内距 + 操作条 + 分页脚的经验值：偏了只是表格区域高一点
+     或矮一点，不会坏；min-height 兜住「窗口很矮时表格只剩一条缝」。
+     窄屏（<768）走 .mobile-card* 表格降级，那边没有表头，不参与。 */
+  @media (min-width: 769px) {
+    .v-table__wrapper {
+      max-height: calc(100vh - 280px);
+      min-height: 240px;
+    }
+  }
+
+  .v-data-table__thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
   }
 }
 

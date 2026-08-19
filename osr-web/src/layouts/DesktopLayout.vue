@@ -12,6 +12,7 @@
         :key="menu.path"
         :menu="menu"
         :show-group-label="appStore.sidebarOpened"
+        collapsible
       />
     </v-list>
   </v-navigation-drawer>
@@ -20,13 +21,22 @@
     <v-app-bar-nav-icon @click="toggleSidebar">
       <v-icon :icon="appStore.sidebarOpened ? 'mdi-menu-open' : 'mdi-menu'" />
     </v-app-bar-nav-icon>
+    <!-- 顶栏这条位置以前整条空着。放面包屑而不是重复一遍页面标题：
+         菜单收敛成两级后，页面本身完全不体现自己属于哪个分组，而 PT 那四组
+         （追剧/下载/规则/接入）恰恰是靠分组才分得清的 -->
+    <nav v-if="breadcrumb.length" class="app-breadcrumb" aria-label="面包屑">
+      <template v-for="(item, i) in breadcrumb" :key="i">
+        <span v-if="i" class="app-breadcrumb-sep">/</span>
+        <span class="app-breadcrumb-item" :class="{ 'app-breadcrumb-item--current': i === breadcrumb.length - 1 }">{{ item }}</span>
+      </template>
+    </nav>
     <v-spacer />
     <ThemeSwitch />
     <v-menu>
       <template #activator="{ props: menuProps }">
         <div class="avatar-wrapper" v-bind="menuProps">
-          <v-avatar size="32" color="primary" class="mr-2">管</v-avatar>
-          <span class="username">管理员</span>
+          <v-avatar size="32" color="primary" class="mr-2">{{ avatarText }}</v-avatar>
+          <span class="username">{{ displayName }}</span>
           <v-icon icon="mdi-chevron-down" size="14" class="ml-1" />
         </div>
       </template>
@@ -66,6 +76,8 @@ import { useRouter } from 'vue-router'
 import { confirm } from '@/composables/useConfirm'
 import { useAppStore } from '@/stores/app'
 import { useUserStore } from '@/stores/user'
+import { useCurrentUser } from '@/composables/useCurrentUser'
+import { useBreadcrumb } from '@/composables/useBreadcrumb'
 import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
 import SidebarMenuItem from '@/components/SidebarMenuItem.vue'
 import ThemeSwitch from '@/components/ThemeSwitch.vue'
@@ -74,6 +86,8 @@ const router = useRouter()
 const appStore = useAppStore()
 const userStore = useUserStore()
 const showPasswordDialog = ref(false)
+const { displayName, avatarText } = useCurrentUser()
+const breadcrumb = useBreadcrumb()
 
 const sidebarMenus = computed(() => userStore.routes.filter((r: any) => r.hidden !== true))
 
@@ -113,6 +127,33 @@ const handleLogout = async () => {
     font-weight: 700;
     white-space: nowrap;
     letter-spacing: 0.5px;
+  }
+}
+
+.app-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 4px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+
+  .app-breadcrumb-item {
+    font-size: 13px;
+    color: var(--osr-text-secondary);
+  }
+
+  /* 末级是当前页，给足对比度；上级只是定位用的弱信息 */
+  .app-breadcrumb-item--current {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--osr-text-primary);
+  }
+
+  .app-breadcrumb-sep {
+    font-size: 12px;
+    color: var(--osr-text-disabled);
   }
 }
 

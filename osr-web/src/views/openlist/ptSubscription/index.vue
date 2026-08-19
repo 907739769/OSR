@@ -16,48 +16,40 @@
     </PageHeader>
 
     <!-- 搜索 -->
-    <v-card v-if="showSearch" class="search-card">
-      <v-form @submit.prevent="handleQuery">
-        <div class="search-fields">
-          <v-text-field
-            v-model="queryParams.title"
-            label="标题"
-            placeholder="请输入标题"
-            clearable
-            density="compact"
-            variant="outlined"
-            hide-details
-            @keyup.enter="handleQuery"
-          />
-          <v-select
-            v-model="queryParams.mediaType"
-            :items="[{ title: '剧集', value: 'TV' }, { title: '电影', value: 'MOVIE' }]"
-            label="类型"
-            placeholder="类型"
-            clearable
-            density="compact"
-            variant="outlined"
-            hide-details
-            class="field-sm"
-          />
-          <v-select
-            v-model="queryParams.status"
-            :items="[{ title: '订阅中', value: 'ACTIVE' }, { title: '已完成', value: 'COMPLETED' }, { title: '已暂停', value: 'PAUSED' }]"
-            label="状态"
-            placeholder="状态"
-            clearable
-            density="compact"
-            variant="outlined"
-            hide-details
-            class="field-sm"
-          />
-          <div class="search-actions">
-            <v-btn color="primary" prepend-icon="mdi-magnify" @click="handleQuery">搜索</v-btn>
-            <v-btn variant="outlined" prepend-icon="mdi-refresh" @click="resetQuery">重置</v-btn>
-          </div>
-        </div>
-      </v-form>
-    </v-card>
+    <SearchPanel :visible="showSearch" @search="handleQuery" @reset="resetQuery">
+      <v-text-field
+        v-model="queryParams.title"
+        label="标题"
+        placeholder="请输入标题"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        @keyup.enter="handleQuery"
+      />
+      <v-select
+        v-model="queryParams.mediaType"
+        :items="[{ title: '剧集', value: 'TV' }, { title: '电影', value: 'MOVIE' }]"
+        label="类型"
+        placeholder="类型"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        class="field-sm"
+      />
+      <v-select
+        v-model="queryParams.status"
+        :items="[{ title: '订阅中', value: 'ACTIVE' }, { title: '已完成', value: 'COMPLETED' }, { title: '已暂停', value: 'PAUSED' }]"
+        label="状态"
+        placeholder="状态"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        class="field-sm"
+      />
+    </SearchPanel>
 
     <!-- 列表 -->
     <v-card class="table-card">
@@ -783,10 +775,12 @@ import { useRouter, useRoute } from 'vue-router'
 import { getRoutePathForComponent } from '@/router'
 import { usePtSubscription } from '@/composables/usePtSubscription'
 import { useGridPageSize } from '@/composables/useGridPageSize'
+import { useSearchPanel } from '@/composables/useSearchPanel'
+import SearchPanel from '@/components/SearchPanel.vue'
 
 const router = useRouter()
 const route = useRoute()
-const showSearch = ref(window.innerWidth >= 768)
+const { showSearch } = useSearchPanel()
 /** 海报加载失败的订阅 id 集合，命中则展示占位图标而非裂图；数据刷新后清除以便重试 */
 const posterErrorIds = reactive(new Set<number>())
 
@@ -1077,10 +1071,6 @@ const searchLogHeaders = [
     color: var(--osr-text-secondary);
     white-space: nowrap;
   }
-}
-
-.more-actions-danger {
-  color: rgb(var(--v-theme-error));
 }
 
 .sort-label {

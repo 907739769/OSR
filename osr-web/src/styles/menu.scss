@@ -10,6 +10,10 @@
    移动端曾用 v-list-group 手风琴，但全库 9 个分组 25 个叶子平铺后也就 30 多行，
    换来的是「开抽屉 → 找分组 → 展开 → 点项」三次点击加一次动画等待。 */
 .menu-group-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
   padding: 12px 12px 4px;
   font-size: 11px;
   font-weight: 500;
@@ -17,6 +21,25 @@
   color: rgba(var(--v-theme-on-surface), 0.5);
   white-space: nowrap;
   overflow: hidden;
+
+  .menu-group-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  /* PC 常驻侧边栏：标题可点开合。移动端抽屉不挂这个修饰类，保持纯标题 */
+  &--clickable {
+    cursor: pointer;
+    user-select: none;
+    border-radius: var(--osr-radius-sm);
+    margin: 0 6px;
+    padding: 8px 8px 6px;
+
+    &:hover {
+      background: var(--osr-surface-hover);
+      color: rgba(var(--v-theme-on-surface), 0.75);
+    }
+  }
 }
 
 .menu-item {

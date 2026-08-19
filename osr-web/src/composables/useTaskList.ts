@@ -1,8 +1,9 @@
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
 import { message } from '@/composables/useMessage'
 import { confirm } from '@/composables/useConfirm'
 import { resetQueryParams } from '@/composables/queryParams'
 import { usePageSelection } from '@/composables/usePageSelection'
+import { useDebounce } from '@/composables/useDebounce'
 import type { SearchParams, PageResult } from '@/types'
 
 export interface TaskListApiConfig<TQuery extends SearchParams = SearchParams> {
@@ -50,6 +51,7 @@ export function useTaskList<TQuery extends SearchParams = SearchParams>(config: 
   const queryParams = reactive<SearchParams>({ ...defaultQueryParams }) as TQuery
 
   const getList = async () => {
+    lastQuerySignature = filterSignature()
     loading.value = true
     try {
       const res = await listApi(queryParams) as PageResult
@@ -68,8 +70,10 @@ export function useTaskList<TQuery extends SearchParams = SearchParams>(config: 
   // 「未选中恰好一条 / 一条都没选」的按钮禁用态。派生自 selectedIds 而不是各处手动同步——
   // 早先卡片勾选是在每个业务 composable 里自己改这两个 ref 的，漏改一处就会出现
   // 「明明选中了，修改按钮还是灰的」
-  const single = computed(() => selectedIds.value.length !== 1)
-  const multiple = computed(() => !selectedIds.value.length)
+  const notOneSelected = computed(() => selectedIds.value.length !== 1)
+  // 名字原本叫 multiple（RuoYi 遗留）：`:disabled="multiple"` 字面读作「多选时禁用」，
+  // 实际是「一条都没选时禁用」，方向正好相反
+  const noneSelected = computed(() => !selectedIds.value.length)
 
   const handleSelectionChange = (selection: any[]) => {
     selectedIds.value = selection.map((item: any) => item[idField])
@@ -82,6 +86,31 @@ export function useTaskList<TQuery extends SearchParams = SearchParams>(config: 
     queryParams.pageNum = 1
     getList()
   }
+
+  // --- 输入即搜索 ---
+  //
+  // 改造前只有 3 个页面（同步记录/同步任务/STRM 任务）在页面里自己写了一份防抖 watch，
+  // 另外 14 个必须点「搜索」——同一套界面两种反馈方式，用户会以为某些页面卡住了。
+  // 放在这里而不是各页：所有列表 composable 都建立在 useTaskList / useRecordList 之上。
+  //
+  // 去重靠「上次真正发出去的条件」：handleQuery / resetQuery 会立即查一次，
+  // 不比较的话 300ms 后 watcher 还会照着同样的条件再打一次，等于每次搜索发两个请求。
+  // pageNum / pageSize 不参与——翻页不是筛选条件的变化，算进去会让翻页额外触发一次查询。
+  const filterSignature = () => {
+    const filters: Record<string, any> = {}
+    for (const [key, value] of Object.entries(queryParams as Record<string, any>)) {
+      if (key === 'pageNum' || key === 'pageSize') continue
+      filters[key] = value
+    }
+    return JSON.stringify(filters)
+  }
+
+  let lastQuerySignature = ''
+  const liveSearch = useDebounce(() => {
+    if (filterSignature() === lastQuerySignature) return
+    handleQuery()
+  }, 300)
+  watch(filterSignature, () => liveSearch())
 
   const resetQuery = () => {
     resetQueryParams(queryParams, defaultQueryParams)
@@ -201,7 +230,7 @@ export function useTaskList<TQuery extends SearchParams = SearchParams>(config: 
     taskList, loading, total, queryParams,
     getList, handleQuery, resetQuery, queryRef,
     // 选择
-    selectedIds, single, multiple, handleSelectionChange,
+    selectedIds, notOneSelected, noneSelected, handleSelectionChange,
     toggleSelect, handleCardClick, clearSelection,
     isAllPageSelected, toggleSelectAllPage,
     // 对话框

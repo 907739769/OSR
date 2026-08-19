@@ -7,56 +7,48 @@
     />
 
     <!-- Search Panel -->
-    <v-card v-if="showSearch" class="search-card">
-      <v-form ref="queryRef" @submit.prevent="handleQuery">
-        <div class="search-fields">
-          <v-text-field
-            v-model="queryParams.copyTaskSrc"
-            label="源目录"
-            placeholder="请输入源目录"
-            clearable
-            density="compact"
-            variant="outlined"
-            hide-details
-            @keyup.enter="handleQuery"
-          />
-          <v-text-field
-            v-model="queryParams.copyTaskDst"
-            label="目标目录"
-            placeholder="请输入目标目录"
-            clearable
-            density="compact"
-            variant="outlined"
-            hide-details
-            @keyup.enter="handleQuery"
-          />
-          <v-text-field
-            v-model="queryParams.monitorDir"
-            label="监控目录"
-            placeholder="请输入监控目录"
-            clearable
-            density="compact"
-            variant="outlined"
-            hide-details
-            @keyup.enter="handleQuery"
-          />
-          <v-select
-            v-model="queryParams.copyTaskStatus"
-            label="状态"
-            :items="[{ title: '启用', value: '1' }, { title: '停用', value: '0' }]"
-            clearable
-            density="compact"
-            variant="outlined"
-            hide-details
-            class="status-select"
-          />
-          <div class="search-actions">
-            <v-btn color="primary" prepend-icon="mdi-magnify" @click="handleQuery">搜索</v-btn>
-            <v-btn variant="outlined" prepend-icon="mdi-refresh" @click="resetQuery">重置</v-btn>
-          </div>
-        </div>
-      </v-form>
-    </v-card>
+    <SearchPanel ref="queryRef" :visible="showSearch" @search="handleQuery" @reset="resetQuery">
+      <v-text-field
+        v-model="queryParams.copyTaskSrc"
+        label="源目录"
+        placeholder="请输入源目录"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        @keyup.enter="handleQuery"
+      />
+      <v-text-field
+        v-model="queryParams.copyTaskDst"
+        label="目标目录"
+        placeholder="请输入目标目录"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        @keyup.enter="handleQuery"
+      />
+      <v-text-field
+        v-model="queryParams.monitorDir"
+        label="监控目录"
+        placeholder="请输入监控目录"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        @keyup.enter="handleQuery"
+      />
+      <v-select
+        v-model="queryParams.copyTaskStatus"
+        label="状态"
+        :items="[{ title: '启用', value: '1' }, { title: '停用', value: '0' }]"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        class="status-select"
+      />
+    </SearchPanel>
 
     <!-- Table Card -->
     <v-card class="table-card">
@@ -66,19 +58,28 @@
           <v-btn color="primary" prepend-icon="mdi-plus" @click="handleAdd('新增文件同步任务')">
             新增
           </v-btn>
-          <v-btn color="success" prepend-icon="mdi-pencil-outline" :disabled="single" @click="handleUpdate(undefined, '修改文件同步任务')">
-            修改
-          </v-btn>
-          <v-btn color="error" prepend-icon="mdi-delete-outline" :disabled="multiple" @click="handleDelete(undefined, `是否确认删除文件同步任务编号为“${selectedIds}”的数据项？`)">
-            批量删除
-          </v-btn>
-          <v-btn color="warning" prepend-icon="mdi-play-outline" :disabled="multiple" @click="handleExecute('是否确认执行选中的文件同步任务？')">
-            批量执行
-          </v-btn>
         </div>
         <v-btn variant="text" prepend-icon="mdi-filter-outline" @click="showSearch = !showSearch">
           {{ showSearch ? '隐藏搜索' : '显示搜索' }}
         </v-btn>
+      </div>
+
+      <!-- 选中后才出现：给出「已选 N 项」这个此前完全缺失的反馈。
+           批量按钮从 action-bar 挪到这里 —— 常驻一排灰按钮既占地方，又要靠用户
+           猜「为什么点不动」；卡片型列表页（订阅/下载记录）本来就是这个形态。 -->
+      <div v-if="selectedRows.length" class="batch-toolbar">
+        已选 {{ selectedRows.length }} 项
+        <v-btn variant="text" size="small" color="success" :disabled="notOneSelected" @click="handleUpdate(undefined, '修改文件同步任务')">
+          修改
+        </v-btn>
+        <v-btn variant="text" size="small" color="error" :disabled="noneSelected" @click="handleDelete(undefined, `是否确认删除文件同步任务编号为“${selectedIds}”的数据项？`)">
+          批量删除
+        </v-btn>
+        <v-btn variant="text" size="small" color="warning" :disabled="noneSelected" @click="handleExecute('是否确认执行选中的文件同步任务？')">
+          批量执行
+        </v-btn>
+        <v-spacer />
+        <v-btn variant="text" size="small" class="batch-clear-btn" @click="clearSelection">清空选择</v-btn>
       </div>
 
       <!-- Desktop Table -->
@@ -158,18 +159,19 @@
 import StatusChip from '@/components/StatusChip.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import FormField from '@/components/FormField.vue'
-import { ref, watch } from 'vue'
 import { useCopyTask } from '@/composables/useCopyTask'
-import { useDebounce } from '@/composables/useDebounce'
 import { message } from '@/composables/useMessage'
 import DirectoryTreeSelect from '@/components/DirectoryTreeSelect/index.vue'
+import { useSearchPanel } from '@/composables/useSearchPanel'
+import SearchPanel from '@/components/SearchPanel.vue'
+import { useDataTable } from '@/composables/useDataTable'
 
-const showSearch = ref(window.innerWidth >= 768)
+const { showSearch } = useSearchPanel()
 
 const {
   taskList, loading, total, queryParams, queryRef,
   getList, handleQuery, resetQuery,
-  selectedIds, single, multiple, handleSelectionChange,
+  selectedIds, notOneSelected, noneSelected, handleSelectionChange,
   open, dialogTitle, submitLoading, formRef, form,
   handleAdd, handleUpdate, submitForm,
   handleDelete, handleExecuteOne, handleExecute
@@ -195,33 +197,8 @@ const headers = [
   { title: '操作', key: 'actions', align: 'center' as const, width: '220', sortable: false }
 ]
 
-// v-data-table-server 的多选需要一个本地 ref 承接当前选中的行对象，
-// 再转给 useTaskList 的 handleSelectionChange 去派生 selectedIds/single/multiple
-const selectedRows = ref<any[]>([])
-const onSelectionChange = (rows: any[]) => {
-  selectedRows.value = rows
-  handleSelectionChange(rows)
-}
+// 表格接线（选中承接 / 翻页 / 换页长）统一在 useDataTable 里，见该文件注释
+const { selectedRows, onSelectionChange, clearSelection, onPageChange, onSizeChange } =
+  useDataTable({ queryParams, getList, handleSelectionChange })
 
-const onPageChange = (page: number) => {
-  queryParams.pageNum = page
-  getList()
-}
-
-const onSizeChange = (size: number) => {
-  queryParams.pageSize = size
-  queryParams.pageNum = 1
-  getList()
-}
-
-// 搜索输入防抖：输入停止 300ms 后自动触发搜索
-const debouncedSearch = useDebounce(() => {
-  queryParams.pageNum = 1
-  getList()
-}, 300)
-
-watch(
-  () => [queryParams.copyTaskSrc, queryParams.copyTaskDst, queryParams.monitorDir, queryParams.copyTaskStatus],
-  () => debouncedSearch()
-)
 </script>

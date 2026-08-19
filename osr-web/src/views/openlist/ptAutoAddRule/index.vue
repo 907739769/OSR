@@ -6,48 +6,40 @@
       desc="按 TMDb 热门榜或评分条件定时自动建订阅"
     />
 
-    <v-card v-if="showSearch" class="search-card">
-      <v-form ref="queryRef" @submit.prevent="handleQuery">
-        <div class="search-fields">
-          <v-text-field
-            v-model="queryParams.name"
-            label="规则名称"
-            placeholder="规则名称"
-            clearable
-            density="compact"
-            variant="outlined"
-            hide-details
-            @keyup.enter="handleQuery"
-          />
-          <v-select
-            v-model="queryParams.mediaType"
-            label="媒体类型"
-            :items="[{ title: '电影', value: 'MOVIE' }, { title: '剧集', value: 'TV' }]"
-            placeholder="全部类型"
-            clearable
-            density="compact"
-            variant="outlined"
-            hide-details
-            class="field-sm"
-          />
-          <v-select
-            v-model="queryParams.enabled"
-            label="启用状态"
-            :items="[{ title: '启用', value: '1' }, { title: '停用', value: '0' }]"
-            placeholder="全部"
-            clearable
-            density="compact"
-            variant="outlined"
-            hide-details
-            class="status-select"
-          />
-          <div class="search-actions">
-            <v-btn color="primary" prepend-icon="mdi-magnify" @click="handleQuery">搜索</v-btn>
-            <v-btn variant="outlined" prepend-icon="mdi-refresh" @click="resetQuery">重置</v-btn>
-          </div>
-        </div>
-      </v-form>
-    </v-card>
+    <SearchPanel ref="queryRef" :visible="showSearch" @search="handleQuery" @reset="resetQuery">
+      <v-text-field
+        v-model="queryParams.name"
+        label="规则名称"
+        placeholder="规则名称"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        @keyup.enter="handleQuery"
+      />
+      <v-select
+        v-model="queryParams.mediaType"
+        label="媒体类型"
+        :items="[{ title: '电影', value: 'MOVIE' }, { title: '剧集', value: 'TV' }]"
+        placeholder="全部类型"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        class="field-sm"
+      />
+      <v-select
+        v-model="queryParams.enabled"
+        label="启用状态"
+        :items="[{ title: '启用', value: '1' }, { title: '停用', value: '0' }]"
+        placeholder="全部"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        class="status-select"
+      />
+    </SearchPanel>
 
     <v-card class="table-card">
       <div class="action-bar">
@@ -84,9 +76,17 @@
         </template>
         <template #item.actions="{ item }">
           <v-btn variant="text" color="primary" size="small" :loading="runningIds.has(item.id)" @click="handleRun(item)">立即执行</v-btn>
-          <v-btn variant="text" color="primary" size="small" @click="handleShowLogs(item)">日志</v-btn>
-          <v-btn variant="text" color="primary" size="small" @click="handleUpdate(item, '编辑规则')">编辑</v-btn>
-          <v-btn variant="text" color="error" size="small" @click="handleDelete(item)">删除</v-btn>
+          <v-menu>
+            <template #activator="{ props: menuProps }">
+              <v-btn v-bind="menuProps" class="more-actions-trigger" variant="text" color="info" size="small" append-icon="mdi-chevron-down">更多</v-btn>
+            </template>
+            <v-list density="compact">
+              <v-list-item prepend-icon="mdi-text-box-outline" @click="handleShowLogs(item)">日志</v-list-item>
+              <v-list-item prepend-icon="mdi-pencil-outline" @click="handleUpdate(item, '编辑规则')">编辑</v-list-item>
+              <v-divider class="my-1" />
+              <v-list-item class="more-actions-danger" prepend-icon="mdi-delete-outline" @click="handleDelete(item)">删除</v-list-item>
+            </v-list>
+          </v-menu>
         </template>
       </v-data-table-server>
     </v-card>
@@ -226,10 +226,12 @@
 import StatusChip from '@/components/StatusChip.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import FormField from '@/components/FormField.vue'
-import { ref } from 'vue'
 import { usePtAutoAddRule, REGION_OPTIONS } from '@/composables/usePtAutoAddRule'
+import { useSearchPanel } from '@/composables/useSearchPanel'
+import SearchPanel from '@/components/SearchPanel.vue'
+import { useDataTable } from '@/composables/useDataTable'
 
-const showSearch = ref(window.innerWidth >= 768)
+const { showSearch } = useSearchPanel()
 
 const {
   taskList, loading, total, queryParams, getList, handleQuery, resetQuery, queryRef,
@@ -260,16 +262,8 @@ const handleSubmitClick = async () => {
   submitForm()
 }
 
-const onPageChange = (page: number) => {
-  queryParams.pageNum = page
-  getList()
-}
-
-const onSizeChange = (size: number) => {
-  queryParams.pageSize = size
-  queryParams.pageNum = 1
-  getList()
-}
+// 翻页 / 换页长的接线统一在 useDataTable 里（这张表没有勾选，不取 selectedRows）
+const { onPageChange, onSizeChange } = useDataTable({ queryParams, getList })
 
 const headers = [
   { title: '规则名称', key: 'name', minWidth: '140' },
@@ -280,7 +274,9 @@ const headers = [
   { title: '执行间隔', key: 'intervalHours', width: '100' },
   { title: '上次执行', key: 'lastRunTime', width: '160' },
   { title: '状态', key: 'enabled', width: '80' },
-  { title: '操作', key: 'actions', width: '260', sortable: false }
+  // 这张表是 auto 布局（多表页没挂 .modern-table--fixed），width 只是建议值——
+  // 9 列一挤就被压到 101px，按钮折了四行。auto 布局下要用 minWidth 才拦得住
+  { title: '操作', key: 'actions', minWidth: '190', sortable: false }
 ]
 
 const logHeaders = [

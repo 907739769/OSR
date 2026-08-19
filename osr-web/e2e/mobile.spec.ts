@@ -77,6 +77,11 @@ test.describe('Mobile Responsive', () => {
     const filter = page.locator('input[placeholder="请输入源目录"]')
     await filter.fill('MY-FILTER')
 
+    // 输入即搜索（useTaskList/useRecordList 里的 300ms 防抖）会自己发一次查询。
+    // 这里必须等它落地再离开：否则它可能在导航途中才触发，请求计数变成时序相关，
+    // 用例单跑通过、并行跑偶发失败 —— 这条一开始就是这么暴露出来的。
+    await expect.poll(() => listRequests).toBe(2)
+
     await page.locator('.tabbar-item', { hasText: 'STRM记录' }).click()
     await expect(page).toHaveURL(/\/openliststrm\/strm/)
     await page.locator('.tabbar-item', { hasText: '同步记录' }).click()
@@ -85,7 +90,7 @@ test.describe('Mobile Responsive', () => {
     // 组件从缓存恢复，筛选条件不被重置
     await expect(filter).toHaveValue('MY-FILTER')
     // 但要静默拉一次最新数据，避免看到离开时的旧列表
-    await expect.poll(() => listRequests).toBe(2)
+    await expect.poll(() => listRequests).toBe(3)
   })
 
   test('dashboard should not be cached', async ({ page }) => {

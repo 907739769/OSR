@@ -56,7 +56,7 @@ export function useRenameOrphanList() {
     recordList, loading, total, queryParams, totalPages,
     getList, silentRefresh, prevPage, nextPage, handleSizeChange,
     queryRef, dateRange, dateStart, dateEnd, handleQuery, resetQuery,
-    selectedIds, multiple, toggleSelect, handleCardClick, clearSelection, handleSelectionChange,
+    selectedIds, noneSelected, toggleSelect, handleCardClick, clearSelection, handleSelectionChange,
     isAllPageSelected, toggleSelectAllPage
   } = useRecordList<RenameOrphanQuery>({
     listApi: getRenameOrphanListApi,
@@ -134,7 +134,7 @@ export function useRenameOrphanList() {
     recordList, loading, total, queryParams, totalPages,
     getList, silentRefresh, prevPage, nextPage, handleSizeChange,
     queryRef, dateRange, dateStart, dateEnd, handleQuery, resetQuery,
-    selectedIds, multiple, toggleSelect, handleCardClick, clearSelection, handleSelectionChange,
+    selectedIds, noneSelected, toggleSelect, handleCardClick, clearSelection, handleSelectionChange,
     isAllPageSelected, toggleSelectAllPage,
     handleCleanOne, handleBatchClean,
     scanning, handleScanNow,
