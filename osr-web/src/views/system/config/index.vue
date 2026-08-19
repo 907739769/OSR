@@ -29,137 +29,22 @@
         <v-window v-model="activeTab" class="config-window">
           <v-window-item v-for="section in configSections" :key="section.key" :value="section.key">
             <div class="section-cards">
-              <div
+              <ConfigItem
                 v-for="item in section.items"
                 :key="item.configId"
-                class="config-item"
-                :class="{ 'config-item--editing': editingId === item.configId }"
-              >
-                <!-- Header row: name + key + actions -->
-                <div class="config-item__header">
-                  <div class="config-item__title">
-                    <span class="config-item__name">{{ item.configName }}</span>
-                    <code class="config-item__key" @click="copyText(item.configKey)" title="点击复制键名">{{ item.configKey }}</code>
-                  </div>
-                  <div class="config-item__actions">
-                    <!-- Inline switch for boolean configs -->
-                    <v-switch
-                      v-if="metaOf(item).type === 'switch' && editingId !== item.configId"
-                      :model-value="item.configValue === '1'"
-                      :loading="switchSavingId === item.configId"
-                      color="primary"
-                      density="compact"
-                      hide-details
-                      @update:model-value="(val: any) => toggleSwitch(item, val)"
-                    />
-                    <!-- 明确的编辑按钮（PC + 移动端均清晰可见） -->
-                    <v-btn
-                      v-else-if="editingId !== item.configId"
-                      color="primary"
-                      variant="outlined"
-                      size="small"
-                      prepend-icon="mdi-pencil-outline"
-                      @click="startEdit(item)"
-                    >
-                      编辑
-                    </v-btn>
-                    <v-chip v-else size="small" color="warning" variant="tonal">编辑中</v-chip>
-                  </div>
-                </div>
-
-                <!-- Hint -->
-                <p v-if="metaOf(item).hint" class="config-item__hint">{{ metaOf(item).hint }}</p>
-
-                <!-- Display value (non-switch, non-editing) -->
-                <div
-                  v-if="editingId !== item.configId && metaOf(item).type !== 'switch'"
-                  class="config-item__value"
-                >
-                  <span class="value-text" :class="{ 'value-text--empty': !item.configValue }">{{ displayValue(item) }}</span>
-                  <v-tooltip v-if="isSensitive(item.configKey) && item.configValue" :text="item.configValue" location="top" open-delay="300">
-                    <template #activator="{ props: tooltipProps }">
-                      <v-icon v-bind="tooltipProps" icon="mdi-magnify-plus-outline" class="value-expand" size="14" />
-                    </template>
-                  </v-tooltip>
-                </div>
-
-                <!-- Edit Mode -->
-                <template v-if="editingId === item.configId">
-                  <div class="edit-body">
-                    <!-- number -->
-                    <v-text-field
-                      v-if="metaOf(item).type === 'number'"
-                      v-model.number="editNumber"
-                      type="number"
-                      :min="metaOf(item).min"
-                      :max="metaOf(item).max"
-                      step="1"
-                      density="compact"
-                      variant="outlined"
-                      hide-details
-                      class="edit-number"
-                    />
-                    <span v-if="metaOf(item).type === 'number' && metaOf(item).unit" class="edit-unit">{{ metaOf(item).unit }}</span>
-
-                    <!-- select -->
-                    <v-combobox
-                      v-else-if="metaOf(item).type === 'select'"
-                      v-model="editForm.configValue"
-                      :items="metaOf(item).options"
-                      item-title="label"
-                      item-value="value"
-                      density="compact"
-                      variant="outlined"
-                      hide-details
-                      class="edit-select"
-                      placeholder="请选择"
-                    />
-
-                    <!-- password -->
-                    <v-text-field
-                      v-else-if="metaOf(item).type === 'password'"
-                      v-model="editForm.configValue"
-                      type="password"
-                      placeholder="请输入参数值"
-                      density="compact"
-                      variant="outlined"
-                      hide-details
-                      class="edit-input"
-                      :error="!!editError"
-                    />
-
-                    <!-- textarea -->
-                    <v-textarea
-                      v-else-if="metaOf(item).type === 'textarea'"
-                      v-model="editForm.configValue"
-                      rows="3"
-                      placeholder="请输入参数值"
-                      density="compact"
-                      variant="outlined"
-                      hide-details
-                      class="edit-input"
-                      :error="!!editError"
-                    />
-
-                    <!-- text (default) -->
-                    <v-text-field
-                      v-else
-                      v-model="editForm.configValue"
-                      placeholder="请输入参数值"
-                      density="compact"
-                      variant="outlined"
-                      hide-details
-                      class="edit-input"
-                      :error="!!editError"
-                    />
-                  </div>
-                  <p v-if="editError" class="edit-error text-caption text-error">{{ editError }}</p>
-                  <div class="edit-actions">
-                    <v-btn variant="outlined" @click="cancelEdit">取消</v-btn>
-                    <v-btn color="primary" variant="flat" :loading="saving" @click="saveEdit(item)">保存</v-btn>
-                  </div>
-                </template>
-              </div>
+                :config="item"
+                :editing="editingId === item.configId"
+                :saving="saving"
+                :switch-saving="switchSavingId === item.configId"
+                v-model:form="editForm"
+                v-model:number="editNumber"
+                :error="editError"
+                @edit="startEdit"
+                @cancel="cancelEdit"
+                @save="saveEdit"
+                @toggle="toggleSwitch"
+                @copy="copyText"
+              />
             </div>
           </v-window-item>
         </v-window>
@@ -176,7 +61,9 @@ import { ref, computed, watch } from 'vue'
 import { message } from '@/composables/useMessage'
 import { getConfigListApi, updateConfigApi } from '@/api/system/config'
 import type { SysConfig } from '@/types/system'
+import { SECTION_RULES, HIDDEN_KEYS, metaOf, sectionKeyOf } from './configMeta'
 import PageHeader from '@/components/PageHeader.vue'
+import ConfigItem from './ConfigItem.vue'
 
 interface ConfigSection {
   key: string
@@ -185,16 +72,7 @@ interface ConfigSection {
   items: SysConfig[]
 }
 
-type ConfigInputType = 'switch' | 'number' | 'select' | 'text' | 'password' | 'textarea'
 
-interface ConfigMeta {
-  type: ConfigInputType
-  hint?: string
-  unit?: string
-  min?: number
-  max?: number
-  options?: { label: string; value: string }[]
-}
 
 const loading = ref(true)
 const refreshing = ref(false)
@@ -211,131 +89,12 @@ const editForm = ref<Partial<SysConfig>>({})
 const editNumber = ref<number>(0)
 const editError = ref('')
 
-/* ============================================================
-   配置项元数据：按 configKey 定义控件类型、说明、可选项等。
-   未在此声明的配置键回退为普通文本输入。
-   ============================================================ */
-const tmdbImageLangOptions = [
-  { label: '中文 (zh)', value: 'zh' },
-  { label: '英语 (en)', value: 'en' },
-  { label: '日语 (ja)', value: 'ja' },
-  { label: '韩语 (ko)', value: 'ko' }
-]
-const tmdbMetaLangOptions = [
-  { label: '简体中文 (zh-CN)', value: 'zh-CN' },
-  { label: '繁体中文 (zh-TW)', value: 'zh-TW' },
-  { label: '英语 (en-US)', value: 'en-US' },
-  { label: '日语 (ja-JP)', value: 'ja-JP' },
-  { label: '韩语 (ko-KR)', value: 'ko-KR' }
-]
-const tmdbImageSizeOptions = [
-  { label: '原图 (original)', value: 'original' },
-  { label: 'w780', value: 'w780' },
-  { label: 'w500', value: 'w500' },
-  { label: 'w342', value: 'w342' },
-  { label: 'w300', value: 'w300' },
-  { label: 'w185', value: 'w185' }
-]
 
-const CONFIG_META: Record<string, ConfigMeta> = {
-  // Openlist 基础
-  'openlist.server.url': { type: 'text', hint: 'OpenList 服务访问地址，例如 http://192.168.1.10:5244' },
-  'openlist.server.token': { type: 'password', hint: 'OpenList 管理 API Token' },
-  'openlist.api.apikey': { type: 'password', hint: '第三方开放回调接口的鉴权 Key' },
-  'openlist.api.refresh': { type: 'switch', hint: '源目录同步列举时是否强制刷新网盘（建议开启以保证增量正确）' },
-  'openlist.api.traversal.refresh': { type: 'switch', hint: '目录遍历目标目录时是否强制刷新网盘（关闭走缓存更快，默认关闭）' },
-  'openlist.api.traversal.concurrency': { type: 'number', min: 1, max: 64, hint: '目录遍历并发线程数，范围 1-64，默认 10' },
-  'openlist.local.allowedroots': { type: 'textarea', hint: '本地目录浏览白名单，多个用英文逗号分隔，默认仅 /data' },
-  // 复制 & STRM
-  'openlist.copy.minfilesize': { type: 'number', min: 0, unit: 'MB', hint: '小于该大小的文件不会被复制' },
-  'openlist.copy.strm': { type: 'switch', hint: '复制完成后是否自动生成 STRM 文件' },
-  'openlist.copy.monitor.maxminutes': { type: 'number', min: 1, unit: '分钟', hint: '复制任务监控最长时长，超时未结束将标记为异常，默认 600' },
-  'openlist.strm.outputdir': { type: 'text', hint: 'STRM 文件生成的根目录，默认 /data/strm' },
-  'openlist.strm.encode': { type: 'switch', hint: 'STRM 内路径是否进行 URL 编码' },
-  'openlist.strm.downloadsub': { type: 'switch', hint: '生成 STRM 时是否同时下载字幕文件' },
-  // Telegram
-  'openlist.tg.token': { type: 'password', hint: 'Telegram 机器人 Token' },
-  'openlist.tg.userid': { type: 'text', hint: '允许控制机器人的 Telegram 用户 ID' },
-  // 企业微信自建应用
-  'openlist.wecom.corpid': { type: 'text', hint: '企业 ID(corpid)，企微管理后台「我的企业」页面查看。留空则企微功能整体不启用' },
-  'openlist.wecom.agentid': { type: 'text', hint: '自建应用的 AgentId，「应用管理」→ 自建应用详情页查看' },
-  'openlist.wecom.secret': { type: 'password', hint: '自建应用的 Secret，与 corpid 一起换取 access_token' },
-  'openlist.wecom.token': { type: 'password', hint: '应用「接收消息」配置里的 Token。不配只能发通知、收不到指令' },
-  'openlist.wecom.aeskey': { type: 'password', hint: '应用「接收消息」配置里的 EncodingAESKey（43 位）' },
-  'openlist.wecom.touser': { type: 'text', hint: '无归属通知的接收人，多个用 | 分隔，@all 表示应用可见范围内全部成员' },
-  'openlist.wecom.autocreate': { type: 'switch', hint: '开启后企微成员首次发指令即自动建 OSR 账号并绑定（账号为停用状态，无法登录网页端），管理员无需逐个建号；关闭则必须先在「企业微信用户」页面建好绑定' },
-  'openlist.wecom.proxy': { type: 'text', hint: '企微 API 中转地址。仅 2022-06-20 之后创建的自建应用、且服务器无固定公网 IP 时需要（企微要求登记可信 IP），填反代 qyapi.weixin.qq.com 的地址。不使用代理请保留默认值 https://qyapi.weixin.qq.com' },
-  'openlist.notify.wecom.types': { type: 'text', hint: '逗号分隔的通知类型，留空=全部发送。可选：GENERAL,SUBSCRIPTION_HIT,DOWNLOAD_COMPLETE,DOWNLOAD_FAILED,EMBY_LIBRARY_SYNC' },
-  // OpenAI
-  'openlist.openai.apikey': { type: 'password', hint: 'OpenAI API Key' },
-  'openlist.openai.endpoint': { type: 'text', hint: 'OpenAI 接口地址，默认 https://api.openai.com' },
-  'openlist.openai.model': { type: 'text', hint: 'OpenAI 模型名称，例如 gpt-5-mini' },
-  // TMDb
-  'openlist.tmdb.apikey': { type: 'password', hint: 'TMDb API Key' },
-  'openlist.tmdb.image.language': { type: 'select', options: tmdbImageLangOptions, hint: 'TMDb 图片语言偏好' },
-  'openlist.tmdb.metadata.language': { type: 'select', options: tmdbMetaLangOptions, hint: 'TMDb 元数据（标题/简介）请求语言' },
-  'openlist.tmdb.image.size': { type: 'select', options: tmdbImageSizeOptions, hint: 'TMDb 图片下载尺寸，越小越省带宽' }
-}
 
-const metaOf = (config: SysConfig): ConfigMeta => {
-  return CONFIG_META[config.configKey] || { type: 'text' }
-}
 
-/**
- * 配置分组：按<b>配置键前缀</b>归类，而不是按键名/配置名里的关键词猜。
- *
- * 旧实现是一串 if-else 匹配子串（含 'tg' 就归 Telegram、含 'strm' 就归复制…），
- * 最后一条兜底进「基础配置」。问题是新增一类配置必须回来改这个 if-else，漏改不报错、
- * 也不告警，只是静静地掉进兜底分组——实测 41 个配置里有 15 个掉在那儿，
- * 通知类（webhook/bark/gotify）和登录安全类全在其中。
- *
- * 前缀是这个项目本来就在维护的约定（openlist.notify.* / openlist.wecom.* / sys.login.*），
- * 让键自己声明归属，新增同前缀的配置零改动就能落到正确分组；
- * 全新前缀落进「其他」，看得见但不会错放。
- *
- * 匹配取最长前缀：openlist.notify.tg.types 归「通知渠道」而不是「Telegram 机器人」，
- * 它描述的是通知路由而不是机器人本身。
- */
-const SECTION_RULES: Array<{ key: string; title: string; icon: string; prefixes: string[] }> = [
-  { key: 'openlist', title: 'OpenList 服务', icon: 'mdi-server-network',
-    prefixes: ['openlist.server.', 'openlist.api.', 'openlist.local.'] },
-  { key: 'copy', title: '复制 & STRM 任务', icon: 'mdi-swap-horizontal',
-    prefixes: ['openlist.copy.', 'openlist.strm.'] },
-  { key: 'notify', title: '通知渠道', icon: 'mdi-bell-outline',
-    prefixes: ['openlist.notify.'] },
-  { key: 'tg', title: 'Telegram 机器人', icon: 'mdi-telegram',
-    prefixes: ['openlist.tg.'] },
-  { key: 'wecom', title: '企业微信', icon: 'mdi-wechat',
-    prefixes: ['openlist.wecom.'] },
-  { key: 'tmdb', title: 'TMDb 影视配置', icon: 'mdi-flash-outline',
-    prefixes: ['openlist.tmdb.'] },
-  { key: 'openai', title: 'OpenAI 配置', icon: 'mdi-robot-outline',
-    prefixes: ['openlist.openai.'] },
-  { key: 'security', title: '登录与安全', icon: 'mdi-shield-lock-outline',
-    prefixes: ['sys.login.', 'sys.account.'] },
-  { key: 'other', title: '其他', icon: 'mdi-dots-horizontal', prefixes: [] }
-]
 
 /** 这些配置由专门的页面管理，参数设置页不重复展示 */
-const HIDDEN_KEYS = new Set([
-  // 重命名文件名模板 → /openlist/renameConfig
-  'rename.filename.template'
-])
 
-/** 取最长匹配前缀所属的分组，都不匹配归「其他」 */
-const sectionKeyOf = (configKey: string): string => {
-  let best = 'other'
-  let bestLen = -1
-  for (const rule of SECTION_RULES) {
-    for (const prefix of rule.prefixes) {
-      if (configKey.startsWith(prefix) && prefix.length > bestLen) {
-        best = rule.key
-        bestLen = prefix.length
-      }
-    }
-  }
-  return best
-}
 
 const configSections = computed<ConfigSection[]>(() => {
   const buckets: Record<string, SysConfig[]> = {}
@@ -371,34 +130,8 @@ const getList = async () => {
 }
 
 // Sensitive keys that should be masked
-const sensitiveKeys = ['token', 'apikey', 'api_key', 'secret', 'password', 'passwd']
 
-const isSensitive = (key: string): boolean => {
-  if (!key) return false
-  const lower = key.toLowerCase()
-  return sensitiveKeys.some(s => lower.includes(s))
-}
 
-const displayValue = (config: SysConfig): string => {
-  if (!config.configValue) return '未配置'
-  // 下拉枚举：显示对应中文标签
-  const meta = metaOf(config)
-  if (meta.type === 'select' && meta.options) {
-    const hit = meta.options.find(o => o.value === config.configValue)
-    if (hit) return hit.label
-  }
-  // 数字：附带单位
-  if (meta.type === 'number' && meta.unit) {
-    return `${config.configValue} ${meta.unit}`
-  }
-  // 敏感值脱敏
-  if (isSensitive(config.configKey)) {
-    const v = config.configValue
-    if (v.length <= 6) return v
-    return v.slice(0, 4) + '•'.repeat(Math.min(v.length - 4, 12))
-  }
-  return config.configValue
-}
 
 // 开关内联即时保存
 const toggleSwitch = async (config: SysConfig, val: boolean) => {
@@ -517,7 +250,6 @@ getList()
 
   p { margin: 0; font-size: 14px; }
 }
-
 /* ============================================
     Config Tabs + Window
     ============================================ */
@@ -538,206 +270,13 @@ getList()
     border-radius: 10px;
   }
 }
-
 .config-window {
   padding-top: 16px;
 }
-
 .section-cards {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   padding-top: 4px;
-}
-
-/* ============================================
-    Config Item
-    ============================================ */
-.config-item {
-  background: var(--osr-surface);
-  border-radius: var(--osr-radius-lg);
-  border: 1px solid var(--osr-border-light);
-  padding: 14px 16px;
-  transition: all var(--osr-transition-base);
-  display: flex;
-  flex-direction: column;
-  /* grid item 的默认 min-width 是 auto，即"不会窄于内容的 min-content 宽度"。
-     配置值/说明里有 GENERAL,SUBSCRIPTION_HIT,DOWNLOAD_COMPLETE,... 这种不含空格的
-     长串时，卡片会被顶宽、把右侧的编辑按钮推出屏幕（移动端尤其明显）。 */
-  min-width: 0;
-
-  &:hover:not(.config-item--editing) {
-    border-color: var(--osr-primary-muted);
-    box-shadow: var(--osr-shadow-md);
-  }
-
-  &--editing {
-    border-color: rgb(var(--v-theme-warning));
-    box-shadow: 0 0 0 2px rgba(var(--v-theme-warning), 0.2);
-    grid-column: 1 / -1;
-  }
-
-  .config-item__header {
-    display: flex;
-    align-items: flex-start;
-    justify-content: space-between;
-    gap: 8px;
-
-    .config-item__title {
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
-      min-width: 0;
-      flex: 1;
-
-      .config-item__name {
-        font-size: 14px;
-        font-weight: 600;
-        color: var(--osr-text-primary);
-        line-height: 1.3;
-      }
-
-      .config-item__key {
-        font-family: 'SF Mono', 'Courier New', monospace;
-        font-size: 11px;
-        color: var(--osr-text-placeholder);
-        background: var(--osr-bg-page);
-        padding: 1px 6px;
-        border-radius: 5px;
-        cursor: pointer;
-        align-self: flex-start;
-        max-width: 100%;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        transition: all var(--osr-transition-fast);
-
-        &:hover {
-          color: var(--osr-primary);
-          background: var(--osr-primary-subtle);
-        }
-      }
-    }
-
-    .config-item__actions {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      flex-shrink: 0;
-      padding-top: 2px;
-    }
-  }
-
-  .config-item__hint {
-    margin: 8px 0 0;
-    font-size: 12px;
-    line-height: 1.5;
-    color: var(--osr-text-secondary);
-    /* 说明文字里常有逗号分隔的枚举/URL，整体是一个不含空格的长 token，
-       不允许其内部断行的话会把整张卡片顶宽（见 .config-item 的 min-width 注释） */
-    overflow-wrap: anywhere;
-  }
-
-  .config-item__value {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 10px;
-    padding: 8px 10px;
-    background: var(--osr-bg-page);
-    border-radius: var(--osr-radius-base);
-
-    .value-text {
-      flex: 1;
-      font-family: 'SF Mono', 'Courier New', monospace;
-      font-size: 13px;
-      color: var(--osr-text-regular);
-      line-height: 1.6;
-      word-break: break-all;
-      min-width: 0;
-
-      &--empty {
-        color: var(--osr-text-placeholder);
-        font-style: italic;
-        font-family: inherit;
-      }
-    }
-
-    .value-expand {
-      color: var(--osr-text-placeholder);
-      cursor: pointer;
-      flex-shrink: 0;
-      padding: 2px;
-      border-radius: 4px;
-      transition: all var(--osr-transition-fast);
-
-      &:hover {
-        color: var(--osr-primary);
-        background: var(--osr-primary-subtle);
-      }
-    }
-  }
-}
-
-/* Edit mode */
-.edit-body {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 12px;
-
-  .edit-number { width: 180px; }
-  .edit-select { width: 100%; min-width: 0; }
-  /* min-width: 0 —— flex item 默认不会窄于 min-content，v-text-field 内部还套着
-     label/append 等结构，窄屏下不给这条会把编辑区连同下方按钮一起顶出屏幕 */
-  .edit-input { flex: 1; min-width: 0; }
-  .edit-unit {
-    font-size: 13px;
-    color: var(--osr-text-secondary);
-    flex-shrink: 0;
-  }
-}
-
-.edit-error {
-  display: block;
-  margin-top: 6px;
-}
-
-.edit-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 12px;
-}
-
-/* ============================================
-    Mobile Responsive
-    ============================================ */
-@media (max-width: 768px) {
-
-  .config-tabs {
-    .config-tab__count { display: none; }
-  }
-
-  .config-window {
-    padding-top: 12px;
-  }
-
-  /* 移动端单列。必须是 minmax(0, 1fr) 而不是 1fr —— 后者等价于 minmax(auto, 1fr)，
-     列宽会被最宽的内容顶开，长配置值直接把整页撑出横向滚动条 */
-  .section-cards {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 10px;
-  }
-
-  .config-item {
-    padding: 12px 14px;
-
-    &--editing { grid-column: auto; }
-
-    .config-item__name { font-size: 13px; }
-
-    .edit-body .edit-number { width: 140px; }
-  }
 }
 </style>

@@ -138,6 +138,9 @@ describe('颜色走令牌', () => {
   const ALLOW_LITERAL = [
     'views/openlist/ptSubscription/index.vue',
     'views-mobile/ptSubscription/index.vue',
+    // 海报占位的装饰渐变，随订阅卡一起拆进了子组件
+    'views/openlist/ptSubscription/SubscriptionCard.vue',
+    'views-mobile/ptSubscription/SubscriptionCard.vue',
     'views/monitor/log/realtime.vue',
     'views/auth/Login.vue',
     'views/dashboard/desktop.vue',

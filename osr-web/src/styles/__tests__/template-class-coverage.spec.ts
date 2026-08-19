@@ -14,11 +14,13 @@ import { describe, it, expect } from 'vitest'
  * 不校验属性是否合理。它挡的是「整块样式没了」，不是「样式写得对不对」。
  */
 
-const pages = import.meta.glob('../../views/**/index.vue', {
+// 连页面目录下的子组件一起扫（如 ptSubscription/dialogs/*.vue）：模板搬进子组件、
+// 样式落在页面 <style scoped> 里的话，样式对子组件根本不生效——而这正是本用例要挡的那类事故。
+const pages = import.meta.glob('../../views/**/*.vue', {
   query: '?raw', import: 'default', eager: true
 }) as Record<string, string>
 
-const mobilePages = import.meta.glob('../../views-mobile/**/index.vue', {
+const mobilePages = import.meta.glob('../../views-mobile/**/*.vue', {
   query: '?raw', import: 'default', eager: true
 }) as Record<string, string>
 
@@ -52,7 +54,9 @@ const TEST_HOOK_ONLY = new Set([
  * </p>
  */
 const KNOWN_GAPS: Record<string, string[]> = {
-  'views/monitor/job': ['cron-desc', 'log-detail-dialog', 'log-table', 'mobile-card-title-row'],
+  'views/monitor/job': ['cron-desc'],
+  // 日志弹窗从 job 页面整块搬进了子组件，那几个无主类名跟着一起搬
+  'views/monitor/job/JobLogDialog': ['log-detail-dialog', 'log-table', 'mobile-card-title-row'],
   'views/openlist/ptDownloadRecord': ['selection-mode-btn'],
   'views-mobile/ptDownloadRecord': ['batch-toggle-btn'],
   'views-mobile/renameDetail': [
@@ -109,7 +113,7 @@ const allPages = { ...pages, ...mobilePages }
 
 describe('模板用到的 class 都有定义', () => {
   const cases = Object.entries(allPages).map(([path, src]) => {
-    const name = path.replace(/^\.\.\/\.\.\//, '').replace(/\/index\.vue$/, '')
+    const name = path.replace(/^\.\.\/\.\.\//, '').replace(/\/index\.vue$/, '').replace(/\.vue$/, '')
     return [name, src] as const
   })
 

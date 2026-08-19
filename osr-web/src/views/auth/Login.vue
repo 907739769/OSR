@@ -4,7 +4,7 @@
       <div class="login-brand">
         <img src="/icons/android-chrome-192x192.png" alt="OSR" class="login-logo" />
       </div>
-      <v-form ref="loginFormRef" class="login-form">
+      <v-form ref="loginFormRef">
         <v-text-field
           v-model="loginForm.username"
           placeholder="用户名"

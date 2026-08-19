@@ -14,16 +14,18 @@ import { describe, it, expect } from 'vitest'
 // 用 import.meta.glob 读源码而不是 node:fs —— 项目没装 @types/node
 // PC 页分散在 views/openlist（业务）与 views/system（系统管理）两处，两边都要扫——
 // 只扫 openlist 的话，system 下的成对页面（wecomUser / notifyRoute）会悄悄漏出检查范围
+// 连页面目录下的子组件一起读（如 ptSubscription/dialogs/*.vue）：页面被拆成组件之后，
+// 动作是在子组件里解构的，只读 index.vue 会把「拆分」误报成「这一端少了 9 个功能」。
 const pcPages = {
-  ...import.meta.glob('../../views/openlist/*/index.vue', {
+  ...import.meta.glob('../../views/openlist/*/**/*.vue', {
     query: '?raw', import: 'default', eager: true
   }),
-  ...import.meta.glob('../../views/system/*/index.vue', {
+  ...import.meta.glob('../../views/system/*/**/*.vue', {
     query: '?raw', import: 'default', eager: true
   })
 } as Record<string, string>
 
-const mobilePages = import.meta.glob('../../views-mobile/*/index.vue', {
+const mobilePages = import.meta.glob('../../views-mobile/*/**/*.vue', {
   query: '?raw', import: 'default', eager: true
 }) as Record<string, string>
 
@@ -76,8 +78,8 @@ const ALLOWED_GAPS: Record<string, string> = {
 
 function readPage(kind: 'views' | 'views-mobile', name: string): string | null {
   const map = kind === 'views' ? pcPages : mobilePages
-  const key = Object.keys(map).find((k) => k.endsWith(`/${name}/index.vue`))
-  return key ? map[key] : null
+  const keys = Object.keys(map).filter((k) => k.includes(`/${name}/`))
+  return keys.length ? keys.map((k) => map[k]).join('\n') : null
 }
 
 /**

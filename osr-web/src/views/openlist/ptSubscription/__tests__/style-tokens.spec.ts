@@ -5,7 +5,7 @@
 // 运行时 vitest 用真实 Node.js 执行，模块能正常解析，只是类型层面没声明，
 // 用 @ts-nocheck 跳过本文件的类型检查，不需要为了一个测试文件新增依赖。
 import { describe, it, expect } from 'vitest'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -14,8 +14,24 @@ import { fileURLToPath } from 'node:url'
  * 后者在本仓库 Windows + Vitest 环境下会报 "The URL must be of scheme file"。
  */
 const currentFile = fileURLToPath(import.meta.url)
-const filePath = join(dirname(currentFile), '../index.vue')
-const source = readFileSync(filePath, 'utf-8')
+const pageDir = join(dirname(currentFile), '..')
+
+/**
+ * 读整个页面目录而不是单个 index.vue：订阅页已经拆成
+ * index.vue + SubscriptionCard.vue + dialogs/*.vue，被检查的那几条样式散在子组件里。
+ * 只读 index.vue 的话，这些断言会在「文件里根本没有 .sub-year」时静默变成永远失败/永远通过。
+ */
+function readAllVue(dir: string): string {
+  return readdirSync(dir, { withFileTypes: true })
+    .flatMap((entry) => {
+      const full = join(dir, entry.name)
+      if (entry.isDirectory()) return entry.name === '__tests__' ? [] : [readAllVue(full)]
+      return entry.name.endsWith('.vue') ? [readFileSync(full, 'utf-8')] : []
+    })
+    .join('\n')
+}
+
+const source = readAllVue(pageDir)
 
 describe('PtSubscription 令牌替换：不再直接引用 el-* 原生变量', () => {
   it('.sub-year 使用 --osr-text-secondary 而不是 --el-text-color-secondary', () => {

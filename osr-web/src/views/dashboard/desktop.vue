@@ -67,79 +67,18 @@
       </v-col>
 
       <v-col cols="12" md="4">
-        <v-card class="pt-card">
-          <div class="chart-header">
-            <span class="chart-title">PT 订阅概览</span>
-            <v-btn variant="text" size="small" color="primary" @click="goPtStats">查看详情</v-btn>
-          </div>
-          <div class="pt-overview-grid">
-            <div v-for="item in ptOverviewItems" :key="item.label" class="pt-overview-item" :class="item.type">
-              <span class="pt-overview-dot" />
-              <div class="pt-overview-value">{{ formatPtValue(item) }}</div>
-              <div class="pt-overview-label">{{ item.label }}</div>
-            </div>
-          </div>
-          <v-divider class="my-2" />
-          <div class="pt-top-list">
-            <div class="pt-top-title">热门订阅 Top {{ ptTopSubscriptions.length }}</div>
-            <div v-if="!ptTopSubscriptions.length" class="pt-top-empty">暂无数据</div>
-            <div v-for="sub in ptTopSubscriptions" :key="sub.subId" class="pt-top-item">
-              <div class="pt-top-main">
-                <span class="pt-top-name" :title="sub.title">{{ sub.title }}</span>
-                <div class="pt-top-progress">
-                  <div class="pt-top-progress-bar" :style="{ width: ptProgressWidth(sub) + '%' }" />
-                </div>
-              </div>
-              <span class="pt-top-count">{{ sub.completedCount }}/{{ sub.downloadCount }}</span>
-            </div>
-          </div>
-        </v-card>
+        <PtOverviewCard />
       </v-col>
     </v-row>
 
     <!-- Bottom: recent failures + quick links -->
     <v-row class="bottom-row">
       <v-col cols="12" md="8">
-        <v-card class="chart-card">
-          <div class="chart-header">
-            <span class="chart-title">最近失败记录</span>
-          </div>
-          <div v-if="!recentFailures.length" class="empty-tip">
-            <v-empty-state icon="mdi-check-circle-outline" title="暂无失败记录" />
-          </div>
-          <div v-else class="failure-list">
-            <div
-              v-for="f in recentFailures"
-              :key="f.type + '-' + f.id"
-              class="failure-item"
-              @click="f.path && router.push(f.path)"
-            >
-              <v-icon :icon="f.icon" size="18" class="failure-icon" :color="f.color" />
-              <span class="failure-tag-text">{{ f.typeLabel }}</span>
-              <span class="failure-name" :title="f.name">{{ f.name }}</span>
-              <span class="failure-time" :title="f.time">{{ formatRelativeTime(f.time) }}</span>
-            </div>
-          </div>
-        </v-card>
+        <RecentFailuresCard />
       </v-col>
 
       <v-col cols="12" md="4">
-        <v-card class="chart-card">
-          <div class="chart-header">
-            <span class="chart-title">快捷入口</span>
-          </div>
-          <div class="quick-links">
-            <div
-              v-for="link in quickLinks"
-              :key="link.path"
-              class="quick-link-item"
-              @click="link.path && router.push(link.path)"
-            >
-              <v-icon :icon="link.icon" />
-              <span>{{ link.title }}</span>
-            </div>
-          </div>
-        </v-card>
+        <QuickLinksCard />
       </v-col>
     </v-row>
   </div>
@@ -157,13 +96,11 @@ import { TitleComponent, TooltipComponent, GridComponent, LegendComponent } from
 import { CanvasRenderer } from 'echarts/renderers'
 import { osrCssVar } from '@/composables/useThemeMode'
 import MiniTrend from '@/components/MiniTrend.vue'
+import PtOverviewCard from './PtOverviewCard.vue'
+import RecentFailuresCard from './RecentFailuresCard.vue'
+import QuickLinksCard from './QuickLinksCard.vue'
 import { getDashboardStatsApi, getDashboardTrendApi, type DashboardTrendPoint } from '@/api/openlist/dashboard'
 import { getHitokotoApi } from '@/api/openlist/hitokoto'
-import { getStrmRecordListApi } from '@/api/openlist/strmRecord'
-import { getCopyRecordListApi } from '@/api/openlist/copyRecord'
-import { getRenameDetailListApi } from '@/api/openlist/renameDetail'
-import { getPtStatsOverviewApi, getPtStatsTopSubscriptionsApi, type PtStatsOverview, type PtStatsActiveSubscription } from '@/api/openlist/ptStats'
-import { useMenuLinks } from '@/composables/useMenuLinks'
 
 echarts.use([LineChart, TitleComponent, TooltipComponent, GridComponent, LegendComponent, CanvasRenderer])
 
@@ -326,118 +263,13 @@ async function loadTaskChart() {
 /* ============================================
    PT subscription overview
    ============================================ */
-const ptOverview = ref<Partial<PtStatsOverview>>({})
-const ptTopSubscriptions = ref<PtStatsActiveSubscription[]>([])
 
-/** PT 概览四格：key 对应 PtStatsOverview 字段，type 决定色点 */
-const ptOverviewItems = [
-  { key: 'totalSubscriptions', label: '订阅总数', type: 'primary', suffix: '' },
-  { key: 'activeSubscriptions', label: '活跃订阅', type: 'success', suffix: '' },
-  { key: 'successRate', label: '下载成功率', type: 'warning', suffix: '%' },
-  { key: 'avgDurationMinutes', label: '平均耗时', type: 'info', suffix: '分' }
-] as const
 
-function formatPtValue(item: { key: string; suffix: string }): string {
-  const v = (ptOverview.value as any)?.[item.key]
-  if (v == null) return '--'
-  return item.suffix ? `${v}${item.suffix}` : String(v)
-}
 
-function ptProgressWidth(sub: PtStatsActiveSubscription): number {
-  if (!sub.downloadCount) return 0
-  return Math.min(100, Math.round((sub.completedCount / sub.downloadCount) * 100))
-}
-
-function goPtStats() {
-  const path = getRoutePathForComponent('openlist/ptStatsDashboard/index')
-  if (path) router.push(path)
-}
-
-async function loadPtOverview() {
-  try {
-    ptOverview.value = await getPtStatsOverviewApi()
-  } catch (e) {
-    console.error('[Dashboard] Failed to load PT overview:', e)
-  }
-  try {
-    ptTopSubscriptions.value = await getPtStatsTopSubscriptionsApi(7, 5)
-  } catch (e) {
-    console.error('[Dashboard] Failed to load PT top subscriptions:', e)
-  }
-}
-
-/* ============================================
-   Recent failures (merged from strm/copy/rename)
-   ============================================ */
-interface FailureItem {
-  type: string
-  typeLabel: string
-  color: string
-  icon: string
-  id: number | string
-  name: string
-  time: string
-  path: string | null
-}
-
-/** 后端时间转相对时间（x 分钟前/小时前/天前），无效值原样返回 */
-function formatRelativeTime(time: string): string {
-  if (!time) return ''
-  const t = new Date(time).getTime()
-  if (Number.isNaN(t)) return time
-  const min = Math.floor((Date.now() - t) / 60000)
-  if (min < 1) return '刚刚'
-  if (min < 60) return `${min} 分钟前`
-  const hour = Math.floor(min / 60)
-  if (hour < 24) return `${hour} 小时前`
-  const day = Math.floor(hour / 24)
-  if (day < 30) return `${day} 天前`
-  return new Date(time).toLocaleDateString('zh-CN')
-}
-
-const recentFailures = ref<FailureItem[]>([])
-
-async function loadRecentFailures() {
-  const items: FailureItem[] = []
-  const strmPath = getRoutePathForComponent('openlist/strmRecord/index')
-  const copyPath = getRoutePathForComponent('openlist/copyRecord/index')
-  const renamePath = getRoutePathForComponent('openlist/renameDetail/index')
-
-  try {
-    const res: any = await getStrmRecordListApi({ pageNum: 1, pageSize: 5, strmStatus: '0' })
-    for (const r of res?.records || []) {
-      items.push({ type: 'strm', typeLabel: 'STRM', color: 'success', icon: 'mdi-video-outline', id: r.strmId, name: r.strmFileName, time: r.createTime, path: strmPath })
-    }
-  } catch (e) {
-    console.error('[Dashboard] Failed to load strm failures:', e)
-  }
-
-  try {
-    const res: any = await getCopyRecordListApi({ pageNum: 1, pageSize: 5, copyStatus: '0' })
-    for (const r of res?.records || []) {
-      items.push({ type: 'copy', typeLabel: 'COPY', color: 'primary', icon: 'mdi-file-multiple-outline', id: r.copyId, name: r.copySrcFileName, time: r.createTime, path: copyPath })
-    }
-  } catch (e) {
-    console.error('[Dashboard] Failed to load copy failures:', e)
-  }
-
-  try {
-    const res: any = await getRenameDetailListApi({ pageNum: 1, pageSize: 5, status: '0' })
-    for (const r of res?.records || []) {
-      items.push({ type: 'rename', typeLabel: 'Rename', color: 'warning', icon: 'mdi-pencil-outline', id: r.id, name: r.originalName, time: r.createTime, path: renamePath })
-    }
-  } catch (e) {
-    console.error('[Dashboard] Failed to load rename failures:', e)
-  }
-
-  items.sort((a, b) => (a.time < b.time ? 1 : -1))
-  recentFailures.value = items.slice(0, 8)
-}
 
 /* ============================================
    Quick links
    ============================================ */
-const quickLinks = useMenuLinks()
 
 let resizeHandler: (() => void) | null = null
 
@@ -447,7 +279,8 @@ onMounted(async () => {
     taskChart = echarts.init(taskChartContainer.value)
   }
   // 先取 sparkline 趋势（填充 trendCache），loadTaskChart 复用初始 tab 数据避免重复请求
-  await Promise.all([loadSparklines(), loadPtOverview(), loadRecentFailures()])
+  // PT 概览由 PtOverviewCard 自己在 onMounted 里取
+  await loadSparklines()
   await loadTaskChart()
   chartLoading.value = false
 
@@ -475,6 +308,20 @@ onUnmounted(() => {
 </script>
 
 <style scoped lang="scss">
+/* 图表卡外观。原先与 .pt-card 写在同一条分组选择器里，PT 概览拆成组件后各留各的 */
+.chart-card {
+  border: none;
+  border-radius: var(--osr-radius-lg);
+  box-shadow: var(--osr-shadow-base);
+  margin-bottom: 16px;
+  transition: box-shadow var(--osr-transition-base);
+  height: 100%;
+
+  &:hover {
+    box-shadow: var(--osr-shadow-md);
+  }
+}
+
 .dashboard {
   padding: 0;
 }
@@ -625,20 +472,6 @@ onUnmounted(() => {
   margin-bottom: 8px;
 }
 
-.chart-card,
-.pt-card {
-  border: none;
-  border-radius: var(--osr-radius-lg);
-  box-shadow: var(--osr-shadow-base);
-  margin-bottom: 16px;
-  transition: box-shadow var(--osr-transition-base);
-  height: 100%;
-
-  &:hover {
-    box-shadow: var(--osr-shadow-md);
-  }
-}
-
 .chart-header {
   display: flex;
   justify-content: space-between;
@@ -690,215 +523,6 @@ onUnmounted(() => {
 }
 
 /* ============================================
-   PT overview card
-   ============================================ */
-.pt-overview-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  padding: 16px 20px 4px;
-}
-
-.pt-overview-item {
-  text-align: center;
-  position: relative;
-
-  .pt-overview-dot {
-    position: absolute;
-    top: 2px;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background: var(--osr-primary);
-    opacity: 0.85;
-  }
-
-  &.success .pt-overview-dot { background: var(--osr-success); }
-  &.warning .pt-overview-dot { background: var(--osr-warning); }
-  &.info .pt-overview-dot { background: var(--osr-info); }
-
-  .pt-overview-value {
-    font-size: 20px;
-    font-weight: 700;
-    color: var(--osr-text-primary);
-    margin-top: 6px;
-  }
-
-  .pt-overview-label {
-    font-size: 12px;
-    color: var(--osr-text-secondary);
-    margin-top: 2px;
-  }
-}
-
-.pt-top-list {
-  padding: 0 20px 16px;
-
-  .pt-top-title {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--osr-text-secondary);
-    margin-bottom: 8px;
-  }
-
-  .pt-top-empty {
-    font-size: 13px;
-    color: var(--osr-text-secondary);
-    padding: 8px 0;
-  }
-}
-
-.pt-top-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 0;
-  font-size: 13px;
-  border-bottom: 1px dashed var(--osr-border-light);
-
-  &:last-child {
-    border-bottom: none;
-  }
-
-  .pt-top-main {
-    flex: 1;
-    min-width: 0;
-  }
-
-  .pt-top-name {
-    display: block;
-    color: var(--osr-text-primary);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    margin-bottom: 3px;
-  }
-
-  .pt-top-progress {
-    height: 4px;
-    border-radius: 2px;
-    background: var(--osr-primary-subtle);
-    overflow: hidden;
-
-    .pt-top-progress-bar {
-      height: 100%;
-      border-radius: 2px;
-      background: linear-gradient(90deg, var(--osr-primary-accent), var(--osr-primary));
-      transition: width var(--osr-transition-base);
-    }
-  }
-
-  .pt-top-count {
-    color: var(--osr-text-secondary);
-    flex-shrink: 0;
-    font-size: 12px;
-  }
-}
-
-/* ============================================
-   Recent failures
-   ============================================ */
-.empty-tip {
-  padding: 8px 0;
-}
-
-.failure-list {
-  padding: 4px 20px 12px;
-}
-
-.failure-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 0;
-  border-bottom: 1px dashed var(--osr-border-light);
-  cursor: pointer;
-
-  &:last-child {
-    border-bottom: none;
-  }
-
-  &:hover .failure-name {
-    color: var(--osr-primary);
-  }
-
-  .failure-icon {
-    flex-shrink: 0;
-  }
-
-  .failure-tag-text {
-    flex-shrink: 0;
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--osr-text-secondary);
-  }
-
-  .failure-name {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 13px;
-    color: var(--osr-text-primary);
-    transition: color var(--osr-transition-base);
-  }
-
-  .failure-time {
-    flex-shrink: 0;
-    font-size: 12px;
-    color: var(--osr-text-secondary);
-  }
-}
-
-/* ============================================
-   Quick links
-   ============================================ */
-.quick-links {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
-  gap: 10px;
-  padding: 16px 20px;
-
-  .quick-link-item {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 6px;
-    padding: 12px 8px;
-    border-radius: var(--osr-radius-md);
-    background: var(--osr-bg-page);
-    cursor: pointer;
-    transition: all var(--osr-transition-fast);
-
-    .v-icon {
-      color: var(--osr-primary);
-      font-size: 20px;
-    }
-
-    span {
-      font-size: 12px;
-      color: var(--osr-text-secondary);
-      text-align: center;
-      line-height: 1.3;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      display: -webkit-box;
-      -webkit-line-clamp: 2;
-      -webkit-box-orient: vertical;
-    }
-
-    &:hover {
-      background: var(--osr-primary-subtle);
-      transform: translateY(-1px);
-    }
-  }
-}
-
-/* ============================================
    Responsive
    ============================================ */
 @media (max-width: 768px) {
@@ -909,5 +533,4 @@ onUnmounted(() => {
   .echarts-container {
     height: 220px !important;
   }
-}
-</style>
+}</style>

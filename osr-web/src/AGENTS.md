@@ -174,6 +174,45 @@ ptTorrentBlacklist / wecomUser（即全部 `.card-grid` 页面）。新增卡片
 - 移动端统一 `width="92%"`
 - 次要按钮（取消/关闭/测试连接）统一 `variant="outlined"`，主按钮 `variant="flat"`
 
+### 大页面的拆法
+
+`ptSubscription`（PC 1322 / 移动端 1328 行）、`monitor/job`、`system/config`、
+`dashboard/desktop` 已经拆过一轮。三条经验：
+
+**1. 状态多的页面先解决「子组件怎么拿到状态」，再谈拆。** 订阅页从 composable 解构出
+90 多个标识符，6 个弹窗全靠它们；直接拆组件就是每个弹窗塞 20~30 个 props。做法是
+`composables/ptSubscriptionContext.ts`：页面调 `usePtSubscriptionProvider(...)`（建实例 +
+provide + 原样返回），子组件 `usePtSubscriptionContext()` 取**同一个实例**。
+**子组件绝不能自己再调一次 `usePtSubscription()`**——那会拿到另一份互不相通的状态，
+现象是「列表里点进度，弹窗里什么都不发生」。provider 的名字必须以 `use` 开头，
+理由见下一条。
+
+**2. 页面一拆，几条守护用例的扫描范围会跟着缩水，而且不会有任何报错。** 这轮踩了四次：
+- `device-parity.spec.ts` 扫的是 `const { … } = useXxx(` 这个形状。改成
+  `const ctx = usePtSubscription(); const { … } = ctx` 后，页面自己的解构就不在范围内了；
+  它读的又只有 `index.vue`，动作搬进子组件后会被报成「这一端少了 9 个功能」。
+  现在它连页面目录下的子组件一起读。
+- `template-class-coverage.spec.ts` 同理已扩到 `views/**/*.vue`；**样式必须跟着模板搬**，
+  留在页面 `<style scoped>` 里对子组件根本不生效。实测搬漏过两次（`.config-item` 整块、
+  `.detail-table` 两层嵌套），都是这条用例逮到的。
+- `design-system.spec.ts` 的写死色值白名单、`ptSubscription/__tests__/style-tokens.spec.ts`
+  的 `readFileSync('../index.vue')`，都按新的文件位置改过。后者现在读整个页面目录。
+**拆完一定要跑一遍完整单测**，这四条都不是靠肉眼能发现的。
+
+**3. 拆出来的组件里不要 `v-model="item.xxx"`。** 卡片变成子组件后 `item` 是 prop，
+`v-model` 直接写 prop 会被 `vue/no-mutating-props` 拦下。订阅卡的两个开关是「乐观更新 +
+失败回滚」，这套逻辑已经挪进 `toggleAutoSearch(row, value)` / `toggleUpgrade(row, value)`
+（持有 taskList 的那一侧负责改值），模板退回 `:model-value` + 事件。
+
+当前形态：
+```
+views/openlist/ptSubscription/     index.vue + SubscriptionCard.vue + dialogs/(6 个)
+views-mobile/ptSubscription/       同上（两端弹窗布局不同，各留一套）
+views/monitor/job/                 index.vue + JobLogDialog.vue（日志弹窗自带查询/分页/详情）
+views/system/config/               index.vue + ConfigItem.vue + configMeta.ts（配置目录是数据表，不是逻辑）
+views/dashboard/                   desktop.vue + PtOverviewCard/RecentFailuresCard/QuickLinksCard（各自取各自的数）
+```
+
 ### PC 列表页外壳
 
 与移动端那轮收口对应的 PC 侧，一次专门的重构收口的。

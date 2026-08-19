@@ -564,6 +564,10 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
   }
 
   /** 格式化体积为人类可读 */
+  /** TMDb 海报路径拼完整图片地址，w200 宽度足够列表缩略图使用。
+   *  列表卡片与「新增订阅」弹窗都要用，放这里而不是各写一份 */
+  const posterUrl = (path: string) => `https://image.tmdb.org/t/p/w200${path}`
+
   const formatSize = (bytes: number) => {
     if (bytes === 0) return '0 B'
     const units = ['B', 'KB', 'MB', 'GB', 'TB']
@@ -693,24 +697,36 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
   }
 
   /** 订阅级洗版开关。全局开关（PT洗版规则页）关闭时本项不生效 */
-  const toggleUpgrade = async (row: any) => {
+  /** 同 toggleAutoSearch：乐观更新与回滚都在这一侧 */
+  const toggleUpgrade = async (row: any, value?: string) => {
+    const next = value ?? (row.upgradeEnabled === '1' ? '0' : '1')
+    const prev = row.upgradeEnabled
+    row.upgradeEnabled = next
     try {
-      await updatePtSubscriptionApi({ id: row.id, upgradeEnabled: row.upgradeEnabled })
-      message.success(row.upgradeEnabled === '1' ? '已开启洗版' : '已关闭洗版')
+      await updatePtSubscriptionApi({ id: row.id, upgradeEnabled: next })
+      message.success(next === '1' ? '已开启洗版' : '已关闭洗版')
     } catch (e) {
-      // 请求失败时把开关状态还原（v-model 已经乐观更新过了）
-      row.upgradeEnabled = row.upgradeEnabled === '1' ? '0' : '1'
+      row.upgradeEnabled = prev
       console.error(e)
     }
   }
 
-  const toggleAutoSearch = async (row: any) => {
+  /**
+   * 开关由这里负责乐观更新与失败回滚。
+   *
+   * 以前是模板 `v-model="row.autoSearch"` 先改、这里只管发请求与回滚；订阅卡拆成子组件
+   * 之后那就是在改 prop（vue/no-mutating-props），而且「谁改的」散在两处。现在改值这件事
+   * 只发生在持有 taskList 的这一侧，模板退回 `:model-value` + 事件。
+   */
+  const toggleAutoSearch = async (row: any, value?: string) => {
+    const next = value ?? (row.autoSearch === '1' ? '0' : '1')
+    const prev = row.autoSearch
+    row.autoSearch = next
     try {
-      await updatePtSubscriptionApi({ id: row.id, autoSearch: row.autoSearch })
-      message.success(row.autoSearch === '1' ? '已开启自动补搜' : '已关闭自动补搜')
+      await updatePtSubscriptionApi({ id: row.id, autoSearch: next })
+      message.success(next === '1' ? '已开启自动补搜' : '已关闭自动补搜')
     } catch (e) {
-      // 请求失败时把开关状态还原（v-model 已经乐观更新过了）
-      row.autoSearch = row.autoSearch === '1' ? '0' : '1'
+      row.autoSearch = prev
       console.error(e)
     }
   }
@@ -869,7 +885,7 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
     searchDialogOpen, searchDialogLoading, searchDialogKeyword, searchManualSelect,
     openSeasonSearch, openEpisodeSearch, confirmSearch,
     // 手动选择候选
-    candidateDialogOpen, candidates, pushingSelected, pushSelectedCandidate, formatSize,
+    candidateDialogOpen, candidates, pushingSelected, pushSelectedCandidate, formatSize, posterUrl,
     // 一键补齐全部缺集
     searchAllMissingLoading, handleSearchAllMissing, toggleAutoSearch, toggleUpgrade,
     searchAllMissingDone, searchAllMissingTotal, searchAllMissingAborted, abortSearchAllMissing,
