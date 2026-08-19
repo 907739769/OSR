@@ -64,6 +64,15 @@
   /* ---- 布局 ---- */
   --osr-navbar-height: 56px;
 
+  /**
+   * 移动端顶栏高度。**必须与 layouts/MobileLayout.vue 的 <v-app-bar height> 一致。**
+   * 顶栏是 fixed 的，页面里 position:sticky 粘到 0 会被它整个盖住，要按它的高度下移。
+   */
+  --osr-mobile-appbar-height: 50px;
+  /** 移动端页面左右内距，等于 MobileLayout 里 .mobile-content 的 padding；
+      各页用负边距把底色铺满整宽时要对上 */
+  --osr-mobile-gutter: 12px;
+
   /* ---- 动效 ---- */
   --osr-transition-fast: 150ms ease;
   --osr-transition-base: 200ms ease;

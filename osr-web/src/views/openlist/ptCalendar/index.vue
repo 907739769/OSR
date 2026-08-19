@@ -278,6 +278,28 @@ const openSubscription = (entry: CalendarEntry) => {
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  padding: 3px 8px;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  font-size: 12px;
+  color: var(--osr-text-secondary);
+  cursor: pointer;
+}
+
+.legend-item:hover {
+  border-color: var(--osr-border-base);
+}
+
+.legend-item--active {
+  border-color: var(--osr-primary-accent);
+  background: var(--osr-primary-subtle);
+  color: var(--osr-text-primary);
+}
+
+.legend-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--osr-text-disabled);
 }
 
 .legend-dot {
@@ -311,9 +333,8 @@ const openSubscription = (entry: CalendarEntry) => {
 
 .day-cell {
   min-height: 104px;
-  /* 上限必须给：网格行高取该行最高的格子，一天 11 集就能把整行撑到 400px 开外，
-     一屏放不下两行。超出的部分在 .day-entries 内部滚动 */
-  max-height: 156px;
+  /* 不再需要 max-height + 内部滚动：一格最多平铺 4 条，其余收进「+N 集」弹窗，
+     行高自然有界，而且看得出还有多少 */
   padding: 6px;
   background: rgb(var(--v-theme-surface));
   display: flex;
@@ -345,8 +366,16 @@ const openSubscription = (entry: CalendarEntry) => {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  /* 一天排播很多时格子内部滚动，不把整行撑高 */
-  overflow-y: auto;
+}
+
+.day-more {
+  align-self: flex-start;
+  padding: 1px 5px;
+  border: none;
+  background: transparent;
+  font-size: 11px;
+  color: var(--osr-primary);
+  cursor: pointer;
 }
 
 .entry {
@@ -393,6 +422,61 @@ const openSubscription = (entry: CalendarEntry) => {
 
 .calendar-empty {
   padding: 24px 0;
+}
+
+.month-picker {
+  width: 150px;
+  margin-left: 8px;
+}
+
+/* 当日排播弹窗 */
+.day-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  font-size: 13px;
+  border-bottom: 1px solid var(--osr-border-light);
+}
+
+.day-row-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--osr-text-primary);
+}
+
+.day-row-ep {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--osr-text-secondary);
+}
+
+/* 单集详情弹窗 */
+.entry-dialog-title {
+  margin: 0 0 12px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.entry-dialog-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: 13px;
+}
+
+.entry-dialog-row .label {
+  width: 72px;
+  flex: none;
+  color: var(--osr-text-secondary);
+}
+
+.entry-dialog-row .value {
+  color: var(--osr-text-primary);
 }
 
 @media (max-width: 768px) {

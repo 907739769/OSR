@@ -179,7 +179,10 @@ const handleLogout = async () => {
 }
 
 .mobile-content {
-  padding: 12px;
+  /* 左右内距取 tokens.scss 的 --osr-mobile-gutter：各页做「常驻顶部」时要用负边距
+     把底色铺满整宽，两处必须是同一个值。顶栏高度同理，见该文件的 --osr-mobile-appbar-height
+     （改上面 <v-app-bar height="50"> 时那个令牌要一起改） */
+  padding: var(--osr-mobile-gutter);
   padding-bottom: calc(56px + env(safe-area-inset-bottom, 8px) + 8px);
   -webkit-overflow-scrolling: touch;
 }

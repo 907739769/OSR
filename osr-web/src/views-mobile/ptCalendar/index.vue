@@ -1,32 +1,36 @@
 <template>
   <div class="mobile-page">
-    <div class="calendar-bar">
-      <v-btn icon="mdi-chevron-left" variant="text" density="comfortable" @click="goPrevMonth" />
-      <span class="month-label">{{ monthLabel }}</span>
-      <v-btn icon="mdi-chevron-right" variant="text" density="comfortable" @click="goNextMonth" />
-      <v-btn variant="text" size="small" class="today-btn" @click="handleGoToday">本月</v-btn>
-    </div>
+    <!-- 月份切换与状态筛选常驻顶部：页面打开就自动滚到「今天」，月中月末时这两行
+         本来就在视口之外，要换月份或换筛选得先一路划回顶部——而那正是这一页最常做的两件事 -->
+    <div class="calendar-sticky">
+      <div class="calendar-bar">
+        <v-btn icon="mdi-chevron-left" variant="text" density="comfortable" @click="goPrevMonth" />
+        <span class="month-label">{{ monthLabel }}</span>
+        <v-btn icon="mdi-chevron-right" variant="text" density="comfortable" @click="goNextMonth" />
+        <v-btn variant="text" size="small" class="today-btn" @click="handleGoToday">本月</v-btn>
+      </div>
 
-    <!-- 图例即筛选：日历上绝大多数是已入库的绿色，不筛的话真正要找的缺失/阻塞会被淹掉 -->
-    <div class="state-tabs">
-      <v-chip
-        :variant="activeState === '' ? 'flat' : 'outlined'"
-        :color="activeState === '' ? 'primary' : undefined"
-        size="small"
-        @click="setState('')"
-      >
-        全部 {{ entries.length }}
-      </v-chip>
-      <v-chip
-        v-for="s in LEGEND"
-        :key="s.key"
-        :variant="activeState === s.key ? 'flat' : 'outlined'"
-        :color="stateColor(s.key)"
-        size="small"
-        @click="setState(s.key)"
-      >
-        {{ s.label }} {{ stateCounts[s.key] || 0 }}
-      </v-chip>
+      <!-- 图例即筛选：日历上绝大多数是已入库的绿色，不筛的话真正要找的缺失/阻塞会被淹掉 -->
+      <div class="state-tabs">
+        <v-chip
+          :variant="activeState === '' ? 'flat' : 'outlined'"
+          :color="activeState === '' ? 'primary' : undefined"
+          size="small"
+          @click="setState('')"
+        >
+          全部 {{ entries.length }}
+        </v-chip>
+        <v-chip
+          v-for="s in LEGEND"
+          :key="s.key"
+          :variant="activeState === s.key ? 'flat' : 'outlined'"
+          :color="stateColor(s.key)"
+          size="small"
+          @click="setState(s.key)"
+        >
+          {{ s.label }} {{ stateCounts[s.key] || 0 }}
+        </v-chip>
+      </div>
     </div>
 
     <v-progress-linear v-if="loading" indeterminate color="primary" />
@@ -213,7 +217,57 @@ const openSubscription = (entry: CalendarEntry) => {
   padding: 8px 12px;
   background: rgb(var(--v-theme-surface));
   border-radius: 12px;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
+}
+
+/* 常驻顶部的那一块 */
+.calendar-sticky {
+  position: sticky;
+  /* 顶栏是 fixed 的，粘到 0 会被它整个盖住，必须按它的高度下移。
+     变量定义在 MobileLayout，兜底值与那里的 <v-app-bar height> 一致 */
+  top: var(--osr-mobile-appbar-height, 50px);
+  z-index: 3;
+  /* 左右负边距把底色铺满整宽，卡片从底下穿过时不会在两侧露出边角 */
+  margin: 0 calc(-1 * var(--osr-mobile-gutter, 12px));
+  padding: 4px var(--osr-mobile-gutter, 12px) 2px;
+  background: var(--osr-bg-page);
+}
+
+.state-tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* 横向内距交给 .calendar-sticky，这里再加一层会比上面的月份条多缩进一截 */
+  padding: 0 0 6px;
+  overflow-x: auto;
+}
+
+.state-tabs > * {
+  flex: none;
+}
+
+.entry-dialog-title {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.entry-dialog-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: 13px;
+}
+
+.entry-dialog-row .label {
+  width: 68px;
+  flex: none;
+  color: var(--osr-text-secondary);
+}
+
+.entry-dialog-row .value {
+  color: var(--osr-text-primary);
 }
 
 .month-label {
