@@ -11,7 +11,8 @@ vi.mock('@/composables/useConfirm', () => ({ confirm: vi.fn() }))
 vi.mock('@/api/openlist/ptHealth', () => ({
   getPtHealthApi: vi.fn(),
   enableAutoSearchApi: vi.fn(),
-  searchMissingApi: vi.fn()
+  searchMissingApi: vi.fn(),
+  setHealthIgnoredApi: vi.fn()
 }))
 
 // usePtHealth 在 setup 阶段就 useRouter()，测试里没装路由插件
@@ -19,7 +20,9 @@ vi.mock('vue-router', () => ({ useRouter: () => ({ push: vi.fn() }) }))
 vi.mock('@/router', () => ({ getRoutePathForComponent: () => '/openlist/ptSubscription' }))
 
 import { usePtHealth } from '../usePtHealth'
-import { getPtHealthApi, enableAutoSearchApi, searchMissingApi } from '@/api/openlist/ptHealth'
+import {
+  getPtHealthApi, enableAutoSearchApi, searchMissingApi, setHealthIgnoredApi
+} from '@/api/openlist/ptHealth'
 
 /** 造一条订阅体检结果 */
 function sub(overrides: Record<string, any> = {}) {
@@ -37,6 +40,7 @@ function sub(overrides: Record<string, any> = {}) {
     maxOverdueDays: 5,
     diagnoses: ['AUTO_SEARCH_OFF'],
     buckets: ['OVERDUE_MISSING'],
+    ignored: false,
     episodes: [
       { episode: 1, state: 'MISSING', airDate: '2026-08-01', overdueDays: 5, bucket: 'OVERDUE_MISSING', diagnosis: 'AUTO_SEARCH_OFF' }
     ],
@@ -51,6 +55,7 @@ function report(overrides: Record<string, any> = {}) {
     episodeCount: 1,
     bucketCounts: { OVERDUE_MISSING: 1 },
     diagnosisCounts: { AUTO_SEARCH_OFF: 1 },
+    ignoredCount: 0,
     subscriptions: [sub()],
     ...overrides
   }
@@ -313,5 +318,64 @@ describe('usePtHealth 筛选', () => {
     expect(c.autoSearchOffIds.value).toEqual([1, 2])
     c.setBucket('BLOCKED')
     expect(c.autoSearchOffIds.value).toEqual([2])
+  })
+})
+
+describe('usePtHealth 忽略', () => {
+  beforeEach(() => {
+    (setHealthIgnoredApi as any).mockResolvedValue(1)
+  })
+
+  it('忽略后重新拉取，且默认不带已忽略的条目', async () => {
+    const c = usePtHealth()
+    await flush()
+    ;(getPtHealthApi as any).mockClear()
+
+    await c.handleSetIgnored(1, true)
+
+    expect(setHealthIgnoredApi).toHaveBeenCalledWith([1], true)
+    expect(getPtHealthApi).toHaveBeenCalledWith(false)
+  })
+
+  it('取消忽略走同一个入口，只是参数相反', async () => {
+    const c = usePtHealth()
+    await flush()
+
+    await c.handleSetIgnored(1, false)
+
+    expect(setHealthIgnoredApi).toHaveBeenCalledWith([1], false)
+  })
+
+  /**
+   * 忽略必须配一个能找回来的入口，否则它就是个不可撤销的操作——
+   * 切换后要重新拉一次，因为已忽略的条目后端默认不回传。
+   */
+  it('切换「显示已忽略」会带上参数重新拉取', async () => {
+    const c = usePtHealth()
+    await flush()
+    expect(c.includeIgnored.value).toBe(false)
+
+    await c.toggleIncludeIgnored()
+
+    expect(c.includeIgnored.value).toBe(true)
+    expect(getPtHealthApi).toHaveBeenLastCalledWith(true)
+
+    await c.toggleIncludeIgnored()
+    expect(c.includeIgnored.value).toBe(false)
+    expect(getPtHealthApi).toHaveBeenLastCalledWith(false)
+  })
+
+  it('忽略进行中时该行处于 loading', async () => {
+    let resolveIgnore: (v: any) => void = () => {}
+    ;(setHealthIgnoredApi as any).mockImplementation(() => new Promise((r) => { resolveIgnore = r }))
+    const c = usePtHealth()
+    await flush()
+
+    const promise = c.handleSetIgnored(1, true)
+    expect(c.isActing(1)).toBe(true)
+
+    resolveIgnore(1)
+    await promise
+    expect(c.isActing(1)).toBe(false)
   })
 })

@@ -21,6 +21,7 @@ import java.util.Date;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -256,5 +257,94 @@ class EpisodeHealthServiceTest {
         assertEquals(1, report.bucketCounts().get(EpisodeHealthBucket.NO_AIR_DATE.name()));
         assertNull(report.bucketCounts().get(EpisodeHealthBucket.BLOCKED.name()));
         assertEquals(3, report.diagnosisCounts().get(EpisodeHealthDiagnosis.AUTO_SEARCH_OFF.name()));
+    }
+
+    // ---------- 忽略 ----------
+
+    private static PtSubscriptionPlus ignored(int id, String title) {
+        PtSubscriptionPlus s = sub(id, title, "0");
+        s.setHealthIgnored("1");
+        return s;
+    }
+
+    /**
+     * 忽略是用户对「这部剧补不上」的表态，默认不该再出现在报告里——
+     * 没有这个出口的话，一部片源根本不存在的老剧会永远躺在列表里、按周反复提醒，
+     * 用户很快会把整类通知整个关掉。
+     */
+    @Test
+    void 已忽略的订阅默认不进报告() {
+        given(List.of(ep(1, 1, "2026-08-01", "MISSING"), ep(2, 1, "2026-08-01", "MISSING")),
+                sub(1, "在看", "0"), ignored(2, "不想再报"));
+
+        EpisodeHealthReport report = service(3).report(s -> true);
+
+        assertEquals(List.of("在看"),
+                report.subscriptions().stream().map(SubscriptionHealthItem::title).toList());
+        assertEquals(1, report.subscriptionCount());
+    }
+
+    /**
+     * ignoredCount 恒按全量算：它是前端渲染「显示已忽略(N)」那个入口的唯一依据，
+     * 按当前视图算的话没包含时恒为 0、入口永不出现，忽略就成了无法撤销的操作。
+     */
+    @Test
+    void 忽略计数恒按全量算与是否包含无关() {
+        given(List.of(ep(1, 1, "2026-08-01", "MISSING"), ep(2, 1, "2026-08-01", "MISSING")),
+                sub(1, "在看", "0"), ignored(2, "不想再报"));
+
+        assertEquals(1, service(3).report(s -> true, false).ignoredCount());
+        assertEquals(1, service(3).report(s -> true, true).ignoredCount());
+    }
+
+    /** 全部被忽略时，报告为空但仍要带出 ignoredCount，否则页面上没有任何入口能找回它们 */
+    @Test
+    void 全部被忽略时仍回传忽略计数() {
+        given(List.of(ep(2, 1, "2026-08-01", "MISSING")), ignored(2, "不想再报"));
+
+        EpisodeHealthReport report = service(3).report(s -> true);
+
+        assertTrue(report.subscriptions().isEmpty());
+        assertEquals(0, report.subscriptionCount());
+        assertEquals(1, report.ignoredCount());
+    }
+
+    /** 显式要求包含时才回传，并带上 ignored 标记供前端渲染 */
+    @Test
+    void 显式包含时回传并带忽略标记() {
+        given(List.of(ep(1, 1, "2026-08-01", "MISSING"), ep(2, 1, "2026-08-01", "MISSING")),
+                sub(1, "在看", "0"), ignored(2, "不想再报"));
+
+        List<SubscriptionHealthItem> subs = service(3).report(s -> true, true).subscriptions();
+
+        assertEquals(2, subs.size());
+        assertEquals(1, subs.stream().filter(SubscriptionHealthItem::ignored).count());
+        assertEquals("不想再报", subs.stream().filter(SubscriptionHealthItem::ignored)
+                .findFirst().orElseThrow().title());
+    }
+
+    /**
+     * health_ignored 是后加的列，存量行为 NULL。判定必须写成「等于 '1' 才算忽略」——
+     * 反过来写会让升级后所有历史订阅集体从体检里消失。
+     */
+    @Test
+    void 忽略列为空的历史订阅按未忽略处理() {
+        PtSubscriptionPlus legacy = sub(1, "历史订阅", "0");
+        legacy.setHealthIgnored(null);
+        given(List.of(ep(1, 1, "2026-08-01", "MISSING")), legacy);
+
+        EpisodeHealthReport report = service(3).report(s -> true);
+
+        assertEquals(1, report.subscriptionCount());
+        assertEquals(0, report.ignoredCount());
+        assertFalse(report.subscriptions().get(0).ignored());
+    }
+
+    /** 忽略只挡体检，不改变订阅本身是否还在被抓取——scan 照常把它算进来 */
+    @Test
+    void 忽略不影响扫描本身() {
+        given(List.of(ep(2, 1, "2026-08-01", "MISSING")), ignored(2, "不想再报"));
+
+        assertEquals(1, service(3).scan(TODAY).size());
     }
 }

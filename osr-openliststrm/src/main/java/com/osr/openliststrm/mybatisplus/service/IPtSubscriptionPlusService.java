@@ -80,6 +80,22 @@ public interface IPtSubscriptionPlusService extends IService<PtSubscriptionPlus>
     void updateOverdueNotifyState(Integer subId, String sign, Date notifiedAt);
 
     /**
+     * 只更新「缺集体检忽略」的两列，<b>不碰实体上的任何其它字段</b>。
+     * <p>
+     * 理由与 {@link #updateOverdueNotifyState} 完全相同：调用方手里那份订阅是扫描时刻的
+     * 快照，{@code updateById(实体)} 会把它整体写回、覆盖掉补搜链路刚写入的
+     * {@code last_search_time}，而且没有任何错误现象。
+     * </p>
+     * <p>
+     * 取消忽略时要把时间列清成 null，因此同样必须走 {@code LambdaUpdateWrapper} 显式 set。
+     * </p>
+     *
+     * @param ignored true=忽略，false=取消忽略
+     * @return 实际更新的行数
+     */
+    int updateHealthIgnored(List<Integer> subIds, boolean ignored);
+
+    /**
      * 查所有留有「逾期缺集」通知指纹的订阅（{@code last_overdue_notify_sign IS NOT NULL}）。
      * <p>
      * 用来找出"上次通知过、这次已经不缺了"的订阅并清空它们的状态。不清的话，这条订阅

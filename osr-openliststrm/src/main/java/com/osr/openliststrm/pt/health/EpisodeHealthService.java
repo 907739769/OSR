@@ -85,6 +85,9 @@ public class EpisodeHealthService {
         return overdueDays;
     }
 
+    /** health_ignored 的「已忽略」取值 */
+    private static final String IGNORED = "1";
+
     /** 扫一遍全部 ACTIVE 订阅。today 取系统当天 */
     public List<SubscriptionHealth> scan() {
         return scan(LocalDate.now());
@@ -139,18 +142,41 @@ public class EpisodeHealthService {
      *                   其余人看自己的与无归属的），服务层不该知道当前登录用户是谁
      */
     public EpisodeHealthReport report(Predicate<PtSubscriptionPlus> accessible) {
-        List<SubscriptionHealth> scanned = scan().stream()
+        return report(accessible, false);
+    }
+
+    /**
+     * 同上，可选择把已忽略的订阅一并回传。
+     * <p>
+     * 忽略默认不出现在报告里，但 {@code ignoredCount} <b>恒按全量算</b>：它是前端渲染
+     * 「显示已忽略(N)」那个入口的唯一依据，按当前视图算的话没包含时它恒为 0、入口永不出现，
+     * 忽略就变成了一个无法撤销的操作——转移做种那边「停止重试必须配一个解除入口」
+     * 是同一条教训。
+     * </p>
+     *
+     * @param includeIgnored true 时把已忽略的也放进 subscriptions（并计入各类计数）
+     */
+    public EpisodeHealthReport report(Predicate<PtSubscriptionPlus> accessible, boolean includeIgnored) {
+        List<SubscriptionHealth> visible = scan().stream()
                 .filter(h -> accessible.test(h.subscription()))
                 .sorted(bySeverity())
                 .toList();
+        int ignoredCount = (int) visible.stream().filter(h -> isIgnored(h.subscription())).count();
+        List<SubscriptionHealth> scanned = includeIgnored
+                ? visible
+                : visible.stream().filter(h -> !isIgnored(h.subscription())).toList();
         if (scanned.isEmpty()) {
-            return EpisodeHealthReport.empty(overdueDays);
+            // 全被忽略时也要把 ignoredCount 带出去，否则页面显示「没有发现缺集」
+            // 且没有任何入口能看到那些被忽略的
+            EpisodeHealthReport empty = EpisodeHealthReport.empty(overdueDays);
+            return new EpisodeHealthReport(empty.overdueDays(), 0, 0,
+                    empty.bucketCounts(), empty.diagnosisCounts(), ignoredCount, List.of());
         }
         Map<String, Integer> bucketCounts = countBy(scanned, EpisodeHealthItem::bucket, EpisodeHealthBucket.class);
         Map<String, Integer> diagnosisCounts = countBy(scanned, EpisodeHealthItem::diagnosis, EpisodeHealthDiagnosis.class);
         int episodeCount = scanned.stream().mapToInt(h -> h.episodes().size()).sum();
         return new EpisodeHealthReport(overdueDays, scanned.size(), episodeCount,
-                bucketCounts, diagnosisCounts,
+                bucketCounts, diagnosisCounts, ignoredCount,
                 scanned.stream().map(this::toItem).toList());
     }
 
@@ -198,7 +224,19 @@ public class EpisodeHealthService {
                 rejectDetail(sub.getLastAutoSearchRejectSign()),
                 health.maxOverdueDays(),
                 List.copyOf(diagnoses), List.copyOf(buckets),
+                isIgnored(sub),
                 health.episodes());
+    }
+
+    /**
+     * 这条订阅是否被用户从体检里忽略了。
+     * <p>
+     * 列是后加的，存量行为 NULL——判定必须写成「等于 '1' 才算忽略」，
+     * 反过来写（不等于 '0' 就算忽略）会让升级后所有历史订阅集体从体检里消失。
+     * </p>
+     */
+    public static boolean isIgnored(PtSubscriptionPlus sub) {
+        return sub != null && IGNORED.equals(sub.getHealthIgnored());
     }
 
     /** 去重并按枚举声明顺序排列，让前端不必自己维护一份排序表 */

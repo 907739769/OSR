@@ -23,6 +23,8 @@ import java.util.List;
  * @param maxOverdueDays 名下最大已播出天数，列表按它倒序；全都没有日期时为 null
  * @param diagnoses      去重后的诊断码，按 {@code EpisodeHealthDiagnosis} 的声明顺序
  * @param buckets        去重后的分档码，按 {@code EpisodeHealthBucket} 的声明顺序
+ * @param ignored        用户是否已把这条订阅从体检里忽略掉。忽略的默认不出现在报告里，
+ *                       只有前端显式要求包含时才回传，此时靠这个字段渲染「已忽略」标记
  * @param episodes       有问题的集，按集号升序
  *
  * @author Jack
@@ -31,5 +33,5 @@ public record SubscriptionHealthItem(Integer subId, String tmdbId, String title,
                                      String mediaType, Integer season, boolean autoSearch,
                                      String lastSearchTime, Integer missStreak, String rejectDetail,
                                      Integer maxOverdueDays, List<String> diagnoses, List<String> buckets,
-                                     List<EpisodeHealthItem> episodes) {
+                                     boolean ignored, List<EpisodeHealthItem> episodes) {
 }

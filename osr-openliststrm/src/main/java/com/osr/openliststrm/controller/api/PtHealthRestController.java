@@ -68,8 +68,55 @@ public class PtHealthRestController extends BaseController {
      * </p>
      */
     @GetMapping
-    public Result<EpisodeHealthReport> report() {
-        return Result.success(healthService.report(this::canAccess));
+    public Result<EpisodeHealthReport> report(
+            @RequestParam(value = "includeIgnored", required = false, defaultValue = "false") boolean includeIgnored) {
+        return Result.success(healthService.report(this::canAccess, includeIgnored));
+    }
+
+    /**
+     * 把订阅从缺集体检里忽略/取消忽略。
+     * <p>
+     * <b>只影响体检页的可见性与逾期缺集提醒，不影响 RSS 匹配、自动补搜、手动搜索。</b>
+     * 这是它与「暂停订阅」的根本区别：暂停会让订阅彻底停止工作，而忽略表达的是
+     * 「继续留着，万一哪天有资源还是要抓，只是别再提醒我」。没有这个出口的话，
+     * 一部片源根本不存在的老剧会永远躺在列表里、按周反复提醒，用户很快会把整类通知关掉——
+     * 连真正该看的那些一起丢。
+     * </p>
+     * <p>
+     * 逐条校验归属再批量写，理由同 {@code enableAutoSearch}：直接把前端传来的 id 拼进
+     * UPDATE 的 IN，等于给了一个改别人订阅配置的接口。
+     * </p>
+     *
+     * @return 实际生效的条数（无权操作的会被过滤掉）
+     */
+    @PostMapping("/ignore")
+    public Result<Integer> ignore(@RequestParam("ids") String ids,
+                                  @RequestParam(value = "ignored", required = false, defaultValue = "true") boolean ignored) {
+        if (StringUtils.isBlank(ids)) {
+            return Result.error("请选择要操作的订阅");
+        }
+        List<Integer> requested;
+        try {
+            requested = Arrays.stream(Convert.toStrArray(ids)).map(Integer::valueOf).toList();
+        } catch (NumberFormatException e) {
+            return Result.error("订阅ID格式不正确");
+        }
+        List<Integer> accessible = subscriptionService.listByIds(requested).stream()
+                .filter(this::canAccess)
+                .map(PtSubscriptionPlus::getId)
+                .toList();
+        if (accessible.isEmpty()) {
+            return Result.error("没有可操作的订阅");
+        }
+        int updated = subscriptionService.updateHealthIgnored(accessible, ignored);
+        // 取消忽略时顺带清掉通知去重指纹：否则这条订阅上次通知的指纹还在，
+        // 缺集没变的话下一轮会被判成「已经报过」而静默跳过，用户点了「取消忽略」
+        // 却再也收不到提醒
+        if (!ignored) {
+            accessible.forEach(id -> subscriptionService.updateOverdueNotifyState(id, null, null));
+        }
+        log.info("{}缺集体检，订阅 {} 条：{}", ignored ? "忽略" : "取消忽略", updated, accessible);
+        return Result.success(updated);
     }
 
     /**

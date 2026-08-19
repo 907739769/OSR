@@ -92,6 +92,11 @@ public class EpisodeHealthNotifyService {
         Map<Integer, String> currentSigns = new LinkedHashMap<>();
         List<SubscriptionHealth> due = new ArrayList<>();
         for (SubscriptionHealth health : scanned) {
+            // 用户已经明确说过「这条别再报了」。忽略只挡提醒与页面可见性，
+            // 不挡抓取——订阅照常参与 RSS 匹配与补搜，哪天真有资源还是会下回来
+            if (EpisodeHealthService.isIgnored(health.subscription())) {
+                continue;
+            }
             List<Integer> overdue = health.episodesIn(EpisodeHealthBucket.OVERDUE_MISSING);
             if (overdue.isEmpty()) {
                 continue;

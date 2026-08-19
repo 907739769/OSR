@@ -7,6 +7,7 @@ import {
   getPtHealthApi,
   enableAutoSearchApi,
   searchMissingApi,
+  setHealthIgnoredApi,
   type EpisodeHealthReport,
   type SubscriptionHealthItem
 } from '@/api/openlist/ptHealth'
@@ -107,6 +108,7 @@ const emptyReport = (): EpisodeHealthReport => ({
   episodeCount: 0,
   bucketCounts: {},
   diagnosisCounts: {},
+  ignoredCount: 0,
   subscriptions: []
 })
 
@@ -145,11 +147,17 @@ export function usePtHealth() {
   const activeBucket = ref('')
   /** 当前筛选的诊断；空串=全部。与分档是两个维度，可叠加 */
   const activeDiagnosis = ref('')
+  /**
+   * 是否把已忽略的订阅也列出来。
+   * 忽略必须配一个能找回来的入口，否则它就是个不可撤销的操作——
+   * 转移做种那边「停止重试必须配一个解除入口」是同一条教训。
+   */
+  const includeIgnored = ref(false)
 
   const load = async () => {
     loading.value = true
     try {
-      report.value = (await getPtHealthApi()) || emptyReport()
+      report.value = (await getPtHealthApi(includeIgnored.value)) || emptyReport()
       loadFailed.value = false
       lastLoadedAt.value = new Date()
       // 选中的档/诊断可能被这一轮动作清空（比如刚把「已熔断」那两集处理掉）。
@@ -289,6 +297,34 @@ export function usePtHealth() {
     }
   }
 
+  /**
+   * 忽略/取消忽略。
+   * <p>
+   * 不加二次确认：这个动作完全可逆，而且「显示已忽略(N)」那个入口一直摆在页面上，
+   * 用确认框拦一道只是白增摩擦。真正需要确认的是批量开启自动补搜那种有持续代价的配置变更。
+   * </p>
+   */
+  const handleSetIgnored = async (subId: number, ignored: boolean) => {
+    actingSubId.value = subId
+    try {
+      await setHealthIgnoredApi([subId], ignored)
+      message.success(ignored
+        ? '已忽略，这条订阅不再出现在体检与逾期提醒里（抓取照常）'
+        : '已取消忽略')
+      await load()
+    } catch (e) {
+      console.error(e)
+    } finally {
+      actingSubId.value = null
+    }
+  }
+
+  /** 切换「显示已忽略」。要重新拉一次——已忽略的条目后端默认不回传 */
+  const toggleIncludeIgnored = async () => {
+    includeIgnored.value = !includeIgnored.value
+    await load()
+  }
+
   /** 这一行是不是正在跑动作。批量进行中时所有行也一并锁住，避免并发改同一批数据 */
   const isActing = (subId: number) => batchActing.value || actingSubId.value === subId
   /** 有任何动作在跑（批量按钮与刷新按钮据此禁用） */
@@ -320,6 +356,7 @@ export function usePtHealth() {
     activeBucket, activeDiagnosis, subscriptions, filteredCount, filtering,
     bucketTabs, diagnosisTabs, autoSearchOffIds,
     actingSubId, batchActing, isActing, anyActing,
+    includeIgnored, handleSetIgnored, toggleIncludeIgnored,
     load, handleEnableAutoSearch, handleSearchNow, openSubscription, setBucket, setDiagnosis
   }
 }

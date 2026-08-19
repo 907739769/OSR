@@ -54,6 +54,7 @@ function subscription(overrides: Record<string, any> = {}) {
     maxOverdueDays: 5,
     diagnoses: ['AUTO_SEARCH_OFF'],
     buckets: ['OVERDUE_MISSING'],
+    ignored: false,
     episodes: [episode()],
     ...overrides
   }
@@ -71,6 +72,7 @@ function baseComposable(overrides: Record<string, any> = {}) {
       episodeCount: 1,
       bucketCounts: { OVERDUE_MISSING: 1 },
       diagnosisCounts: { AUTO_SEARCH_OFF: 1 },
+      ignoredCount: 0,
       subscriptions: subscriptions.value
     }),
     activeBucket: ref(''),
@@ -82,6 +84,9 @@ function baseComposable(overrides: Record<string, any> = {}) {
     diagnosisTabs: computed(() => []),
     autoSearchOffIds: computed(() => [1]),
     batchActing: ref(false),
+    includeIgnored: ref(false),
+    handleSetIgnored: vi.fn(),
+    toggleIncludeIgnored: vi.fn(),
     isActing: vi.fn(() => false),
     anyActing: computed(() => false),
     load: vi.fn(),
@@ -172,5 +177,47 @@ describe('PtHealth 按行动作', () => {
     // isActing 被逐行调用，说明 loading 不再是整页共用一个标志
     expect(isActing).toHaveBeenCalledWith(1)
     expect(isActing).toHaveBeenCalledWith(2)
+  })
+})
+
+describe('PtHealth 忽略', () => {
+  /**
+   * 忽略必须配一个能找回来的入口，否则它就是个不可撤销的操作。
+   * 入口的显示依据是 ignoredCount——后端刻意让它恒按全量算，正是为了这一点。
+   */
+  it('有被忽略的订阅时给出「显示已忽略」入口', () => {
+    const composable = baseComposable()
+    composable.report.value.ignoredCount = 2
+    ;(usePtHealth as any).mockReturnValue(composable)
+    const wrapper = mount(PtHealthPage)
+    expect(wrapper.find('.ignored-bar').text()).toContain('显示已忽略（2）')
+  })
+
+  it('一条都没忽略时不显示这个入口', () => {
+    (usePtHealth as any).mockReturnValue(baseComposable())
+    const wrapper = mount(PtHealthPage)
+    expect(wrapper.find('.ignored-bar').exists()).toBe(false)
+  })
+
+  it('点「忽略」把该订阅标记为忽略', async () => {
+    const handleSetIgnored = vi.fn()
+    ;(usePtHealth as any).mockReturnValue(baseComposable({ handleSetIgnored }))
+    const wrapper = mount(PtHealthPage)
+    const btn = wrapper.findAll('.item-actions .v-btn').find((b) => b.text() === '忽略')
+    expect(btn).toBeTruthy()
+    await btn!.trigger('click')
+    expect(handleSetIgnored).toHaveBeenCalledWith(1, true)
+  })
+
+  it('已忽略的行标出来，并给出取消忽略', () => {
+    (usePtHealth as any).mockReturnValue(baseComposable({
+      subscriptions: ref([subscription({ ignored: true })])
+    }))
+    const wrapper = mount(PtHealthPage)
+    expect(wrapper.find('.health-item--ignored').exists()).toBe(true)
+    expect(wrapper.text()).toContain('已忽略')
+    const texts = wrapper.findAll('.item-actions .v-btn').map((b) => b.text())
+    expect(texts).toContain('取消忽略')
+    expect(texts).not.toContain('忽略')
   })
 })

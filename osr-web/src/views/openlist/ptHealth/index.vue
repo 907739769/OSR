@@ -81,6 +81,20 @@
         </div>
       </div>
 
+      <!-- 忽略必须配一个能找回来的入口，否则它就是个不可撤销的操作 -->
+      <div v-if="report.ignoredCount > 0 || includeIgnored" class="ignored-bar">
+        <v-btn
+          variant="text"
+          size="small"
+          :prepend-icon="includeIgnored ? 'mdi-eye-off-outline' : 'mdi-eye-outline'"
+          :disabled="loading || anyActing"
+          @click="toggleIncludeIgnored"
+        >
+          {{ includeIgnored ? '隐藏已忽略' : `显示已忽略（${report.ignoredCount}）` }}
+        </v-btn>
+        <span class="ignored-hint">忽略只影响这个页面与逾期提醒，不影响 RSS 匹配与补搜</span>
+      </div>
+
       <v-progress-linear v-if="loading" indeterminate color="primary" />
 
       <!-- 加载失败要单独说。塞回空报告的话，渲染出来是绿色对勾「没有发现缺集」——
@@ -98,7 +112,13 @@
       </v-empty-state>
 
       <div v-else class="health-list">
-        <v-card v-for="sub in subscriptions" :key="sub.subId" class="health-item" variant="outlined">
+        <v-card
+          v-for="sub in subscriptions"
+          :key="sub.subId"
+          class="health-item"
+          :class="{ 'health-item--ignored': sub.ignored }"
+          variant="outlined"
+        >
           <div class="item-main">
             <v-img
               v-if="sub.posterPath"
@@ -119,6 +139,9 @@
                 <span v-if="sub.maxOverdueDays !== null" class="item-overdue">
                   已播出 {{ sub.maxOverdueDays }} 天
                 </span>
+                <v-chip v-if="sub.ignored" size="x-small" variant="tonal" prepend-icon="mdi-bell-off-outline">
+                  已忽略
+                </v-chip>
               </div>
 
               <div class="chip-row">
@@ -196,6 +219,23 @@
               立即补搜
             </v-btn>
             <v-btn size="small" variant="text" @click="openSubscription(sub.subId)">查看订阅</v-btn>
+            <v-btn
+              v-if="sub.ignored"
+              size="small"
+              variant="text"
+              :loading="isActing(sub.subId)"
+              :disabled="anyActing"
+              @click="handleSetIgnored(sub.subId, false)"
+            >取消忽略</v-btn>
+            <v-btn
+              v-else
+              size="small"
+              variant="text"
+              :loading="isActing(sub.subId)"
+              :disabled="anyActing"
+              title="不再在体检与逾期提醒里出现；RSS 匹配与补搜照常，随时可以撤销"
+              @click="handleSetIgnored(sub.subId, true)"
+            >忽略</v-btn>
           </div>
         </v-card>
 
@@ -223,6 +263,7 @@ const {
   activeBucket, activeDiagnosis, subscriptions, filteredCount, filtering,
   bucketTabs, diagnosisTabs, autoSearchOffIds,
   batchActing, isActing, anyActing,
+  includeIgnored, handleSetIgnored, toggleIncludeIgnored,
   load, handleEnableAutoSearch, handleSearchNow, openSubscription, setBucket, setDiagnosis
 } = usePtHealth()
 
@@ -437,6 +478,24 @@ const episodeTip = (ep: EpisodeHealthItem) => {
   flex-wrap: wrap;
   font-size: 12px;
   color: var(--osr-text-secondary);
+}
+
+.ignored-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 16px 8px;
+  flex-wrap: wrap;
+}
+
+.ignored-hint {
+  font-size: 12px;
+  color: var(--osr-text-secondary);
+}
+
+/* 已忽略的行压低视觉权重：它们是用户主动收起来的，不该和真正要处理的条目抢注意力 */
+.health-item--ignored {
+  opacity: 0.62;
 }
 
 .item-actions {

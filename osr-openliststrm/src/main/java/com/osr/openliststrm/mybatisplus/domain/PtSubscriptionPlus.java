@@ -142,6 +142,22 @@ public class PtSubscriptionPlus extends BaseEntity {
     @TableField("last_overdue_notify_sign")
     private String lastOverdueNotifySign;
 
+    /**
+     * 缺集体检是否忽略这条订阅。'1'=忽略。
+     * <p>
+     * <b>只影响体检页的可见性与逾期缺集提醒，不影响 RSS 匹配、自动补搜、手动搜索。</b>
+     * 这是它与「暂停订阅」的根本区别：暂停会让订阅彻底停止工作，而忽略表达的是
+     * 「继续留着，万一哪天有资源还是要抓，只是别再提醒我」——用暂停顶替，
+     * 等于逼用户为了免打扰而放弃抓取。
+     * </p>
+     */
+    @TableField("health_ignored")
+    private String healthIgnored;
+
+    /** 被忽略的时刻，只作排查用；NULL 表示未忽略 */
+    @TableField("health_ignored_time")
+    private Date healthIgnoredTime;
+
     /** 上次发出「逾期缺集」通知的时间，配合指纹做周期性重提醒；NULL 表示从未通知过 */
     @TableField("last_overdue_notify_time")
     private Date lastOverdueNotifyTime;

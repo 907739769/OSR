@@ -75,6 +75,19 @@ public class PtSubscriptionPlusServiceImpl extends ServiceImpl<PtSubscriptionPlu
     }
 
     @Override
+    public int updateHealthIgnored(List<Integer> subIds, boolean ignored) {
+        if (subIds == null || subIds.isEmpty()) {
+            return 0;
+        }
+        boolean ok = update(new LambdaUpdateWrapper<PtSubscriptionPlus>()
+                .in(PtSubscriptionPlus::getId, subIds)
+                .set(PtSubscriptionPlus::getHealthIgnored, ignored ? "1" : "0")
+                // 取消忽略时清空时刻，留着的话「这条是什么时候被忽略的」会指向一次早已撤销的操作
+                .set(PtSubscriptionPlus::getHealthIgnoredTime, ignored ? new Date() : null));
+        return ok ? subIds.size() : 0;
+    }
+
+    @Override
     public List<PtSubscriptionPlus> listOverdueNotified() {
         return lambdaQuery()
                 .isNotNull(PtSubscriptionPlus::getLastOverdueNotifySign)

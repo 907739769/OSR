@@ -59,6 +59,19 @@
       为{{ filtering ? '筛选出的' : '' }} {{ autoSearchOffIds.length }} 条订阅开启自动补搜
     </v-btn>
 
+    <!-- 忽略必须配一个能找回来的入口，否则它就是个不可撤销的操作 -->
+    <div v-if="report.ignoredCount > 0 || includeIgnored" class="ignored-bar">
+      <v-btn
+        variant="text"
+        size="small"
+        :prepend-icon="includeIgnored ? 'mdi-eye-off-outline' : 'mdi-eye-outline'"
+        :disabled="loading || anyActing"
+        @click="toggleIncludeIgnored"
+      >
+        {{ includeIgnored ? '隐藏已忽略' : `显示已忽略（${report.ignoredCount}）` }}
+      </v-btn>
+    </div>
+
     <v-progress-linear v-if="loading" indeterminate color="primary" />
 
     <!-- 加载失败要单独说：塞回空报告的话渲染出来是「没有发现缺集」，
@@ -94,7 +107,10 @@
                 <span v-if="sub.mediaType !== 'MOVIE'" class="card-season">S{{ pad(sub.season) }}</span>
               </span>
             </div>
-            <v-chip v-if="sub.maxOverdueDays !== null" size="x-small" color="error" variant="tonal">
+            <v-chip v-if="sub.ignored" size="x-small" variant="tonal" prepend-icon="mdi-bell-off-outline">
+              已忽略
+            </v-chip>
+            <v-chip v-else-if="sub.maxOverdueDays !== null" size="x-small" color="error" variant="tonal">
               {{ sub.maxOverdueDays }} 天
             </v-chip>
           </div>
@@ -127,6 +143,7 @@
               size="x-small"
               variant="outlined"
               :color="bucketMeta(ep.bucket).color === 'default' ? undefined : bucketMeta(ep.bucket).color"
+              @click="openEpisode(sub, ep)"
             >
               {{ sub.mediaType === 'MOVIE' ? '正片' : `E${pad(ep.episode)}` }}
             </v-chip>
@@ -176,6 +193,15 @@
             >
               立即补搜
             </v-btn>
+            <v-btn
+              size="small"
+              variant="text"
+              :loading="isActing(sub.subId)"
+              :disabled="anyActing"
+              @click="handleSetIgnored(sub.subId, !sub.ignored)"
+            >
+              {{ sub.ignored ? '取消忽略' : '忽略' }}
+            </v-btn>
           </div>
           <!-- 手机上没有 hover，两个按钮的区别只能写出来 -->
           <p class="action-hint">开启补搜=打开自动开关；立即补搜=现在就搜一次，要跑几十秒</p>
@@ -191,19 +217,52 @@
           : `播出超过 ${report.overdueDays} 天的集都已入库或正在处理中`"
       />
     </div>
+
+    <!-- 单集详情。播出日期、逾期天数、处置建议在 PC 上挂在集号的 title 里，
+         而手机根本没有 hover——这些信息此前在移动端等于不存在 -->
+    <v-dialog v-model="episodeDialogOpen" width="92%">
+      <v-card v-if="activeEpisode" :title="`${activeEpisodeSub?.title || ''} 第 ${activeEpisode.episode} 集`">
+        <v-card-text>
+          <div class="entry-dialog-row">
+            <span class="label">分档</span>
+            <v-chip size="small" variant="tonal" :color="bucketColor(activeEpisode.bucket)">
+              {{ bucketMeta(activeEpisode.bucket).label }}
+            </v-chip>
+          </div>
+          <div class="entry-dialog-row">
+            <span class="label">播出日期</span>
+            <span class="value">{{ activeEpisode.airDate || '未定档 / 尚未同步' }}</span>
+          </div>
+          <div v-if="activeEpisode.overdueDays !== null" class="entry-dialog-row">
+            <span class="label">已播出</span>
+            <span class="value">{{ activeEpisode.overdueDays }} 天</span>
+          </div>
+          <div class="entry-dialog-row">
+            <span class="label">成因</span>
+            <span class="value">{{ diagnosisMeta(activeEpisode.diagnosis).label }}</span>
+          </div>
+          <p class="episode-advice">{{ diagnosisMeta(activeEpisode.diagnosis).advice }}</p>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer />
+          <v-btn variant="outlined" @click="episodeDialogOpen = false">关闭</v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref } from 'vue'
 import { usePtHealth, bucketMeta, diagnosisMeta, posterUrl } from '@/composables/usePtHealth'
-import type { SubscriptionHealthItem } from '@/api/openlist/ptHealth'
+import type { EpisodeHealthItem, SubscriptionHealthItem } from '@/api/openlist/ptHealth'
 
 const {
   loading, loadFailed, report,
   activeBucket, activeDiagnosis, subscriptions, filteredCount, filtering,
   bucketTabs, diagnosisTabs, autoSearchOffIds,
   batchActing, isActing, anyActing,
+  includeIgnored, handleSetIgnored, toggleIncludeIgnored,
   load, handleEnableAutoSearch, handleSearchNow, openSubscription, setBucket, setDiagnosis
 } = usePtHealth()
 
@@ -218,6 +277,22 @@ const visibleEpisodes = (sub: SubscriptionHealthItem) =>
 
 const hiddenEpisodeCount = (sub: SubscriptionHealthItem) =>
   sub.episodes.length - visibleEpisodes(sub).length
+
+/** 单集详情 */
+const episodeDialogOpen = ref(false)
+const activeEpisode = ref<EpisodeHealthItem | null>(null)
+const activeEpisodeSub = ref<SubscriptionHealthItem | null>(null)
+const openEpisode = (sub: SubscriptionHealthItem, ep: EpisodeHealthItem) => {
+  activeEpisodeSub.value = sub
+  activeEpisode.value = ep
+  episodeDialogOpen.value = true
+}
+
+/** bucketMeta 给的 default 不是 Vuetify 的合法色名，转成 undefined 让 chip 用默认色 */
+const bucketColor = (bucket: string) => {
+  const color = bucketMeta(bucket).color
+  return color === 'default' ? undefined : color
+}
 
 const expandEpisodes = (subId: number) => {
   // Set 是 ref 里的普通对象，就地 add 不触发更新，换一个新 Set
@@ -305,6 +380,35 @@ const expandEpisodes = (subId: number) => {
   font-size: 12px;
   color: var(--osr-primary);
   cursor: pointer;
+}
+
+.ignored-bar {
+  padding: 0 12px 4px;
+}
+
+.entry-dialog-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: 13px;
+}
+
+.entry-dialog-row .label {
+  width: 68px;
+  flex: none;
+  color: var(--osr-text-secondary);
+}
+
+.entry-dialog-row .value {
+  color: var(--osr-text-primary);
+}
+
+.episode-advice {
+  margin: 10px 0 0;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--osr-text-secondary);
 }
 
 .action-hint {

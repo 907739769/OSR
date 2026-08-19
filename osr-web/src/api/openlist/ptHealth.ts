@@ -27,6 +27,8 @@ export interface SubscriptionHealthItem {
   maxOverdueDays: number | null
   diagnoses: string[]
   buckets: string[]
+  /** 用户是否已把这条订阅从体检里忽略掉；只有显式要求包含已忽略时才可能为 true */
+  ignored: boolean
   episodes: EpisodeHealthItem[]
 }
 
@@ -37,12 +39,20 @@ export interface EpisodeHealthReport {
   episodeCount: number
   bucketCounts: Record<string, number>
   diagnosisCounts: Record<string, number>
+  /** 被忽略的订阅数，恒按全量算——前端靠它渲染「显示已忽略(N)」入口 */
+  ignoredCount: number
   subscriptions: SubscriptionHealthItem[]
 }
 
-/** 拉一次体检报告。无分页——这个页面的价值在于一眼看完全部问题 */
-export function getPtHealthApi() {
-  return request.get<any, EpisodeHealthReport>('/openliststrm/pt-health')
+/**
+ * 拉一次体检报告。无分页——这个页面的价值在于一眼看完全部问题。
+ *
+ * @param includeIgnored 是否把已忽略的订阅一并回传（默认不回传）
+ */
+export function getPtHealthApi(includeIgnored = false) {
+  return request.get<any, EpisodeHealthReport>('/openliststrm/pt-health', {
+    params: { includeIgnored }
+  })
 }
 
 /** 批量开启自动补搜，返回实际生效的条数（无权操作的订阅会被后端过滤掉） */
@@ -66,5 +76,17 @@ export function enableAutoSearchApi(ids: number[]) {
 export function searchMissingApi(subId: number) {
   return request.post<any, string>(`/openliststrm/pt-health/${subId}/search-missing`, null, {
     timeout: 60000
+  })
+}
+
+/**
+ * 把订阅从缺集体检里忽略/取消忽略，返回实际生效的条数。
+ *
+ * 只影响体检页的可见性与逾期缺集提醒，**不影响 RSS 匹配、自动补搜、手动搜索**——
+ * 这是它与「暂停订阅」的根本区别，页面文案必须说清楚，否则用户会以为忽略等于放弃这部剧。
+ */
+export function setHealthIgnoredApi(ids: number[], ignored: boolean) {
+  return request.post<any, number>('/openliststrm/pt-health/ignore', null, {
+    params: { ids: ids.join(','), ignored }
   })
 }
