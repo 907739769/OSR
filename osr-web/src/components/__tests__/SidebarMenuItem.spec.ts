@@ -24,10 +24,10 @@ function collectGroupValues(menu: MenuRoute): string[] {
   return [self, ...menu.children.flatMap(collectGroupValues)]
 }
 
-function mountInList(menu: MenuRoute) {
+function mountInList(menu: MenuRoute, props: Record<string, unknown> = {}) {
   const Host = defineComponent({
     render() {
-      return h(VList, { opened: collectGroupValues(menu) }, () => h(SidebarMenuItem, { menu }))
+      return h(VList, { opened: collectGroupValues(menu) }, () => h(SidebarMenuItem, { menu, ...props }))
     }
   })
   // SidebarMenuItem 的 setup 会调用 useAppStore()，测试环境需提供 Pinia 实例
@@ -65,6 +65,26 @@ describe('SidebarMenuItem', () => {
     expect(items).toHaveLength(2)
     expect(items[0].attributes('data-testid')).toBe('menu-item-/openliststrm/task')
     expect(items[1].attributes('data-testid')).toBe('menu-item-/openliststrm/copy')
+  })
+
+  // 分组标题的显隐由调用方给（PC 侧边栏收成 rail 时要藏），组件自己不读 store ——
+  // 以前读的是 appStore.sidebarOpened，而 App.vue 在移动端会 closeSidebar()，
+  // 移动端抽屉复用这个组件时分组标题会跟着一起消失。
+  it('showGroupLabel=false 时藏起分组标题，子项照常渲染', () => {
+    const menu: MenuRoute = {
+      path: '/openliststrm',
+      name: '同步管理',
+      meta: { title: '同步管理' },
+      children: [leaf('/openliststrm/task', '同步任务配置')]
+    }
+
+    const shown = mountInList(menu)
+    expect(shown.find('[data-testid="menu-group-同步管理"]').attributes('style') ?? '').not.toContain('display: none')
+
+    const hidden = mountInList(menu, { showGroupLabel: false })
+    // v-show 保留节点、只加 display:none
+    expect(hidden.find('[data-testid="menu-group-同步管理"]').attributes('style')).toContain('display: none')
+    expect(hidden.find('[data-testid="menu-item-/openliststrm/task"]').exists()).toBe(true)
   })
 
   it('三级嵌套（目录>子目录>叶子）逐级递归渲染，父子目录即使 path 相同，data-testid(name) 也不会撞车', () => {

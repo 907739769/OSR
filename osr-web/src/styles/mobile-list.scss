@@ -300,21 +300,21 @@
   }
 }
 
+/* 底部 tab 栏是 fixed 的，悬浮按钮要按栏高上移，否则被压在栏下面点不到。
+   栏高走 --osr-mobile-tabbar-height 令牌，不要再写死 56 —— 这个数字原先在
+   MobileLayout 的 padding-bottom 与这里各写一遍，改栏高必漏一处。
+   （原先这里还有一条 @media (min-width: 768px) 的偏移，是死代码：.fab-add 只出现在
+     views-mobile 的页面里，而那些页面 768px 以上根本不渲染，已删。） */
 .fab-add {
   position: fixed;
   right: 20px;
-  bottom: calc(56px + 16px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(var(--osr-mobile-tabbar-height) + 16px + env(safe-area-inset-bottom, 0px));
   z-index: 1000;
   box-shadow: var(--osr-shadow-lg);
   transition: all var(--osr-transition-fast);
 
   &:active {
     transform: scale(0.96);
-  }
-
-  @media (min-width: 768px) {
-    right: 40px;
-    bottom: calc(56px + 24px);
   }
 }
 
@@ -339,14 +339,26 @@
   width: 100%;
 }
 
+/* 批量操作条（组件 components/mobile/MobileBatchBar.vue）。
+   吸在屏幕底部、盖住 tab 栏 —— 「选择模式接管底栏」是移动端的常见做法，也是这里
+   唯一不用额外补内距的方案：内容区本来就为 tab 栏留了 --osr-mobile-tabbar-height。
+   原先它跟着内容滚，排在搜索面板下方，滚到第 20 张卡片再勾选时操作按钮已经在屏幕外了。
+   背景必须不透明（不能再用 --osr-primary-subtle 那个 10% 的底），否则会透出下面的 tab 栏。 */
 .batch-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  /* v-bottom-navigation 由 Vuetify 布局给到 1004，这里要压在它上面 */
+  z-index: 1010;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 10px 14px;
-  background: var(--osr-primary-subtle);
-  border: 1px solid var(--osr-primary-muted);
-  border-radius: var(--osr-radius-md);
+  min-height: var(--osr-mobile-tabbar-height);
+  padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
+  background: var(--osr-surface);
+  border-top: 2px solid var(--osr-primary-accent);
+  box-shadow: var(--osr-shadow-lg);
   font-size: 13px;
   flex-wrap: wrap;
 

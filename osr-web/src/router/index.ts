@@ -302,7 +302,21 @@ export function addDynamicRoutes(menuList: MenuRoute[]) {
 const router = createRouter({
   history: createWebHistory(),
   routes: constantRoutes,
-  scrollBehavior: () => ({ top: 0 })
+  /**
+   * 浏览器/手势「返回」时恢复原来的滚动位置，其余导航一律回到顶部。
+   *
+   * 列表页本来就带 keep-alive（筛选条件、页码都还在），唯独滚动位置每次回来都归零——
+   * 从第 30 条点进详情再返回，要重新滑一遍才能接着看，这在移动端尤其明显。
+   * savedPosition 只有 popstate（返回/前进）才有值，所以正常点击导航仍然是 top: 0。
+   * 延一帧再滚：页面组件是异步加载的，keep-alive 恢复 DOM 也在下一帧，
+   * 立即滚动会因为此刻文档还没那么高而被截断成「滚到底部」。
+   */
+  scrollBehavior(_to, _from, savedPosition) {
+    if (!savedPosition) return { top: 0 }
+    return new Promise((resolve) => {
+      requestAnimationFrame(() => resolve(savedPosition))
+    })
+  }
 })
 
 router.beforeEach(async (to, _from, next) => {

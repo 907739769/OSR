@@ -27,7 +27,7 @@ const tokensCss = Object.values(
   import.meta.glob('../tokens.scss', { query: '?raw', import: 'default', eager: true })
 )[0] as string
 
-const styleSheets = import.meta.glob('../{list,mobile-list,index}.scss', {
+const styleSheets = import.meta.glob('../{list,mobile-list,menu,index}.scss', {
   query: '?raw',
   import: 'default',
   eager: true
@@ -90,7 +90,8 @@ describe('共享样式单源', () => {
     '.card-grid', '.item-card',
     '.mobile-page', '.task-list', '.task-card', '.fab-add', '.batch-bar',
     '.card-actions', '.drawer-actions', '.date-range-fields',
-    '.mobile-card', '.mobile-card-list'
+    '.mobile-card', '.mobile-card-list',
+    '.menu-item', '.menu-group-label'
   ]
 
   it('页面不重新定义共享类', () => {

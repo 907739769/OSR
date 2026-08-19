@@ -15,7 +15,7 @@ src/
 │   ├── openlist/           # 业务 API (见下)
 │   └── system/             # 系统管理 API
 ├── components/             # 公共组件 (DirectoryTreeSelect, ChangePasswordDialog, PageHeader, StatusChip, ThemeSwitch, MiniTrend, mobile/*)
-├── composables/            # 组合式函数 (useTaskList, useRecordList, useDebounce, useThemeMode, useMenuLinks 等)
+├── composables/            # 组合式函数 (useTaskList, useRecordList, useDebounce, useThemeMode, useMenuLinks, useActionSheet, useMobileTabs 等)
 ├── layouts/                # 布局组件 (DesktopLayout, MobileLayout)
 ├── router/                 # 路由配置 (动态路由)
 │   └── index.ts
@@ -23,7 +23,7 @@ src/
 │   ├── app.ts              # 应用全局状态 (设备检测、侧边栏)
 │   ├── permission.ts       # 权限/菜单
 │   └── user.ts             # 用户状态
-├── styles/                 # 全局样式 (tokens.scss 设计令牌, list.scss PC 列表公共, mobile-list.scss 移动端列表公共)
+├── styles/                 # 全局样式 (tokens.scss 设计令牌, list.scss PC 列表公共, mobile-list.scss 移动端列表公共, menu.scss 侧边菜单)
 ├── types/                  # TypeScript 类型定义 (SearchParams, PageResult)
 ├── views/                  # PC 端页面 (openlist/, system/, monitor/, dashboard/)
 ├── views-mobile/           # 移动端页面 (对应 PC 端)
@@ -43,7 +43,8 @@ src/
 | 路由 | `src/router/index.ts` | 动态路由加载 |
 | 状态管理 | `src/stores/` | Pinia store (app/permission/user) |
 | 布局 | `src/layouts/` | DesktopLayout / MobileLayout |
-| 移动端组件 | `src/components/mobile/` | MobileSearchPanel, MobilePager, FullTextDialog |
+| 移动端组件 | `src/components/mobile/` | MobileListPage(外壳), MobileSearchPanel, MobileBatchBar, MobileActionSheet, MobilePager, FullTextDialog, MobileTabSettingsDialog |
+| 移动端外壳/导航 | `src/layouts/MobileLayout.vue` + `composables/useMobileTabs.ts` | 顶栏 / 抽屉 / 底部 tab，见下方「移动端外壳」 |
 | PWA 配置 | `vite.config.ts` | VitePWA 插件配置 |
 
 ## CONVENTIONS
@@ -88,7 +89,8 @@ src/
 | `.log-search-form` | `views/monitor/job/index.vue` | 日志弹窗内嵌搜索行（布局已复用 `.inline-fields`，此私有类只留分隔线与 select 宽度） |
 | `.path-box/.path-row/.path-label--src\|dst\|mon/.path-text/.path-name` | `styles/list.scss` | 表格里的「源/目标/监控」路径对照 |
 | `.card-grid` `.item-card`（`--failed/--selectable/--compact`）+ `.card-header/body/row/footer` | `styles/list.scss` | PC 卡片网格（PT 配置类页面） |
-| `.mobile-page` `.task-list` `.task-card` `.fab-add` `.batch-bar` `.card-actions` `.drawer-actions` `.date-range-fields` | `styles/mobile-list.scss` | 移动端页面骨架与卡片 |
+| `.mobile-page` `.task-list` `.task-card` `.fab-add` `.batch-bar` `.card-actions` `.drawer-actions` `.date-range-fields` | `styles/mobile-list.scss` | 移动端页面骨架与卡片（骨架三件套已被 `MobileListPage` 包起来，页面不再直接写） |
+| `.menu-item` `.menu-group-label` | `styles/menu.scss` | 两端侧边菜单项（两个 Layout 自己渲染的「首页」那条也用它） |
 | `.mobile-card*` | `styles/mobile-list.scss` | PC 页在 <768px 时的表格降级卡片（monitor/job、dict/*） |
 
 **PC 卡片同理**：`ptSubscription` 的订阅卡曾自造过一整套 `.sub-card / .sub-header / .sub-row / .sub-actions`，把 `.item-card` 的边框、圆角、hover 阴影、可点选态逐条重写了一遍，已退回 `.item-card item-card--compact` + `.card-header/.card-row/.card-footer`，只留海报横排（`.sub-main/.sub-poster`）、进度条（`.sub-progress`）、开关行（`.sub-switches`）这些真正特有的私有类。**网格里的加载条与空态已由 `list.scss` 统一横跨整行**（`.card-grid > .v-empty-state / > .v-progress-linear` 挂 `grid-column: 1 / -1`），页面里不要再各写一份。它们是网格的直接子元素，没有这条就只占一条轨道（≈300px），而 `v-empty-state` 会在自己的盒子里居中，于是整块空态挤在左上角那一格里——屏幕越宽越离谱（2560 的屏上只占 14% 宽度，看着像内容渲染错位而不是「这里没有数据」）。这条漏掉不报错、只是位置不对，实际 6 个卡片网格页全都漏了，其中 `ptDownloadRecord` 还只给加载条补了、没想到空态是同一个问题。
@@ -132,7 +134,7 @@ ptTorrentBlacklist / wecomUser（即全部 `.card-grid` 页面）。新增卡片
   **禁止再手写 `.form-item` / `.form-label` / `.field-label` / `.rule-field-label`**（那是 `el-form-item` 的复刻）。
 - **`StatusChip`**：所有状态徽章走它。二元开关用 `<StatusChip :value="row.enabled" />`，
   开=success 关=error 全站一致；自定义状态用 `<StatusChip type="warning" text="下载中" />`。
-- **不作为表单字段的勾选框一律用 `v-checkbox-btn`，不要用 `v-checkbox`**。
+- **不作为表单字段的勾选框一律用 `v-checkbox-btn`，不要用 `v-checkbox`**（移动端卡片角标已全部收口，`views-mobile` 里只剩弹窗表单里那一个真·表单字段）。
   后者是**表单字段**：内部套一层 `VInput`，带来 min-height、label 的 `opacity: .6`、
   以及 details/hint 行的预留空间。把它放进批量工具条、卡片角标、全选行这类紧凑位置，
   就得写 `.v-selection-control { min-height: auto }` + `.v-label { opacity: 1 }` 去压——
@@ -171,6 +173,64 @@ ptTorrentBlacklist / wecomUser（即全部 `.card-grid` 页面）。新增卡片
 - PC 三档：`max-width="480"`（确认类）/ `600`（表单类）/ `900`（数据表类）
 - 移动端统一 `width="92%"`
 - 次要按钮（取消/关闭/测试连接）统一 `variant="outlined"`，主按钮 `variant="flat"`
+
+### 移动端外壳（导航 + 列表页骨架）
+
+一次专门的重构收口的，改之前先读完这一节。
+
+**列表页骨架只有 `MobileListPage` 一份**。它管四样东西：`.mobile-page` 容器、`.task-list`
+容器、顶部加载条、底部空态——它们之间的位置关系（加载条必须在列表容器内、空态必须与加载条
+互斥）没有任何一页需要自己决定，而这四行原先在 17 个页面里各写一遍。页面结构固定为：
+```
+<MobileListPage :loading="loading" :empty="!loading && list.length === 0" empty-title="暂无X">
+  <template #head>  搜索面板 / 批量条 / 常驻筛选  </template>
+  卡片（默认插槽，直接放在 .task-list 里）
+  <template #foot>  分页 / 弹窗 / 底部面板  </template>
+</MobileListPage>
+```
+
+**批量条是 `MobileBatchBar`，并且吸在屏幕底部、盖住 tab 栏**。原先它跟着内容滚、排在搜索
+面板下方，滚到第 20 张卡片再勾选时操作按钮已经在屏幕外了；「选择模式接管底栏」也是唯一
+不用额外补内距的方案——内容区本来就为 tab 栏留了 `--osr-mobile-tabbar-height`。组件把
+「已选 N 项」「全选」「取消」三件固定的东西收进去（**「全选」紧挨「取消」前面**这条约定
+从此不靠人记），页面只用默认插槽给自己的动作按钮。背景必须不透明，否则透出下面的 tab 栏。
+
+**卡片「更多」面板是 `MobileActionSheet` + `useActionSheet()`**。后者提供
+`sheetOpen / sheetTarget / openSheet / run`，`run(() => handleX(sheetTarget))` 负责执行完
+自动关面板——原先每个按钮都要手写一句 `xxxOpen = false`，漏写就是点完不关。
+
+**底部 tab：4 个可跳转 + 第 5 格固定「更多」**。「更多」打开侧边抽屉——抽屉原先只有左上角
+汉堡键一个入口，那是单手持机最难够到的位置，而 PT 那 12 个页面全都只能从它进。哪四个页面
+上底栏由用户定（`useMobileTabs`，存 localStorage `osr-mobile-tabs`，入口在抽屉底部的
+「自定义底栏」）：默认仍是首页/同步记录/STRM记录/重命名，但「最常用的四个」本就因人而异。
+三条别改坏的：**tab 的 path 一律按 `meta.componentKey` 反查**（后端菜单 path 有
+`/openlist/xxx` 与 `/openliststrm/xxx` 两种前缀，写死会跳 404）；**配置里指向已不存在的
+菜单要丢掉而不是渲染出来**（改权限/删菜单后会留死链）；**上限 4 个不能放宽**——Vuetify 给
+底栏按钮的 min-width 是 80px，六个按钮在 320px 机型上会把整页撑出横向滚动条（`.tabbar-item`
+已经放开 min-width 并把标签压到 11px，这是留给第 5 格「更多」的余量）。
+不在 tab 上的页面把「更多」点亮，底栏四个全灰会让用户失去「我在哪」的定位。
+
+**抽屉里的菜单与 PC 共用 `SidebarMenuItem`**：分组渲染成一行灰色标题 + 子项平铺，不是
+折叠面板。移动端曾用 `v-list-group` 手风琴，但全库 9 个分组 25 个叶子平铺后也就 30 多行，
+换来的是「开抽屉 → 找分组 → 展开 → 点项」三次点击加一次动画等待；那份绑在 `:opened` 上的
+展开态还是 computed（受控属性），用户手动展开的其它分组会在下次路由变化时被强制收起。
+分组标题的显隐由调用方传 `showGroupLabel`（PC 收成 rail 时藏起来），**组件自己不读 store**
+——`App.vue` 在移动端会调 `closeSidebar()`，读 store 的话移动端标题会跟着一起消失。
+
+**退出登录收在头像菜单里**，与 PC 一致。它原先是紧挨 28px 头像的一个裸 `mdi-logout` 图标，
+两个热区间距只有 8px；破坏性动作进菜单这条约定（见下方表格操作列那段）在这里同样成立。
+
+**设备判定走 `MOBILE_MEDIA_QUERY`（`stores/app.ts`）**，不是 `window.innerWidth < 768`。
+第二个条件 `(max-width: 926px) and (pointer: coarse)` 专门管**手机横屏**——iPhone 14 Pro Max
+横过来是 926×428，只看宽度会被判成 desktop，于是 220px 侧边栏加一张宽表格挤在 428px 高的
+屏幕里；`pointer: coarse` 把它限制在触摸设备上，笔记本缩窗口到 900px 仍是 PC 布局。
+`change` 与 `resize` 两个事件都听：iOS 14 之前的 Safari 只有 `addListener`、没有
+`addEventListener('change')`，只挂 change 在那些设备上等于旋转屏幕不换布局。兜底不贵——
+回调只读一个布尔量再写回 store，值没变 Vue 不会重渲染。
+
+**返回时恢复滚动位置**由 `router` 的 `scrollBehavior` 负责（只在有 `savedPosition`，也就是
+浏览器/手势返回时恢复，其余导航回到顶部）。列表页本来就带 keep-alive，筛选条件和页码都还在，
+唯独滚动位置每次归零。恢复要延一帧：页面组件是异步加载的，立即滚会因为文档还没那么高而被截断。
 
 ### PC / 移动端对齐
 - 新增功能必须同时改 `views/` 和 `views-mobile/`。

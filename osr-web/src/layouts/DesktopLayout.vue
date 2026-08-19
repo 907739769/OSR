@@ -6,7 +6,13 @@
     </div>
     <v-list nav density="compact" :opened="[]" style="--v-list-prepend-gap: 12px">
       <v-list-item to="/dashboard" prepend-icon="mdi-view-dashboard-outline" title="首页" rounded="lg" class="menu-item" />
-      <SidebarMenuItem v-for="menu in sidebarMenus" :key="menu.path" :menu="menu" />
+      <!-- rail 态（64px）下分组标题没地方显示，交给组件的 showGroupLabel 控制 -->
+      <SidebarMenuItem
+        v-for="menu in sidebarMenus"
+        :key="menu.path"
+        :menu="menu"
+        :show-group-label="appStore.sidebarOpened"
+      />
     </v-list>
   </v-navigation-drawer>
 
@@ -107,15 +113,6 @@ const handleLogout = async () => {
     font-weight: 700;
     white-space: nowrap;
     letter-spacing: 0.5px;
-  }
-}
-
-:deep(.menu-item) {
-  margin: 1px 6px;
-
-  &.v-list-item--active {
-    color: rgb(var(--v-theme-primary));
-    background: rgba(var(--v-theme-primary), 0.1);
   }
 }
 

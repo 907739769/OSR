@@ -1,0 +1,39 @@
+/* ============================================
+   侧边菜单公共样式（DesktopLayout / MobileLayout / SidebarMenuItem 共用）
+
+   这三处以前各写了一份一模一样的 .menu-item 激活态：两个 Layout 因为自己直接渲染
+   了「首页」那一条 v-list-item，各写一个 :deep(.menu-item)，递归组件里再写一份。
+   同一套视觉三处维护，改一处颜色必漏两处，所以提到全局单源。
+   ============================================ */
+
+/* 分组标题：一行灰色小字，子项平铺在它下面（不是可点开的折叠面板）。
+   移动端曾用 v-list-group 手风琴，但全库 9 个分组 25 个叶子平铺后也就 30 多行，
+   换来的是「开抽屉 → 找分组 → 展开 → 点项」三次点击加一次动画等待。 */
+.menu-group-label {
+  padding: 12px 12px 4px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  color: rgba(var(--v-theme-on-surface), 0.5);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.menu-item {
+  margin: 1px 6px;
+
+  &.v-list-item--active {
+    color: rgb(var(--v-theme-primary));
+    background: rgba(var(--v-theme-primary), 0.1);
+  }
+}
+
+/* 移动端抽屉里的点击热区要更大：手指不是鼠标指针 */
+.mobile-menu .menu-item,
+.mobile-menu .menu-group-label {
+  min-height: 44px;
+}
+
+.mobile-menu .menu-group-label {
+  min-height: 0;
+}

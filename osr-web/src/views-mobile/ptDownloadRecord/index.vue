@@ -1,203 +1,206 @@
 <template>
-  <div class="mobile-page">
-    <!-- 搜索 -->
-    <MobileSearchPanel v-model:collapsed="searchCollapsed" :loading="loading" @search="handleQuery" @reset="resetQuery">
-      <v-form ref="queryRef">
-        <v-text-field
-          v-model="queryParams.title"
-          label="标题"
-          placeholder="请输入种子标题"
-          clearable
-          density="comfortable"
-          variant="outlined"
-          hide-details
-          @keyup.enter="handleQuery"
-        />
-        <v-select
-          v-model="queryParams.state"
-          :items="stateOptions"
-          label="状态"
-          placeholder="全部状态"
-          clearable
-          density="comfortable"
-          variant="outlined"
-          hide-details
-        />
-      </v-form>
-    </MobileSearchPanel>
-
-    <!-- 批量选择 -->
-    <div class="list-toolbar">
-      <v-btn variant="text" size="small" class="batch-toggle-btn" @click="toggleSelectionMode">
-        {{ selectionMode ? '退出批量操作' : '批量操作' }}
-      </v-btn>
-    </div>
-
-    <div class="batch-bar" v-if="selectionMode">
-      <span class="selected-count">已选 {{ selectedIds.length }} 项</span>
-      <!-- 重试只对失败记录成立，按钮上直接标出生效条数 -->
-      <v-btn
-        variant="text"
-        color="primary"
-        size="small"
-        class="batch-retry-btn"
-        :disabled="!retryableSelectedIds.length"
-        @click="handleBatchRetry"
-      >
-        批量重试{{ retryableSelectedIds.length ? `（${retryableSelectedIds.length}）` : '' }}
-      </v-btn>
-      <v-btn variant="text" color="warning" size="small" class="batch-blacklist-guid-btn" :disabled="!selectedIds.length" @click="handleBatchBlacklistGuid">批量拉黑种子</v-btn>
-      <v-btn variant="text" color="error" size="small" class="batch-blacklist-group-btn" :disabled="!selectedIds.length" @click="handleBatchBlacklistReleaseGroup">批量拉黑发布组</v-btn>
-      <v-btn variant="text" size="small" class="batch-select-all-btn" @click="toggleSelectAllPage(!isAllPageSelected)">
-        {{ isAllPageSelected ? '取消全选' : '全选' }}
-      </v-btn>
-      <v-btn variant="text" size="small" class="batch-cancel-btn" @click="toggleSelectionMode">取消</v-btn>
-    </div>
-
-    <!-- 列表 -->
-    <div class="task-list">
-      <v-progress-linear v-if="loading" indeterminate color="primary" class="list-loading" />
-      <v-card
-        v-for="item in taskList"
-        :key="item.id"
-        class="task-card"
-        :class="{ selected: selectionMode && selectedIds.includes(item.id) }"
-        @click="selectionMode && handleCardClick($event, item.id)"
-      >
-        <div class="card-checkbox" v-if="selectionMode">
-          <v-checkbox
-            :model-value="selectedIds.includes(item.id)"
-            density="compact"
+  <MobileListPage
+    :loading="loading"
+    :empty="!loading && taskList.length === 0"
+    empty-icon="mdi-inbox-outline"
+    empty-title="暂无下载记录"
+  >
+    <template #head>
+      <!-- 搜索 -->
+      <MobileSearchPanel v-model:collapsed="searchCollapsed" :loading="loading" @search="handleQuery" @reset="resetQuery">
+        <v-form ref="queryRef">
+          <v-text-field
+            v-model="queryParams.title"
+            label="标题"
+            placeholder="请输入种子标题"
+            clearable
+            density="comfortable"
+            variant="outlined"
             hide-details
-            @click.stop="toggleRecordSelect(item)"
+            @keyup.enter="handleQuery"
+          />
+          <v-select
+            v-model="queryParams.state"
+            :items="stateOptions"
+            label="状态"
+            placeholder="全部状态"
+            clearable
+            density="comfortable"
+            variant="outlined"
+            hide-details
+          />
+        </v-form>
+      </MobileSearchPanel>
+
+      <!-- 批量选择 -->
+      <div class="list-toolbar">
+        <v-btn variant="text" size="small" class="batch-toggle-btn" @click="toggleSelectionMode">
+          {{ selectionMode ? '退出批量操作' : '批量操作' }}
+        </v-btn>
+      </div>
+
+      <MobileBatchBar
+        :visible="selectionMode"
+        :count="selectedIds.length"
+        :all-selected="isAllPageSelected"
+        @toggle-all="toggleSelectAllPage"
+        @cancel="toggleSelectionMode"
+      >
+        <!-- 重试只对失败记录成立，按钮上直接标出生效条数 -->
+        <v-btn
+          variant="text"
+          color="primary"
+          size="small"
+          class="batch-retry-btn"
+          :disabled="!retryableSelectedIds.length"
+          @click="handleBatchRetry"
+        >
+          批量重试{{ retryableSelectedIds.length ? `（${retryableSelectedIds.length}）` : '' }}
+        </v-btn>
+        <v-btn variant="text" color="warning" size="small" class="batch-blacklist-guid-btn" :disabled="!selectedIds.length" @click="handleBatchBlacklistGuid">批量拉黑种子</v-btn>
+        <v-btn variant="text" color="error" size="small" class="batch-blacklist-group-btn" :disabled="!selectedIds.length" @click="handleBatchBlacklistReleaseGroup">批量拉黑发布组</v-btn>
+      </MobileBatchBar>
+
+      <!-- 列表 -->
+    </template>
+
+    <v-progress-linear v-if="loading" indeterminate color="primary" class="list-loading" />
+    <v-card
+      v-for="item in taskList"
+      :key="item.id"
+      class="task-card"
+      :class="{ selected: selectionMode && selectedIds.includes(item.id) }"
+      @click="selectionMode && handleCardClick($event, item.id)"
+    >
+      <div class="card-checkbox" v-if="selectionMode">
+        <v-checkbox-btn
+          :model-value="selectedIds.includes(item.id)"
+          density="compact"
+          @click.stop="toggleRecordSelect(item)"
+        />
+      </div>
+      <div class="card-content">
+        <div class="card-top">
+          <span class="card-title">{{ item.title }}</span>
+          <StatusChip :type="stateTagType(item.state)" :text="stateLabel(item.state)" />
+        </div>
+        <div class="card-sub">
+          <router-link
+            v-if="item.subId"
+            :to="{ path: '/openlist/ptSubscription', query: { id: item.subId } }"
+            class="card-sub-link"
+            @click.stop
+          >
+            {{ item.subTitle || '订阅已删除' }}
+          </router-link>
+          <span v-else>{{ item.subTitle || '订阅已删除' }}</span>
+          <span v-if="item.episodeLabel">· {{ item.episodeLabel }}</span>
+        </div>
+        <v-progress-linear
+          v-if="item.state === 'DOWNLOADING' || item.state === 'COMPLETED'"
+          :model-value="Math.round((item.progress || 0) * 100)"
+          :color="item.state === 'COMPLETED' ? 'success' : 'primary'"
+          height="6"
+          rounded
+        />
+        <div class="card-detail">
+          <div class="detail-row">
+            <span class="label">索引器</span>
+            <span class="value">{{ item.indexerName || '-' }}</span>
+          </div>
+          <div class="detail-row">
+            <span class="label">下载器</span>
+            <span class="value">{{ item.downloaderName || '-' }}</span>
+          </div>
+          <div class="detail-row">
+            <span class="label">体积/做种</span>
+            <span class="value">{{ formatSize(item.size) }} / {{ item.seeders ?? '-' }}</span>
+          </div>
+          <div class="detail-row">
+            <span class="label">推送时间</span>
+            <span class="value">{{ item.pushedTime || '-' }}</span>
+          </div>
+          <div class="detail-row" v-if="item.state === 'COMPLETED'">
+            <span class="label">完成时间</span>
+            <span class="value">{{ item.completedTime || '-' }}</span>
+          </div>
+        </div>
+        <div class="card-fail" v-if="item.state === 'FAILED'">
+          <v-icon icon="mdi-alert-circle" size="16" />
+          <StatusChip v-if="item.failReasonCode" :type="failReasonTagType(item.failReasonCode)" :text="failReasonCodeLabel(item.failReasonCode)" />
+          <span>{{ item.failReason || '未知原因' }}</span>
+        </div>
+        <div class="card-actions" @click.stop>
+          <v-btn
+            v-if="item.state === 'FAILED'"
+            variant="text"
+            color="primary"
+            size="small"
+            prepend-icon="mdi-refresh"
+            :loading="retryingIds.has(item.id)"
+            @click="handleRetry(item)"
+          >
+            重试
+          </v-btn>
+          <v-btn
+            class="action-more"
+            variant="text"
+            color="default"
+            size="small"
+            icon="mdi-dots-horizontal"
+            @click="openSheet(item)"
           />
         </div>
-        <div class="card-content">
-          <div class="card-top">
-            <span class="card-title">{{ item.title }}</span>
-            <StatusChip :type="stateTagType(item.state)" :text="stateLabel(item.state)" />
-          </div>
-          <div class="card-sub">
-            <router-link
-              v-if="item.subId"
-              :to="{ path: '/openlist/ptSubscription', query: { id: item.subId } }"
-              class="card-sub-link"
-              @click.stop
-            >
-              {{ item.subTitle || '订阅已删除' }}
-            </router-link>
-            <span v-else>{{ item.subTitle || '订阅已删除' }}</span>
-            <span v-if="item.episodeLabel">· {{ item.episodeLabel }}</span>
-          </div>
-          <v-progress-linear
-            v-if="item.state === 'DOWNLOADING' || item.state === 'COMPLETED'"
-            :model-value="Math.round((item.progress || 0) * 100)"
-            :color="item.state === 'COMPLETED' ? 'success' : 'primary'"
-            height="6"
-            rounded
-          />
-          <div class="card-detail">
-            <div class="detail-row">
-              <span class="label">索引器</span>
-              <span class="value">{{ item.indexerName || '-' }}</span>
-            </div>
-            <div class="detail-row">
-              <span class="label">下载器</span>
-              <span class="value">{{ item.downloaderName || '-' }}</span>
-            </div>
-            <div class="detail-row">
-              <span class="label">体积/做种</span>
-              <span class="value">{{ formatSize(item.size) }} / {{ item.seeders ?? '-' }}</span>
-            </div>
-            <div class="detail-row">
-              <span class="label">推送时间</span>
-              <span class="value">{{ item.pushedTime || '-' }}</span>
-            </div>
-            <div class="detail-row" v-if="item.state === 'COMPLETED'">
-              <span class="label">完成时间</span>
-              <span class="value">{{ item.completedTime || '-' }}</span>
-            </div>
-          </div>
-          <div class="card-fail" v-if="item.state === 'FAILED'">
-            <v-icon icon="mdi-alert-circle" size="16" />
-            <StatusChip v-if="item.failReasonCode" :type="failReasonTagType(item.failReasonCode)" :text="failReasonCodeLabel(item.failReasonCode)" />
-            <span>{{ item.failReason || '未知原因' }}</span>
-          </div>
-          <div class="card-actions" @click.stop>
-            <v-btn
-              v-if="item.state === 'FAILED'"
-              variant="text"
-              color="primary"
-              size="small"
-              prepend-icon="mdi-refresh"
-              :loading="retryingIds.has(item.id)"
-              @click="handleRetry(item)"
-            >
-              重试
-            </v-btn>
-            <v-btn
-              class="action-more"
-              variant="text"
-              color="default"
-              size="small"
-              icon="mdi-dots-horizontal"
-              @click="openActionDrawer(item)"
-            />
-          </div>
-        </div>
-      </v-card>
+      </div>
+    </v-card>
 
-      <v-empty-state v-if="!loading && taskList.length === 0" icon="mdi-inbox-outline" title="暂无下载记录" />
-    </div>
+    <template #foot>
+      <!-- 操作抽屉 -->
+      <MobileActionSheet v-model="sheetOpen" :target="sheetTarget">
+        <v-btn
+          color="warning"
+          block
+          prepend-icon="mdi-cancel"
+          :loading="blacklistingIds.has(sheetTarget.id)"
+          @click="run(() => handleBlacklistGuid(sheetTarget))"
+        >
+          拉黑该种子
+        </v-btn>
+        <v-btn
+          color="error"
+          block
+          prepend-icon="mdi-account-cancel-outline"
+          :loading="blacklistingIds.has(sheetTarget.id)"
+          @click="run(() => handleBlacklistReleaseGroup(sheetTarget))"
+        >
+          拉黑该发布组
+        </v-btn>
+      </MobileActionSheet>
 
-    <!-- 操作抽屉 -->
-    <v-bottom-sheet v-model="actionDrawerOpen">
-      <v-card v-if="actionDrawerTarget" title="更多操作">
-        <v-card-text>
-          <div class="drawer-actions">
-            <v-btn
-              color="warning"
-              block
-              prepend-icon="mdi-cancel"
-              :loading="blacklistingIds.has(actionDrawerTarget.id)"
-              @click="handleBlacklistGuid(actionDrawerTarget); actionDrawerOpen = false"
-            >
-              拉黑该种子
-            </v-btn>
-            <v-btn
-              color="error"
-              block
-              prepend-icon="mdi-account-cancel-outline"
-              :loading="blacklistingIds.has(actionDrawerTarget.id)"
-              @click="handleBlacklistReleaseGroup(actionDrawerTarget); actionDrawerOpen = false"
-            >
-              拉黑该发布组
-            </v-btn>
-          </div>
-        </v-card-text>
-      </v-card>
-    </v-bottom-sheet>
-
-    <!-- 分页 -->
-    <MobilePager
-      v-model:page-size="queryParams.pageSize"
-      :page-sizes="[12, 24, 48]"
-      :page-num="queryParams.pageNum"
-      :total="total"
-      :total-pages="totalPages"
-      @prev="prevPage"
-      @next="nextPage"
-      @size-change="handleSizeChange"
-    />
-  </div>
+      <!-- 分页 -->
+      <MobilePager
+        v-model:page-size="queryParams.pageSize"
+        :page-sizes="[12, 24, 48]"
+        :page-num="queryParams.pageNum"
+        :total="total"
+        :total-pages="totalPages"
+        @prev="prevPage"
+        @next="nextPage"
+        @size-change="handleSizeChange"
+      />
+    </template>
+  </MobileListPage>
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import MobileListPage from '@/components/mobile/MobileListPage.vue'
+import MobileActionSheet from '@/components/mobile/MobileActionSheet.vue'
+import MobileBatchBar from '@/components/mobile/MobileBatchBar.vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import StatusChip from '@/components/StatusChip.vue'
 import { usePtDownloadRecord } from '@/composables/usePtDownloadRecord'
+import { useActionSheet } from '@/composables/useActionSheet'
 
 const {
   taskList, loading, total, queryParams, queryRef,
@@ -213,12 +216,8 @@ const {
 } = usePtDownloadRecord()
 
 /** 更多操作抽屉：拉黑动作不常用，收进抽屉避免卡片按钮过密 */
-const actionDrawerOpen = ref(false)
-const actionDrawerTarget = ref<any>(null)
-const openActionDrawer = (row: any) => {
-  actionDrawerTarget.value = row
-  actionDrawerOpen.value = true
-}
+/** 卡片「更多」动作面板：开关状态与「执行完自动关闭」都在 useActionSheet 里 */
+const { sheetOpen, sheetTarget, openSheet, run } = useActionSheet()
 
 const stateOptions = [
   { title: '已推送', value: 'PUSHED' },

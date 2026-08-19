@@ -4,9 +4,17 @@
       <img src="/icons/android-chrome-192x192.png" alt="Logo" class="drawer-logo" />
       <span class="drawer-title">OSR</span>
     </div>
-    <v-list nav density="compact" :opened="openedGroups" style="--v-list-prepend-gap: 12px" @click:select="menuOpen = false">
+    <v-list nav density="compact" class="mobile-menu" style="--v-list-prepend-gap: 12px" @click:select="menuOpen = false">
       <v-list-item to="/dashboard" prepend-icon="mdi-view-dashboard-outline" title="首页" rounded="lg" class="menu-item" @click="menuOpen = false" />
-      <MobileSidebarMenuItem v-for="menu in sidebarMenus" :key="menu.path" :menu="menu" />
+      <SidebarMenuItem v-for="menu in sidebarMenus" :key="menu.path" :menu="menu" />
+      <v-divider class="my-2" />
+      <v-list-item
+        prepend-icon="mdi-tune-variant"
+        title="自定义底栏"
+        rounded="lg"
+        class="menu-item"
+        @click="openTabSettings"
+      />
     </v-list>
   </v-navigation-drawer>
 
@@ -14,8 +22,20 @@
     <v-app-bar-nav-icon @click="menuOpen = !menuOpen" />
     <v-app-bar-title>{{ pageTitle }}</v-app-bar-title>
     <ThemeSwitch />
-    <v-avatar size="28" color="primary" class="mr-3" @click="showPasswordDialog = true">管</v-avatar>
-    <v-icon icon="mdi-logout" class="mr-2" @click="handleLogout" />
+    <!-- 退出登录收进头像菜单，与 DesktopLayout 一致。
+         原先它是紧挨 28px 头像的一个裸 mdi-logout 图标 —— 破坏性动作平铺在顶栏、
+         两个热区间距只有 8px，手机上极易误触；项目自己的约定（表格操作列那条）
+         就是「破坏性动作优先进菜单，收起来反而更安全」。 -->
+    <v-menu location="bottom end">
+      <template #activator="{ props: menuProps }">
+        <v-avatar v-bind="menuProps" size="28" color="primary" class="mr-3 user-avatar">管</v-avatar>
+      </template>
+      <v-list density="compact">
+        <v-list-item prepend-icon="mdi-cog-outline" title="修改密码" @click="showPasswordDialog = true" />
+        <v-divider />
+        <v-list-item prepend-icon="mdi-logout" title="退出登录" @click="handleLogout" />
+      </v-list>
+    </v-menu>
   </v-app-bar>
 
   <v-main>
@@ -30,6 +50,8 @@
       </router-view>
     </div>
 
+    <!-- height 必须与 tokens.scss 的 --osr-mobile-tabbar-height 一致：
+         内容区的 padding-bottom 与 .fab-add 的 bottom 都按那个令牌算 -->
     <v-bottom-navigation :model-value="activeTab" grow height="56" class="mobile-tabbar">
       <v-btn
         v-for="tab in mainTabs"
@@ -39,21 +61,30 @@
         @click="router.push(tab.path)"
       >
         <v-icon :icon="tab.icon" />
-        <span>{{ tab.label }}</span>
+        <span>{{ tab.title }}</span>
+      </v-btn>
+      <!-- 「更多」= 打开侧边抽屉。抽屉原先只有左上角汉堡键一个入口，那是单手持机时
+           最难够到的位置，而 tab 上这四个页面之外（PT 的 4 组 12 页全在此列）都得走它。 -->
+      <v-btn :value="MORE_TAB" class="tabbar-item" @click="menuOpen = true">
+        <v-icon icon="mdi-dots-horizontal" />
+        <span>更多</span>
       </v-btn>
     </v-bottom-navigation>
   </v-main>
 
   <ChangePasswordDialog v-model:visible="showPasswordDialog" />
+  <MobileTabSettingsDialog v-model="showTabSettings" />
 </template>
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { confirm } from '@/composables/useConfirm'
-import { useUserStore, type MenuRoute } from '@/stores/user'
+import { useUserStore } from '@/stores/user'
 import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
-import MobileSidebarMenuItem from '@/components/MobileSidebarMenuItem.vue'
+import SidebarMenuItem from '@/components/SidebarMenuItem.vue'
+import MobileTabSettingsDialog from '@/components/mobile/MobileTabSettingsDialog.vue'
+import { useMobileTabs } from '@/composables/useMobileTabs'
 import ThemeSwitch from '@/components/ThemeSwitch.vue'
 
 const route = useRoute()
@@ -62,80 +93,33 @@ const userStore = useUserStore()
 const menuOpen = ref(false)
 const showPasswordDialog = ref(false)
 
-const sidebarMenus = computed(() => userStore.routes)
+const sidebarMenus = computed(() => userStore.routes.filter((r: any) => r.hidden !== true))
 
-// 展开当前路由所在的分类，避免用户切页后要重新点开折叠面板才能看到自己在哪
-function containsPath(menu: MenuRoute, targetPath: string): boolean {
-  if (menu.path === targetPath) return true
-  return !!menu.children?.some((child) => containsPath(child, targetPath))
-}
-
-function collectAncestorGroupIds(menus: MenuRoute[], targetPath: string): string[] {
-  const ids: string[] = []
-  for (const menu of menus) {
-    if (!menu.children?.length) continue
-    if (containsPath(menu, targetPath)) {
-      ids.push(menu.name || menu.path)
-      ids.push(...collectAncestorGroupIds(menu.children, targetPath))
-    }
-  }
-  return ids
-}
-
-const openedGroups = computed(() => collectAncestorGroupIds(sidebarMenus.value, route.path))
+// 抽屉里的菜单已改成「分组标题 + 子项平铺」（与 PC 同一个 SidebarMenuItem），
+// 因此不再需要维护折叠面板的展开态。原先那份 openedGroups 是 computed 绑到
+// v-list 的 :opened 上 —— 那是受控属性，用户手动展开的其它分组会在下一次路由
+// 变化时被重算强制收起，本身也是个 bug。
 
 const pageTitle = computed(() => (route.meta?.title as string) || 'OSR')
 
-// 底部主 tab（最常用的四个页面）。
-// 路径不能写死：后端菜单 path 历史上有 /openlist/xxx 与 /openliststrm/xxx 两种前缀
-// （见 router/index.ts 的 normalizeComponentPath），写死会让 tab 跳到 404。
-// 改为按注册路由上的 meta.componentKey 反查真实 path。
-interface TabDef {
-  /** componentMap 的 key；为空表示用固定 path（首页是常量路由） */
-  component?: string
-  path?: string
-  label: string
-  icon: string
+// 底部主 tab 由 useMobileTabs 提供：默认那四个仍然写在 composable 里，
+// 用户可以在「更多 → 自定义底栏」换成自己常用的（存 localStorage）。
+const { tabs: mainTabs } = useMobileTabs()
+
+/** 「更多」按钮的 model 值。它不是路由，只是打开抽屉，取一个不会与 path 撞车的常量 */
+const MORE_TAB = '__more__'
+
+const showTabSettings = ref(false)
+const openTabSettings = () => {
+  menuOpen.value = false
+  showTabSettings.value = true
 }
 
-const TAB_DEFS: TabDef[] = [
-  { path: '/dashboard', label: '首页', icon: 'mdi-view-dashboard-outline' },
-  { component: 'openlist/copyRecord/index', label: '同步记录', icon: 'mdi-file-multiple-outline' },
-  { component: 'openlist/strmRecord/index', label: 'STRM记录', icon: 'mdi-movie-open-outline' },
-  { component: 'openlist/renameDetail/index', label: '重命名记录', icon: 'mdi-pencil-outline' }
-]
-
-// 菜单未授权 / 未注册的 tab 直接隐藏，而不是留一个点了报 404 的死链。
-//
-// 两个坑：
-// 1. router.getRoutes() 不是响应式的，动态路由是登录后才注册的。这里同时依赖
-//    route.path 与 sidebarMenus —— 路由注册完守卫会再导航一次（next({...to, replace:true})），
-//    route.path 变化能保证 computed 至少重算一次，不会停在「只剩首页」的空结果上。
-// 2. 用组件对象引用比对会在 HMR 下失效，所以走 meta.componentKey。
-const mainTabs = computed(() => {
-  void route.path
-  void sidebarMenus.value.length
-
-  const registered = new Map<string, string>()
-  for (const r of router.getRoutes()) {
-    const key = r.meta?.componentKey as string | undefined
-    if (key && !registered.has(key)) registered.set(key, r.path)
-  }
-
-  const tabs: { label: string; icon: string; path: string }[] = []
-  for (const tab of TAB_DEFS) {
-    const path = tab.component ? registered.get(tab.component) : tab.path
-    if (path) tabs.push({ label: tab.label, icon: tab.icon, path })
-  }
-  return tabs
-})
-
 const activeTab = computed(() => {
-  const match = mainTabs.value.find((tab) => {
-    if (tab.path === '/dashboard') return route.path === '/dashboard'
-    return route.path.startsWith(tab.path)
-  })
-  return match?.path
+  const match = mainTabs.value.find(
+    (tab) => route.path === tab.path || route.path.startsWith(`${tab.path}/`)
+  )
+  return match?.path ?? MORE_TAB
 })
 
 const handleLogout = async () => {
@@ -168,22 +152,12 @@ const handleLogout = async () => {
   }
 }
 
-:deep(.menu-item) {
-  margin: 1px 6px;
-  min-height: 44px;
-
-  &.v-list-item--active {
-    color: rgb(var(--v-theme-primary));
-    background: rgba(var(--v-theme-primary), 0.1);
-  }
-}
-
 .mobile-content {
   /* 左右内距取 tokens.scss 的 --osr-mobile-gutter：各页做「常驻顶部」时要用负边距
      把底色铺满整宽，两处必须是同一个值。顶栏高度同理，见该文件的 --osr-mobile-appbar-height
      （改上面 <v-app-bar height="50"> 时那个令牌要一起改） */
   padding: var(--osr-mobile-gutter);
-  padding-bottom: calc(56px + env(safe-area-inset-bottom, 8px) + 8px);
+  padding-bottom: calc(var(--osr-mobile-tabbar-height) + env(safe-area-inset-bottom, 8px) + 8px);
   -webkit-overflow-scrolling: touch;
 }
 
@@ -193,5 +167,26 @@ const handleLogout = async () => {
   left: 0;
   right: 0;
   padding-bottom: env(safe-area-inset-bottom, 0);
+}
+
+/* Vuetify 给底栏按钮的 min-width 是 80px，五个按钮 400px 放不进 375 的屏幕：
+   v-bottom-navigation 是 overflow:hidden，于是首尾两个各被裁掉一截（实测 -12 / +13），
+   页面上不报错、也不出横向滚动条，只是「首页」和「更多」的边缘缺了一块。
+   选择器要写到 .v-btn.tabbar-item：只写 .tabbar-item 的话与 Vuetify 的
+   `.v-bottom-navigation .v-btn` 同特异性，谁后加载谁赢——实测输了。 */
+:deep(.v-btn.tabbar-item) {
+  min-width: 0;
+
+  span {
+    font-size: 11px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
+}
+
+.user-avatar {
+  cursor: pointer;
 }
 </style>

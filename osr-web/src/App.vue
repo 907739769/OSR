@@ -20,7 +20,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { useAppStore } from '@/stores/app'
+import { useAppStore, MOBILE_MEDIA_QUERY } from '@/stores/app'
 import { useThemeMode } from '@/composables/useThemeMode'
 import DesktopLayout from '@/layouts/DesktopLayout.vue'
 import MobileLayout from '@/layouts/MobileLayout.vue'
@@ -39,8 +39,15 @@ const isHiddenRoute = computed(() => {
 
 const isMobileDevice = computed(() => appStore.device === 'mobile')
 
-const checkDevice = () => {
-  const mobile = window.innerWidth < 768
+// 判定条件交给 matchMedia（见 MOBILE_MEDIA_QUERY：除了窄屏还要认手机横屏）。
+// change 是主触发；resize 作为兜底一起听——iOS 14 之前的 Safari 只有 addListener，
+// 没有 addEventListener('change')，那些设备上只挂 change 等于旋转屏幕不换布局，
+// 而这是个主要给手机用的 PWA。兜底不贵：applyDevice 只读一个布尔量再写回 store，
+// 值没变 Vue 不会重渲染，resize 连打几十次也就是几十次赋值。
+const mediaQuery = window.matchMedia(MOBILE_MEDIA_QUERY)
+
+const applyDevice = () => {
+  const mobile = mediaQuery.matches
   appStore.toggleDevice(mobile ? 'mobile' : 'desktop')
   if (mobile) {
     appStore.closeSidebar()
@@ -48,11 +55,13 @@ const checkDevice = () => {
 }
 
 onMounted(() => {
-  checkDevice()
-  window.addEventListener('resize', checkDevice)
+  applyDevice()
+  mediaQuery.addEventListener('change', applyDevice)
+  window.addEventListener('resize', applyDevice)
 })
 
 onUnmounted(() => {
-  window.removeEventListener('resize', checkDevice)
+  mediaQuery.removeEventListener('change', applyDevice)
+  window.removeEventListener('resize', applyDevice)
 })
 </script>

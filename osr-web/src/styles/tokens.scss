@@ -73,6 +73,14 @@
       各页用负边距把底色铺满整宽时要对上 */
   --osr-mobile-gutter: 12px;
 
+  /**
+   * 移动端底部 tab 栏高度。**必须与 layouts/MobileLayout.vue 的 <v-bottom-navigation height> 一致。**
+   * tab 栏是 fixed 的，内容区要按它的高度留出底部内距，悬浮按钮（.fab-add）也要按它上移，
+   * 否则会被压在栏下面点不到。以前这个 56 在三处各写了一遍（MobileLayout 的 padding-bottom
+   * 与 mobile-list.scss 的 .fab-add 两处），改栏高必然漏一处。
+   */
+  --osr-mobile-tabbar-height: 56px;
+
   /* ---- 动效 ---- */
   --osr-transition-fast: 150ms ease;
   --osr-transition-base: 200ms ease;

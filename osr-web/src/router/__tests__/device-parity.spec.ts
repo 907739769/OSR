@@ -45,7 +45,10 @@ const SHELL_ONLY = new Set([
   // 全选本页：PC 走 v-data-table 表头自带的全选框，不经过 composable；只有卡片网格型
   // 页面（ptIndexer/ptDownloader/ptMediaServer/ptSubscription/ptDownloadRecord）两端都用它
   'toggleSelectAllPage',
-  'handleSizeChange' // 移动端 MobilePager 换页大小（PC 由表格内置分页处理）
+  'handleSizeChange', // 移动端 MobilePager 换页大小（PC 由表格内置分页处理）
+  // 移动端卡片「更多」底部面板（useActionSheet）。PC 是操作列里的「更多 ▾」下拉菜单，
+  // 装的是同一批动作 —— 差的只是这层容器怎么弹出来，不是功能。
+  'openSheet'
 ])
 
 /**
