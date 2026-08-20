@@ -20,8 +20,8 @@ public class MovieNfoBuilder implements NfoTypeStrategy {
     }
 
     private void buildBody(StringBuilder sb, MediaInfo info, JsonNode details, JsonNode externalIds) {
-        // 标题优先取 TMDb 接口返回值
-        String movieTitle = details != null && details.hasNonNull("title") ? details.get("title").asText() : info.getTitle();
+        // 标题优先取识别结果（已含中文别名回退），TMDb 详情只作兜底，见 preferredTitle 的说明
+        String movieTitle = preferredTitle(info, details, "title");
         String movieOriginalTitle = details != null && details.hasNonNull("original_title") ? details.get("original_title").asText() : info.getOriginalTitle();
         appendTag(sb, "title", movieTitle);
         appendTag(sb, "originaltitle", movieOriginalTitle);

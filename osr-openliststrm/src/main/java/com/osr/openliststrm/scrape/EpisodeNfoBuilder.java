@@ -20,8 +20,8 @@ public class EpisodeNfoBuilder implements NfoTypeStrategy {
     private void buildBody(StringBuilder sb, MediaInfo info) {
         JsonNode details = getDetails(info);
 
-        // 剧集标题优先取 TMDb 接口返回值
-        String showTitle = details != null && details.hasNonNull("name") ? details.get("name").asText() : info.getTitle();
+        // 剧名与 tvshow.nfo 必须同源，否则 Emby 归组时对不上，见 preferredTitle 的说明
+        String showTitle = preferredTitle(info, details, "name");
 
         // 集标题
         String epTitle;

@@ -6,6 +6,7 @@ import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.config.OpenlistConfig;
 import com.osr.openliststrm.pt.subscription.dto.TmdbSearchItem;
 import com.osr.openliststrm.tmdb.TMDbApiService;
+import com.osr.openliststrm.tmdb.TmdbTitleRegions;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -37,7 +38,7 @@ public class TmdbSearchService {
     public static final String TYPE_MOVIE = "MOVIE";
 
     /** 中文别名的地区优先级（TMDb alternative_titles 的 iso_3166_1）：大陆 → 台湾 → 香港 → 新加坡 */
-    private static final List<String> CHINESE_REGIONS = List.of("CN", "TW", "HK", "SG");
+    private static final List<String> CHINESE_REGIONS = TmdbTitleRegions.CHINESE;
 
     @Autowired
     private TMDbApiService tmDbApiService;

@@ -856,7 +856,12 @@ public class TMDbClient {
     }
 
     /**
-     * 取中文别名。这是<b>锦上添花</b>的一次辅助请求，失败绝不能拖垮整次刮削——
+     * 取中文别名，按 {@link TmdbTitleRegions#CHINESE} 的地区优先级挑（大陆 → 台湾 → 香港 → 新加坡）。
+     * 只认 CN 是不够的：日番、港片的中文名常常只登记在 TW/HK 下，漏掉它们就会退回英文标题。
+     * 逐条校验「确实含中文」是必需的——别名是众包数据，CN 条目里登记罗马音、拼音、英文副标题的
+     * 不在少数，只按地区取会把一串英文换成另一串英文。
+     * <p>
+     * 这是<b>锦上添花</b>的一次辅助请求，失败绝不能拖垮整次刮削——
      * {@code TMDbApiService#executeAndReturnString} 在 HTTP 失败（404 / 429 重试耗尽 / 5xx）时
      * 返回 null，而 {@code mapper.readTree(null)} 会抛 {@code IllegalArgumentException}。
      * 该异常原先会一路冒泡出 {@code doSearchOnce}、{@code search}，最终被 {@link #enrich} 的
@@ -876,16 +881,24 @@ public class TMDbClient {
         log.debug("fetchChineseAlias: {}", root);
 
         JsonNode titles = type.equals("movie") ? root.get("titles") : root.get("results");
-        if (titles != null) {
-            for (JsonNode t : titles) {
-                if (t.has("iso_3166_1") && "CN".equals(t.get("iso_3166_1").asText())) {
-                    String title = t.has("title") ? t.get("title").asText() :
-                            t.has("name") ? t.get("name").asText() : null;
-                    if (isChinese(title)) return title;
-                }
+        if (titles == null) return null;
+
+        String best = null;
+        int bestRank = Integer.MAX_VALUE;
+        for (JsonNode t : titles) {
+            String title = t.hasNonNull("title") ? t.get("title").asText()
+                    : t.hasNonNull("name") ? t.get("name").asText() : null;
+            if (!isChinese(title)) continue;
+            int rank = TmdbTitleRegions.CHINESE.indexOf(t.path("iso_3166_1").asText());
+            if (rank < 0 || rank >= bestRank) continue;
+            best = title;
+            bestRank = rank;
+            if (rank == 0) {
+                // CN 已是最高优先级，后面的条目不可能更好
+                break;
             }
         }
-        return null;
+        return best;
     }
 
     private String fallbackTitle(JsonNode result, String type) {

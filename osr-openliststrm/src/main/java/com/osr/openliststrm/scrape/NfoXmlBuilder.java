@@ -220,6 +220,31 @@ public final class NfoXmlBuilder {
 
     // ==================== 数据提取 ====================
 
+    /**
+     * 作品标题：<b>优先取 {@code info.title}</b>，TMDb 详情里的字段只作兜底。
+     * <p>
+     * 顺序不能反过来。{@code details} 是按 {@code openlist.tmdb.metadata.language}（默认 zh-CN）
+     * 请求的，但 TMDb 缺中文翻译时 name/title 会<b>直接退回英文</b>（Apple TV+ / Netflix 的新剧、
+     * 冷门纪录片、动画常见）；而 {@code info.title} 是 {@code TMDbClient#getBestTitle} 的结果——
+     * 官方中文名 → alternative_titles 的中文别名 → 英文，恰好把这种情况兜住了。
+     * 反过来取的话，重命名出来的目录是「足球教练 (2020)」，nfo 里写的却是「Ted Lasso」，
+     * 而媒体库显示的是 nfo 里那一个：用户看到的就是中文目录配英文剧名，比两边都英文更让人困惑。
+     * </p>
+     * <p>
+     * 注意只有<b>作品标题</b>该这么取。{@code originaltitle} 走 original_name/original_title，
+     * 那本来就该是原语言标题，不参与中文化。
+     * </p>
+     *
+     * @param detailsField 详情响应里的标题字段名：剧集为 {@code name}，电影为 {@code title}
+     */
+    public static String preferredTitle(com.osr.openliststrm.rename.model.MediaInfo info,
+                                        JsonNode details, String detailsField) {
+        if (info != null && StringUtils.isNotBlank(info.getTitle())) {
+            return info.getTitle();
+        }
+        return details != null && details.hasNonNull(detailsField) ? details.get(detailsField).asText() : null;
+    }
+
     public static JsonNode getDetails(com.osr.openliststrm.rename.model.MediaInfo info) {
         if (info.getMetadata() == null) return null;
         Object details = info.getMetadata().get("details");

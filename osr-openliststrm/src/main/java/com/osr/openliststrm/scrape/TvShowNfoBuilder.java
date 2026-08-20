@@ -20,8 +20,8 @@ public class TvShowNfoBuilder implements NfoTypeStrategy {
     }
 
     private void buildBody(StringBuilder sb, MediaInfo info, JsonNode details, JsonNode externalIds) {
-        // 标题优先取 TMDb 接口返回值
-        String tvTitle = details != null && details.hasNonNull("name") ? details.get("name").asText() : info.getTitle();
+        // 标题优先取识别结果（已含中文别名回退），TMDb 详情只作兜底，见 preferredTitle 的说明
+        String tvTitle = preferredTitle(info, details, "name");
         String tvOriginalTitle = details != null && details.hasNonNull("original_name") ? details.get("original_name").asText() : tvTitle;
         appendTag(sb, "title", tvTitle);
         appendTag(sb, "originaltitle", tvOriginalTitle);
