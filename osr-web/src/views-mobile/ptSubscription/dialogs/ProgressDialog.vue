@@ -23,7 +23,12 @@
           <p>已入库 <strong>{{ progress.inLibraryCount }}</strong> / {{ progress.totalEpisodes }} 集</p>
           <p v-if="progress.inFlightCount">在途 {{ progress.inFlightCount }} 集（已推送下载器，尚未入库）</p>
           <div v-if="progress.missingEpisodes && progress.missingEpisodes.length" class="missing-list">
-            <span class="missing-lead">仍缺 {{ progress.missingEpisodes.length }} 集：</span>
+            <span class="missing-lead">
+              仍缺 {{ progress.missingEpisodes.length }} 集<span
+                v-if="unairedMissingEpisodes.length"
+                class="missing-unaired"
+              >（{{ unairedMissingEpisodes.length }} 集未播出）</span>：
+            </span>
             <!-- 集号本身就是搜索入口。原先每个集号后面挂一个「搜」按钮，
                  一季上百集时等于在弹窗里铺上百个按钮组件 -->
             <button
@@ -85,13 +90,15 @@
           <v-btn v-if="currentSubscription" color="primary" size="small" @click="openSeasonSearch(currentSubscription)">
             搜索补齐
           </v-btn>
+          <!-- 计数用「可补齐」而不是「仍缺」：未播出的集不会进跑批，按钮上写 12 却只跑 3 集
+               会让用户以为漏跑了 -->
           <v-btn
-            v-if="currentSubscription && progress && progress.missingEpisodes && progress.missingEpisodes.length > 1"
+            v-if="currentSubscription && fillableMissingEpisodes.length > 1"
             color="success"
             size="small"
             @click="handleSearchAllMissing"
           >
-            一键补齐（{{ progress.missingEpisodes.length }}集）
+            一键补齐（{{ fillableMissingEpisodes.length }}集）
           </v-btn>
         </template>
         <v-spacer />
@@ -115,6 +122,7 @@ const {
   episodeStateLabel,
   episodeUnaired,
   expandMissing,
+  fillableMissingEpisodes,
   handleResetEpisode,
   handleSearchAllMissing,
   loadEpisodeDetail,
@@ -131,6 +139,7 @@ const {
   searchAllMissingLoading,
   searchAllMissingTotal,
   seasonLabel,
+  unairedMissingEpisodes,
   upgradeStateHint,
   visibleMissingEpisodes
 } = usePtSubscriptionContext()
@@ -230,6 +239,9 @@ const {
 .missing-lead {
   font-size: 12px;
   color: var(--osr-text-secondary);
+}
+.missing-unaired {
+  color: var(--osr-text-disabled);
 }
 .missing-item {
   min-width: 30px;

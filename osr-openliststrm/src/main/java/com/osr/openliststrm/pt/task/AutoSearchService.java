@@ -19,9 +19,15 @@ import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 自动补搜业务逻辑：对开启了 auto_search 且到期的订阅，发起一次搜索，
- * 季包优先、未命中则从同一候选池本地逐集匹配补散集（见 {@link SearchSupplementService#searchAndPushMissing}），
- * 每个到期订阅每轮仍只发一次搜索请求，不会因为支持散集而增加对索引器的请求量。
+ * 自动补搜业务逻辑：对开启了 auto_search 且到期的订阅，发起一次搜索，先试季包、
+ * 再从同一候选池本地逐集匹配补散集（见 {@link SearchSupplementService#searchAndPushMissing}）。
+ * <p>
+ * 主体是「每个到期订阅每轮一次季搜索」，散集靠本地匹配，不额外打请求；只有季搜索
+ * <b>一条都没带回来</b>的集才会补发单集检索，且有集数上限与墙钟预算兜住
+ * （{@code pt.search.per-episode-fallback-limit} / {@code -budget-ms}）。这一步是必需的：
+ * 季粒度的关键词在多数索引器上匹配不到标题写作 {@code S23E05} 的单集资源，长篇动画尤其常见。
+ * 补发的耗时同样受下面那条单轮总预算约束，超预算的订阅原样留到下一轮。
+ * </p>
  *
  * @author Jack
  */

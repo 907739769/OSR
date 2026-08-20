@@ -170,9 +170,14 @@ public class PtHealthRestController extends BaseController {
      * </p>
      * <p>
      * 同步返回而不是异步触发：用户按下按钮就是想知道结果，异步只能回一句"已提交"，
-     * 而"搜了但一个都没推动"与"搜出来了"对他接下来的动作完全不同。耗时由
-     * {@code pt.search.indexer-budget-ms} 兜住（默认每个索引器 30 秒软上限，索引器之间并发），
-     * 与订阅页的逐集搜索是同一个量级。
+     * 而"搜了但一个都没推动"与"搜出来了"对他接下来的动作完全不同。
+     * </p>
+     * <p>
+     * <b>耗时可能到几分钟</b>：季搜索由 {@code pt.search.indexer-budget-ms} 兜住（默认每个
+     * 索引器 30 秒软上限、索引器之间并发），其后还有一段单集补发——季搜索一条都没带回来的集
+     * 会各发一次完整的单集检索，由 {@code pt.search.per-episode-fallback-limit}（默认 5 集）与
+     * {@code -budget-ms}（默认 180 秒）兜住。前端 {@code searchMissingApi} 的超时按这个上限配，
+     * 改这两个配置时要一并看那里。
      * </p>
      */
     @PostMapping("/{subId}/search-missing")

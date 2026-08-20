@@ -34,7 +34,6 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
-import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -94,6 +93,35 @@ public class SearchSupplementService {
      */
     private final long indexerBudgetMillis;
 
+    /**
+     * 季搜索的候选池里一集都没匹配上时，最多为几集<b>补发单集检索</b>；{@code <= 0} 表示关闭。
+     * <p>
+     * 这一步存在的理由：{@code seasonPlan()} 的四步全是季粒度（{@code season=23&ep=null}、
+     * 关键词 {@code 片名 S23}），逐集分支只是拿这份季搜索的候选池在本地按集号过滤一遍。
+     * 而 Jackett/Prowlarr 对多数站点是把 {@code q} 按空格切词做 AND 匹配，{@code S23}
+     * 这个词匹配不上标题里的 {@code S23E05}——单集在索引器那一层就没返回，本地匹配再准也无米下锅。
+     * 表现为「后台补搜永远只下季包，单集要用户自己去逐集手动搜」，长篇动画尤其常见。
+     * </p>
+     * <p>
+     * <b>有上限是因为这一步把请求量从 O(N+M) 打回了 O(N×M)</b>——每集一份完整计划（ID 步带 ep、
+     * 关键词 {@code 片名 S23E05}、绝对号变体、英文名兜底）。这正是当初把逐集搜索改成"共用一个
+     * 候选池"要省掉的东西，所以它只作为<b>兜底</b>：本地匹配得上的集一个请求都不会多发。
+     * </p>
+     */
+    private final int perEpisodeFallbackLimit;
+
+    /**
+     * 补发阶段的墙钟预算（毫秒），{@code <= 0} 表示不限制。与 {@link #indexerBudgetMillis} 同样是
+     * <b>软上限</b>：只在每一集开始前检查，不打断已发出的请求。
+     * <p>
+     * 单独给一个预算而不是只靠集数上限：一集的实际耗时摆动很大（第一级 ID 搜索命中就早停，
+     * 几秒；三级全打满且全落空，四十秒往上），而补发恰恰发生在"季搜索里没这集"的订阅上，
+     * 走满三级是常态。只按集数算，最坏耗时会翻好几倍地超出预期，进而吃掉
+     * {@code pt.search.auto-search-round-budget-ms} 那一轮的额度，让排在后面的订阅整轮饿着。
+     * </p>
+     */
+    private final long perEpisodeFallbackBudgetMillis;
+
     public SearchSupplementService(IPtIndexerPlusService indexerService,
                                    TorznabClient torznabClient,
                                    SubscriptionEngine subscriptionEngine,
@@ -106,7 +134,10 @@ public class SearchSupplementService {
                                    TmdbSearchService tmdbSearchService,
                                    IPtTorrentBlacklistPlusService blacklistService,
                                    SearchLogService searchLogService,
-                                   @Value("${pt.search.indexer-budget-ms:30000}") long indexerBudgetMillis) {
+                                   @Value("${pt.search.indexer-budget-ms:30000}") long indexerBudgetMillis,
+                                   @Value("${pt.search.per-episode-fallback-limit:5}") int perEpisodeFallbackLimit,
+                                   @Value("${pt.search.per-episode-fallback-budget-ms:180000}")
+                                   long perEpisodeFallbackBudgetMillis) {
         this.indexerService = indexerService;
         this.torznabClient = torznabClient;
         this.subscriptionEngine = subscriptionEngine;
@@ -120,6 +151,8 @@ public class SearchSupplementService {
         this.blacklistService = blacklistService;
         this.searchLogService = searchLogService;
         this.indexerBudgetMillis = indexerBudgetMillis;
+        this.perEpisodeFallbackLimit = perEpisodeFallbackLimit;
+        this.perEpisodeFallbackBudgetMillis = perEpisodeFallbackBudgetMillis;
     }
 
     /**
@@ -216,8 +249,7 @@ public class SearchSupplementService {
                 survivors.sort(sortComparator);
             }
 
-            sub.setLastSearchTime(new Date());
-            subscriptionService.updateById(sub);
+            subscriptionService.updateLastSearchTime(sub.getId(), new Date());
 
             log.info("订阅[{}] {} 关键词[{}]手动搜索补集：原始{}个，季集匹配后{}个，规则过滤后{}个"
                     + "（开启 DEBUG 日志可看到每个候选具体被哪一步、哪条规则淘汰）",
@@ -284,8 +316,9 @@ public class SearchSupplementService {
             pushed = subscriptionEngine.pushBest(sub, episode, List.of());
         }
 
-        sub.setLastSearchTime(new Date());
-        subscriptionService.updateById(sub);
+        // 定向更新这一列，不要 updateById(sub)：推送链路可能在另一份订阅实例上写过
+        // last_match_time，整实体写回会把它覆盖回旧值（见 IPtSubscriptionPlusService#updateLastSearchTime）
+        subscriptionService.updateLastSearchTime(sub.getId(), new Date());
 
         log.info("订阅[{}] {} 关键词[{}]搜索补集：候选{}个，{}",
                 sub.getId(), sub.getTitle(), keyword, totalCandidates, pushed ? "已推送" : "未推送");
@@ -456,13 +489,20 @@ public class SearchSupplementService {
 
     /**
      * 单次搜索、按季包/散集粒度本地匹配后推送：电影只搜一次；剧集做一次全季节搜索获取候选，
-     * 先试整季包，季包未命中再对仍缺失的集从同一候选池中逐集匹配推送。
+     * 先试整季包，再对仍缺失的集从同一候选池中逐集匹配推送，候选池里一集都没匹配上的
+     * 再补发单集检索（{@link #fallbackPerEpisode}）。
      * <p>
-     * 与逐集调用 {@link #supplement} 分别搜索相比，避免了对同一订阅的多集缺失反复向所有
-     * 索引器发起搜索——由 O(N×M) 降为 O(N+M)，N=三级搜索，M=缺集数，每次只做本地匹配和
-     * 择优推送。同时供 {@link #supplementOnCreate}（建订阅时机）与定期自动补搜
-     * （{@code AutoSearchService}）复用，使自动补搜也能补到散集，而不是像旧实现那样
-     * 只搜严格意义的整季包（连载剧集完结前基本没有季包资源，旧实现对这类订阅形同虚设）。
+     * 主体仍是「一次季搜索 + 本地逐集匹配」，即 O(N+M) 而非逐集调用 {@link #supplement} 的
+     * O(N×M)（N=三级搜索，M=缺集数）。补发只是<b>兜底</b>：本地匹配得上的集一个请求都不多发，
+     * 且补发有集数上限与墙钟预算（见 {@link #perEpisodeFallbackLimit}）。加这一步是因为
+     * 季粒度的检索关键词（{@code season=23}、{@code 片名 S23}）在多数索引器上匹配不到
+     * 标题写作 {@code S23E05} 的单集资源，不补发的话这些集在本地怎么匹配都是空——
+     * 表现为「后台补搜只会下季包，单集永远要用户自己去逐集手动搜」。
+     * </p>
+     * <p>
+     * 同时供 {@link #supplementOnCreate}（建订阅时机）与定期自动补搜（{@code AutoSearchService}）
+     * 复用，使自动补搜也能补到散集，而不是像更早的实现那样只搜严格意义的整季包
+     * （连载剧集完结前基本没有季包资源，那种实现对这类订阅形同虚设）。
      * </p>
      * <p>
      * <b>未播出的集不参与</b>（见 {@link #aired}）：既省下必然落空的请求，也避免把
@@ -522,33 +562,53 @@ public class SearchSupplementService {
             }
         }
 
-        // 季包未命中：从同一候选池逐集匹配推送。候选池里混有季包种子（parsedEpisode 为 null），
-        // pushBest/handleGroup 本身不校验候选是否对应目标集号（信任调用方已用 filterByTarget 收窄），
-        // 这里必须先按具体集号过滤，只留下真正的单集资源，否则季包会被当成"这一集的最佳候选"
-        // 反复整包下载，每集占位一次却各自下了一遍完整季包。
+        // 季包推送会把当时<b>所有</b> MISSING 集一次占成 IN_FLIGHT（见
+        // SubscriptionEngine#resolveTargets 的 SEASON_PACK 分支），因此推成功后必须重查一次集状态。
+        // 继续拿本轮开头那份快照走下去的话，下面每一集都会在 resolveTargets 处落空、
+        // 各往 pt_search_log 写一行「无可占位的缺失集」，一季几十集就是几十行纯噪音。
+        if (seasonPushed) {
+            episodes = episodeService.listBySubscription(subId);
+        }
+
+        // 逐集处理。<b>不再以「季包没推成」为前提</b>：站上并存多个切法的季包时
+        //（长篇动画的「1-500 合集」「501-1000 合集」各一个），excludeAlreadyRecorded 每轮排掉
+        // 上轮推过的、又推一个新的，seasonPushed 轮轮为 true，逐集分支永远轮不到——
+        // 单集就此永远补不上。上面重查集状态之后，被季包占位的集自然已不是 MISSING，
+        // 不会重复推送，这个条件也就没有存在的必要了。
+        //
+        // 先从季搜索的候选池本地匹配（一个请求都不多发）。候选池里混有季包种子
+        // （parsedEpisode 为 null），pushBest/handleGroup 本身不校验候选是否对应目标集号
+        // （信任调用方已用 filterByTarget 收窄），这里必须先按具体集号过滤，只留下真正的单集资源，
+        // 否则季包会被当成"这一集的最佳候选"反复整包下载，每集占位一次却各自下了一遍完整季包。
         int episodesPushed = 0;
-        if (!seasonPushed && !candidates.isEmpty()) {
-            for (PtSubscriptionEpisodePlus ep : episodes) {
-                if (!SubscriptionService.STATE_MISSING.equals(ep.getState()) || !aired(ep, today)) {
-                    continue;
+        List<PtSubscriptionEpisodePlus> unmatched = new ArrayList<>();
+        for (PtSubscriptionEpisodePlus ep : episodes) {
+            if (!SubscriptionService.STATE_MISSING.equals(ep.getState()) || !aired(ep, today)) {
+                continue;
+            }
+            List<TorrentInfo> episodeCandidates = candidates.isEmpty()
+                    ? List.of() : filterByTarget(sub, ep.getEpisode(), candidates);
+            if (episodeCandidates.isEmpty()) {
+                // 季搜索压根没带回这一集的资源，留给下面补发单集检索
+                unmatched.add(ep);
+                continue;
+            }
+            try {
+                if (subscriptionEngine.pushBest(sub, ep.getEpisode(), episodeCandidates)) {
+                    episodesPushed++;
                 }
-                List<TorrentInfo> episodeCandidates = filterByTarget(sub, ep.getEpisode(), candidates);
-                if (episodeCandidates.isEmpty()) {
-                    continue;
-                }
-                try {
-                    if (subscriptionEngine.pushBest(sub, ep.getEpisode(), episodeCandidates)) {
-                        episodesPushed++;
-                    }
-                } catch (Exception e) {
-                    log.warn("订阅[{}] 补搜第{}集推送失败：{}", subId, ep.getEpisode(), e.getMessage());
-                }
+            } catch (Exception e) {
+                log.warn("订阅[{}] 补搜第{}集推送失败：{}", subId, ep.getEpisode(), e.getMessage());
             }
         }
 
+        // 候选池里一集都没匹配上的，补发真正的单集检索
+        episodesPushed += fallbackPerEpisode(sub, unmatched);
+
         // 剧集分支不走 supplement()，需自行记录本次搜索时间供 AutoSearchService 到期判断
-        sub.setLastSearchTime(new Date());
-        subscriptionService.updateById(sub);
+        // 定向更新这一列，不要 updateById(sub)：推送链路可能在另一份订阅实例上写过
+        // last_match_time，整实体写回会把它覆盖回旧值（见 IPtSubscriptionPlusService#updateLastSearchTime）
+        subscriptionService.updateLastSearchTime(sub.getId(), new Date());
 
         boolean anyPushed = seasonPushed || episodesPushed > 0;
         SearchLogService.RejectionDigest digest = anyPushed
@@ -578,11 +638,70 @@ public class SearchSupplementService {
      * <p>播出当天算已播出：air_date 是当地日期，当天已经放送过了。</p>
      */
     private boolean aired(PtSubscriptionEpisodePlus ep, LocalDate today) {
-        Date airDate = ep.getAirDate();
-        if (airDate == null) {
-            return true;
+        return SubscriptionService.aired(ep, today);
+    }
+
+    /**
+     * 对季搜索候选池里一集都没匹配上的集，补发<b>真正的单集检索</b>。
+     * <p>
+     * 这是本类里唯一一处刻意把请求量打回 O(N×M) 的地方，理由见
+     * {@link #perEpisodeFallbackLimit}：{@code seasonPlan()} 四步全是季粒度，
+     * 而多数索引器把 {@code q=片名 S23} 按词做 AND 匹配，命不中标题里的 {@code S23E05}，
+     * 单集在索引器那一层就没返回。不补发的话，这些集在本地怎么匹配都是空。
+     * </p>
+     * <p>
+     * 走 {@link #supplement(Integer, int, String)} 而不是另拼一份计划：那条路径已经有
+     * ID 步带 {@code ep}、关键词 {@code 片名 S23E05}、绝对号变体、英文名兜底和三级早停，
+     * 与用户在订阅页点单集「搜索补集」跑的<b>完全是同一件事</b>。两份实现漂移的表现会是
+     * 「手动点能搜到、后台补搜搜不到」，而这正是本次要修的现象本身。
+     * </p>
+     * <p>
+     * 集号升序取前 N 集：连载剧从前往后补最符合观看顺序，也让"补齐进度"是单调推进的。
+     * 被上限或预算挡下的集<b>必须 warn 出来</b>——静默截断会读成"这些集都搜过了、站上没有"，
+     * 而真相是压根没发出去过请求。它们不会饿死，下一轮补搜从同样的位置接着走。
+     * </p>
+     *
+     * @return 补发阶段成功推送的集数
+     */
+    private int fallbackPerEpisode(PtSubscriptionPlus sub, List<PtSubscriptionEpisodePlus> unmatched) {
+        if (perEpisodeFallbackLimit <= 0 || unmatched.isEmpty()) {
+            return 0;
         }
-        return !airDate.toInstant().atZone(ZoneId.systemDefault()).toLocalDate().isAfter(today);
+        List<PtSubscriptionEpisodePlus> targets = unmatched.stream()
+                .sorted(Comparator.comparingInt(PtSubscriptionEpisodePlus::getEpisode))
+                .limit(perEpisodeFallbackLimit)
+                .toList();
+        if (targets.size() < unmatched.size()) {
+            log.warn("订阅[{}] {} 季搜索未覆盖 {} 集，本轮只补发前 {} 集的单集检索"
+                            + "（上限 pt.search.per-episode-fallback-limit），其余留到下一轮",
+                    sub.getId(), sub.getTitle(), unmatched.size(), targets.size());
+        }
+
+        long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(perEpisodeFallbackBudgetMillis);
+        int pushed = 0;
+        int done = 0;
+        for (PtSubscriptionEpisodePlus ep : targets) {
+            // 软上限：只在每一集开始前检查，不打断已发出的请求
+            if (perEpisodeFallbackBudgetMillis > 0 && deadline - System.nanoTime() < 0) {
+                log.warn("订阅[{}] {} 单集补发耗尽 {}ms 预算，已跑 {}/{} 集，其余留到下一轮",
+                        sub.getId(), sub.getTitle(), perEpisodeFallbackBudgetMillis, done, targets.size());
+                break;
+            }
+            String keyword = sub.getTitle() + " S" + pad(sub.getSeason()) + "E" + pad(ep.getEpisode());
+            try {
+                if (supplement(sub.getId(), ep.getEpisode(), keyword).isPushed()) {
+                    pushed++;
+                }
+            } catch (Exception e) {
+                log.warn("订阅[{}] 第{}集单集补发失败：{}", sub.getId(), ep.getEpisode(), e.getMessage());
+            }
+            done++;
+        }
+        if (done > 0) {
+            log.info("订阅[{}] {} 单集补发：季搜索未覆盖 {} 集，补发 {} 集，推送 {} 集",
+                    sub.getId(), sub.getTitle(), unmatched.size(), done, pushed);
+        }
+        return pushed;
     }
 
     /**

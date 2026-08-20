@@ -85,6 +85,30 @@ public class SubscriptionService {
         return STATE_IN_LIBRARY.equals(state) || STATE_UPGRADING.equals(state);
     }
 
+    /**
+     * 这一集是否已经播出。站上不可能有还没播的集的资源，因此它同时决定了两件事：
+     * 自动补搜要不要为这一集发请求（{@code SearchSupplementService#searchAndPushMissing}），
+     * 以及「一键补齐全部」要不要把它算进跑批（{@link #getProgress} 的 unairedEpisodes）。
+     * <p>
+     * 两处必须共用这一份实现。判据漂移的表现是「后台跳过了、前端还在搜」，从日志里
+     * 看不出任何异常，只是用户在弹窗前多等十几分钟。
+     * </p>
+     * <p>
+     * {@code air_date} 为 null 一律按<b>已播出</b>处理：可能是未定档、TMDb 未录入，也可能只是
+     * 存量行还没被 {@code EpisodeAirDateSyncTask}（每 12 小时一轮）同步到。判成未播出会让这些集
+     * 彻底搜不到，而多搜一轮只是几个请求。取向与撤档时不清空已有日期一致——日期信息本身
+     * 不够可靠，不能让它单方面否决业务动作。电影压根不参与日期同步，这条对电影恒真。
+     * </p>
+     * <p>播出当天算已播出：air_date 是当地日期，当天已经放送过了。</p>
+     */
+    static boolean aired(PtSubscriptionEpisodePlus episode, LocalDate today) {
+        Date airDate = episode.getAirDate();
+        if (airDate == null) {
+            return true;
+        }
+        return !airDate.toInstant().atZone(ZoneId.systemDefault()).toLocalDate().isAfter(today);
+    }
+
     @Autowired
     private IPtSubscriptionPlusService subscriptionService;
     @Autowired
@@ -350,6 +374,13 @@ public class SubscriptionService {
         progress.setInFlightCount((int) episodes.stream().filter(e -> STATE_IN_FLIGHT.equals(e.getState())).count());
         progress.setMissingEpisodes(episodes.stream()
                 .filter(e -> STATE_MISSING.equals(e.getState()))
+                .map(PtSubscriptionEpisodePlus::getEpisode)
+                .sorted()
+                .toList());
+        LocalDate today = LocalDate.now();
+        progress.setUnairedEpisodes(episodes.stream()
+                .filter(e -> STATE_MISSING.equals(e.getState()))
+                .filter(e -> !aired(e, today))
                 .map(PtSubscriptionEpisodePlus::getEpisode)
                 .sorted()
                 .toList());

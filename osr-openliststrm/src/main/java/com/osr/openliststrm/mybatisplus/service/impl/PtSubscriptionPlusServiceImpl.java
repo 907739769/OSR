@@ -43,6 +43,16 @@ public class PtSubscriptionPlusServiceImpl extends ServiceImpl<PtSubscriptionPlu
     }
 
     @Override
+    public void updateLastSearchTime(Integer subId, Date lastSearchTime) {
+        if (subId == null) {
+            return;
+        }
+        update(new LambdaUpdateWrapper<PtSubscriptionPlus>()
+                .eq(PtSubscriptionPlus::getId, subId)
+                .set(PtSubscriptionPlus::getLastSearchTime, lastSearchTime));
+    }
+
+    @Override
     public void updateAutoSearchMissState(Integer subId, int missStreak, String rejectSign) {
         if (subId == null) {
             return;

@@ -105,4 +105,20 @@ public interface IPtSubscriptionPlusService extends IService<PtSubscriptionPlus>
      * </p>
      */
     List<PtSubscriptionPlus> listOverdueNotified();
+
+    /**
+     * 只更新「最后一次搜索时间」这一列，<b>不碰实体上的任何其它字段</b>。
+     * <p>
+     * 与 {@link #updateAutoSearchMissState} 同一个坑的另一面。补搜链路一次调用里，订阅表会被
+     * <b>两个不同的实例</b>写到：{@code SubscriptionEngine} 推送成功后在它自己查出来的那份上
+     * 写 {@code last_match_time}，而 {@code SearchSupplementService#searchAndPushMissing}
+     * 收尾时手上是<b>本轮开头</b>的快照。用后者 {@code updateById} 整实体写回，就会把推送刚写入的
+     * {@code last_match_time} 覆盖回旧值——列表页的「最后匹配」时间凭空退回去，而推送其实是成功的。
+     * </p>
+     * <p>
+     * 单集补发（{@code fallbackPerEpisode} → {@code supplement}）让这条路径变成了常态：
+     * 它内部会重新查一份订阅实例交给推送链路，与收尾时那份快照必然不是同一个对象。
+     * </p>
+     */
+    void updateLastSearchTime(Integer subId, Date lastSearchTime);
 }

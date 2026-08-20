@@ -197,6 +197,25 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
   const missingHiddenCount = computed(() => allMissingEpisodes.value.length - visibleMissingEpisodes.value.length)
   const expandMissing = () => { missingExpanded.value = true }
 
+  /**
+   * 缺集里还没播出的那批（后端 `SubscriptionProgress#unairedEpisodes`）。
+   * 缺集串照旧显示全部——用户要知道这季还缺几集，藏起来会让缺集数与总集数对不上。
+   */
+  const unairedMissingEpisodes = computed<number[]>(() => (progress.value?.unairedEpisodes || []) as number[])
+
+  /**
+   * 「一键补齐全部」实际会跑的集：缺集减去未播出的。
+   * <p>
+   * 未播出的集站上不可能有资源，为它们各打一整轮索引器请求（后端单集最多 4~6 步、
+   * 每个索引器 30 秒软上限）必然全部落空。一部刚播到第 3 集的 12 集新番，不排掉的话
+   * 用户要为 9 个注定搜不到的集白等十几分钟，最后拿到一句「未搜索到匹配资源」。
+   * </p>
+   */
+  const fillableMissingEpisodes = computed<number[]>(() => {
+    const unaired = new Set(unairedMissingEpisodes.value)
+    return allMissingEpisodes.value.filter((ep) => !unaired.has(ep))
+  })
+
   const showProgress = async (row: any) => {
     currentSubscription.value = row
     progressOpen.value = true
@@ -588,13 +607,16 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
   const abortSearchAllMissing = () => { searchAllMissingAborted.value = true }
 
   const handleSearchAllMissing = async () => {
-    if (!currentSubscription.value || !progress.value?.missingEpisodes?.length) return
+    if (!currentSubscription.value || !fillableMissingEpisodes.value.length) return
     // 订阅要和集号一起快照。这个循环每集都要等一次几十秒的检索（后端单索引器预算 30 秒是
     // 软上限），几十集就是十几二十分钟；期间弹窗点遮罩就能关，用户完全可能去点开另一条
     // 订阅的进度——那会改掉 currentSubscription.value，循环里剩下的集就变成「拿 A 的集号、
     // 按 B 的标题、推给 B 的订阅」，而界面上没有任何迹象。
     const sub = currentSubscription.value
-    const missing = [...progress.value.missingEpisodes] as number[]
+    // 未播出的集在这一步就排掉（见 fillableMissingEpisodes）：它们和别的缺集一样是 MISSING，
+    // 但站上不可能有资源，跑进循环只会让用户为一串必然落空的检索白等
+    const missing = [...fillableMissingEpisodes.value]
+    const skipped = unairedMissingEpisodes.value.length
     searchAllMissingAborted.value = false
     searchAllMissingDone.value = 0
     searchAllMissingTotal.value = missing.length
@@ -614,7 +636,9 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
       }
       const done = searchAllMissingDone.value
       const stoppedTip = searchAllMissingAborted.value ? '（已中止）' : ''
-      message.success(`已搜索 ${done}/${missing.length} 集${stoppedTip}：${pushedCount} 集已推送下载`)
+      // 跳过数要说出来，否则「仍缺 12 集」却只搜了 3 集，用户会以为漏跑了
+      const skippedTip = skipped ? `，另有 ${skipped} 集未播出已跳过` : ''
+      message.success(`已搜索 ${done}/${missing.length} 集${stoppedTip}：${pushedCount} 集已推送下载${skippedTip}`)
       // 进度只在用户还停在这条订阅上时回写，否则会把他正在看的另一条订阅的弹窗内容改掉
       if (currentSubscription.value?.id === sub.id) {
         progress.value = await getSubscriptionProgressApi(sub.id)
@@ -870,6 +894,7 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
     progressOpen, progressLoading, progress, currentSubscription, showProgress, showProgressById,
     // 缺集串截断展示
     visibleMissingEpisodes, missingHiddenCount, missingExpanded, expandMissing,
+    unairedMissingEpisodes, fillableMissingEpisodes,
     // 每集明细 + 手动重置
     episodeDetailOpen, episodeDetailLoading, episodeDetail, resettingEpisode,
     loadEpisodeDetail, handleResetEpisode, episodeStateLabel, episodeStateColor,

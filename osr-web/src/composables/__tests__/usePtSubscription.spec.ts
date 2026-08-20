@@ -212,6 +212,38 @@ describe('usePtSubscription 一键补齐全部缺集', () => {
     expect(composable.searchAllMissingLoading.value).toBe(false)
   })
 
+  /**
+   * 未播出的集站上不可能有资源。旧实现照单全收 missingEpisodes，一部刚播到第 3 集的
+   * 12 集新番会为 9 个注定落空的集各打一整轮索引器请求，用户白等十几分钟。
+   */
+  it('未播出的集不进跑批，缺集串照旧显示全部', async () => {
+    const composable = usePtSubscription()
+    composable.currentSubscription.value = { id: 1, title: 'A剧', season: 1, mediaType: 'TV' }
+    composable.progress.value = { missingEpisodes: [1, 2, 3, 4, 5], unairedEpisodes: [4, 5] }
+    ;(searchSupplementApi as any).mockResolvedValue({ pushed: false })
+
+    // 缺集串不受影响——用户要知道这季还缺几集
+    expect(composable.visibleMissingEpisodes.value).toEqual([1, 2, 3, 4, 5])
+    expect(composable.fillableMissingEpisodes.value).toEqual([1, 2, 3])
+
+    await composable.handleSearchAllMissing()
+
+    const searched = (searchSupplementApi as any).mock.calls.map((c: any[]) => c[1].episode)
+    expect(searched).toEqual([1, 2, 3])
+    expect(composable.searchAllMissingTotal.value).toBe(3)
+  })
+
+  it('缺集全部未播出时，一键补齐直接不跑', async () => {
+    const composable = usePtSubscription()
+    composable.currentSubscription.value = { id: 1, title: 'A剧', season: 1, mediaType: 'TV' }
+    composable.progress.value = { missingEpisodes: [4, 5], unairedEpisodes: [4, 5] }
+
+    await composable.handleSearchAllMissing()
+
+    expect(searchSupplementApi).not.toHaveBeenCalled()
+    expect(composable.searchAllMissingLoading.value).toBe(false)
+  })
+
   it('跑批期间切走订阅后，进度不回写到用户正在看的那条', async () => {
     const composable = usePtSubscription()
     composable.currentSubscription.value = { id: 1, title: 'A剧', season: 1, mediaType: 'TV' }

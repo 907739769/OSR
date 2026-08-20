@@ -17,6 +17,7 @@ import com.osr.openliststrm.pt.indexer.IndexerCapabilityCache;
 import com.osr.openliststrm.pt.indexer.TorznabClient;
 import com.osr.openliststrm.pt.model.TorrentInfo;
 import com.osr.openliststrm.pt.subscription.TmdbSearchService;
+import com.osr.openliststrm.pt.subscription.dto.SearchAndPushSummary;
 import com.osr.openliststrm.pt.subscription.dto.PushSelectedRequest;
 import com.osr.openliststrm.pt.subscription.dto.SupplementResult;
 import org.junit.jupiter.api.Assertions;
@@ -95,7 +96,7 @@ class SearchSupplementServiceTest {
         when(searchLogService.digestRejectionsSince(any(), anyLong()))
                 .thenReturn(SearchLogService.RejectionDigest.EMPTY);
         capabilityCache = new IndexerCapabilityCache(torznabClient, 300_000L);
-        service = new SearchSupplementService(indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, blacklistService, searchLogService, 0);
+        service = new SearchSupplementService(indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, blacklistService, searchLogService, 0, 0, 0);
     }
 
     private PtIndexerPlus indexer(int id) {
@@ -241,7 +242,7 @@ class SearchSupplementServiceTest {
         SearchSupplementService budgeted = new SearchSupplementService(
                 indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService,
                 matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService,
-                blacklistService, searchLogService, 80);
+                blacklistService, searchLogService, 80, 0, 0);
         when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
 
         AtomicInteger calls = new AtomicInteger(0);
@@ -269,7 +270,7 @@ class SearchSupplementServiceTest {
         SearchSupplementService budgeted = new SearchSupplementService(
                 indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService,
                 matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService,
-                blacklistService, searchLogService, 60_000);
+                blacklistService, searchLogService, 60_000, 0, 0);
         when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(torrent("t")));
 
@@ -320,9 +321,12 @@ class SearchSupplementServiceTest {
 
         assertTrue(result.isPushed());
         assertEquals(1, result.getCandidateCount());
-        ArgumentCaptor<PtSubscriptionPlus> captor = ArgumentCaptor.forClass(PtSubscriptionPlus.class);
-        verify(subscriptionService).updateById(captor.capture());
-        Assertions.assertNotNull(captor.getValue().getLastSearchTime());
+        // 定向更新这一列而不是 updateById(实体)：推送链路会在另一份订阅实例上写 last_match_time，
+        // 整实体写回会把它覆盖回旧值（见 IPtSubscriptionPlusService#updateLastSearchTime）
+        ArgumentCaptor<Date> captor = ArgumentCaptor.forClass(Date.class);
+        verify(subscriptionService).updateLastSearchTime(eq(10), captor.capture());
+        Assertions.assertNotNull(captor.getValue());
+        verify(subscriptionService, never()).updateById(any());
     }
 
     @Test
@@ -995,6 +999,141 @@ class SearchSupplementServiceTest {
         verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(1), anyList());
         verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(2), anyList());
         verify(subscriptionEngine, never()).pushBest(eq(sub), eq(3), anyList());
+    }
+
+    // ---------- 季包命中后仍处理单集 / 单集补发 ----------
+
+    /** 打开单集补发的实例：补发上限 N 集、不限墙钟 */
+    private SearchSupplementService withFallback(int limit) {
+        return new SearchSupplementService(indexerService, torznabClient, subscriptionEngine,
+                subscriptionService, episodeService, matcher, capabilityCache, filterConfigService,
+                filterEngine, tmdbSearchService, blacklistService, searchLogService, 0, limit, 0);
+    }
+
+    /**
+     * 站上并存多个切法的季包时（长篇动画的「1-500 合集」「501-1000 合集」各一个），
+     * 每轮都能推成一个新季包，seasonPushed 轮轮为 true——旧实现以此为条件跳过整个逐集分支，
+     * 单集就此永远补不上。现在逐集分支照跑，靠重查集状态而不是这个条件来避免重复推送。
+     */
+    @Test
+    void 季包推成功后仍逐集处理_被季包占位的集不会重复推送() throws Exception {
+        PtSubscriptionPlus sub = tvSub(10, 1, 3);
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        // 本轮开头三集都缺；季包推送把第 1、2 集占成 IN_FLIGHT，第 3 集不在这个包里仍缺
+        when(episodeService.listBySubscription(10)).thenReturn(
+                List.of(episode(1, "MISSING"), episode(2, "MISSING"), episode(3, "MISSING")),
+                List.of(episode(1, "IN_FLIGHT"), episode(2, "IN_FLIGHT"), episode(3, "MISSING")));
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+
+        TorrentInfo pack = torrent("Some.Show.S01.1080p");
+        pack.setParsedSeason(1);
+        pack.setParsedTitle("Some Show");
+        TorrentInfo ep3 = torrent("Some.Show.S01E03.1080p");
+        ep3.setParsedSeason(1);
+        ep3.setParsedEpisode(3);
+        ep3.setParsedTitle("Some Show");
+        when(torznabClient.search(any(), anyString())).thenReturn(List.of(pack, ep3));
+        when(subscriptionEngine.pushBest(eq(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushBest(eq(sub), eq(3), anyList())).thenReturn(true);
+
+        SearchAndPushSummary summary = service.searchAndPushMissing(10);
+
+        // 季包占位过的 1、2 集重查后已不是 MISSING，不再被逐集推一次
+        verify(subscriptionEngine, never()).pushBest(eq(sub), eq(1), anyList());
+        verify(subscriptionEngine, never()).pushBest(eq(sub), eq(2), anyList());
+        // 季包没覆盖到的第 3 集照常补
+        verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(3), anyList());
+        assertTrue(summary.isSeasonPushed());
+        assertEquals(1, summary.getEpisodesPushed());
+    }
+
+    /**
+     * 季搜索的关键词是季粒度的（{@code season=23}、{@code 片名 S01}），多数索引器把 q 按词做
+     * AND 匹配，命不中标题里的 S01E02——单集在索引器那一层就没返回，本地匹配再准也无米下锅。
+     * 这一条钉住「候选池里没有的集会补发一次真正的单集检索」。
+     */
+    @Test
+    void 季搜索没带回的集_补发单集检索() throws Exception {
+        PtSubscriptionPlus sub = tvSub(10, 1, 2);
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        when(episodeService.listBySubscription(10)).thenReturn(
+                List.of(episode(1, "MISSING"), episode(2, "MISSING")));
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+
+        TorrentInfo ep1 = torrent("Some.Show.S01E01.1080p");
+        ep1.setParsedSeason(1);
+        ep1.setParsedEpisode(1);
+        ep1.setParsedTitle("Some Show");
+        TorrentInfo ep2 = torrent("Some.Show.S01E02.1080p");
+        ep2.setParsedSeason(1);
+        ep2.setParsedEpisode(2);
+        ep2.setParsedTitle("Some Show");
+        // 季粒度关键词只带回第 1 集；第 2 集只有拿「Some Show S01E02」去搜才返回
+        when(torznabClient.search(any(), anyString())).thenAnswer(inv ->
+                String.valueOf(inv.getArgument(1)).contains("E02") ? List.of(ep2) : List.of(ep1));
+        when(subscriptionEngine.pushBest(eq(sub), anyInt(), anyList())).thenReturn(true);
+
+        SearchAndPushSummary summary = withFallback(5).searchAndPushMissing(10);
+
+        verify(torznabClient, atLeastOnce()).search(any(), eq("Some Show S01E02"));
+        verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(2), anyList());
+        assertEquals(2, summary.getEpisodesPushed());
+    }
+
+    /** 本地匹配得上的集一个请求都不该多发——补发只是兜底，不能把 O(N+M) 打回 O(N×M) */
+    @Test
+    void 候选池里匹配得上的集_不补发单集检索() throws Exception {
+        PtSubscriptionPlus sub = tvSub(10, 1, 1);
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(1, "MISSING")));
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+        TorrentInfo ep1 = torrent("Some.Show.S01E01.1080p");
+        ep1.setParsedSeason(1);
+        ep1.setParsedEpisode(1);
+        ep1.setParsedTitle("Some Show");
+        when(torznabClient.search(any(), anyString())).thenReturn(List.of(ep1));
+        when(subscriptionEngine.pushBest(eq(sub), eq(1), anyList())).thenReturn(true);
+
+        withFallback(5).searchAndPushMissing(10);
+
+        verify(torznabClient, never()).search(any(), eq("Some Show S01E01"));
+    }
+
+    /** 上限之外的集留到下一轮，不会在本轮被静默丢掉——也不会为它们发请求 */
+    @Test
+    void 补发集数受上限约束_超出的留到下一轮() throws Exception {
+        PtSubscriptionPlus sub = tvSub(10, 1, 4);
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(
+                episode(1, "MISSING"), episode(2, "MISSING"),
+                episode(3, "MISSING"), episode(4, "MISSING")));
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+        // 季搜索一条都没带回来，四集全落进补发
+        when(torznabClient.search(any(), anyString())).thenReturn(List.of());
+
+        withFallback(2).searchAndPushMissing(10);
+
+        // 集号升序取前两集
+        verify(torznabClient, atLeastOnce()).search(any(), eq("Some Show S01E01"));
+        verify(torznabClient, atLeastOnce()).search(any(), eq("Some Show S01E02"));
+        verify(torznabClient, never()).search(any(), eq("Some Show S01E03"));
+        verify(torznabClient, never()).search(any(), eq("Some Show S01E04"));
+    }
+
+    /** 未播出的集不进补发——补发比本地匹配贵得多，更不该浪费在必然落空的集上 */
+    @Test
+    void 未播出的集不进单集补发() throws Exception {
+        PtSubscriptionPlus sub = tvSub(10, 1, 2);
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(
+                episodeAiring(1, "MISSING", -1), episodeAiring(2, "MISSING", 7)));
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+        when(torznabClient.search(any(), anyString())).thenReturn(List.of());
+
+        withFallback(5).searchAndPushMissing(10);
+
+        verify(torznabClient, atLeastOnce()).search(any(), eq("Some Show S01E01"));
+        verify(torznabClient, never()).search(any(), eq("Some Show S01E02"));
     }
 
     // ---------- 未播出的集不参与补搜 ----------
