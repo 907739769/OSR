@@ -29,13 +29,47 @@ jobs:
         with:
           fetch-depth: 0
 
+      # backend 过滤器逐个列出后端模块，不能写 'osr-*/**' —— 前端目录也叫 osr-web，
+      # 通配会把它一并算进后端，纯前端的提交每次都白跑一次后端构建。
+      #
+      # 这里与 docker-publish-tag.yml 的写法不同（那边是 git pathspec 的
+      # ':(exclude)osr-web/**'，语义精确、新模块自动覆盖），因为 dorny/paths-filter
+      # 对多条 pattern 取的是 OR：加一条 '!osr-web/**' 非但排不掉 osr-web，还会让
+      # 所有不在 osr-web 下的文件（pom.xml、docs/…）都命中 backend。而单条 extglob
+      # 'osr-!(web)/**' 虽然排得掉，却会连 osr-webhook 这类以 web 开头的**后端**模块
+      # 一起排掉——那是最糟的方向：后端不重新构建，发出去的镜像是旧的，且不报错。
+      #
+      # 所以改用显式清单，并用下面这一步把「新模块忘了登记」从静默漏掉变成构建失败。
+      - name: 校验后端模块清单是否完整
+        run: |
+          KNOWN="osr-admin osr-common osr-framework osr-system osr-quartz osr-openliststrm osr-web"
+          MISSING=""
+          for dir in osr-*/; do
+            name="${dir%/}"
+            case " $KNOWN " in
+              *" $name "*) ;;
+              *) MISSING="$MISSING $name" ;;
+            esac
+          done
+          if [ -n "$MISSING" ]; then
+            echo "::error::发现未登记的模块:$MISSING"
+            echo "::error::请同时更新本文件的 backend 过滤器与本步骤的 KNOWN 列表（前端模块只需加进 KNOWN）"
+            exit 1
+          fi
+          echo "模块清单一致：$KNOWN"
+
       - name: Detect changes
         uses: dorny/paths-filter@v3
         id: filter
         with:
           filters: |
             backend:
-              - 'osr-*/**'
+              - 'osr-admin/**'
+              - 'osr-common/**'
+              - 'osr-framework/**'
+              - 'osr-system/**'
+              - 'osr-quartz/**'
+              - 'osr-openliststrm/**'
               - 'pom.xml'
               - 'mvnw'
               - 'Dockerfile.backend'
