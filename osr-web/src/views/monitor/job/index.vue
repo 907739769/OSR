@@ -35,6 +35,8 @@
     <v-card class="table-card">
       <!-- Action Bar -->
       <div class="action-bar">
+        <div class="action-left">
+        </div>
         <v-btn variant="text" prepend-icon="mdi-filter-outline" @click="showSearch = !showSearch">
           {{ showSearch ? '隐藏搜索' : '显示搜索' }}
         </v-btn>
