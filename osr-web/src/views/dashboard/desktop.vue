@@ -21,16 +21,20 @@
       </template>
       <template v-else>
         <v-col cols="6" md="2" v-for="(stat, index) in statCards" :key="index">
+          <!-- `--osr-i` 驱动 .osr-enter 的错位延迟（motion.scss），六张卡依次落位。
+               挂在 v-card 上而不是 v-col 上：动画带 transform，挂在栅格列上会与
+               Vuetify 的负外边距一起算，卡片入场时左右会漂 -->
           <v-card
-            class="stat-card"
+            class="stat-card osr-enter"
             :class="[stat.type, { clickable: !!stat.path }]"
+            :style="{ '--osr-i': index }"
             @click="stat.path && router.push(stat.path)"
           >
             <div class="stat-icon">
               <v-icon :icon="stat.icon" size="18" />
             </div>
             <div class="stat-info">
-              <div class="stat-value">{{ stat.value }}</div>
+              <div class="stat-value"><AnimatedNumber :value="stat.value" /></div>
               <div class="stat-label">{{ stat.label }}</div>
               <div v-if="stat.sparkKey" class="stat-spark">
                 <MiniTrend :points="trendSeries[stat.sparkKey] || []" :tone="stat.type" />
@@ -94,8 +98,9 @@ import * as echarts from 'echarts/core'
 import { LineChart } from 'echarts/charts'
 import { TitleComponent, TooltipComponent, GridComponent, LegendComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import { osrCssVar } from '@/composables/useThemeMode'
+import { chartBase, chartEmptyOption, lineSeries } from '@/plugins/echartsTheme'
 import MiniTrend from '@/components/MiniTrend.vue'
+import AnimatedNumber from '@/components/AnimatedNumber.vue'
 import PtOverviewCard from './PtOverviewCard.vue'
 import RecentFailuresCard from './RecentFailuresCard.vue'
 import QuickLinksCard from './QuickLinksCard.vue'
@@ -212,28 +217,25 @@ let taskChart: any = null
 
 function renderTrendChart(points: DashboardTrendPoint[]) {
   if (!taskChart) return
-  const axisColor = osrCssVar('--osr-text-secondary') || '#64748b'
-  const splitColor = osrCssVar('--osr-border-light') || '#f1f5f9'
 
   if (!points.length) {
     taskChart.clear()
-    taskChart.setOption({
-      title: { text: '暂无数据', left: 'center', top: 'center', textStyle: { fontSize: 14, color: osrCssVar('--osr-text-placeholder') || '#94a3b8' } },
-      series: []
-    }, true)
+    taskChart.setOption(chartEmptyOption('暂无数据'), true)
     return
   }
 
+  // 外观全部来自 plugins/echartsTheme（坐标轴 / 网格 / 玻璃提示框 / 系列配色）。
+  // 系列色改造前写死成 osrLight 的 #B4690E 等三个值，暗色下坐标轴换了、
+  // 折线颜色没换，看起来像图表没刷新 —— 那是个真 bug，收到主题模块里一并修掉
+  const base = chartBase()
   taskChart.setOption({
-    tooltip: { trigger: 'axis', axisPointer: { type: 'cross' } },
-    legend: { data: ['总数', '成功', '失败'], top: 4, itemWidth: 12, itemHeight: 12, textStyle: { fontSize: 12, color: axisColor } },
-    grid: { left: 36, right: 16, top: 40, bottom: 24 },
-    xAxis: { type: 'category', data: points.map(p => p.date.slice(5)), axisLabel: { fontSize: 11, color: axisColor }, axisLine: { lineStyle: { color: splitColor } } },
-    yAxis: { type: 'value', minInterval: 1, axisLabel: { fontSize: 11, color: axisColor }, splitLine: { lineStyle: { color: splitColor } } },
+    ...base,
+    legend: { ...base.legend, data: ['总数', '成功', '失败'] },
+    xAxis: { ...base.xAxis, data: points.map(p => p.date.slice(5)) },
     series: [
-      { name: '总数', type: 'line', smooth: true, data: points.map(p => p.totalCount), itemStyle: { color: '#B4690E' }, lineStyle: { width: 2 }, areaStyle: { opacity: 0.1 } },
-      { name: '成功', type: 'line', smooth: true, data: points.map(p => p.successCount), itemStyle: { color: '#3F8F5F' }, lineStyle: { width: 2 }, areaStyle: { opacity: 0.1 } },
-      { name: '失败', type: 'line', smooth: true, data: points.map(p => p.failedCount), itemStyle: { color: '#C0362C' }, lineStyle: { width: 2 }, areaStyle: { opacity: 0.08 } }
+      lineSeries({ name: '总数', data: points.map(p => p.totalCount), tone: 'primary' }),
+      lineSeries({ name: '成功', data: points.map(p => p.successCount), tone: 'success' }),
+      lineSeries({ name: '失败', data: points.map(p => p.failedCount), tone: 'error' })
     ]
   }, true)
 }

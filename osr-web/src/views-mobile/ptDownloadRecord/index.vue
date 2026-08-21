@@ -82,7 +82,7 @@
       <div class="card-content">
         <div class="card-top">
           <span class="card-title">{{ item.title }}</span>
-          <StatusChip :type="stateTagType(item.state)" :text="stateLabel(item.state)" />
+          <StatusChip :type="stateTagType(item.state)" :text="stateLabel(item.state)" :pulse="item.state === 'DOWNLOADING'" />
         </div>
         <div class="card-sub">
           <router-link
@@ -100,6 +100,7 @@
           v-if="item.state === 'DOWNLOADING' || item.state === 'COMPLETED'"
           :model-value="Math.round((item.progress || 0) * 100)"
           :color="item.state === 'COMPLETED' ? 'success' : 'primary'"
+          :class="{ 'osr-progress--active': item.state === 'DOWNLOADING' }"
           height="6"
           rounded
         />

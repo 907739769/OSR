@@ -49,8 +49,8 @@
   </v-app-bar>
 
   <v-main>
-    <div class="content-wrapper">
-      <!-- 这里刻意不加 <transition>。
+    <div ref="contentRef" class="content-wrapper">
+      <!-- 这里刻意不加 <transition>（入场动画走 usePageTransition 的 WAAPI 单向播放）。
            原先包了一层 <transition name="fade-slide">，但在「<KeepAlive> 与裸 <component>
            交替 + 页面组件异步加载」这个结构下过渡钩子从首屏起就没正常收敛过：
            fade-slide-enter-from 一直挂在元素上不被移除，离场过渡也永远收不到结束事件，
@@ -78,6 +78,7 @@ import { useAppStore } from '@/stores/app'
 import { useUserStore } from '@/stores/user'
 import { useCurrentUser } from '@/composables/useCurrentUser'
 import { useBreadcrumb } from '@/composables/useBreadcrumb'
+import { usePageTransition } from '@/composables/usePageTransition'
 import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
 import SidebarMenuItem from '@/components/SidebarMenuItem.vue'
 import ThemeSwitch from '@/components/ThemeSwitch.vue'
@@ -88,6 +89,8 @@ const userStore = useUserStore()
 const showPasswordDialog = ref(false)
 const { displayName, avatarText } = useCurrentUser()
 const breadcrumb = useBreadcrumb()
+// 页面切换的入场动画。只做入场不做离场，理由见 usePageTransition 的注释
+const { contentRef } = usePageTransition()
 
 const sidebarMenus = computed(() => userStore.routes.filter((r: any) => r.hidden !== true))
 

@@ -1,14 +1,17 @@
 /* ============================================
    OSR Design Tokens
 
-   分两类：
+   分四类：
    1. 品牌色 / 表面色 —— 一律从 Vuetify 主题派生（rgb(var(--v-theme-*))）。
       唯一的色值定义在 src/plugins/vuetify.ts 的 osrLight / osrDark 里，
       这里不再抄一份，暗色切换由 Vuetify 单点负责，不会出现两边漂移。
       （Vuetify 会把「当前生效主题」的 --v-theme-* 写在 :root 上，
         所以在 :root 里做派生拿到的就是当前主题的值。）
-   2. 文字 / 边框 / 圆角 / 阴影 / 动效 —— Vuetify 没有对应令牌，
-      在这里定义，其中随明暗变化的（文字、边框、阴影）在下方 dark 块里覆盖。
+   2. 文字 / 边框 / 圆角 —— Vuetify 没有对应令牌，在这里定义，
+      其中随明暗变化的在下方 dark 块里覆盖。
+   3. 深度（阴影 / 亮环 / 高光 / 辉光 / 玻璃 / 环境光）—— 见「深度系统」一节。
+      浅色与暗色的表达方式完全不同，不是同一套值调深浅。
+   4. 排版与动效 —— 字体栈、字号阶梯、时长、缓动曲线。
    ============================================ */
 
 :root {
@@ -49,10 +52,54 @@
   --osr-border-light: #f1f5f9;
   --osr-border-dark: #cbd5e1;
 
-  /* ---- 阴影 ---- */
-  --osr-shadow-base: 0 1px 3px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
-  --osr-shadow-md: 0 4px 6px rgba(0, 0, 0, 0.04), 0 2px 4px rgba(0, 0, 0, 0.03);
-  --osr-shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.06), 0 4px 6px rgba(0, 0, 0, 0.04);
+  /* ============================================
+     深度系统
+
+     浅色与暗色的分层手段是**两件不同的事**，不是同一组阴影调深浅：
+
+     - 浅色下靠投影。纯黑投影落在暖白底（#F7F5F1）上会发灰发脏，所以三档都带一点
+       primary 色相 —— 同样的扩散半径，带色相的那版读起来「贵」，
+       是成本最低的一处质感升级。
+     - 暗色下投影**物理上看不见**：黑影叠在 #141821 上没有任何对比度可言。
+       改造前 3 档暗色阴影只是把黑色 alpha 从 .06 加到 .4，实际等于没有，
+       暗色界面全靠 1px 边框分层，因此是彻底扁平的。
+       暗色的分层手段是 **1px 亮环 + 顶部内高光**：亮环把面板从底色里「切」出来，
+       顶部那道 inset 高光模拟光从上方打在面板边缘（也就是玻璃质感的来源），
+       投影只作为环境遮蔽留一点点。
+
+     所以下面 dark 块里覆盖的不是「更深的黑」，而是完全不同的构成。
+     ============================================ */
+  --osr-ring: 0 0 0 1px rgba(15, 23, 42, 0.06);
+  --osr-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.6);
+
+  --osr-shadow-base:
+    0 1px 2px rgba(var(--v-theme-primary), 0.05),
+    0 1px 3px rgba(15, 23, 42, 0.04);
+  --osr-shadow-md:
+    0 1px 2px rgba(var(--v-theme-primary), 0.06),
+    0 6px 16px -6px rgba(var(--v-theme-primary), 0.14);
+  --osr-shadow-lg:
+    0 1px 2px rgba(var(--v-theme-primary), 0.06),
+    0 18px 40px -12px rgba(var(--v-theme-primary), 0.22);
+
+  /* 辉光：只用在「活跃 / 被强调」的元素上（hover 的统计卡、聚焦的输入框、
+     进行态的进度条）。日常表面不挂 —— 挂满了就等于没有强调。 */
+  --osr-glow-primary: 0 0 24px -6px rgba(var(--v-theme-primary), 0.45);
+  --osr-glow-success: 0 0 24px -6px rgba(var(--v-theme-success), 0.45);
+  --osr-glow-error: 0 0 24px -6px rgba(var(--v-theme-error), 0.45);
+
+  /* 玻璃层：顶栏 / 侧边栏 / 弹窗这类「浮在内容之上」的 chrome 表面。
+     saturate 是关键 —— 只做 blur 会让透上来的内容发灰，
+     补一点饱和度才像玻璃而不是磨砂塑料。 */
+  --osr-glass-bg: rgba(var(--v-theme-surface), 0.72);
+  --osr-glass-blur: blur(20px) saturate(1.6);
+  --osr-glass-border: rgba(15, 23, 42, 0.07);
+
+  /* 环境光：铺在整个 app 背景上的极淡径向渐变，给界面一个光源方向。
+     纯色底 + 纯色卡片是「后台模板」最大的特征，有方向的环境光才有空间感。 */
+  --osr-ambient:
+    radial-gradient(1200px 600px at 12% -10%, rgba(var(--v-theme-primary), 0.05), transparent 60%),
+    radial-gradient(900px 500px at 100% 0%, rgba(var(--v-theme-info), 0.04), transparent 55%);
 
   /* ---- 圆角 ---- */
   --osr-radius-sm: 6px;
@@ -81,9 +128,74 @@
    */
   --osr-mobile-tabbar-height: 56px;
 
-  /* ---- 动效 ---- */
-  --osr-transition-fast: 150ms ease;
-  --osr-transition-base: 200ms ease;
+  /* ============================================
+     排版
+
+     等宽字体栈以前在 5 个文件里各写各的（'Courier New' / 'Consolas','Monaco',
+     'Courier New' / Consolas,monospace / monospace / 'SF Mono','Courier New'），
+     同一个日志终端在 Mac 与 Windows 上落到的字体宽度不同，路径对照会错位。
+     现在单源到 --osr-font-mono。
+
+     JetBrains Mono 走 npm 本地打包（@fontsource-variable），不引 CDN ——
+     本项目是 Docker 自部署、常跑在内网，外链字体的下场是每次首屏都等一次超时。
+     引的是变量字体：一个 40KB 的 latin woff2 覆盖 100~800 全部字重，
+     且带 unicode-range，中文内容不会触发下载。
+     ============================================ */
+  --osr-font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
+    'Helvetica Neue', Arial, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei',
+    'Noto Sans SC', sans-serif;
+  --osr-font-mono: 'JetBrains Mono Variable', ui-monospace, SFMono-Regular, 'SF Mono',
+    Menlo, Consolas, 'Liberation Mono', monospace;
+
+  /* 字号阶梯。改造前全站散落着 11/12/13/14/15/17/18/20px 六七种字号，
+     同一层级的信息（比如两个页面的卡片标题）常常差 1px ——
+     差 1px 比差 3px 更糟，它不构成层级、只构成毛刺。 */
+  --osr-fs-xs: 11px;
+  --osr-fs-sm: 12px;
+  --osr-fs-base: 13px;
+  --osr-fs-md: 14px;
+  --osr-fs-lg: 15px;
+  --osr-fs-xl: 18px;
+  --osr-fs-2xl: 20px;
+  --osr-fs-3xl: 26px;
+
+  /* ============================================
+     动效
+
+     时长与曲线**拆开**定义。改造前只有 --osr-transition-fast/base 两个变量，
+     把时长和曲线焊死在一起，于是「快时长 + 弹性曲线」这类组合根本表达不出来，
+     全站 31 处 transition 只能一律用 CSS 默认的 ease。
+     ease 是 CSS1 时代的默认值，起步猛、收尾拖，是「廉价感」最主要的单一来源。
+
+     曲线只给三条，不要再加：
+     - ease-out（expo-out）：绝大多数场景。起步快、收尾极缓，是「响应迅速」的观感来源
+     - ease-in-out：两端都在视口内的位移（抽屉、折叠）
+     - ease-spring：轻微过冲，只用于确认类正反馈（按钮回弹、勾选）。用多了显廉价
+     ============================================ */
+  --osr-dur-1: 120ms; /* 微反馈：hover、按下、颜色变化 */
+  --osr-dur-2: 200ms; /* 标准：卡片、展开、切换 */
+  --osr-dur-3: 320ms; /* 大位移：抽屉、弹窗、页面转场 */
+  --osr-dur-4: 520ms; /* 入场、数字滚动、揭示 */
+
+  --osr-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --osr-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --osr-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* 旧的两个保留为别名：全站 31 处引用不必一次性改写，
+     换掉底层曲线后它们自动跟着升级。新代码请直接用 dur + ease 组合。 */
+  --osr-transition-fast: var(--osr-dur-1) var(--osr-ease-out);
+  --osr-transition-base: var(--osr-dur-2) var(--osr-ease-out);
+
+  /**
+   * 错位入场的序号，由调用方在每个子项上覆盖（`:style="{ '--osr-i': index }"`），
+   * motion.scss 的 .osr-enter 系列据此算延迟。
+   *
+   * 在这里给一个 0 的默认值有两个作用：**只挂 .osr-enter 不给序号时立即入场**
+   * （否则要靠每处 var() 各写一遍兜底值，漏一处就是延迟落到 NaN、动画整个不播）；
+   * 以及让它成为动效系统里一个**登记在册**的名字 —— design-system.spec.ts 会校验
+   * 全站用到的 var(--osr-*) 都在本文件里有定义，这条契约不该靠在测试里开白名单绕过。
+   */
+  --osr-i: 0;
 }
 
 /* ============================================
@@ -104,8 +216,52 @@
   --osr-border-light: #232936;
   --osr-border-dark: #3a4150;
 
-  /* 阴影：暗色下需要更重才看得出层次 */
-  --osr-shadow-base: 0 1px 3px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
-  --osr-shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.3);
-  --osr-shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.4), 0 4px 6px rgba(0, 0, 0, 0.3);
+  /* 深度：构成与浅色完全不同，理由见上方「深度系统」注释。
+     主角是 ring（1px 亮环）与 highlight（顶部内高光），投影只作辅助。 */
+  --osr-ring: 0 0 0 1px rgba(255, 255, 255, 0.07);
+  --osr-highlight: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+
+  --osr-shadow-base:
+    0 0 0 1px rgba(255, 255, 255, 0.05),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  --osr-shadow-md:
+    0 0 0 1px rgba(255, 255, 255, 0.07),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 8px 24px -10px rgba(0, 0, 0, 0.7);
+  --osr-shadow-lg:
+    0 0 0 1px rgba(255, 255, 255, 0.09),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07),
+    0 24px 56px -16px rgba(0, 0, 0, 0.85);
+
+  /* 暗色下辉光是主要的强调手段（浅色下只是锦上添花），扩散给足 */
+  --osr-glow-primary: 0 0 32px -4px rgba(var(--v-theme-primary), 0.4);
+  --osr-glow-success: 0 0 32px -4px rgba(var(--v-theme-success), 0.4);
+  --osr-glow-error: 0 0 32px -4px rgba(var(--v-theme-error), 0.4);
+
+  --osr-glass-bg: rgba(var(--v-theme-surface), 0.62);
+  --osr-glass-border: rgba(255, 255, 255, 0.08);
+
+  /* 暗色下环境光要更明显才看得出来：底色本身几乎没有信息量，
+     这层渐变是唯一让大面积深色不显得「死」的东西 */
+  --osr-ambient:
+    radial-gradient(1100px 560px at 8% -8%, rgba(var(--v-theme-primary), 0.1), transparent 58%),
+    radial-gradient(900px 520px at 102% 2%, rgba(var(--v-theme-info), 0.09), transparent 55%),
+    radial-gradient(800px 800px at 50% 120%, rgba(var(--v-theme-secondary), 0.07), transparent 60%);
+}
+
+/* ============================================
+   降低动效偏好
+
+   把时长压到 0.01ms 而不是 `animation: none` —— 后者会让依赖 animationend /
+   transitionend 收尾的逻辑永远收不到事件（本项目 index.html 的启动屏就是靠
+   transitionend 摘节点的），压时长则事件照常触发，只是瞬间完成。
+   放在令牌层做，新增动画自动受管，不需要每处各写一遍 media query。
+   ============================================ */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --osr-dur-1: 0.01ms;
+    --osr-dur-2: 0.01ms;
+    --osr-dur-3: 0.01ms;
+    --osr-dur-4: 0.01ms;
+  }
 }

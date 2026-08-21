@@ -14,8 +14,9 @@ src/
 │   ├── monitor/            # 监控相关 API (定时任务)
 │   ├── openlist/           # 业务 API (见下)
 │   └── system/             # 系统管理 API
-├── components/             # 公共组件 (SearchPanel, PageHeader, DirectoryTreeSelect, ChangePasswordDialog, StatusChip, ThemeSwitch, MiniTrend, mobile/*)
-├── composables/            # 组合式函数 (useTaskList, useRecordList, useDataTable, useSearchPanel, useSidebarGroups, useBreadcrumb, useCurrentUser, useThemeMode, useMenuLinks, useActionSheet, useMobileTabs 等)
+├── components/             # 公共组件 (SearchPanel, PageHeader, DirectoryTreeSelect, ChangePasswordDialog,
+│                           #           StatusChip, ThemeSwitch, MiniTrend, AnimatedNumber, mobile/*)
+├── composables/            # 组合式函数 (useTaskList, useRecordList, useDataTable, useSearchPanel, useSidebarGroups, useBreadcrumb, useCurrentUser, useThemeMode, usePageTransition, useMenuLinks, useActionSheet, useMobileTabs 等)
 ├── layouts/                # 布局组件 (DesktopLayout, MobileLayout)
 ├── router/                 # 路由配置 (动态路由)
 │   └── index.ts
@@ -23,7 +24,8 @@ src/
 │   ├── app.ts              # 应用全局状态 (设备检测、侧边栏)
 │   ├── permission.ts       # 权限/菜单
 │   └── user.ts             # 用户状态
-├── styles/                 # 全局样式 (tokens.scss 设计令牌, list.scss PC 列表公共, mobile-list.scss 移动端列表公共, menu.scss 侧边菜单)
+├── styles/                 # 全局样式 (tokens.scss 设计令牌, motion.scss 动画库, surface.scss 深度/玻璃层,
+│                           #           list.scss PC 列表公共, mobile-list.scss 移动端列表公共, menu.scss 侧边菜单)
 ├── types/                  # TypeScript 类型定义 (SearchParams, PageResult)
 ├── views/                  # PC 端页面 (openlist/, system/, monitor/, dashboard/)
 ├── views-mobile/           # 移动端页面 (对应 PC 端)
@@ -46,6 +48,8 @@ src/
 | 移动端组件 | `src/components/mobile/` | MobileListPage(外壳), MobileSearchPanel, MobileBatchBar, MobileActionSheet, MobilePager, FullTextDialog, MobileTabSettingsDialog |
 | 移动端外壳/导航 | `src/layouts/MobileLayout.vue` + `composables/useMobileTabs.ts` | 顶栏 / 抽屉 / 底部 tab，见下方「移动端外壳」 |
 | PWA 配置 | `vite.config.ts` | VitePWA 插件配置 |
+| 动效 / 深度 / 排版令牌 | `src/styles/tokens.scss` + `motion.scss` + `surface.scss` | 见下方「动效系统」「深度系统」「排版」 |
+| 图表配色 | `src/plugins/echartsTheme.ts` | `chartBase()` / `lineSeries()` / `barSeries()` / `chartEmptyOption()` |
 
 ## CONVENTIONS
 - **自动导入**: vite-plugin-vuetify (autoImport) + unplugin-auto-import + unplugin-vue-components，`vue`/`vue-router`/`pinia` 与 `v-*` 组件无需手动 import
@@ -57,11 +61,11 @@ src/
 - **移动端页面**: 弹窗统一 `width="92%"`（不要再写 85%/90%/94%，也不要用 `max-width` 传百分比）
 - **TypeScript**: 严格模式，`vue-tsc` 类型检查
 - **CSS 变量 / 设计令牌**: 见下方「DESIGN SYSTEM」一节
-- **暗色模式**: 顶栏 ThemeSwitch 切换 浅色/深色/跟随系统，`useThemeMode`（模块级单例）同步 Vuetify 主题 (osrLight/osrDark) 与 `<html data-theme>`，localStorage key `osr-theme` 持久化；切换时派发 `osr-theme-change` 事件供 ECharts 等 canvas 场景重绘（`osrCssVar()` 读取当前令牌值）
+- **暗色模式**: 顶栏 ThemeSwitch 切换 浅色/深色/跟随系统，`useThemeMode`（模块级单例）同步 Vuetify 主题 (osrLight/osrDark) 与 `<html data-theme>`，localStorage key `osr-theme` 持久化；切换时派发 `osr-theme-change` 事件供 ECharts 等 canvas 场景重绘（`osrCssVar()` 读取当前令牌值）；切换带**从点击位置扩开的圆形揭示**（View Transitions，见下方「动效系统」），调用方要把点击事件传给 `setMode(mode, event)`
 - **列表页公共样式**: PC 用 `styles/list.scss`，移动端用 `styles/mobile-list.scss`，**禁止在页面里复制这些类**；各页只保留特有子规则（见下方 DESIGN SYSTEM）
 - **PageHeader**: 每个业务页顶部都要有 `PageHeader`（图标+标题+描述+操作区），不要自造 page-header 样式
-- **页面切换不要包 `<transition>`**: 两个 Layout 里都刻意去掉了。在「`<KeepAlive>` 与裸 `<component>` 交替 + 页面组件异步加载」这个结构下，过渡类不会被清掉、离场过渡收不到结束事件，结果是每导航一次旧页面就留在新页面下方越堆越多（`mode="out-in"` / `:duration` 都压不住）。要重做切换动画需先解决异步组件的过渡时机
-- **Dashboard**: PC 统计卡用 `MiniTrend`（SVG sparkline，颜色走 `--osr-*` CSS 变量自动适配暗色）；快捷入口统一用 `useMenuLinks`（菜单树拍平，PC/移动共用，禁止写死路径）；PT 概览/失败列表/图表空态/骨架屏均在 `views/dashboard/desktop.vue` 内
+- **页面切换动画走 `usePageTransition`（WAAPI，只做入场不做离场），仍然不要包 `<transition>`**: 两个 Layout 里都刻意没有 `<transition>`——在「`<KeepAlive>` 与裸 `<component>` 交替 + 页面组件异步加载」这个结构下，过渡类不会被清掉、离场过渡收不到结束事件，每导航一次旧页面就留在新页面下方越堆越多（`mode="out-in"` / `:duration` 都压不住）。现在的做法见下方「动效系统」一节
+- **Dashboard**: PC 统计卡用 `MiniTrend`（SVG sparkline，颜色走 `--osr-*` CSS 变量自动适配暗色，折线带 `pathLength="1"` 的描边动画）；统计数字一律套 `AnimatedNumber`（rAF 滚动，自己解析 `85%` / `--` / `12 分钟` 这类混合形态）；快捷入口统一用 `useMenuLinks`（菜单树拍平，PC/移动共用，禁止写死路径）；PT 概览/失败列表/图表空态/骨架屏均在 `views/dashboard/desktop.vue` 内
 
 ## DESIGN SYSTEM
 
@@ -69,11 +73,135 @@ src/
 `src/styles/__tests__/design-system.spec.ts` 与 `src/router/__tests__/device-parity.spec.ts`
 会在 CI 里挡住违反这些约定的改动，改之前先看一眼这两个 spec。
 
+### 动效系统
+
+改造前全库 **0 个 `@keyframes`**、31 处 `transition` 全用 CSS 默认的 `ease`，
+没有 `prefers-reduced-motion`、没有 `cubic-bezier`。现在分三层，改之前先读完这节。
+
+**1. 令牌层（`tokens.scss`）：时长与曲线拆开。**
+旧的 `--osr-transition-fast/base` 把两者焊死在一个变量里，「快时长 + 弹性曲线」
+这类组合根本表达不出来。现在是 `--osr-dur-1..4` × `--osr-ease-out|in-out|spring`，
+旧的两个保留为别名（全站 31 处引用不必改写，换掉底层曲线后自动跟着升级）。
+**曲线只有三条，不要再加**：`ease-out`（expo-out，绝大多数场景）、`ease-in-out`
+（两端都在视口内的位移）、`ease-spring`（**只**用于确认类正反馈，用多了显廉价）。
+
+**`prefers-reduced-motion` 的降级做在令牌层**——把 4 个时长压到 `0.01ms`，
+新增动画自动受管。压时长而不是 `animation: none`：后者会让依赖 `animationend` /
+`transitionend` 收尾的逻辑永远收不到事件（`index.html` 的启动屏就是靠
+`transitionend` 摘节点的）。**因此动画里的时长一律写 `var(--osr-dur-*)`，不要写死 ms**，
+写死就绕过了这层。真正需要写死秒数的持续型装饰动画（登录页的极光漂移、logo 呼吸）
+要自己补一条 `@media (prefers-reduced-motion: reduce) { animation: none }`。
+
+**2. 动画库（`motion.scss`）：全站唯一的 `@keyframes` 定义处。**
+入场 `osr-fade-up/fade-in/scale-in`、持续态 `osr-shimmer/pulse-dot/pulse-ring/sweep`、
+SVG 描边 `osr-draw-line`。**动画只做 transform / opacity / filter / clip-path**
+（唯一例外是 `stroke-dashoffset`，它本身走合成层）——动 width/height/box-shadow
+会触发布局或重绘，在这个动辄几百行的列表系统里一次入场就是几百次重排。
+
+错位入场用 `.osr-enter` + 每个子项 `:style="{ '--osr-i': index }"`。
+步长 40ms 是量出来的（低于 30ms 读成「一起出现」，高于 60ms 时一屏 12 张卡
+最后一张要等 720ms）；**延迟用 `min(var(--osr-i), 8)` 封顶**，不封顶的话
+100 项列表的最后一项要等 4 秒，那已经不是动效是故障。
+`--osr-i` 的默认值 0 登记在 `tokens.scss`（`design-system.spec.ts` 会校验
+全站 `var(--osr-*)` 都有定义，这条契约不靠测试白名单绕过）。
+
+**3. 页面转场：`composables/usePageTransition.ts`，只做入场、不做离场。**
+没有离场就没有「等旧元素动画结束再移除」这件事，上面那个死结的成因整个不存在。
+用 `element.animate()`（WAAPI）而不是 CSS class：**播完自动回到原样式，
+不留任何需要清理的类名或内联样式**——这正是上一版 CSS 过渡出问题的地方；
+它还天然兼容 KeepAlive（动画挂在**容器**上，与里面的组件是否从缓存恢复无关，
+挂在页面组件根节点上的话 keep-alive 命中时不重新挂载、动画根本不重放）。
+时机是 `router.afterEach` + 一个 `nextTick`：vue-router 在导航过程中已经
+await 过异步组件的 import，此时 chunk 已到位。
+
+**刻意没有给导航用 View Transitions**，尽管它看起来正好能绕开那个死结：
+`startViewTransition` 抓「新」快照的时机比上面早，本项目页面组件是异步加载的，
+首次进入某页时那一刻 chunk 还没到、router-view 还是空的，转场会把**空白**
+当成新页面淡进来。
+
+**4. 主题切换的圆形揭示（`useThemeMode`）用的才是 View Transitions。**
+它不涉及导航，回调里 `await nextTick()` 就能保证新快照完整；而「同一时刻同时
+呈现新旧两套主题」除了截图没有别的做法。三个前提任一不满足就退回瞬间切换：
+浏览器不支持、用户开了减少动效、**拿不到点击坐标**（键盘触发的 click 也算——
+浏览器照样派发 MouseEvent 但 `clientX/Y` 全是 0，判据用 `detail === 0`）。
+`motion.scss` 里 `html.osr-theme-transition` 那段负责关掉浏览器默认的 cross-fade
+并把旧快照钉在下层**保持不透明**——旧的一层一淡出就会透出底色，圆环外围会先白一下。
+
+**5. 进行态要看得出来**：`StatusChip` 的 `pulse` 属性给文案前加一个呼吸圆点，
+**只给真正还在推进的状态**（下载中 / 处理中 / 上传中），稳态（已推送 / 保种中）不要挂；
+进度条加 `.osr-progress--active` 得到流动高光。这个系统里任务动辄跑几十分钟，
+「还在跑」和「卡住了」是用户最需要区分的两件事，改造前两者形态完全一样。
+它是显式开关而不是按文案自动推断——挂满了就等于没有强调。
+
+### 深度系统（`surface.scss`）
+
+**浅色与暗色的分层手段是两件不同的事，不是同一组阴影调深浅。**
+浅色靠投影，三档都带一点 primary 色相（纯黑投影落在暖白底 `#F7F5F1` 上会发灰发脏）；
+**暗色下投影物理上看不见**——改造前 3 档暗色阴影只是把黑色 alpha 从 .06 加到 .4，
+实际等于没有，暗色界面全靠 1px 边框分层、因此是彻底扁平的。暗色的手段是
+**1px 亮环（`--osr-ring`）+ 顶部内高光（`--osr-highlight`）**，投影只作环境遮蔽。
+
+其余令牌：`--osr-glow-*`（辉光，**只给活跃/被强调的元素**，日常表面不挂）、
+`--osr-glass-bg` / `--osr-glass-blur`（顶栏/侧边栏/菜单/弹窗的玻璃层，
+`saturate` 不能省——只做 blur 会让透上来的内容发灰）、`--osr-ambient`
+（铺在 `.v-application::before` 上的环境光，用伪元素是因为 Vuetify 会重写
+`.v-application` 的 background、写在上面会被盖掉）。
+
+`surface.scss` 全是**对 Vuetify 内部节点的覆盖**，与 `list.scss` 那种「本项目自己的类」
+不是一回事，所以单独一个文件。特异性靠 `.v-application` 前缀 + 后加载顺序，
+**不要用 `!important`**——那会连页面自己的 scoped 覆盖一起挡掉。
+
+### 排版
+
+- **等宽字体栈单源在 `--osr-font-mono`**（JetBrains Mono 变量字体，
+  `@fontsource-variable` 本地打包、**不引 CDN**：本项目是 Docker 自部署常跑内网，
+  外链字体的下场是每次首屏等一次超时）。改造前这个栈在 5 个文件里各写各的
+  （`'Courier New'` / `'Consolas','Monaco','Courier New'` / `Consolas,monospace` /
+  `monospace` / `'SF Mono','Courier New'`），同一个日志终端在 Mac 与 Windows 上
+  落到的字体宽度不同、路径对照会错位。引的是含全部子集的 `index.css`，
+  每个 `@font-face` 带 `unicode-range`，中文内容不会触发下载（实测只拉 latin 那 40KB）。
+- **`font-variant-numeric: tabular-nums` 开在 `html, body` 上**。这是个满屏是数字的系统
+  （体积/集号/耗时/成功率/做种数），比例数字会让计数在 999 → 1000 时左右抖动。
+- 工具类 `.osr-mono` / `.osr-numeric`（`index.scss`）用于路径、哈希、日志这类机器产物。
+  **PC 的 `.path-text`（目录路径）已挂等宽字体，`.path-name`（文件名）刻意没挂**——
+  文件名多半是中文剧名，等宽对 CJK 字形没有实际作用，只会让同一行出现两种数字宽度。
+  移动端的 `.card-path-text` 是路径+文件名合并展示的，同理不挂。
+- 字号阶梯 `--osr-fs-xs..3xl`。改造前全站散落着 11/12/13/14/15/17/18/20px 六七种字号，
+  同一层级的信息常常差 1px——差 1px 比差 3px 更糟，它不构成层级、只构成毛刺。
+
+### ECharts 主题（`plugins/echartsTheme.ts`）
+
+**每次 `setOption` 前调 `chartBase()`，不要把返回值缓存到模块级变量**——
+它读的是当前生效的 `--osr-*` 令牌，缓存下来等于把第一次渲染时的主题钉死了。
+系列用 `lineSeries()` / `barSeries()`，空态用 `chartEmptyOption()`。
+
+修掉的 bug：改造前 4 个图表页把系列色写成字面量 `'#B4690E'` / `'#3F8F5F'` / `'#C0362C'`，
+那是 **osrLight 的色板**。切到暗色时 `osr-theme-change` 触发重绘、坐标轴跟着换了，
+**折线颜色却没换**，图表里的琥珀与页面其余部分差着一整档明度，看起来像图表没刷新。
+
+**横向条形图（索引器命中率）要把 `base.xAxis` / `base.yAxis` 互换着取**：
+两条轴的角色与折线图相反，直接铺的话虚线网格会画在分类轴那一侧
+（每个索引器名字后面拖一条线），而数值轴反倒没有刻度参考。
+
+### 登录页
+
+全站唯一**不跟随明暗主题**的页面：固定的深色放映厅调性（极光 + 网格 + 暗角三层纯 CSS
+装饰 + 玻璃面板）。它是一个**时刻**而不是一个工作区。三条：
+- 卡片用 `<v-theme-provider theme="osrDark">` 包起来，**不要手写颜色覆盖**——
+  里面全是 Vuetify 组件，让它们自己按暗色主题渲染才不会漏掉聚焦态、错误态这些分支。
+- 极光层用 `inset: -20%` 溢出容器（免得模糊边缘露出硬边），靠 `.login-stage` 的
+  `overflow: hidden` 兜住。漏掉那条不报错，只会让手机上多一条横向滚动条，
+  `e2e/mobile.spec.ts` 的登录页用例钉住了这一点。
+- `blur` 放在极光**容器**上而不是每个色团上（三个子元素各自 blur 会开三个滤镜层）；
+  色值写死并已登记在 `design-system.spec.ts` 的 `ALLOW_LITERAL` 里——
+  它们不是语义色，是一幅画的配色。
+
 ### 颜色只有一个来源
 - **品牌色/表面色的唯一定义在 `plugins/vuetify.ts` 的 `osrLight` / `osrDark`。**
   `styles/tokens.scss` 里的 `--osr-primary` / `--osr-surface` / `--osr-success` … 都是
   `rgb(var(--v-theme-*))` 派生，不再抄第二份色值，暗色切换由 Vuetify 单点负责。
-- `tokens.scss` 的 `:root[data-theme='dark']` 块**只剩文字 / 边框 / 阴影**——这些 Vuetify 没有对应项。
+- `tokens.scss` 的 `:root[data-theme='dark']` 块只覆盖**Vuetify 没有对应项**的那些：文字 / 边框 /
+  深度（阴影·亮环·高光）/ 辉光 / 玻璃 / 环境光。品牌色与表面色不在此处。
 - primary 的层级用语义名，不要再用 Element Plus 那套 `light-1..9` 阶梯：
   `--osr-primary-subtle`（选中块背景）/ `--osr-primary-muted`（浅描边）/
   `--osr-primary-accent`（强调描边）/ `--osr-primary-hover`（hover 文字）

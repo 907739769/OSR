@@ -14,7 +14,15 @@ test.describe('Mobile Responsive', () => {
     await page.setViewportSize({ width: 375, height: 812 })
     await page.goto('/login')
     await expect(page).toHaveTitle(/登录/)
-    await expect(page.locator('.login-card')).toBeVisible()
+    await expect(page.locator('.login-panel')).toBeVisible()
+    // 登录页的背景舞台（极光 / 网格 / 暗角）是三层 position:absolute 的满屏装饰，
+    // 其中极光层刻意用 inset:-20% 溢出容器以免模糊边缘露出硬边 —— 靠 .login-stage
+    // 的 overflow:hidden 兜住。漏掉那一条不会报错，只会让手机上多出一条横向滚动条，
+    // 所以在这里钉住：装饰层不该把页面撑宽
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth
+    )
+    expect(overflow).toBeLessThanOrEqual(0)
   })
 
   test('should render the mobile dashboard, not the desktop one', async ({ page }) => {

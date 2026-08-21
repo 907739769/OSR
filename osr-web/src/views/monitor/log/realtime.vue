@@ -289,7 +289,7 @@ onUnmounted(() => {
   overflow-x: hidden;
   background-color: #1e1e1e;
   padding: 12px 16px;
-  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-family: var(--osr-font-mono);
   font-size: 13px;
   line-height: 1.6;
   white-space: pre-wrap;

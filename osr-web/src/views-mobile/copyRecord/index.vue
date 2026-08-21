@@ -123,7 +123,7 @@
             <v-icon class="card-title-icon" icon="mdi-file-multiple-outline" size="18" />
             <span class="card-title card-title--link" @click.stop="showFullText(record.copySrcFileName, '文件名')">{{ record.copySrcFileName }}</span>
           </div>
-          <StatusChip :type="getCopyStatusType(record.copyStatus)" :text="getCopyStatusText(record.copyStatus)" />
+          <StatusChip :type="getCopyStatusType(record.copyStatus)" :text="getCopyStatusText(record.copyStatus)" :pulse="record.copyStatus === '1'" />
         </div>
         <div class="card-path card-path--link" @click.stop="showFullText(record.copySrcPath, '源路径')">
           <v-icon class="card-path-icon" icon="mdi-map-marker-outline" size="14" />

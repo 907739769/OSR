@@ -1,0 +1,262 @@
+/* ============================================
+   OSR Surface & Depth
+
+   把 tokens.scss 的深度令牌应用到 Vuetify 的组件上。单独一个文件的理由：
+   这里全是**对第三方组件内部节点的覆盖**，与 list.scss / mobile-list.scss 那种
+   「本项目自己的类」不是一回事，混在一起以后没人分得清哪条能删。
+
+   特异性说明：main.ts 里 `plugins/vuetify`（含 vuetify/styles）先于
+   `styles/index.scss` 导入，所以同特异性时本文件后加载、稳定获胜。
+   凡是需要压过 Vuetify 的，都额外套一层 `.v-application`（0,2,0），
+   不用 !important —— 那会连页面自己的 scoped 覆盖一起挡掉。
+   ============================================ */
+
+/* ============================================
+   卡片
+
+   Vuetify 的 elevated 变体给的是 Material 那套纯黑三层投影，暗色下完全不可见
+   （黑影叠在 #141821 上没有对比度）。换成本项目的深度令牌：浅色是带色相的投影，
+   暗色是 1px 亮环 + 顶部内高光，两者在各自主题下都真的能把面板从底色里分出来。
+   ============================================ */
+.v-application {
+  .v-card {
+    /* 圆角已由 plugins/vuetify.ts 的 defaults 给（rounded: 'lg'），这里不重复 */
+    background-image: none;
+    transition:
+      box-shadow var(--osr-dur-2) var(--osr-ease-out),
+      transform var(--osr-dur-2) var(--osr-ease-out),
+      border-color var(--osr-dur-2) var(--osr-ease-out);
+  }
+
+  .v-card--variant-elevated {
+    box-shadow: var(--osr-shadow-base);
+  }
+
+  /* 弹窗里的卡片浮得更高，用最重的一档 */
+  .v-overlay__content > .v-card {
+    box-shadow: var(--osr-shadow-lg);
+  }
+}
+
+/* ============================================
+   Chrome 表面（顶栏 / 侧边栏 / 菜单 / 弹窗）
+
+   这几处是「浮在内容之上」的层，做成玻璃能让界面产生真实的前后关系 ——
+   改造前它们与内容区是同一个 surface 纯色，滚动时内容从顶栏「下方」经过
+   却毫无痕迹，读起来像两块拼在一起的色块而不是上下两层。
+   ============================================ */
+.v-application {
+  .v-app-bar.v-toolbar {
+    background: var(--osr-glass-bg);
+    backdrop-filter: var(--osr-glass-blur);
+    -webkit-backdrop-filter: var(--osr-glass-blur);
+    border-bottom: 1px solid var(--osr-glass-border);
+    box-shadow: none;
+  }
+
+  .v-navigation-drawer {
+    background: var(--osr-glass-bg);
+    backdrop-filter: var(--osr-glass-blur);
+    -webkit-backdrop-filter: var(--osr-glass-blur);
+    border-color: var(--osr-glass-border);
+  }
+
+  /* 下拉菜单 / 自动补全面板 */
+  .v-menu > .v-overlay__content,
+  .v-overlay__content > .v-list {
+    background: var(--osr-glass-bg);
+    backdrop-filter: var(--osr-glass-blur);
+    -webkit-backdrop-filter: var(--osr-glass-blur);
+    box-shadow: var(--osr-shadow-lg);
+  }
+
+  /* 遮罩加一点点模糊。纯黑半透明遮罩下，背景内容仍然清晰可读，
+     眼睛会不自觉地去读它；一点模糊就能把注意力真正交给弹窗。
+     3px 是刻意保守的值 —— 再大就开始有「毛玻璃特效」的廉价感，
+     而且全屏 backdrop-filter 的代价随半径快速上涨。 */
+  .v-overlay__scrim {
+    backdrop-filter: blur(3px);
+    -webkit-backdrop-filter: blur(3px);
+  }
+}
+
+/* ============================================
+   按钮
+
+   Vuetify 自带 ripple，但没有「按下去」的形变反馈。
+   scale(.97) 配 spring 曲线是全站唯一用弹性曲线的地方 ——
+   确认类正反馈是它该在的位置，用多了就廉价。
+   ============================================ */
+.v-application {
+  .v-btn {
+    transition:
+      transform var(--osr-dur-1) var(--osr-ease-spring),
+      box-shadow var(--osr-dur-2) var(--osr-ease-out),
+      background-color var(--osr-dur-1) var(--osr-ease-out),
+      opacity var(--osr-dur-1) var(--osr-ease-out);
+  }
+
+  /* :not(--disabled) 是必须的：禁用按钮跟着回弹会读成「点到了」，
+     而它恰恰是想告诉用户「点不了」 */
+  .v-btn:not(.v-btn--disabled):active {
+    transform: scale(0.97);
+  }
+
+  /* 主按钮挂辉光。只给 flat/elevated 的实心主按钮，
+     text / outlined 是次要动作，挂上去就没有主次了 */
+  .v-btn--variant-flat.text-primary,
+  .v-btn--variant-flat.bg-primary,
+  .v-btn.v-btn--variant-flat[class*='primary'] {
+    box-shadow: var(--osr-shadow-base);
+
+    &:hover {
+      box-shadow: var(--osr-shadow-base), var(--osr-glow-primary);
+    }
+  }
+}
+
+/* ============================================
+   输入框：聚焦时的辉光
+
+   Vuetify 聚焦态只把 1px 边框换成 2px 主题色。在信息密集的搜索区里
+   （一行四五个字段），这个变化小到经常看不出焦点在哪一个上。
+   ============================================ */
+.v-application {
+  .v-field {
+    transition: box-shadow var(--osr-dur-2) var(--osr-ease-out);
+  }
+
+  .v-field--focused {
+    box-shadow: 0 0 0 3px rgba(var(--v-theme-primary), 0.12);
+  }
+
+  /* 错误态同理，用 error 色 */
+  .v-field--error.v-field--focused {
+    box-shadow: 0 0 0 3px rgba(var(--v-theme-error), 0.14);
+  }
+}
+
+/* ============================================
+   骨架屏：扫光
+
+   Vuetify 默认是整块 opacity 脉冲，读起来像「这块坏了在闪」；
+   扫光有方向，读起来是「正在填充」。
+   ============================================ */
+.v-application {
+  .v-skeleton-loader__bone::after {
+    animation: none; /* 关掉 Vuetify 自带的脉冲，换成下面的扫光 */
+  }
+
+  .v-skeleton-loader__bone {
+    position: relative;
+    overflow: hidden;
+
+    &::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      /* 关键：动的是 transform 不是 background-position。
+         后者每帧都要重新光栅化整个渐变，长列表骨架屏下会明显掉帧 */
+      background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(var(--v-theme-on-surface), 0.07),
+        transparent
+      );
+      animation: osr-shimmer 1.4s var(--osr-ease-in-out) infinite;
+    }
+  }
+}
+
+/* ============================================
+   进度条：进行态的流动高光
+
+   区分「进度停在 60%」与「正在推进中的 60%」—— 这个系统里到处是长耗时任务，
+   卡住和正在跑长得一样是实打实的可用性问题，不只是装饰。
+   挂 .osr-progress--active 才生效，静止的进度条保持干净。
+   ============================================ */
+.v-application {
+  .v-progress-linear__determinate {
+    transition: width var(--osr-dur-3) var(--osr-ease-out);
+  }
+
+  .osr-progress--active .v-progress-linear__determinate,
+  .osr-progress--active.v-progress-linear .v-progress-linear__determinate {
+    position: relative;
+    overflow: hidden;
+
+    &::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      width: 40%;
+      background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+      animation: osr-sweep 1.6s var(--osr-ease-in-out) infinite;
+    }
+  }
+}
+
+/* ============================================
+   表格行
+
+   hover 从「换个背景色」升级成「左侧 2px 主题色标记条 + 背景」。
+   纯背景色变化在暗色下几乎看不见（可用的明度差本来就窄），
+   一条实心色带则在两个主题下都成立。
+
+   用 box-shadow 的 inset 画这条带子而不是 border-left：
+   border 会改变盒模型、把整行内容推右 2px，hover 时文字会抖。
+   ============================================ */
+.v-application {
+  .modern-table .v-data-table__tr {
+    transition:
+      background-color var(--osr-dur-1) var(--osr-ease-out),
+      box-shadow var(--osr-dur-1) var(--osr-ease-out);
+
+    &:hover > td:first-child {
+      box-shadow: inset 2px 0 0 0 rgb(var(--v-theme-primary));
+    }
+  }
+}
+
+/* ============================================
+   Tabs：指示条跟随
+
+   Vuetify 的 slider 默认是 2px 直角实心条，换成带圆角 + 辉光的胶囊。
+   ============================================ */
+.v-application {
+  .v-tab__slider {
+    height: 2px;
+    border-radius: 999px;
+    box-shadow: var(--osr-glow-primary);
+  }
+}
+
+/* ============================================
+   状态徽章上的「进行中」呼吸点
+
+   由 components/StatusChip.vue 在 pulse 模式下挂 .osr-chip-pulse。
+   改造前进行态（下载中 / 运行中 / 上传中）与终态（已完成 / 失败）
+   在形态上完全一样，扫一眼分不出哪些还在跑。
+   ============================================ */
+.osr-pulse-dot {
+  position: relative;
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: osr-pulse-dot 1.6s var(--osr-ease-in-out) infinite;
+  flex-shrink: 0;
+
+  /* 外扩光环。放在伪元素上，与圆点本身的呼吸各跑各的，
+     两条动画叠加出的节奏比单一缩放更像「心跳」而不是「闪烁」 */
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    background: currentColor;
+    animation: osr-pulse-ring 1.6s var(--osr-ease-out) infinite;
+  }
+}

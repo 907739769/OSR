@@ -372,7 +372,7 @@ watch(logOpen, (open) => {
   padding: 12px;
   background: rgba(var(--v-theme-error), 0.08);
   border-radius: var(--osr-radius-sm);
-  font-family: 'Courier New', monospace;
+  font-family: var(--osr-font-mono);
   font-size: 12px;
   line-height: 1.5;
   white-space: pre-wrap;

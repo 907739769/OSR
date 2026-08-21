@@ -235,7 +235,7 @@ const displayValue = (config: SysConfig): string => {
       }
 
       .config-item__key {
-        font-family: 'SF Mono', 'Courier New', monospace;
+        font-family: var(--osr-font-mono);
         font-size: 11px;
         color: var(--osr-text-placeholder);
         background: var(--osr-bg-page);
@@ -286,7 +286,7 @@ const displayValue = (config: SysConfig): string => {
 
     .value-text {
       flex: 1;
-      font-family: 'SF Mono', 'Courier New', monospace;
+      font-family: var(--osr-font-mono);
       font-size: 13px;
       color: var(--osr-text-regular);
       line-height: 1.6;

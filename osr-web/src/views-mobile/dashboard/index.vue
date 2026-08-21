@@ -17,16 +17,17 @@
     <v-progress-linear v-if="loading" indeterminate color="primary" />
     <div class="stats-grid">
       <div
-        v-for="stat in statCards"
+        v-for="(stat, index) in statCards"
         :key="stat.label"
-        class="stat-card"
+        class="stat-card osr-enter"
         :class="[stat.type, { clickable: !!stat.path }]"
+        :style="{ '--osr-i': index }"
         @click="stat.path && router.push(stat.path)"
       >
         <div class="stat-icon">
           <v-icon :icon="stat.icon" />
         </div>
-        <div class="stat-value">{{ stat.value }}</div>
+        <div class="stat-value"><AnimatedNumber :value="stat.value" /></div>
         <div class="stat-label">{{ stat.label }}</div>
       </div>
     </div>
@@ -37,16 +38,17 @@
       <v-progress-linear v-if="todayLoading" indeterminate color="primary" />
       <div class="stats-grid">
         <div
-          v-for="stat in todayStatCards"
+          v-for="(stat, index) in todayStatCards"
           :key="stat.label"
-          class="stat-card"
+          class="stat-card osr-enter"
           :class="[stat.type, { clickable: !!stat.path }]"
+          :style="{ '--osr-i': index }"
           @click="stat.path && router.push(stat.path)"
         >
           <div class="stat-icon">
             <v-icon :icon="stat.icon" />
           </div>
-          <div class="stat-value">{{ stat.value }}</div>
+          <div class="stat-value"><AnimatedNumber :value="stat.value" /></div>
           <div class="stat-label">{{ stat.label }}</div>
         </div>
       </div>
@@ -78,6 +80,7 @@ import { getDashboardStatsApi, getCopyStatsApi, getStrmStatsApi, getRenameStatsA
 import { getHitokotoApi } from '@/api/openlist/hitokoto'
 import { useMenuLinks } from '@/composables/useMenuLinks'
 import { getRoutePathForComponent } from '@/router'
+import AnimatedNumber from '@/components/AnimatedNumber.vue'
 
 interface StatCard {
   label: string

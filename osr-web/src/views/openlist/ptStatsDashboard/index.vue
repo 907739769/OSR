@@ -18,12 +18,12 @@
 
     <v-row class="stat-row">
       <v-col cols="12" md="4" v-for="(stat, index) in statCards" :key="index">
-        <v-card class="stat-card" :class="stat.type">
+        <v-card class="stat-card osr-enter" :class="stat.type" :style="{ '--osr-i': index }">
           <div class="stat-icon">
             <v-icon :icon="stat.icon" size="28" />
           </div>
           <div class="stat-info">
-            <div class="stat-value">{{ stat.value }}</div>
+            <div class="stat-value"><AnimatedNumber :value="stat.value" /></div>
             <div class="stat-label">{{ stat.label }}</div>
           </div>
         </v-card>
@@ -124,8 +124,10 @@
 
 <script setup lang="ts">
 import PageHeader from '@/components/PageHeader.vue'
+import AnimatedNumber from '@/components/AnimatedNumber.vue'
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { osrCssVar } from '@/composables/useThemeMode'
+import { barSeries, chartBase, chartEmptyOption, lineSeries } from '@/plugins/echartsTheme'
 // 按需引入：本页只用到 line/bar/pie，避免全量引入 echarts 拖大打包体积
 import * as echarts from 'echarts/core'
 import { LineChart, BarChart, PieChart } from 'echarts/charts'
@@ -196,8 +198,9 @@ function getFailReasonColor(name: string): string {
     : defaultColors[(Object.keys(failReasonColorMap).length + idx) % defaultColors.length]
 }
 
+/** 空态转发到统一实现（plugins/echartsTheme），本页四个图表共用这一个调用点 */
 function emptyOption(text: string) {
-  return { title: { text, left: 'center', top: 'center', textStyle: { fontSize: 14, color: osrCssVar('--osr-text-placeholder') || '#94a3b8' } }, series: [] }
+  return chartEmptyOption(text)
 }
 
 async function loadOverview() {
@@ -232,16 +235,16 @@ async function loadTrend() {
       trendChart.setOption(emptyOption('暂无数据'), true)
       return
     }
+    const base = chartBase()
     trendChart.setOption({
-      tooltip: { trigger: 'axis' },
-      legend: { data: ['推送', '完成', '失败'], top: 0, textStyle: { color: osrCssVar('--osr-text-secondary') } },
-      grid: { left: 40, right: 20, top: 40, bottom: 30 },
-      xAxis: { type: 'category', data: data.map(p => p.date), axisLabel: { color: osrCssVar('--osr-text-secondary') } },
-      yAxis: { type: 'value', axisLabel: { color: osrCssVar('--osr-text-secondary') }, splitLine: { lineStyle: { color: osrCssVar('--osr-border-light') } } },
+      ...base,
+      legend: { ...base.legend, data: ['推送', '完成', '失败'], top: 0 },
+      grid: { ...base.grid, top: 40, bottom: 30 },
+      xAxis: { ...base.xAxis, data: data.map(p => p.date) },
       series: [
-        { name: '推送', type: 'line', data: data.map(p => p.pushedCount), itemStyle: { color: '#B4690E' } },
-        { name: '完成', type: 'line', data: data.map(p => p.completedCount), itemStyle: { color: '#3F8F5F' } },
-        { name: '失败', type: 'line', data: data.map(p => p.failedCount), itemStyle: { color: '#C0362C' } }
+        lineSeries({ name: '推送', data: data.map(p => p.pushedCount), tone: 'primary' }),
+        lineSeries({ name: '完成', data: data.map(p => p.completedCount), tone: 'success' }),
+        lineSeries({ name: '失败', data: data.map(p => p.failedCount), tone: 'error' })
       ]
     }, true)
   } catch (e) {
@@ -265,17 +268,20 @@ async function loadIndexerHitRate() {
       indexerChart.setOption(emptyOption('暂无数据'), true)
       return
     }
+    // 横向条形图：x/y 轴的角色与折线图相反，所以两条轴的样式要**互换着**取。
+    // 直接铺 base.xAxis / base.yAxis 的话，虚线网格会画在分类轴那一侧（每个索引器
+    // 名字后面拖一条线），而数值轴反倒没有刻度参考
+    const base = chartBase()
     indexerChart.setOption({
-      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-      legend: { data: ['通过', '淘汰'], top: 0, textStyle: { color: osrCssVar('--osr-text-secondary') } },
-      grid: { left: 100, right: 20, top: 40, bottom: 20 },
-      xAxis: { type: 'value', max: 100, axisLabel: { formatter: '{value}%', color: osrCssVar('--osr-text-secondary') }, splitLine: { lineStyle: { color: osrCssVar('--osr-border-light') } } },
-      yAxis: { type: 'category', data: withData.map(i => i.indexerName), axisLabel: { color: osrCssVar('--osr-text-secondary') } },
+      ...base,
+      tooltip: { ...base.tooltip, axisPointer: { type: 'shadow' } },
+      legend: { ...base.legend, data: ['通过', '淘汰'], top: 0 },
+      grid: { ...base.grid, left: 100, right: 20, top: 40, bottom: 20 },
+      xAxis: { ...base.yAxis, type: 'value', max: 100, axisLabel: { ...base.yAxis.axisLabel, formatter: '{value}%' } },
+      yAxis: { ...base.xAxis, type: 'category', data: withData.map(i => i.indexerName), splitLine: { show: false } },
       series: [
-        { name: '通过', type: 'bar', stack: 'total', itemStyle: { color: '#3F8F5F' },
-          data: withData.map(i => Math.round(i.hitRate * 1000) / 10) },
-        { name: '淘汰', type: 'bar', stack: 'total', itemStyle: { color: '#C0362C' },
-          data: withData.map(i => Math.round((1 - i.hitRate) * 1000) / 10) }
+        barSeries({ name: '通过', tone: 'success', stack: 'total', data: withData.map(i => Math.round(i.hitRate * 1000) / 10) }),
+        barSeries({ name: '淘汰', tone: 'error', stack: 'total', data: withData.map(i => Math.round((1 - i.hitRate) * 1000) / 10) })
       ]
     }, true)
   } catch (e) {
@@ -298,7 +304,7 @@ async function loadFailReasons() {
       return
     }
     failReasonChart.setOption({
-      tooltip: { trigger: 'item', formatter: '{b}: {c} ({d}%)' },
+      tooltip: { ...chartBase().tooltip, trigger: 'item', formatter: '{b}: {c} ({d}%)' },
       series: [{
         type: 'pie',
         radius: ['35%', '65%'],
@@ -338,7 +344,7 @@ async function loadRejectReasons() {
     // 而且这里要看的是"哪一条规则最能挡"的排序，柱状比扇形更好比较
     const sorted = [...data].sort((a, b) => a.count - b.count)
     rejectReasonChart.setOption({
-      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' }, formatter: '{b}: {c}' },
+      tooltip: { ...chartBase().tooltip, axisPointer: { type: 'shadow' }, formatter: '{b}: {c}' },
       grid: { left: 8, right: 24, top: 12, bottom: 8, containLabel: true },
       xAxis: { type: 'value', minInterval: 1 },
       yAxis: { type: 'category', data: sorted.map(i => i.reason), axisLabel: { fontSize: 11 } },

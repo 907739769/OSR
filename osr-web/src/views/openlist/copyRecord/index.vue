@@ -142,7 +142,7 @@
           </div>
         </template>
         <template #item.copyStatus="{ item }">
-          <StatusChip :type="getCopyStatusType(item.copyStatus)" :text="getCopyStatusText(item.copyStatus)" />
+          <StatusChip :type="getCopyStatusType(item.copyStatus)" :text="getCopyStatusText(item.copyStatus)" :pulse="item.copyStatus === '1'" />
         </template>
         <template #item.actions="{ item }">
           <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-refresh" @click="handleRetryOne(item)">

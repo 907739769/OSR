@@ -39,7 +39,7 @@
   </v-app-bar>
 
   <v-main>
-    <div class="mobile-content">
+    <div ref="contentRef" class="mobile-content">
       <!-- 同 DesktopLayout：原先的 <transition name="fade"> 既没有配套 CSS，
            又会让旧页面残留在新页面下方，这里一并去掉，原因见 DesktopLayout 的注释 -->
       <router-view v-slot="{ Component, route: currentRoute }">
@@ -87,6 +87,7 @@ import SidebarMenuItem from '@/components/SidebarMenuItem.vue'
 import MobileTabSettingsDialog from '@/components/mobile/MobileTabSettingsDialog.vue'
 import { useMobileTabs } from '@/composables/useMobileTabs'
 import ThemeSwitch from '@/components/ThemeSwitch.vue'
+import { usePageTransition } from '@/composables/usePageTransition'
 
 const route = useRoute()
 const router = useRouter()
@@ -101,6 +102,9 @@ const sidebarMenus = computed(() => userStore.routes.filter((r: any) => r.hidden
 // 因此不再需要维护折叠面板的展开态。原先那份 openedGroups 是 computed 绑到
 // v-list 的 :opened 上 —— 那是受控属性，用户手动展开的其它分组会在下一次路由
 // 变化时被重算强制收起，本身也是个 bug。
+
+// 页面切换的入场动画。与 PC 端共用同一个 composable，两端节奏一致
+const { contentRef } = usePageTransition()
 
 const pageTitle = computed(() => (route.meta?.title as string) || 'OSR')
 

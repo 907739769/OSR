@@ -7,6 +7,7 @@ export {}
 
 declare module 'vue' {
   export interface GlobalComponents {
+    AnimatedNumber: typeof import('./components/AnimatedNumber.vue')['default']
     AppUpdatePrompt: typeof import('./components/AppUpdatePrompt.vue')['default']
     ChangePasswordDialog: typeof import('./components/ChangePasswordDialog.vue')['default']
     DirectoryTreeSelect: typeof import('./components/DirectoryTreeSelect/index.vue')['default']

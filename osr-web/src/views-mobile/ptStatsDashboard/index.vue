@@ -83,6 +83,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { osrCssVar } from '@/composables/useThemeMode'
+import { barSeries, chartBase, chartEmptyOption, lineSeries } from '@/plugins/echartsTheme'
 import * as echarts from 'echarts/core'
 import { LineChart, BarChart, PieChart } from 'echarts/charts'
 import { TitleComponent, TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
@@ -138,7 +139,7 @@ function getFailReasonColor(name: string): string {
 }
 
 function emptyOption(text: string) {
-  return { title: { text, left: 'center', top: 'center', textStyle: { fontSize: 14, color: osrCssVar('--osr-text-placeholder') || '#94a3b8' } }, series: [] }
+  return chartEmptyOption(text)
 }
 
 async function loadOverview() {
@@ -166,16 +167,16 @@ async function loadTrend() {
       trendChart.setOption(emptyOption('暂无数据'), true)
       return
     }
+    const base = chartBase()
     trendChart.setOption({
-      tooltip: { trigger: 'axis' },
-      legend: { data: ['推送', '完成', '失败'], top: 0 },
-      grid: { left: 40, right: 20, top: 40, bottom: 30 },
-      xAxis: { type: 'category', data: data.map(p => p.date), axisLabel: { color: osrCssVar('--osr-text-secondary') } },
-      yAxis: { type: 'value', axisLabel: { color: osrCssVar('--osr-text-secondary') }, splitLine: { lineStyle: { color: osrCssVar('--osr-border-light') } } },
+      ...base,
+      legend: { ...base.legend, data: ['推送', '完成', '失败'], top: 0 },
+      grid: { ...base.grid, top: 40, bottom: 30 },
+      xAxis: { ...base.xAxis, data: data.map(p => p.date) },
       series: [
-        { name: '推送', type: 'line', data: data.map(p => p.pushedCount), itemStyle: { color: '#B4690E' } },
-        { name: '完成', type: 'line', data: data.map(p => p.completedCount), itemStyle: { color: '#3F8F5F' } },
-        { name: '失败', type: 'line', data: data.map(p => p.failedCount), itemStyle: { color: '#C0362C' } }
+        lineSeries({ name: '推送', data: data.map(p => p.pushedCount), tone: 'primary' }),
+        lineSeries({ name: '完成', data: data.map(p => p.completedCount), tone: 'success' }),
+        lineSeries({ name: '失败', data: data.map(p => p.failedCount), tone: 'error' })
       ]
     }, true)
   } catch (e) {
@@ -195,17 +196,20 @@ async function loadIndexerHitRate() {
       indexerChart.setOption(emptyOption('暂无数据'), true)
       return
     }
+    // 横向条形图：两条轴的角色与折线图相反，样式要互换着取（同 PC 端注释）
+    const base = chartBase()
     indexerChart.setOption({
-      tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
-      legend: { data: ['通过', '淘汰'], top: 0 },
+      ...base,
+      tooltip: { ...base.tooltip, axisPointer: { type: 'shadow' } },
+      legend: { ...base.legend, data: ['通过', '淘汰'], top: 0 },
       grid: { left: 100, right: 20, top: 40, bottom: 20 },
-      xAxis: { type: 'value', max: 100, axisLabel: { formatter: '{value}%', color: osrCssVar('--osr-text-secondary') }, splitLine: { lineStyle: { color: osrCssVar('--osr-border-light') } } },
-      yAxis: { type: 'category', data: withData.map(i => i.indexerName), axisLabel: { color: osrCssVar('--osr-text-secondary') } },
+      xAxis: { ...base.yAxis, type: 'value', max: 100, axisLabel: { ...base.yAxis.axisLabel, formatter: '{value}%' } },
+      yAxis: { ...base.xAxis, type: 'category', data: withData.map(i => i.indexerName), splitLine: { show: false } },
       series: [
-        { name: '通过', type: 'bar', stack: 'total', itemStyle: { color: '#3F8F5F' },
-          data: withData.map(i => Math.round(i.hitRate * 1000) / 10) },
-        { name: '淘汰', type: 'bar', stack: 'total', itemStyle: { color: '#C0362C' },
-          data: withData.map(i => Math.round((1 - i.hitRate) * 1000) / 10) }
+        barSeries({ name: '通过', tone: 'success', stack: 'total',
+          data: withData.map(i => Math.round(i.hitRate * 1000) / 10) }),
+        barSeries({ name: '淘汰', tone: 'error', stack: 'total',
+          data: withData.map(i => Math.round((1 - i.hitRate) * 1000) / 10) })
       ]
     }, true)
   } catch (e) {

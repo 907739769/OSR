@@ -414,7 +414,7 @@ const episodeRule = (v: string) => !v || /^\d{1,4}$/.test(v) || '集为 1-4 位�
 }
 
 .purge-item {
-  font-family: monospace;
+  font-family: var(--osr-font-mono);
   font-size: 11px;
   line-height: 1.7;
   color: var(--osr-text-secondary);

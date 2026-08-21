@@ -265,9 +265,14 @@
   white-space: nowrap;
 }
 
+/* 目录路径走等宽字体。这里是机器产物（斜杠、盘符、层级），与人写的中文文件名
+   不是同一类信息，字体上分开之后扫视时能直接跳过路径去看文件名。
+   刻意**不给 .path-name**：文件名在这个系统里多半是中文剧名，等宽字体对
+   中日韩字形没有实际作用，只会让同一行里出现两种数字宽度。 */
 .path-text {
   flex: 1;
   min-width: 0;
+  font-family: var(--osr-font-mono);
   font-size: 12px;
   color: var(--osr-text-primary);
   overflow: hidden;

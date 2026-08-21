@@ -250,7 +250,7 @@ getList()
    Page Header
    ============================================ */
 .dict-type-code {
-  font-family: 'SF Mono', 'Courier New', monospace;
+  font-family: var(--osr-font-mono);
   font-size: 12px;
   color: var(--osr-primary);
   background: var(--osr-primary-subtle);

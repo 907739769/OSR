@@ -192,7 +192,7 @@ const insertVariable = (varName: string) => {
   margin-top: 12px;
 
   .preview-text {
-    font-family: Consolas, monospace;
+    font-family: var(--osr-font-mono);
     word-break: break-all;
     white-space: pre-wrap;
   }
@@ -202,7 +202,7 @@ const insertVariable = (varName: string) => {
   margin-top: 12px;
 
   .result-text {
-    font-family: Consolas, monospace;
+    font-family: var(--osr-font-mono);
     word-break: break-all;
     white-space: pre-wrap;
   }
@@ -231,7 +231,7 @@ const insertVariable = (varName: string) => {
   .info-key {
     font-size: 11px;
     color: var(--osr-text-secondary);
-    font-family: Consolas, monospace;
+    font-family: var(--osr-font-mono);
   }
 
   .info-value {

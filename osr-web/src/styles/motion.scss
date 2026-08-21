@@ -1,0 +1,180 @@
+/* ============================================
+   OSR Motion Library
+
+   全站唯一的 @keyframes 与入场工具类定义。改造前全库 0 个 @keyframes
+   （只有 index.html 启动屏里那一个），31 处 transition 全用 CSS 默认的 ease。
+
+   两条约定：
+   1. **时长一律用 --osr-dur-* 令牌**，不要写死 ms。
+      prefers-reduced-motion 的降级是在令牌层做的（tokens.scss 末尾把 4 个时长
+      压到 0.01ms），写死数值就绕过了那层，等于这个动画不受降级管辖。
+   2. **动画只做 transform / opacity / filter / clip-path**。
+      其余属性（width、height、top、box-shadow 的位移量）会触发布局或重绘，
+      在这个动辄几百行的列表系统里，一次列表入场就是几百次重排。
+      唯一的例外是 stroke-dashoffset（SVG 描边动画，本身走合成层）。
+   ============================================ */
+
+/* ---- 入场 ---- */
+
+@keyframes osr-fade-up {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes osr-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes osr-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---- 持续态 ---- */
+
+/* 骨架屏扫光。Vuetify 自带的 v-skeleton-loader 是整块脉冲明暗，
+   读起来像「这块坏了在闪」；扫光有方向，读起来是「正在填充」。 */
+@keyframes osr-shimmer {
+  from {
+    transform: translate3d(-100%, 0, 0);
+  }
+  to {
+    transform: translate3d(100%, 0, 0);
+  }
+}
+
+/* 进行态圆点的呼吸。用在 StatusChip 的「下载中 / 运行中 / 上传中」上 ——
+   改造前进行态和终态长得完全一样，扫一眼分不出哪些还在跑。 */
+@keyframes osr-pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.82);
+  }
+}
+
+/* 进行态圆点外扩的光环 */
+@keyframes osr-pulse-ring {
+  0% {
+    opacity: 0.55;
+    transform: scale(0.9);
+  }
+  70%,
+  100% {
+    opacity: 0;
+    transform: scale(2.4);
+  }
+}
+
+/* 进度条上流动的高光带：区分「进度停在 60%」与「正在推进中的 60%」 */
+@keyframes osr-sweep {
+  from {
+    transform: translate3d(-60%, 0, 0);
+  }
+  to {
+    transform: translate3d(260%, 0, 0);
+  }
+}
+
+/* SVG 折线描边。配合 stroke-dasharray = pathLength 使用 */
+@keyframes osr-draw-line {
+  from {
+    stroke-dashoffset: var(--osr-dash, 1000);
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* ============================================
+   入场工具类
+
+   用法：容器上 class="osr-enter"，需要错位时在每个子项上写
+   style="--osr-i: 3"（或 :style="{ '--osr-i': index }"）。
+
+   错位步长 40ms 是量出来的：低于 30ms 人眼读成「一起出现」，错位白做；
+   高于 60ms 时一屏 12 张卡最后一张要等 720ms，翻页会明显觉得慢。
+   上限用 min() 卡在 8 档（320ms）—— 列表可能有 100 项，
+   不封顶的话第 100 项要等 4 秒，那已经不是动效是故障。
+   ============================================ */
+.osr-enter {
+  animation: osr-fade-up var(--osr-dur-4) var(--osr-ease-out) both;
+  animation-delay: calc(min(var(--osr-i, 0), 8) * 40ms);
+}
+
+.osr-enter-fade {
+  animation: osr-fade-in var(--osr-dur-3) var(--osr-ease-out) both;
+  animation-delay: calc(min(var(--osr-i, 0), 8) * 40ms);
+}
+
+.osr-enter-scale {
+  animation: osr-scale-in var(--osr-dur-3) var(--osr-ease-out) both;
+  animation-delay: calc(min(var(--osr-i, 0), 8) * 40ms);
+}
+
+/* ============================================
+   View Transitions —— **只用于主题切换的圆形揭示**
+
+   这里刻意不给页面导航配 View Transitions，尽管它看起来正好能绕开知识库里
+   记的那个死结（<KeepAlive> 与裸 <component> 交替 + 异步页面组件时，
+   Vue 的过渡类不被清掉、旧页面越堆越多）。原因是它换来了另一个问题：
+   startViewTransition 在回调返回后立刻抓「新」快照，而本项目的页面组件是
+   异步加载的，首次进入某个页面时那一刻 chunk 还没到、router-view 还是空的，
+   于是转场会把「空白」当成新页面淡进来，页面本体反而是转场结束后才出现。
+   导航的入场动画因此改用 WAAPI 单向播放，见 composables/usePageTransition.ts。
+
+   主题切换没有这个问题：它不涉及导航，回调里 await 一次 nextTick 就能保证
+   新快照是完整的。而圆形揭示恰恰是 View Transitions 独有的能力 ——
+   要在同一时刻同时呈现新旧两套主题，除了截图没有别的做法。
+   ============================================ */
+
+/**
+ * 揭示动画本身由 useThemeMode 用 Element.animate() 驱动
+ * ::view-transition-new(root) 的 clip-path（需要点击坐标，CSS 里表达不了）。
+ * 这里负责把浏览器默认的 cross-fade **关掉**：两者同时作用在同一对快照上时，
+ * 新快照一边被 clip-path 裁剪、一边还在淡入，圆形边缘会跟着一起飘。
+ *
+ * 旧快照要钉在下层且**保持不透明** —— 圆形揭示的原理是「新的一层从一个点扩开、
+ * 盖住静止的旧的一层」，旧的一层一淡出就会透出底色，圆环外围会先白一下再变暗。
+ */
+html.osr-theme-transition {
+  &::view-transition-old(root),
+  &::view-transition-new(root) {
+    animation: none;
+    mix-blend-mode: normal;
+  }
+
+  &::view-transition-old(root) {
+    z-index: 0;
+  }
+
+  &::view-transition-new(root) {
+    z-index: 1;
+  }
+}
+
+/* 转场期间的快照层不该接收点击：那几百毫秒里用户点到的是一张图片 */
+::view-transition {
+  pointer-events: none;
+}

@@ -9,7 +9,11 @@
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-    <meta name="theme-color" content="#0d9488" />
+    <!-- PWA 的状态栏/地址栏配色。取 osrLight 的 primary（#B4690E）——
+         这里原先是 #0d9488（青色），那是换成「胶片琥珀」主题之前遗留的值，
+         于是安卓上把应用加到桌面后，系统栏是青色、应用内是琥珀色。
+         这个值不参与任何样式计算，改错了也不会有任何报错或告警。 -->
+    <meta name="theme-color" content="#B4690E" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="OpenList" />
