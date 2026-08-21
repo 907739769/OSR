@@ -112,6 +112,18 @@ docker compose up -d --build --no-deps backend
 ## NOTES
 - 打包镜像前需先 `mvn package` 生成 osr-admin.jar
 - **`Dockerfile.frontend` 不是多阶段构建，只是 `COPY osr-web/dist` 到 Nginx 镜像里**——它不会自己跑 `npm run build`，改了 `osr-web/` 代码后必须先手动 `cd osr-web && npm run build` 生成最新 `dist`，再 `docker compose up -d --build --no-deps frontend`，否则 `COPY osr-web/dist` 这层会命中 Docker 缓存，容器里跑的还是旧代码（构建日志里这行显示 `CACHED` 就是没生效的信号）
+- **`nginx.conf` 里 Service Worker 那条 location 的正则，三个分支都必须带 `\.js`**。原先写的是
+  `location ~* ^/(sw|registerSW|workbox-[^/]+\.js)$`——前两个分支少了扩展名，于是 `/sw.js` 与
+  `/registerSW.js` **根本不匹配这个块**，掉进下面的静态资源块被打上 `Cache-Control: no-store`，
+  也拿不到 `Service-Worker-Allowed`。`no-store` 意味着浏览器不保留旧脚本副本，而 PWA 判断
+  「要不要弹更新提示」靠的正是新旧 SW 脚本逐字节比对——这条断了，`AppUpdatePrompt` 那套
+  （`composables/useAppUpdate.ts`）就永远不会触发，用户只能靠手动清浏览器缓存才拿得到新版前端。
+  **这个 bug 极其隐蔽**：`/sw.js` 照样返回 200 和正确的 MIME，`curl` 看不出任何异常，
+  在页面里 `fetch('/sw.js')` 也能拿到内容。**判断有没有命中这个块，看响应头里有没有
+  `Service-Worker-Allowed` 最直接**：`curl -sI http://localhost/sw.js | grep -i service-worker-allowed`，
+  没有就是没命中。顺带：`/registerSW.js` 返回 404 是正常的——本项目用 `useRegisterSW`
+  （`virtual:pwa-register/vue`），注册代码打包进了应用，vite-plugin-pwa 不会单独产出这个文件，
+  那条规则只是防御性的。
 - 容器内 `/data` 目录挂载宿主机，存放 upload/logs/strm 文件
 - MySQL 默认数据库名 `osr`，连接信息通过 `.env` 注入
 - 数据库初始化由 `com.osr.common.mybatisplus.MysqlDdl` 自动执行（osr-common/src/main/resources/sql/）。**注意：`MysqlDdl.getSqlFiles()` 是硬编码的文件名清单，不是目录扫描**——新增 SQL 迁移脚本后必须手动把文件名追加到该方法返回的列表末尾，否则脚本只是静静躺在目录里，永远不会被执行
