@@ -103,8 +103,8 @@ class SearchLogServiceTest {
     }
 
     @Test
-    void 超出保留条数_清理最旧的记录() {
-        when(logService.count(any())).thenReturn(205L);
+    void 超出触发水位_清理最旧的记录() {
+        when(logService.count(any())).thenReturn(305L);
         PtSearchLogPlus stale1 = new PtSearchLogPlus();
         stale1.setId(1);
         PtSearchLogPlus stale2 = new PtSearchLogPlus();
@@ -114,6 +114,40 @@ class SearchLogServiceTest {
         service().recordSummary(10, 1, SearchLogService.SOURCE_RSS, "test");
 
         verify(logService).removeByIds(List.of(1, 2));
+    }
+
+    /**
+     * 清理是<b>攒批</b>触发的：超过保留条数(200)但没到触发水位(300)时一次库都不该查。
+     * <p>
+     * 这条钉的是本次改动的全部意义。prune 挂在每一次日志写入末尾，而补搜是逐集调
+     * recordSummary 的——退回"每超一条就删一条"的写法后，稳态下一季几十集就会打出几十次
+     * SELECT+DELETE，而<b>功能完全正常</b>，只有数据库请求数多了一个量级，
+     * 从任何现象上都看不出来。
+     * </p>
+     */
+    @Test
+    void 超出保留条数但未到触发水位_不清理也不查询() {
+        when(logService.count(any())).thenReturn(250L);
+
+        service().recordSummary(10, 1, SearchLogService.SOURCE_RSS, "test");
+
+        verify(logService, never()).list(any(Wrapper.class));
+        verify(logService, never()).removeByIds(any());
+    }
+
+    /** 清理时的投影只取 id，不把 torrent_title / reason 两个长文本列白读回来 */
+    @Test
+    void 清理时只查id列() {
+        when(logService.count(any())).thenReturn(305L);
+        PtSearchLogPlus stale = new PtSearchLogPlus();
+        stale.setId(1);
+        when(logService.list(any(Wrapper.class))).thenReturn(List.of(stale));
+
+        service().recordSummary(10, 1, SearchLogService.SOURCE_RSS, "test");
+
+        ArgumentCaptor<Wrapper<PtSearchLogPlus>> captor = ArgumentCaptor.forClass(Wrapper.class);
+        verify(logService).list(captor.capture());
+        assertEquals("id", captor.getValue().getSqlSelect());
     }
 
     @Test

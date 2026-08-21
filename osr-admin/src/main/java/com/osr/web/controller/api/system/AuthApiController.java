@@ -209,6 +209,12 @@ public class AuthApiController extends BaseController {
             if (user == null) {
                 return Result.error(401, "用户不存在");
             }
+            // 刷新令牌必须和访问令牌一起被改密作废。漏掉这里的话整条加固就等于没做：
+            // 攻击者手里那对令牌中，访问令牌确实用不了了，但他拿旧的刷新令牌换一对新的即可，
+            // 而新令牌的 iat 是"现在"、永远在水位线之后——改密码反而成了一次续期
+            if (jwtTokenUtil.isInvalidatedByPasswordChange(refreshToken, user.getPwdUpdateDate())) {
+                return Result.error(401, "密码已变更，请重新登录");
+            }
 
             Map<String, Object> claimsMap = new HashMap<>();
             claimsMap.put("loginName", loginName);
@@ -264,8 +270,14 @@ public class AuthApiController extends BaseController {
         } else {
             user.setPwdUpdateDate(DateUtils.getNowDate());
             user.setUserName(loginName);
+            // 用 BCrypt，与 changePassword 保持同一格式。
+            // 这里曾经写的是 encryptPassword（MD5(loginName+password+salt)，RuoYi 遗留方案），
+            // 于是每个新注册用户的密码强度都退回到那一版——而改过一次密码的老用户反倒是 BCrypt 的。
+            // matches() 仍保留 MD5 分支给存量行，但不该再产生新的 MD5 行。
+            // salt 照旧生成：BCrypt 自带盐、这一列对新用户已无用，但留着值比留空更省事——
+            // matches() 的 MD5 兜底分支拿它去拼串，null 会在那里抛 NPE 而不是干脆地不匹配。
             user.setSalt(generateSalt());
-            user.setPassword(encryptPassword(loginName, password, user.getSalt()));
+            user.setPassword(bcryptEncoder.encode(password));
             boolean regFlag = userService.registerUser(user);
             if (!regFlag) {
                 msg = "注册失败,请联系系统管理人员";
@@ -282,13 +294,9 @@ public class AuthApiController extends BaseController {
 
     @GetMapping("/info")
     public Result<Map<String, Object>> getUserInfo(@RequestHeader(value = "Authorization", required = false) String authHeader) {
-        String username = extractValidatedUsername(authHeader);
-        if (username == null) {
-            return Result.error(401, "未登录");
-        }
-        SysUser user = userService.selectUserByLoginName(username);
+        SysUser user = extractValidatedUser(authHeader);
         if (user == null) {
-            return Result.error(401, "用户不存在");
+            return Result.error(401, "未登录");
         }
         Map<String, Object> data = new HashMap<>();
         data.put("user", user);
@@ -299,11 +307,12 @@ public class AuthApiController extends BaseController {
 
     @GetMapping("/routers")
     public Result<List<Map<String, Object>>> getRouters(@RequestHeader(value = "Authorization", required = false) String authHeader) {
-        String username = extractValidatedUsername(authHeader);
-        if (username == null) {
+        // 顺带修掉一处：这里原先拿 username 又查一次库，查不到时直接把 null 交给
+        // selectMenusByUser，NPE 会以 500 的形式返回，而真实原因是"用户不存在"
+        SysUser user = extractValidatedUser(authHeader);
+        if (user == null) {
             return Result.error(401, "未登录");
         }
-        SysUser user = userService.selectUserByLoginName(username);
         List<SysMenu> menus = menuService.selectMenusByUser(user);
         List<Map<String, Object>> routerList = buildMenus(menus);
         return Result.success(routerList);
@@ -364,10 +373,22 @@ public class AuthApiController extends BaseController {
     }
 
     /**
-     * 从 Authorization 头中提取并验证用户名
-     * @return 用户名，如果 token 无效则返回 null
+     * 从 Authorization 头中提取并验证令牌，返回对应的用户。
+     * <p>
+     * 本类整体是 {@code @Anonymous}（登录/注册/刷新必须匿名可达），所以 {@code /info}、
+     * {@code /routers}、{@code /changePassword} 这几个<b>需要登录</b>的端点只能自己校验令牌，
+     * 走不到 {@code JwtAuthenticationFilter} 那条路——这也是改密失效那道判定必须在这里
+     * <b>再写一遍</b>的原因。两处的判据共用 {@link JwtTokenUtil#isInvalidatedByPasswordChange}，
+     * 不要在任一侧另写。
+     * </p>
+     * <p>
+     * 返回 {@code SysUser} 而不是用户名：三个调用方拿到用户名后本来都要再
+     * {@code selectUserByLoginName} 一次，这里查完直接给回去，数据库往返数不变。
+     * </p>
+     *
+     * @return 通过校验的用户；令牌缺失/无效/已被改密作废/用户不存在时返回 null
      */
-    private String extractValidatedUsername(String authHeader) {
+    private SysUser extractValidatedUser(String authHeader) {
         String token = stripBearer(authHeader);
         if (StringUtils.isEmpty(token)) {
             return null;
@@ -381,7 +402,11 @@ public class AuthApiController extends BaseController {
         if (StringUtils.isEmpty(username) || !jwtTokenUtil.isTokenValid(token, username)) {
             return null;
         }
-        return username;
+        SysUser user = userService.selectUserByLoginName(username);
+        if (user == null || jwtTokenUtil.isInvalidatedByPasswordChange(token, user.getPwdUpdateDate())) {
+            return null;
+        }
+        return user;
     }
 
     private String stripBearer(String authHeader) {
@@ -394,13 +419,9 @@ public class AuthApiController extends BaseController {
     @PostMapping("/changePassword")
     public Result<Void> changePassword(@RequestBody ChangePasswordRequest request,
                                         @RequestHeader(value = "Authorization", required = false) String authHeader) {
-        String username = extractValidatedUsername(authHeader);
-        if (username == null) {
-            return Result.error(401, "未登录");
-        }
-        SysUser user = userService.selectUserByLoginName(username);
+        SysUser user = extractValidatedUser(authHeader);
         if (user == null) {
-            return Result.error(401, "用户不存在");
+            return Result.error(401, "未登录");
         }
 
         if (!matches(user, request.getOldPassword())) {
@@ -410,6 +431,13 @@ public class AuthApiController extends BaseController {
         SysUser update = new SysUser();
         update.setUserId(user.getUserId());
         update.setPassword(bcryptEncoder.encode(request.getNewPassword()));
+        // 原样带回旧 salt：resetUserPwd 的 SQL 是无条件 `salt = #{salt}`，不传的话这一列被写成
+        // NULL，而 matches() 的 MD5 兜底分支会拿它去拼串。当前密码已是 BCrypt、走不到那条分支，
+        // 但留一个 NULL 在那儿等于给以后埋一个 NPE
+        update.setSalt(user.getSalt());
+        // resetUserPwd 的 SQL 里带着 `pwd_update_date = sysdate()`，
+        // 改密之后此前签发的全部令牌会被 isInvalidatedByPasswordChange 判为失效——
+        // 这正是"密码可能泄露了，赶紧改一个"想要的效果，也是这次改动的目的
         if (userService.resetUserPwd(update) > 0) {
             return Result.success();
         }

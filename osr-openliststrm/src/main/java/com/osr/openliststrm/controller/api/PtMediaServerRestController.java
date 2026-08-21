@@ -26,6 +26,15 @@ public class PtMediaServerRestController extends BaseCrudRestController<IPtMedia
     @Autowired
     private MediaServerClientFactory mediaServerClientFactory;
 
+    /**
+     * 媒体服务器配置存着 Emby/Jellyfin 的 API Key，且它是订阅「已入库」判定的唯一数据来源，
+     * 写操作限管理员。读仍放开——{@link #maskSensitiveFields} 已经把 apikey 抹掉了。
+     */
+    @Override
+    protected boolean adminOnlyWrite() {
+        return true;
+    }
+
     @Override
     protected void maskSensitiveFields(PtMediaServerPlus entity) {
         entity.setApiKey(null);
@@ -53,9 +62,17 @@ public class PtMediaServerRestController extends BaseCrudRestController<IPtMedia
 
     /**
      * 连通性测试。
+     * <p>
+     * 限管理员的理由与 {@code PtIndexerRestController#test} 相同：下面那段会把
+     * <b>已保存的 API Key</b> 填进来，再发往请求体里<b>调用方指定的</b> url。
+     * </p>
      */
     @PostMapping("/test")
     public Result<Void> test(@RequestBody PtMediaServerPlus entity) {
+        Result<Void> denied = denyIfNotAdmin();
+        if (denied != null) {
+            return denied;
+        }
         // 编辑已有媒体服务器时前端 API Key 框留空表示"沿用已保存的 API Key"，测试连接同样要用已保存的值
         if (StringUtils.isBlank(entity.getApiKey()) && entity.getId() != null) {
             PtMediaServerPlus existing = service.getById(entity.getId());

@@ -353,6 +353,19 @@ public class SysUser extends BaseEntity
         this.postIds = postIds;
     }
 
+    /**
+     * <b>刻意不输出 password 与 salt。</b>
+     * <p>
+     * 接口响应那一侧已经由 getter 上的 {@code @JsonIgnore} 挡住了，但 toString 是另一条出口：
+     * 任何一处 {@code log.debug("user: {}", user)} 都会把口令哈希连同盐一起写进
+     * {@code /data/logs/sys-debug.log}，而那个文件保留 7 天、明文、随容器一起被 docker cp 出来
+     * 排查问题。哈希不是明文，但它是离线爆破的输入，泄露它没有任何正当理由。
+     * </p>
+     * <p>
+     * 排查密码问题时想知道"库里存的是哪种格式"，看 {@code passwordFormat()} 就够了——
+     * 它只说 BCRYPT / MD5，不带出任何可用于爆破的材料。
+     * </p>
+     */
     @Override
     public String toString() {
         return new ToStringBuilder(this,ToStringStyle.MULTI_LINE_STYLE)
@@ -365,8 +378,7 @@ public class SysUser extends BaseEntity
             .append("phonenumber", getPhonenumber())
             .append("sex", getSex())
             .append("avatar", getAvatar())
-            .append("password", getPassword())
-            .append("salt", getSalt())
+            .append("passwordFormat", passwordFormat())
             .append("status", getStatus())
             .append("delFlag", getDelFlag())
             .append("loginIp", getLoginIp())
@@ -379,5 +391,22 @@ public class SysUser extends BaseEntity
             .append("dept", getDept())
 			.append("roles", getRoles())
             .toString();
+    }
+
+    /**
+     * 口令存储格式，仅供日志排查用：{@code BCRYPT} / {@code MD5} / {@code NONE}。
+     * <p>
+     * 判据与 {@code AuthApiController#matches} 的分支一致（BCrypt 哈希以 {@code $2a$}/{@code $2b$} 开头）。
+     * 这里<b>不能</b>返回哈希的任何片段——前几位就足以泄露算法参数与盐。
+     * </p>
+     */
+    @JsonIgnore
+    public String passwordFormat()
+    {
+        if (this.password == null || this.password.isEmpty())
+        {
+            return "NONE";
+        }
+        return (this.password.startsWith("$2a$") || this.password.startsWith("$2b$")) ? "BCRYPT" : "MD5";
     }
 }

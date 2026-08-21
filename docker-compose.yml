@@ -36,6 +36,12 @@ services:
       dockerfile: Dockerfile.backend
     container_name: osr-backend
     restart: always
+    # 内存上限。与 Dockerfile.backend 里的 JAVA_OPTS=-XX:MaxRAMPercentage=70 是一对：
+    # 没有这个上限时 JVM 看到的是宿主机全部内存，那个百分比就会算到一个离谱的堆上。
+    # 本项目常见的部署环境是 NAS，同机还跑着 Emby / qBittorrent，不设上限时一次大库遍历
+    # 就可能把内存吃到别的服务被 OOM Killer 挑走——而被杀的往往不是 OSR 自己。
+    # 内存紧张（2G 以下）或很大的库可以用 .env 里的 BACKEND_MEM_LIMIT 覆盖。
+    mem_limit: ${BACKEND_MEM_LIMIT:-2g}
     ports:
       - "6895:6895"
     env_file:

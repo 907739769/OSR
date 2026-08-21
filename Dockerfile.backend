@@ -9,4 +9,18 @@ RUN mkdir -p /data/upload /data/logs /data/strm && chmod -R 777 /data
 
 EXPOSE 6895
 
-ENTRYPOINT ["java", "--enable-preview", "--sun-misc-unsafe-memory-access=allow", "-Djava.security.egd=file:/dev/./urandom", "-jar", "/app/osr-admin.jar"]
+# 可调 JVM 参数。与下面 ENTRYPOINT 里那几个写死的分开，是因为那几个是「不能被关掉」的：
+# --enable-preview 关了就起不来（业务代码用了 Java 25 preview 特性）。
+#
+# MaxRAMPercentage 只在<容器设了内存上限>时才是对的——没有上限时 JVM 看到的是宿主机全部内存，
+# 70% 会比默认的 25% 更糟。所以 docker-compose.yml 里的 mem_limit 与这个值是一对，
+# 改一个要想到另一个；单独把镜像拿去别处跑时，记得要么给内存上限，要么把这里覆盖掉。
+#
+# 默认 25% 对本项目偏小：STRM 全量遍历会一次性把整棵目录树的文件条目收进内存
+# （StrmServiceImpl#getData 的两阶段处理），大库容易在那一步撞到堆上限。
+ENV JAVA_OPTS="-XX:MaxRAMPercentage=70.0"
+
+# 用 exec 形式而不是直接 shell 形式：exec 让 java 接管 PID 1，从而收得到 docker stop 的 SIGTERM。
+# 收不到的话 Spring 的关闭钩子不跑，logback 的 AsyncAppender 队列里没写完的日志会跟着丢——
+# 而那恰恰是关停前最后一段、排查问题时最想看的日志。
+ENTRYPOINT ["sh", "-c", "exec java --enable-preview --sun-misc-unsafe-memory-access=allow -Djava.security.egd=file:/dev/./urandom $JAVA_OPTS -jar /app/osr-admin.jar"]

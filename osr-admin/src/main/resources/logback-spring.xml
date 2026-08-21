@@ -18,9 +18,17 @@
             <pattern>${log.pattern}</pattern>
         </encoder>
 
-        <!-- 记录 DEBUG及以上 -->
-        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+        <!--
+            只收 DEBUG，不收 DEBUG 以上。
+            这里原本是 ThresholdFilter（DEBUG「及以上」），与上面那句「只含 DEBUG」的注释相矛盾，
+            实际后果是每条 INFO/WARN 同时写进 sys-debug.log 和 sys-info.log、每条 ERROR 写三份，
+            凭空多出一倍的磁盘写入，还让 sys-debug.log 更快滚掉——而它恰恰是排查时最想往回翻的那个。
+            两个文件的分工本来就该是互补而不是包含：要看全量按时间合着读即可。
+        -->
+        <filter class="ch.qos.logback.classic.filter.LevelFilter">
             <level>DEBUG</level>
+            <onMatch>ACCEPT</onMatch>
+            <onMismatch>DENY</onMismatch>
         </filter>
     </appender>
 
@@ -81,7 +89,41 @@
         </encoder>
     </appender>
 
-    <!-- 模块日志级别控制 -->
+    <!--
+        异步包装。
+        三个 RollingFileAppender 原先直接挂在 root 上，写盘发生在<调用线程>里，而
+        OutputStreamAppender 每次 append 都要拿同一把锁、且默认 immediateFlush=true 逐条刷盘。
+        本项目的热路径（STRM 遍历、索引器并发检索）是几十个虚拟线程同时跑的，它们会在这把锁上排队——
+        日志本身不慢，慢的是所有人挤在一个出口。
+
+        includeCallerData 保持默认 false：三个文件 appender 的 pattern 都不含 %method/%line
+        （dev profile 那个带行号的 pattern 是在这些 appender 定义之后才覆盖的，只对 console 生效），
+        开启它等于为没人读的信息付一次栈回溯。
+
+        discardingThreshold 分两档，这是这段配置里唯一需要想清楚的地方：
+        - debug 留默认（队列 80% 满时丢弃 INFO 及以下）。debug 洪水时丢 debug 正是想要的降级方向。
+        - info / error 设 0，一条都不丢，队列满了宁可阻塞调用线程。sys-error.log 是本项目排查
+          启动失败与线上异常的唯一依据（异常不进 stdout），在最需要它的时刻——出问题、日志量激增——
+          悄悄丢掉几条 ERROR，比慢一点糟得多。
+    -->
+    <appender name="async_debug" class="ch.qos.logback.classic.AsyncAppender">
+        <queueSize>2048</queueSize>
+        <appender-ref ref="file_debug" />
+    </appender>
+
+    <appender name="async_info" class="ch.qos.logback.classic.AsyncAppender">
+        <queueSize>1024</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+        <appender-ref ref="file_info" />
+    </appender>
+
+    <appender name="async_error" class="ch.qos.logback.classic.AsyncAppender">
+        <queueSize>512</queueSize>
+        <discardingThreshold>0</discardingThreshold>
+        <appender-ref ref="file_error" />
+    </appender>
+
+    <!-- 模块日志级别控制（级别的唯一来源就是这里，application.yml 不再配 logging.level.*） -->
     <logger name="com.osr" level="info" />
     <logger name="org.springframework" level="warn" />
     <logger name="org.apache" level="warn" />
@@ -90,9 +132,9 @@
 
     <!-- 系统日志输出 -->
     <root level="info">
-        <appender-ref ref="file_debug" />
-        <appender-ref ref="file_info" />
-        <appender-ref ref="file_error" />
+        <appender-ref ref="async_debug" />
+        <appender-ref ref="async_info" />
+        <appender-ref ref="async_error" />
     </root>
 
     <!-- 用户访问日志（独立 Logger，不进入 root） -->
@@ -116,11 +158,14 @@
         <logger name="org.apache" level="warn" />
         <logger name="com.osr.openliststrm" level="debug" />
 
-        <!-- root logger dev 环境 -->
+        <!--
+            root logger dev 环境。
+            这里必须引 async_* 而不是 file_*：外层的 <root> 已经把三个 async 挂上去了，
+            本块的 appender-ref 是「继续追加」而不是「替换」。再挂一遍底层的 file_* 会让
+            同一条日志同时经由 async 和直连两条路径写进同一个文件——每行都出现两次，
+            而 dev 恰恰是最常盯着日志看的环境。
+        -->
         <root level="info">
-            <appender-ref ref="file_debug" />
-            <appender-ref ref="file_error" />
-            <appender-ref ref="file_info"/>
             <appender-ref ref="console"/>
         </root>
     </springProfile>

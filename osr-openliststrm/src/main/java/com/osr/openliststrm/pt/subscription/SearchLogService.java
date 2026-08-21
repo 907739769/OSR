@@ -1,6 +1,7 @@
 package com.osr.openliststrm.pt.subscription;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.osr.openliststrm.mybatisplus.domain.PtSearchLogPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtSearchLogPlusService;
 import com.osr.openliststrm.pt.filter.RejectCode;
@@ -37,6 +38,13 @@ public class SearchLogService {
 
     /** 每个订阅最多保留的日志条数，超出的旧记录清理掉，避免无限增长 */
     private static final int RETENTION_PER_SUBSCRIPTION = 200;
+
+    /**
+     * 触发一次清理的水位。攒到这个数才跑 {@link #prune}，跑则一次削回
+     * {@link #RETENTION_PER_SUBSCRIPTION}——把「每次写入都清一条」摊薄成「每 100 次清一批」。
+     * 取 1.5 倍是个折中：再小则摊薄不明显，再大则单次删除的行数变多、那一次的耗时更容易被察觉。
+     */
+    private static final int PRUNE_TRIGGER = RETENTION_PER_SUBSCRIPTION * 3 / 2;
 
     /** 淘汰原因摘要里最多列举几类，够用户判断方向即可，完整明细逐条躺在表里 */
     private static final int SUMMARY_TOP_N = 3;
@@ -187,15 +195,37 @@ public class SearchLogService {
         }
     }
 
-    /** 保留策略：每个订阅只留最近 {@link #RETENTION_PER_SUBSCRIPTION} 条，超出的按 id 从旧到新删 */
+    /**
+     * 保留策略：每个订阅只留最近 {@link #RETENTION_PER_SUBSCRIPTION} 条，超出的按 id 从旧到新删。
+     * <p>
+     * <b>攒够 {@link #PRUNE_TRIGGER} 条才真正跑一次，跑则一次削到 {@code RETENTION}</b>，
+     * 而不是每超出一条就删一条。{@link #prune} 挂在<b>每一次</b>日志写入的末尾，而补搜是逐集调
+     * {@link #recordSummary} 的（一季几十集就是几十次），稳态下"删一条"这个路径会被走上几十遍，
+     * 每遍一次 SELECT 加一次 DELETE。改成攒批之后同样的一轮补搜最多触发一次清理，
+     * 请求数从「几十次」降到「0 或 1 次」，而磁盘上多留的那 100 条日志无关紧要。
+     * </p>
+     * <p>
+     * 保留上限因此实际是 {@code PRUNE_TRIGGER} 而不是 {@code RETENTION}——这是有意的，
+     * {@code RETENTION} 从来就是个"够用就行"的量，不是需要精确维持的配额。
+     * </p>
+     * <p>
+     * <b>投影只取 id，且必须用 {@code QueryWrapper} 传列名字符串</b>：这里要的只是主键，
+     * 原先拉的是整行（含 {@code torrent_title} 与 {@code reason} 两个长文本列），几百行白读。
+     * 不能改用 {@code LambdaQueryWrapper#select(PtSearchLogPlus::getId)}——那会立刻去解析
+     * MyBatis-Plus 的实体 lambda 缓存，而纯单测里直接 new 出本类时那份缓存还不存在，
+     * 会抛 {@code can not find lambda cache for this entity}（{@code eq}/{@code orderBy} 是惰性的
+     * 所以不炸，只有 {@code select} 会）。同样的坑在 {@code RenameOrphanScanServiceImpl} 记过一次。
+     * </p>
+     */
     private void prune(Integer subId) {
         long count = logService.count(new LambdaQueryWrapper<PtSearchLogPlus>().eq(PtSearchLogPlus::getSubId, subId));
-        if (count <= RETENTION_PER_SUBSCRIPTION) {
+        if (count <= PRUNE_TRIGGER) {
             return;
         }
-        List<PtSearchLogPlus> stale = logService.list(new LambdaQueryWrapper<PtSearchLogPlus>()
-                .eq(PtSearchLogPlus::getSubId, subId)
-                .orderByAsc(PtSearchLogPlus::getId)
+        List<PtSearchLogPlus> stale = logService.list(new QueryWrapper<PtSearchLogPlus>()
+                .select("id")
+                .eq("sub_id", subId)
+                .orderByAsc("id")
                 .last("limit " + (count - RETENTION_PER_SUBSCRIPTION)));
         if (!stale.isEmpty()) {
             logService.removeByIds(stale.stream().map(PtSearchLogPlus::getId).toList());

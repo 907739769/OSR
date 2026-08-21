@@ -3,9 +3,6 @@ package com.osr.openliststrm.pt.task;
 import com.osr.common.utils.Threads;
 import com.osr.common.utils.ThreadTraceIdUtil;
 import com.osr.common.utils.spring.SpringUtils;
-import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
-import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
-import com.osr.openliststrm.pt.subscription.SubscriptionService;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
@@ -17,7 +14,6 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -30,9 +26,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class LibrarySyncTask {
 
     @Autowired
-    private IPtSubscriptionPlusService subscriptionService;
-    @Autowired
-    private SubscriptionService subscriptionBiz;
+    private LibrarySyncService librarySyncService;
     @Autowired
     private StuckEpisodeSweepService stuckEpisodeSweepService;
 
@@ -60,14 +54,11 @@ public class LibrarySyncTask {
             return;
         }
         try {
-            // 只对有缺集的订阅执行对账，跳过全部已入库的 ACTIVE 订阅
-            List<PtSubscriptionPlus> active = subscriptionService.listActiveWithMissing();
-            for (PtSubscriptionPlus sub : active) {
-                try {
-                    subscriptionBiz.refresh(sub.getId());
-                } catch (Exception e) {
-                    log.warn("对账订阅[{}]失败：{}", sub.getId(), e.getMessage());
-                }
+            // 只对有缺集的订阅执行对账，跳过全部已入库的 ACTIVE 订阅。
+            // 订阅之间并发（见 LibrarySyncService 的并发度注释），refreshAll 会等齐才返回
+            int refreshed = librarySyncService.refreshAll();
+            if (refreshed > 0) {
+                log.debug("LibrarySyncTask 本轮对账 {} 条订阅", refreshed);
             }
             // 对账之后再清扫：这一轮刚被推进 IN_LIBRARY 的集不该再被当成卡死。
             // 清扫失败不能影响对账结果，单独兜一层异常

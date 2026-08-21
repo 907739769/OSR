@@ -41,6 +41,15 @@ public class PtTransferRuleRestController
     @Autowired
     private TorrentTransferService transferService;
 
+    /**
+     * 转移规则的写操作限管理员：转移的最后一步是<b>删源端种子</b>，而路径映射配错
+     * （本功能最常见的故障）会让目标端校验失败、整批种子在两边都不在做种。
+     */
+    @Override
+    protected boolean adminOnlyWrite() {
+        return true;
+    }
+
     @Override
     protected Wrapper<PtTransferRulePlus> buildQueryWrapper(PtTransferRulePlus entity) {
         LambdaQueryWrapper<PtTransferRulePlus> wrapper = new LambdaQueryWrapper<>();
@@ -82,6 +91,11 @@ public class PtTransferRuleRestController
      */
     @PostMapping("/run/{id}")
     public Result<TransferSummary> run(@PathVariable("id") Integer id) {
+        // 这个端点会真的搬种并删源端种子，比改规则本身更该限管理员
+        Result<TransferSummary> denied = denyIfNotAdmin();
+        if (denied != null) {
+            return denied;
+        }
         PtTransferRulePlus rule = service.getById(id);
         if (rule == null) {
             return Result.error("规则不存在");

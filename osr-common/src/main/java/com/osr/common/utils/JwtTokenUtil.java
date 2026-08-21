@@ -173,6 +173,63 @@ public class JwtTokenUtil
     }
 
     /**
+     * 从令牌中获取签发时间（{@code iat}）。
+     *
+     * @param token 令牌
+     * @return 签发时间；令牌没有该声明时返回 null
+     */
+    public Date getIssuedAtFromToken(String token)
+    {
+        return getClaimsFromToken(token).getIssuedAt();
+    }
+
+    /**
+     * 这个令牌是不是在用户最后一次改密码<b>之前</b>签发的——是的话它已经失效。
+     * <p>
+     * 无状态 JWT 没有"注销"这一说：签出去的令牌在过期前一直有效，改了密码也一样。
+     * 于是"我密码好像泄露了，赶紧改一个"这个动作<b>什么也挡不住</b>，拿着旧令牌的人
+     * 在令牌自然过期前照常访问——而这恰恰是用户改密码时唯一想达成的效果。
+     * 拿 {@code sys_user.pwd_update_date} 当水位线，比维护一张令牌黑名单便宜得多，
+     * 也不需要引入 Redis。
+     * </p>
+     * <p>
+     * <b>比较前把水位线向下取整到秒</b>：JWT 的 {@code iat} 只有秒精度（签发时是向下取整的），
+     * 而 {@code pwd_update_date} 带毫秒。不取整的话，同一秒内先签发、后改密码的令牌会被算成
+     * "早于水位线"而误杀——正常流程走不到，但登录接口在改密之后立刻签发新令牌的场景会踩上，
+     * 表现为"刚改完密码、刚登录成功，下一个请求就 401"，且重试一次又好了，极难复现。
+     * 代价只是同一秒内的令牌会被放过一次，可以忽略。
+     * </p>
+     *
+     * @param token          待检查的令牌
+     * @param pwdUpdateDate  用户最后一次改密时间；为 null（该用户从没改过密码）时一律不失效
+     * @return true 表示令牌应当被拒绝
+     */
+    public boolean isInvalidatedByPasswordChange(String token, Date pwdUpdateDate)
+    {
+        if (pwdUpdateDate == null)
+        {
+            return false;
+        }
+        try
+        {
+            Date issuedAt = getIssuedAtFromToken(token);
+            // 取不到 iat 的令牌不做判断：本项目签发的令牌一定带 iat（见 generateToken），
+            // 走到这里说明是别处签的，交给签名校验去否决，不在这里额外加一道
+            if (issuedAt == null)
+            {
+                return false;
+            }
+            long watermark = pwdUpdateDate.getTime() / 1000L * 1000L;
+            return issuedAt.getTime() < watermark;
+        }
+        catch (JwtException | IllegalArgumentException e)
+        {
+            // 解析不出来的令牌本来就无效，交给调用方的其余校验否决即可
+            return false;
+        }
+    }
+
+    /**
      * 从令牌中获取声明
      *
      * @param token 令牌

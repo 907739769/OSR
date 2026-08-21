@@ -40,6 +40,23 @@
             <artifactId>osr-openliststrm</artifactId>
         </dependency>
 
+        <!--
+            可观测性。此前排查只能 docker cp 出 /data/logs 再翻 sys-error.log——
+            后端异常不进 stdout，容器里连「堆用了多少、连接池还剩几个、GC 停了多久」都问不出来。
+            端点默认仍受 SecurityConfig 的 anyRequest().authenticated() 保护，
+            要给内网 Prometheus 抓取需显式设 ACTUATOR_ANONYMOUS=true，见 SecurityConfig。
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- Prometheus 抓取格式；不配 Prometheus 时它只是多一个不被访问的端点，无运行时开销 -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-registry-prometheus</artifactId>
+        </dependency>
+
         <!-- MyBatis-Plus Generator (仅 CodeGenerator.java 使用，不打包进运行时) -->
         <dependency>
             <groupId>com.baomidou</groupId>

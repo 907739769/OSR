@@ -1,5 +1,6 @@
 package com.osr.framework.security;
 
+import com.osr.common.core.domain.entity.SysUser;
 import com.osr.common.utils.JwtTokenUtil;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -46,7 +47,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             String username = jwtTokenUtil.getUsernameFromToken(token);
             if (username != null && SecurityContextHolder.getContext().getAuthentication() == null) {
                 UserDetails userDetails = userDetailsService.loadUserByUsername(username);
-                if (jwtTokenUtil.isTokenValid(token, username)) {
+                if (jwtTokenUtil.isTokenValid(token, username) && !invalidatedByPasswordChange(request, token)) {
                     UsernamePasswordAuthenticationToken authToken =
                             new UsernamePasswordAuthenticationToken(userDetails, null, userDetails.getAuthorities());
                     WebAuthenticationDetailsSource source = new WebAuthenticationDetailsSource();
@@ -58,5 +59,28 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             // Token malformed — proceed as unauthenticated
         }
         filterChain.doFilter(request, response);
+    }
+
+    /**
+     * 令牌是不是在该用户最后一次改密码之前签发的（是则拒绝，见
+     * {@link JwtTokenUtil#isInvalidatedByPasswordChange}）。
+     * <p>
+     * <b>刻意复用 {@code loadUserByUsername} 已经写进 request attribute 的那个 SysUser，
+     * 不再查一次库</b>：这是每个业务请求都要走的路径，多一次
+     * {@code select * from sys_user} 就是给整站所有接口加一次数据库往返。
+     * {@code SecurityUserDetailsService} 在返回前会写入 {@code currentUser}，
+     * 而本方法的唯一调用点排在它之后。
+     * </p>
+     * <p>
+     * 取不到那个属性时<b>放行</b>（返回 false）：它是可选的加固，不该因为上游没写进来
+     * 就把所有人挡在门外——那会是一次彻底的服务不可用，而它要防的是一个窗口期问题。
+     * </p>
+     */
+    private boolean invalidatedByPasswordChange(HttpServletRequest request, String token) {
+        Object attr = request.getAttribute("currentUser");
+        if (!(attr instanceof SysUser user)) {
+            return false;
+        }
+        return jwtTokenUtil.isInvalidatedByPasswordChange(token, user.getPwdUpdateDate());
     }
 }

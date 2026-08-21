@@ -48,6 +48,36 @@ public abstract class BaseCrudRestController<S extends IService<T>, T> extends B
     }
 
     /**
+     * 本控制器的<b>写操作</b>（add/edit/delete）是否仅管理员可用。默认 {@code false}。
+     * <p>
+     * 覆写返回 true 的应该是「系统级配置」——不属于任何用户、含第三方凭据、或改一下就影响
+     * 全局行为的那些（索引器、下载器、媒体服务器、删种与转移规则）。
+     * </p>
+     * <p>
+     * <b>只拦写、不拦读</b>是刻意的：这几个页面的 list/getById 要供前端渲染，而敏感字段已经被
+     * {@link #maskSensitiveFields} 抹掉了，读一眼不构成风险；把读也拦掉会让非管理员打开页面
+     * 看到一片空白加一个 403，而他多半只是想看看当前配了哪些索引器。
+     * </p>
+     * <p>
+     * <b>做成钩子而不是在子类上标 {@code @PreAuthorize}</b>：这三个端点是从本基类<b>继承</b>的，
+     * 注解要落到继承来的方法上依赖 Spring Security 对 targetClass 的解析细节，而这类机制一旦
+     * 没生效是<b>完全静默</b>的——接口照常 200，只有权限没了。本项目已经在
+     * 「{@code @EnableMethodSecurity} 没开、注解白写」上具备同款风险（见 SecurityConfig），
+     * 用一个返回 boolean 的钩子换来「一定会被执行」，值这个不够漂亮。
+     * </p>
+     */
+    protected boolean adminOnlyWrite()
+    {
+        return false;
+    }
+
+    /** 写操作的准入校验：不通过时返回错误 Result，通过返回 null */
+    private <R> Result<R> denyIfWriteForbidden()
+    {
+        return adminOnlyWrite() ? denyIfNotAdmin() : null;
+    }
+
+    /**
      * 分页查询列表 - 支持 /xxx 和 /xxx/list
      */
     @GetMapping({"", "/list"})
@@ -82,6 +112,11 @@ public abstract class BaseCrudRestController<S extends IService<T>, T> extends B
     @PostMapping
     public Result<Void> add(@RequestBody T entity)
     {
+        Result<Void> denied = denyIfWriteForbidden();
+        if (denied != null)
+        {
+            return denied;
+        }
         boolean result = service.save(entity);
         return result ? Result.success() : Result.error("新增失败");
     }
@@ -92,6 +127,11 @@ public abstract class BaseCrudRestController<S extends IService<T>, T> extends B
     @PutMapping
     public Result<Void> edit(@RequestBody T entity)
     {
+        Result<Void> denied = denyIfWriteForbidden();
+        if (denied != null)
+        {
+            return denied;
+        }
         T existing = service.getById((java.io.Serializable) getEntityId(entity));
         if (existing != null)
         {
@@ -123,6 +163,11 @@ public abstract class BaseCrudRestController<S extends IService<T>, T> extends B
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable("id") Integer id)
     {
+        Result<Void> denied = denyIfWriteForbidden();
+        if (denied != null)
+        {
+            return denied;
+        }
         boolean result = service.removeById(id);
         return result ? Result.success() : Result.error("删除失败");
     }

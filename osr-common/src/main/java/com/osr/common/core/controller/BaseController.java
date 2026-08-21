@@ -14,9 +14,12 @@ import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
 import com.baomidou.mybatisplus.core.metadata.OrderItem;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import com.osr.common.core.domain.AjaxResult;
 import com.osr.common.core.domain.AjaxResult.Type;
 import com.osr.common.core.domain.PageResult;
+import com.osr.common.core.domain.Result;
 import com.osr.common.core.domain.entity.SysUser;
 import com.osr.common.core.page.PageDomain;
 import com.osr.common.core.page.TableSupport;
@@ -281,5 +284,50 @@ public class BaseController
     public String getLoginName()
     {
         return currentUserService.getLoginName();
+    }
+
+    /**
+     * 当前登录用户是不是管理员。
+     * <p>
+     * <b>两条判据取或，不是冗余</b>：
+     * <ul>
+     *   <li>{@code userId == 1} 是本项目一直在用的口径（{@code SysUser#isAdmin}、
+     *       订阅页的 {@code canAccessAll} 都是它），走的是 request attribute 里的当前用户；</li>
+     *   <li>{@code ROLE_admin} 来自 {@code SecurityUserDetailsService} 装进
+     *       SecurityContext 的权限，走的是 {@code sys_role.role_key}。</li>
+     * </ul>
+     * 任一成立即算管理员。留两条路是因为它们的失效方式不一样：前者依赖
+     * {@code SecurityUserDetailsService} 成功把 SysUser 写进 request attribute（那段代码
+     * 自己就吞了异常），后者依赖角色表里 role_key 确实是 admin。<b>只留一条的代价是把管理员
+     * 锁在配置页外面</b>——而配置页恰恰是唯一能修好这件事的地方，锁死就只能进数据库改。
+     * 多一条判据带来的"松"是可接受的：两条都指向同一个超级管理员，不存在某个普通用户
+     * 能满足其中一条的情况。
+     * </p>
+     */
+    public boolean isAdmin()
+    {
+        if (SysUser.isAdmin(getUserId()))
+        {
+            return true;
+        }
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || authentication.getAuthorities() == null)
+        {
+            return false;
+        }
+        return authentication.getAuthorities().stream()
+                .anyMatch(a -> "ROLE_admin".equals(a.getAuthority()));
+    }
+
+    /**
+     * 管理员校验：非管理员时返回错误 {@link Result}，管理员返回 {@code null}。
+     * <p>
+     * 用法与订阅页的 {@code denyIfInaccessible} 一致——返回非 null 就直接把它 return 出去。
+     * 做成"返回错误对象"而不是抛异常，是为了让调用点一眼看得出这个端点有权限门槛。
+     * </p>
+     */
+    protected <R> Result<R> denyIfNotAdmin()
+    {
+        return isAdmin() ? null : Result.error(403, "该操作仅管理员可用");
     }
 }

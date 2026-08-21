@@ -43,6 +43,15 @@ public class PtCleanRuleRestController extends BaseCrudRestController<IPtCleanRu
     @Autowired
     private TorrentCleanService cleanService;
 
+    /**
+     * 删种规则的写操作限管理员：改一条区间就能让下一轮把一批还在保种的种子连文件一起删掉，
+     * 而删掉的文件在站点那边直接记 H&R——这是本项目里少数不可逆的操作之一。
+     */
+    @Override
+    protected boolean adminOnlyWrite() {
+        return true;
+    }
+
     @Override
     protected Wrapper<PtCleanRulePlus> buildQueryWrapper(PtCleanRulePlus entity) {
         LambdaQueryWrapper<PtCleanRulePlus> wrapper = new LambdaQueryWrapper<>();
@@ -77,6 +86,11 @@ public class PtCleanRuleRestController extends BaseCrudRestController<IPtCleanRu
      */
     @PostMapping("/run/{downloaderId}")
     public Result<CleanSummary> run(@PathVariable("downloaderId") Integer downloaderId) {
+        // 这个端点会真的删种删文件，比改规则本身更该限管理员
+        Result<CleanSummary> denied = denyIfNotAdmin();
+        if (denied != null) {
+            return denied;
+        }
         PtDownloaderPlus downloader = downloaderService.getById(downloaderId);
         if (downloader == null) {
             return Result.error("下载器不存在");

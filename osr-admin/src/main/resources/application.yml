@@ -30,10 +30,17 @@ server:
       min-spare: 100
  
 # 日志配置
-logging:
-  level:
-    com.osr: debug
-    org.springframework: warn
+#
+# 这里刻意<不>再配 logging.level.*，级别的唯一来源是 logback-spring.xml。
+#
+# 原因：Spring Boot 的 logging.level.* 是在 logback 配置加载「之后」应用的，两边写了同一个
+# logger 时永远是这里赢。此前 application.yml 写 `com.osr: debug`、logback-spring.xml 写
+# `<logger name="com.osr" level="info"/>`，于是整个 com.osr.*（连带 osr-system、osr-framework、
+# osr-common）实际跑在 DEBUG，而读 logback 配置的人会得出完全相反的结论——两份配置各自都
+# 「看起来是对的」，只有把它们放在一起看才发现矛盾。
+#
+# 要调级别请改 logback-spring.xml 里的 <logger>；临时排查可以用环境变量
+# LOGGING_LEVEL_COM_OSR=debug 单次覆盖，不必改文件。
 
 # 用户配置
 user:
@@ -171,3 +178,39 @@ pt:
     # 调到分钟级只会让每一轮把整个保种盘的种子列表白拉一遍。
     # 是否真的删种由每个下载器自己的开关与规则决定，这里只是扫描节奏
     interval-minutes: 60
+  library:
+    # 媒体库对账（LibrarySyncTask，每 10 分钟）同时处理几条订阅。
+    # 这里能并发而自动补搜不能，差别在下游是谁：补搜打索引器、受全局 IndexerRateLimiter 约束，
+    # 并发只会在限流器上排队并撞 max-wait-ms 静默跳过；对账打的是 Emby（局域网自建服务）
+    # 与 TMDb（已有全局 Semaphore(4) 兜底，且详情有两级缓存，很少真的发请求）。
+    # 上限的真正卡点是数据库连接：SubscriptionService#refresh 带 @Transactional，事务里夹着
+    # 一次 Emby 网络往返，因此每条并发对账都会在整个往返期间占住一个连接。Druid maxActive=50，
+    # 4 条无关痛痒；要调到几十请先想清楚那是在跟所有在线请求抢连接。0 或负数按 1 处理。
+    sync-concurrency: 4
+
+# 可观测性（Spring Boot Actuator）
+#
+# 两道锁，缺一不可：
+#   1) 这里的白名单决定「有什么可访问」——只开 health/info/metrics/prometheus 四个。
+#      刻意<不>开 env（会把含数据库密码在内的全部配置原样吐出来）与 heapdump（直接给出内存快照）。
+#   2) SecurityConfig 里的 ACTUATOR_ANONYMOUS 决定「谁能访问」——默认 false，即仍要求 JWT。
+#      内网 Prometheus 抓取需显式设 ACTUATOR_ANONYMOUS=true，那时第 1 道锁就是唯一防线，
+#      所以上面那份白名单不要随手加东西。
+#
+# 端口沿用 6895 而不是另开管理端口：另开的话它不经过主 SecurityFilterChain，
+# 一旦有人顺手把那个端口也映射出去，就是彻底裸奔。
+#
+# Docker 的 healthcheck 仍然打 /api/health（匿名端点，只探数据库），不改成 /actuator/health：
+# 后者受上面第 2 道锁约束，默认要 JWT，拿它做探针会让容器永远 unhealthy。
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      # 不对外泄露各组件明细（磁盘路径、数据库连接串等），只给 UP/DOWN
+      show-details: never
+  metrics:
+    tags:
+      application: OpenListStrm

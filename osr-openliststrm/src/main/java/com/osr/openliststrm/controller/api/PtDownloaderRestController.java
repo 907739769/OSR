@@ -26,6 +26,15 @@ public class PtDownloaderRestController extends BaseCrudRestController<IPtDownlo
     @Autowired
     private DownloaderClientFactory downloaderClientFactory;
 
+    /**
+     * 下载器配置存着 qB/TR 的账号密码，且它决定订阅往哪台机器推种、哪台机器开自动删种，
+     * 写操作限管理员。读仍放开——{@link #maskSensitiveFields} 已经把密码抹掉了。
+     */
+    @Override
+    protected boolean adminOnlyWrite() {
+        return true;
+    }
+
     @Override
     protected void maskSensitiveFields(PtDownloaderPlus entity) {
         entity.setPassword(null);
@@ -53,9 +62,18 @@ public class PtDownloaderRestController extends BaseCrudRestController<IPtDownlo
 
     /**
      * 连通性测试。
+     * <p>
+     * 限管理员的理由与 {@code PtIndexerRestController#test} 完全相同：下面那段会把
+     * <b>已保存的密码</b>填进来，再连到请求体里<b>调用方指定的</b> host:port——不设门槛
+     * 等于给出一个把下载器密码送到任意地址的接口。
+     * </p>
      */
     @PostMapping("/test")
     public Result<Void> test(@RequestBody PtDownloaderPlus entity) {
+        Result<Void> denied = denyIfNotAdmin();
+        if (denied != null) {
+            return denied;
+        }
         if (StringUtils.isBlank(entity.getHost()) || entity.getPort() == null) {
             return Result.error("主机与端口不能为空");
         }

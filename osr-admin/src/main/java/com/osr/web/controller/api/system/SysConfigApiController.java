@@ -56,10 +56,20 @@ public class SysConfigApiController extends BaseController
 
     /**
      * 新增参数配置
+     * <p>
+     * <b>参数设置的写操作一律限管理员</b>：sys_config 里躺着 TMDb apikey、OpenList token、
+     * 各通知渠道的密钥，以及 {@code openlist.api.apikey}（第三方回调那个匿名端点的唯一凭据）。
+     * 改一个键就足以把回调接口对外敞开，或者把 STRM 输出根目录指到别处。
+     * </p>
      */
     @PostMapping
     public Result<Integer> add(@Validated @RequestBody SysConfig config)
     {
+        Result<Integer> denied = denyIfNotAdmin();
+        if (denied != null)
+        {
+            return denied;
+        }
         if (!configService.checkConfigKeyUnique(config))
         {
             return Result.error("新增参数'" + config.getConfigName() + "'失败，参数键名已存在");
@@ -75,6 +85,11 @@ public class SysConfigApiController extends BaseController
     @PutMapping
     public Result<Integer> edit(@Validated @RequestBody SysConfig config)
     {
+        Result<Integer> denied = denyIfNotAdmin();
+        if (denied != null)
+        {
+            return denied;
+        }
         if (!configService.checkConfigKeyUnique(config))
         {
             return Result.error("修改参数'" + config.getConfigName() + "'失败，参数键名已存在");
@@ -90,6 +105,11 @@ public class SysConfigApiController extends BaseController
     @DeleteMapping("/{configId}")
     public Result<Integer> remove(@PathVariable("configId") Long configId)
     {
+        Result<Integer> denied = denyIfNotAdmin();
+        if (denied != null)
+        {
+            return denied;
+        }
         configService.deleteConfigByIds(configId.toString());
         return Result.success(1);
     }
@@ -100,6 +120,11 @@ public class SysConfigApiController extends BaseController
     @DeleteMapping
     public Result<Integer> removeBatch(@RequestBody String configIds)
     {
+        Result<Integer> denied = denyIfNotAdmin();
+        if (denied != null)
+        {
+            return denied;
+        }
         configService.deleteConfigByIds(configIds);
         return Result.success(1);
     }

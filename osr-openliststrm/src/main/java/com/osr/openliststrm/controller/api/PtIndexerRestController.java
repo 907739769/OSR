@@ -29,6 +29,15 @@ public class PtIndexerRestController extends BaseCrudRestController<IPtIndexerPl
     @Autowired
     private TorznabClient torznabClient;
 
+    /**
+     * 索引器配置存着各站 apikey（passkey 常拼在 url 里），且它决定了整个 PT 检索链路打哪些站，
+     * 写操作限管理员。读仍放开——{@link #maskSensitiveFields} 已经把 apikey 抹掉了。
+     */
+    @Override
+    protected boolean adminOnlyWrite() {
+        return true;
+    }
+
     @Override
     protected void maskSensitiveFields(PtIndexerPlus entity) {
         entity.setApiKey(null);
@@ -56,9 +65,20 @@ public class PtIndexerRestController extends BaseCrudRestController<IPtIndexerPl
 
     /**
      * 连通性测试。接收前端表单当前值，无需先保存即可测试。
+     * <p>
+     * <b>必须限管理员</b>，比一般写操作更硬的理由：本端点会用
+     * {@link #fillSavedApiKeyIfBlank} 把<b>已保存的 apikey</b> 填进来，再向请求体里那个
+     * <b>调用方指定的 url</b> 发出去。不设门槛的话，任何登录用户提交
+     * {@code {"id":1,"url":"http://自己的服务器"}} 就能把该索引器的 apikey 原样收走——
+     * 而这正是 {@code maskSensitiveFields} 费力不让它出现在响应里的那个值。
+     * </p>
      */
     @PostMapping("/test")
     public Result<Void> test(@RequestBody PtIndexerPlus entity) {
+        Result<Void> denied = denyIfNotAdmin();
+        if (denied != null) {
+            return denied;
+        }
         fillSavedApiKeyIfBlank(entity);
         if (StringUtils.isBlank(entity.getUrl()) || StringUtils.isBlank(entity.getApiKey())) {
             return Result.error("接口地址与 apikey 不能为空");
@@ -77,6 +97,11 @@ public class PtIndexerRestController extends BaseCrudRestController<IPtIndexerPl
      */
     @PostMapping("/categories")
     public Result<List<CategoryOption>> categories(@RequestBody PtIndexerPlus entity) {
+        // 与 test 同理：会把已保存的 apikey 发往调用方指定的 url
+        Result<List<CategoryOption>> denied = denyIfNotAdmin();
+        if (denied != null) {
+            return denied;
+        }
         fillSavedApiKeyIfBlank(entity);
         if (StringUtils.isBlank(entity.getUrl()) || StringUtils.isBlank(entity.getApiKey())) {
             return Result.error("接口地址与 apikey 不能为空");
