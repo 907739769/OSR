@@ -4,55 +4,51 @@
     <property name="log.path" value="/data/logs" />
     <property name="log.pattern" value="[%d{yyyy-MM-dd HH:mm:ss.SSS}][%X{traceId}][%-5level][%logger{0}] %msg%n" />
 
-    <!-- DEBUG 文件（只含 DEBUG） -->
-    <appender name="file_debug" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${log.path}/sys-debug.log</file>
+    <!--
+        全量文件（DEBUG 及以上，即本进程产生的每一条日志）。
+
+        这里原先是 sys-debug.log（LevelFilter，只收 DEBUG）+ sys-info.log（ThresholdFilter，
+        收 INFO 及以上）两个文件，二者是<互斥>切分——没有任何一个文件装着全量。而
+        com.osr.openliststrm（几乎全部业务代码）跑在 DEBUG、com.osr 其余部分跑 INFO，
+        于是排查一次 STRM 生成或一轮补搜，上下文必然横跨两个文件，只能靠时间戳手工交错着读。
+        实时日志页（LogWebSocket）一次只能 tail 一个文件，这个切法直接让那个页面选哪个都不对：
+        选 info 看不到业务模块的 DEBUG，选 debug 看不到它调用链上的 INFO/WARN。
+
+        改成「全量 + 错误」这种<包含式>分层后，磁盘写入量与改造前完全持平：
+          改造前 = DEBUG量 + (INFO+WARN+ERROR)量 + ERROR量 = 全量 + ERROR量
+          改造后 = 全量 + ERROR量
+        滚动窗口也不变（maxHistory 是天数，不是分片数）。换来的是「一个文件读全部」，
+        过滤这件事交给实时日志页的级别复选框与关键字框——那本来就该在展示层做，不在 logback 里。
+
+        totalSizeCap 是新加的：maxHistory 只管天数，SizeAndTimeBasedRollingPolicy 下同一天
+        可以滚出任意多个 %i 分片，此前四个 appender 一个都没配上限。业务模块常态跑 DEBUG，
+        一次大批量 STRM 生成刷出来的量是真能吃盘的，而 /data 挂的是宿主机目录。
+    -->
+    <appender name="file_all" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${log.path}/sys-all.log</file>
 
         <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
-            <fileNamePattern>${log.path}/sys-debug.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <fileNamePattern>${log.path}/sys-all.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
             <maxFileSize>50MB</maxFileSize>
             <maxHistory>7</maxHistory>
+            <totalSizeCap>2GB</totalSizeCap>
         </rollingPolicy>
 
         <encoder>
             <pattern>${log.pattern}</pattern>
         </encoder>
 
-        <!--
-            只收 DEBUG，不收 DEBUG 以上。
-            这里原本是 ThresholdFilter（DEBUG「及以上」），与上面那句「只含 DEBUG」的注释相矛盾，
-            实际后果是每条 INFO/WARN 同时写进 sys-debug.log 和 sys-info.log、每条 ERROR 写三份，
-            凭空多出一倍的磁盘写入，还让 sys-debug.log 更快滚掉——而它恰恰是排查时最想往回翻的那个。
-            两个文件的分工本来就该是互补而不是包含：要看全量按时间合着读即可。
-        -->
-        <filter class="ch.qos.logback.classic.filter.LevelFilter">
-            <level>DEBUG</level>
-            <onMatch>ACCEPT</onMatch>
-            <onMismatch>DENY</onMismatch>
-        </filter>
-    </appender>
-
-    <!-- INFO 文件（含 INFO/WARN/ERROR） -->
-    <appender name="file_info" class="ch.qos.logback.core.rolling.RollingFileAppender">
-        <file>${log.path}/sys-info.log</file>
-
-        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
-            <fileNamePattern>${log.path}/sys-info.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
-            <maxFileSize>50MB</maxFileSize>
-            <maxHistory>7</maxHistory>
-        </rollingPolicy>
-
-        <encoder>
-            <pattern>${log.pattern}</pattern>
-        </encoder>
-
-        <!-- INFO 及以上 -->
+        <!-- DEBUG 及以上，即全收。真正决定「有没有 DEBUG」的是下面各 logger 的 level -->
         <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
-            <level>INFO</level>
+            <level>DEBUG</level>
         </filter>
     </appender>
 
-    <!-- ERROR 独立文件 -->
+    <!--
+        ERROR 独立文件。刻意保留，不要因为 sys-all.log 已经包含 ERROR 就把它删掉：
+        后端异常不进 docker stdout，这个文件是排查启动失败与线上异常的唯一入口，
+        它的价值恰恰在于噪音为零——docker cp 出来一眼能扫完，不用在几十万行里捞。
+    -->
     <appender name="file_error" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${log.path}/sys-error.log</file>
 
@@ -60,6 +56,7 @@
             <fileNamePattern>${log.path}/sys-error.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
             <maxFileSize>50MB</maxFileSize>
             <maxHistory>7</maxHistory>
+            <totalSizeCap>500MB</totalSizeCap>
         </rollingPolicy>
 
         <encoder>
@@ -74,7 +71,7 @@
         </filter>
     </appender>
 
-    <!-- 用户行为日志 -->
+    <!-- 用户行为日志（审计，与排查是两回事：独立 logger、不进 root、保 60 天） -->
     <appender name="sys-user" class="ch.qos.logback.core.rolling.RollingFileAppender">
         <file>${log.path}/sys-user.log</file>
 
@@ -82,6 +79,7 @@
             <fileNamePattern>${log.path}/sys-user.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
             <maxFileSize>50MB</maxFileSize>
             <maxHistory>60</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
         </rollingPolicy>
 
         <encoder>
@@ -91,30 +89,27 @@
 
     <!--
         异步包装。
-        三个 RollingFileAppender 原先直接挂在 root 上，写盘发生在<调用线程>里，而
+        RollingFileAppender 直接挂在 root 上时，写盘发生在<调用线程>里，而
         OutputStreamAppender 每次 append 都要拿同一把锁、且默认 immediateFlush=true 逐条刷盘。
         本项目的热路径（STRM 遍历、索引器并发检索）是几十个虚拟线程同时跑的，它们会在这把锁上排队——
         日志本身不慢，慢的是所有人挤在一个出口。
 
-        includeCallerData 保持默认 false：三个文件 appender 的 pattern 都不含 %method/%line
+        includeCallerData 保持默认 false：两个文件 appender 的 pattern 都不含 %method/%line
         （dev profile 那个带行号的 pattern 是在这些 appender 定义之后才覆盖的，只对 console 生效），
         开启它等于为没人读的信息付一次栈回溯。
 
-        discardingThreshold 分两档，这是这段配置里唯一需要想清楚的地方：
-        - debug 留默认（队列 80% 满时丢弃 INFO 及以下）。debug 洪水时丢 debug 正是想要的降级方向。
-        - info / error 设 0，一条都不丢，队列满了宁可阻塞调用线程。sys-error.log 是本项目排查
-          启动失败与线上异常的唯一依据（异常不进 stdout），在最需要它的时刻——出问题、日志量激增——
-          悄悄丢掉几条 ERROR，比慢一点糟得多。
+        discardingThreshold 两个都设 0，一条都不丢，队列满了宁可阻塞调用线程。
+        合并之前 sys-debug 那个 appender 留的是默认值（队列 80% 满时丢弃 INFO 及以下），
+        理由是「debug 洪水时丢 debug 正是想要的降级方向」——但那成立的前提是
+        sys-info.log 还在旁边一条不丢地兜着 INFO。现在 sys-all.log 是唯一的全量记录，
+        再按默认值走就意味着日志量激增（也就是最需要日志的时刻）会静默丢掉 INFO，
+        与 sys-error.log 那条「悄悄丢比慢一点糟得多」的取舍是同一个道理。
+        队列相应从 2048 提到 4096，多出来的缓冲用来吸收 DEBUG 洪水的尖峰。
     -->
-    <appender name="async_debug" class="ch.qos.logback.classic.AsyncAppender">
-        <queueSize>2048</queueSize>
-        <appender-ref ref="file_debug" />
-    </appender>
-
-    <appender name="async_info" class="ch.qos.logback.classic.AsyncAppender">
-        <queueSize>1024</queueSize>
+    <appender name="async_all" class="ch.qos.logback.classic.AsyncAppender">
+        <queueSize>4096</queueSize>
         <discardingThreshold>0</discardingThreshold>
-        <appender-ref ref="file_info" />
+        <appender-ref ref="file_all" />
     </appender>
 
     <appender name="async_error" class="ch.qos.logback.classic.AsyncAppender">
@@ -132,8 +127,7 @@
 
     <!-- 系统日志输出 -->
     <root level="info">
-        <appender-ref ref="async_debug" />
-        <appender-ref ref="async_info" />
+        <appender-ref ref="async_all" />
         <appender-ref ref="async_error" />
     </root>
 
@@ -152,7 +146,7 @@
                 <pattern>${log.pattern}</pattern>
             </encoder>
         </appender>
-        
+
         <logger name="com.osr" level="info" />
         <logger name="org.springframework" level="warn" />
         <logger name="org.apache" level="warn" />
@@ -160,7 +154,7 @@
 
         <!--
             root logger dev 环境。
-            这里必须引 async_* 而不是 file_*：外层的 <root> 已经把三个 async 挂上去了，
+            这里只能挂 console：外层的 <root> 已经把两个 async 挂上去了，
             本块的 appender-ref 是「继续追加」而不是「替换」。再挂一遍底层的 file_* 会让
             同一条日志同时经由 async 和直连两条路径写进同一个文件——每行都出现两次，
             而 dev 恰恰是最常盯着日志看的环境。

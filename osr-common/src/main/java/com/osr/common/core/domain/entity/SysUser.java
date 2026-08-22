@@ -358,7 +358,7 @@ public class SysUser extends BaseEntity
      * <p>
      * 接口响应那一侧已经由 getter 上的 {@code @JsonIgnore} 挡住了，但 toString 是另一条出口：
      * 任何一处 {@code log.debug("user: {}", user)} 都会把口令哈希连同盐一起写进
-     * {@code /data/logs/sys-debug.log}，而那个文件保留 7 天、明文、随容器一起被 docker cp 出来
+     * {@code /data/logs/sys-all.log}，而那个文件保留 7 天、明文、随容器一起被 docker cp 出来
      * 排查问题。哈希不是明文，但它是离线爆破的输入，泄露它没有任何正当理由。
      * </p>
      * <p>
