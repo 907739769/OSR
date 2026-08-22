@@ -205,6 +205,19 @@ await 过异步组件的 import，此时 chunk 已到位。
 - primary 的层级用语义名，不要再用 Element Plus 那套 `light-1..9` 阶梯：
   `--osr-primary-subtle`（选中块背景）/ `--osr-primary-muted`（浅描边）/
   `--osr-primary-accent`（强调描边）/ `--osr-primary-hover`（hover 文字）
+- **改了 `X` 就必须同时改 `on-X`，Vuetify 会拿默认主题的那一份来补缺。** 自定义主题名不叫
+  `light`/`dark` 也照样与默认主题 deep merge（`parseThemeOptions` 按 `dark` 布尔值选一份合并），
+  所以少写一个 `on-X` 不会报错、不会告警，只是**静默继承上游为上游的 X 配的前景色**。
+  事故：`surface-variant` 被改成浅米色 `#EDE7DD` 却没动 `on-surface-variant`，它继承了默认
+  light 主题的 `#EEEEEE`——而 `v-tooltip` 的底色与字色**直接就是这一对变量**（`v-snackbar`、
+  `v-chip`、`v-slider` 也在用），于是全站 tooltip 都是浅米底配近白字，对比度 1.06:1，完全看不见。
+  暗色那份坏得更彻底（深蓝灰底 + 继承来的纯黑字，1.7:1），只是没人在暗色下展开过 tooltip。
+  **`surface-variant` 尤其不能当成「浅色的面板变体背景」用**：Vuetify 默认 light 主题里它是
+  `#424242`，整套组件都按「这是个深色浮层底」在用它（不透明用法给 tooltip/snackbar，
+  `rgba(…, .2~.3)` 的低透明用法给 chip/slider track），改成浅色两类用法会一起坏。
+  `plugins/__tests__/theme-contrast.spec.ts` 按 WCAG 2.1 算每对 `X`/`on-X` 的对比度、红线 4.5:1；
+  `osrLight` 的 primary(4.23) 与 success(3.96) 是主题建立时就有的既有偏差，已在该 spec 的
+  `KNOWN_BELOW_AA` 里登记基线（只钉住不再更差），要真修得动品牌色本身。
 - **样式里不写死十六进制颜色**。语义色一律 `rgb(var(--v-theme-xxx))` 或 `--osr-*`。
   例外只有：海报占位装饰渐变、日志终端配色、登录页品牌渐变、ECharts 配色（spec 里有白名单）。
 
