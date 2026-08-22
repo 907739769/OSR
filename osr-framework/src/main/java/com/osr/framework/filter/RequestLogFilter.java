@@ -24,6 +24,17 @@ public class RequestLogFilter implements Filter {
 
     private static final Logger log = LoggerFactory.getLogger(RequestLogFilter.class);
 
+    /**
+     * 只跳过<日志>、不改变请求处理的路径。
+     *
+     * <p>与下面的 {@link #EXCLUDE_PATHS} 是两回事：那个清单命中后会走「非 GET 一律 405」的
+     * 静态资源分支，把一个真实 API 端点放进去会连带改掉它的请求语义。
+     *
+     * <p>/api/health 是 docker-compose healthcheck 的探针，每 15 秒一次，本类留两行、
+     * ApiInterceptor 再留两行，合计每天 23040 行。实测它在一份 1085 行的样本里独占 60.5%。
+     */
+    private static final List<String> NO_LOG_PATHS = Arrays.asList("/api/health");
+
     private static final List<String> EXCLUDE_PARAMS = Arrays.asList("password");
     private static final int MAX_PARAM_LENGTH = 200;
     private static final int MAX_BODY_LENGTH = 1000; // 限制body最大打印长度
@@ -52,6 +63,10 @@ public class RequestLogFilter implements Filter {
 
         long startTime = System.nanoTime();
 
+        // 只关掉日志，不提前 return：traceId 的初始化与 MDC.clear()、请求体缓存都在下面的
+        // try/finally 里，跳过整段会让这些请求丢掉 traceId，行为与其它请求不一致。
+        boolean skipLog = isNoLogPath(httpRequest.getRequestURI());
+
         // 这里的request已经是CachedBodyHttpServletRequest了，可以直接强转
         ContentCachingRequestWrapper wrappedRequest;
         if (httpRequest instanceof ContentCachingRequestWrapper) {
@@ -65,16 +80,24 @@ public class RequestLogFilter implements Filter {
             initTraceId(httpRequest);
 
             // 先打印请求日志（此时请求体已经被包装缓存，可以读取）
-            logRequestInfo(wrappedRequest);
+            if (!skipLog) {
+                logRequestInfo(wrappedRequest);
+            }
 
             // 继续调用业务链
             chain.doFilter(wrappedRequest, response);
 
         } finally {
             // 记录耗时
-            logElapsedTime(httpRequest, startTime);
+            if (!skipLog) {
+                logElapsedTime(httpRequest, startTime);
+            }
             MDC.clear();
         }
+    }
+
+    private boolean isNoLogPath(String uri) {
+        return NO_LOG_PATHS.contains(uri);
     }
 
     private void initTraceId(HttpServletRequest request) {
@@ -133,7 +156,7 @@ public class RequestLogFilter implements Filter {
         try {
             body = new String(buf, 0, Math.min(buf.length, MAX_BODY_LENGTH), request.getCharacterEncoding());
         } catch (UnsupportedEncodingException e) {
-            log.error("", e);
+            log.warn("读取请求体失败，编码不支持: {} {}", request.getMethod(), request.getRequestURI(), e);
         }
         if (buf.length > MAX_BODY_LENGTH) {
             body += "...[truncated]";

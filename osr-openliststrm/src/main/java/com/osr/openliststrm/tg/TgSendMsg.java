@@ -36,7 +36,8 @@ public class TgSendMsg extends TelegramLongPollingBot {
         try {
             execute(message);
         } catch (TelegramApiException e) {
-            log.error("", e);
+            // 不打 msg 本身：通知正文里带着剧名、路径等内容，而且可能很长。
+            log.error("Telegram 消息发送失败, chatId={}", adminUserId, e);
         }
     }
 

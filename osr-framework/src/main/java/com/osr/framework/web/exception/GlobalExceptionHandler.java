@@ -47,6 +47,11 @@ public class GlobalExceptionHandler
     public AjaxResult handleRuntimeException(RuntimeException e, HttpServletRequest request)
     {
         String requestURI = request.getRequestURI();
+        if (isClientAbort(e))
+        {
+            log.debug("请求地址'{}',客户端提前断开连接", requestURI);
+            return AjaxResult.error(e.getMessage());
+        }
         log.error("请求地址'{}',发生未知异常.", requestURI, e);
         return AjaxResult.error(e.getMessage());
     }
@@ -58,8 +63,52 @@ public class GlobalExceptionHandler
     public AjaxResult handleException(Exception e, HttpServletRequest request)
     {
         String requestURI = request.getRequestURI();
+        if (isClientAbort(e))
+        {
+            log.debug("请求地址'{}',客户端提前断开连接", requestURI);
+            return AjaxResult.error(e.getMessage());
+        }
         log.error("请求地址'{}',发生系统异常.", requestURI, e);
         return AjaxResult.error(e.getMessage());
+    }
+
+    /**
+     * 客户端提前断开连接（用户切走页面、刷新、关标签）导致的写响应失败。
+     *
+     * <p>降级成 DEBUG 而不是 ERROR：这不是服务端故障，也无从处理——响应已经写不出去了，
+     * 记下来既不能修也不用修。而 sys-error.log 的<b>全部价值就在于噪音为零、一眼扫得完</b>
+     * （后端异常不进 docker stdout，它是排查线上问题的唯一入口）。实测一份 385 行的
+     * sys-error.log 里只有 3 条 ERROR，其中 2 条是这个——每条还拖着一整份堆栈。
+     *
+     * <p>按类名后缀 + message 关键字判断，不直接 import Tomcat 的 ClientAbortException：
+     * 那会让 osr-framework 绑死在特定 servlet 容器上，而这里要认的其实是「对端没了」这件事，
+     * 它在不同容器/不同层（Spring 的 HttpMessageNotWritableException 包着 IOException）
+     * 表现成不同的类型。链上任一环命中即可。
+     */
+    private boolean isClientAbort(Throwable e)
+    {
+        for (Throwable t = e; t != null; t = t.getCause())
+        {
+            if (t.getClass().getName().endsWith("ClientAbortException"))
+            {
+                return true;
+            }
+            String msg = t.getMessage();
+            if (msg != null)
+            {
+                String lower = msg.toLowerCase();
+                if (lower.contains("broken pipe") || lower.contains("connection reset by peer"))
+                {
+                    return true;
+                }
+            }
+            // 自引用的 cause 会让这个循环停不下来（罕见但确实存在于某些包装异常里）
+            if (t.getCause() == t)
+            {
+                break;
+            }
+        }
+        return false;
     }
 
     /**

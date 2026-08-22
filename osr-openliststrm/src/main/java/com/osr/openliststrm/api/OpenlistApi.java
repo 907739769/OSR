@@ -99,8 +99,9 @@ public class OpenlistApi {
             log.error("Request failed with response: {}", response);
             return null;
         } catch (Exception e) {
-            log.error("{}失败", logPrefix);
-            log.error("", e);
+            // 合成一条：原先「上下文」与「堆栈」分成两条 ERROR 打，sys-error.log 里各占一条，
+            // 中间还可能被并发请求的日志隔开，翻到堆栈时看不出它属于哪次调用。
+            log.error("{}失败", logPrefix, e);
             return null;
         }
     }

@@ -1,6 +1,8 @@
 package com.osr.common.utils;
 
 import java.io.IOException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.io.UnsupportedEncodingException;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
@@ -22,6 +24,8 @@ import com.osr.common.core.text.Convert;
  */
 public class ServletUtils
 {
+    private static final Logger log = LoggerFactory.getLogger(ServletUtils.class);
+
     /**
      * 定义移动端请求的所有可能类型
      */
@@ -124,7 +128,12 @@ public class ServletUtils
         }
         catch (IOException e)
         {
-            e.printStackTrace();
+            // 原先是 e.printStackTrace()：那写的是 stdout，而本项目的 stdout 只有启动 banner，
+            // 异常既不进 sys-error.log 也没人看得到。
+            // 用 warn 而不是 error：写响应失败最常见的原因就是客户端已经断开（切页面/刷新），
+            // 与 GlobalExceptionHandler#isClientAbort 处理的是同一类情况，不该去污染
+            // sys-error.log —— 那个文件的价值在于噪音为零。
+            log.warn("向客户端写响应失败（多为客户端提前断开）", e);
         }
         return null;
     }

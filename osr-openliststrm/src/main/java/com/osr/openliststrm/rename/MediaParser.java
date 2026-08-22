@@ -66,8 +66,10 @@ public class MediaParser {
                     tmdbClient.enrich(info);
                 }
             } catch (Exception e) {
-                log.info("使用AI识别失败: {}", filename);
-                log.error("", e);
+                // 原先上下文打在 INFO、堆栈打在 ERROR，一件事被拆进两个级别：
+                // 只看 sys-error.log 不知道是哪个文件，只看 INFO 又没有原因。
+                // 降为 WARN：AI 识别失败会退回常规解析流程，不是需要人介入的故障。
+                log.warn("使用AI识别失败: {}", filename, e);
             }
         }
 

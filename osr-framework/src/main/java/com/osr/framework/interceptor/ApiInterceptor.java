@@ -13,7 +13,16 @@ import java.util.concurrent.TimeUnit;
 public class ApiInterceptor implements HandlerInterceptor {
     private static final Logger log = LoggerFactory.getLogger(ApiInterceptor.class);
 
+    /**
+     * 不记访问日志的路径。
+     *
+     * <p><b>/api/health 必须在这里</b>：它是 docker-compose 的 healthcheck 端点，wget 每 15 秒
+     * 打一次，而一次请求会在这里留下两行（preHandle + afterCompletion）、在 RequestLogFilter
+     * 再留下两行，合计 <b>4 行 × 5760 次 = 每天 23040 行</b>。实测在一份 1085 行的样本里，
+     * 健康检查独占 60.5%——真正的业务日志被挤到 3%。它是给容器编排看的，不是给人看的。
+     */
     private static final String[] SKIP_PATHS = {
+        "/api/health",
         "/css/", "/js/", "/img/", "/fonts/", "/favicon.ico",
         "/service-worker.js", "/manifest.json", "/apple-touch-icon.png"
     };
@@ -58,7 +67,11 @@ public class ApiInterceptor implements HandlerInterceptor {
             return;
         }
         if (ex != null) {
-            log.error("[API] {} {} error: {}", request.getMethod(), uri, ex.getMessage());
+            // 占位符照旧带上 ex.getMessage()，同时把 ex 本身作为<末参>传进去：SLF4J 在参数比
+            // 占位符多一个且末参是 Throwable 时，会把它当异常处理而不是填进消息。
+            // 两者都要——只有 message 时 sys-error.log 里没有堆栈（最需要的东西恰好没记），
+            // 只有堆栈时又没法按错误文本 grep。ApiInterceptorTest 钉着前半条。
+            log.error("[API] {} {} error: {}", request.getMethod(), uri, ex.getMessage(), ex);
         }
         // attribute 缺失说明没走到 preHandle（被前置拦截器拦下等），没有可信起点就不编一个耗时出来
         if (request.getAttribute(ATTR_START_NANOS) instanceof Long startNanos) {

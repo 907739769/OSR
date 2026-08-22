@@ -1,6 +1,8 @@
 package com.osr.common.utils.bean;
 
 import java.lang.reflect.Method;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -13,6 +15,8 @@ import java.util.regex.Pattern;
  */
 public class BeanUtils extends org.springframework.beans.BeanUtils
 {
+    private static final Logger log = LoggerFactory.getLogger(BeanUtils.class);
+
     /** Bean方法名中属性名开始的下标 */
     private static final int BEAN_METHOD_PROP_INDEX = 3;
 
@@ -36,7 +40,10 @@ public class BeanUtils extends org.springframework.beans.BeanUtils
         }
         catch (Exception e)
         {
-            e.printStackTrace();
+            // 原先是 e.printStackTrace()：那写的是 stdout，而本项目的 stdout 只有启动 banner，
+            // 异常既不进 sys-error.log 也没人看得到——发生了等于没发生。
+            log.error("复制 Bean 属性失败: {} -> {}", src == null ? null : src.getClass().getName(),
+                    dest == null ? null : dest.getClass().getName(), e);
         }
     }
 

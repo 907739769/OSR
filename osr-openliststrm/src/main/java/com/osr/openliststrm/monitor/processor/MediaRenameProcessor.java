@@ -152,7 +152,7 @@ public class MediaRenameProcessor implements FileProcessor {
         try {
             handleFileIfReady(file, title, year, season, episode);
         } catch (IOException e) {
-            log.error("", e);
+            log.error("处理单个文件失败 {}", file, e);
         }
     }
 
