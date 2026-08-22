@@ -133,6 +133,7 @@
         :items-length="total"
         :headers="headers"
         :items-per-page="queryParams.pageSize"
+        :items-per-page-options="itemsPerPageOptions"
         :page="queryParams.pageNum"
         :sort-by="sortBy"
         show-select
@@ -376,7 +377,7 @@ const headers = [
 ]
 
 // 表格接线（选中承接 / 翻页 / 换页长 / 表头排序）统一在 useDataTable 里，见该文件注释
-const { selectedRows, onSelectionChange, clearSelection, onPageChange, onSizeChange, sortBy, onSortChange } =
+const { selectedRows, onSelectionChange, clearSelection, onPageChange, onSizeChange, sortBy, onSortChange, itemsPerPageOptions } =
   useDataTable({ queryParams, getList, handleSelectionChange })
 
 const onRetryDialogUpdate = (val: boolean) => {

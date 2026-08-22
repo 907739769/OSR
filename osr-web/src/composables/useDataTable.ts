@@ -6,6 +6,19 @@ export interface DataTableSortItem {
   order?: boolean | 'asc' | 'desc'
 }
 
+/**
+ * 每页条数档位。
+ *
+ * Vuetify 表格 footer 的默认档位末位是「全部」（value 为 -1），但它在本项目里
+ * 名不副实：后端 `BaseController#selectPage` 收到 -1 会**收敛成 1000 条**
+ * （记录表可达数万行，整表返回会让前端渲染卡死）。于是界面上写着「全部」、
+ * 实际只回来 1000 条，而 total 又是真实总数——用户看到的是「选了全部却还在分页」，
+ * 只能怀疑是不是漏数据了。所以这里把末档显式写成 1000，说到做到。
+ *
+ * 后端那条 -1 → 1000 的兜底保留着：它挡的是直接调接口、以及将来别处再传 -1 的情况。
+ */
+export const ITEMS_PER_PAGE_OPTIONS = [10, 25, 50, 100, 1000]
+
 interface DataTableHost {
   /** 列表 composable 的 queryParams（至少含 pageNum / pageSize） */
   queryParams: { pageNum: number; pageSize: number; [key: string]: any }
@@ -32,6 +45,7 @@ export function useDataTable(host: DataTableHost): {
   onSizeChange: (size: number) => void
   sortBy: Ref<DataTableSortItem[]>
   onSortChange: (sort: DataTableSortItem[]) => void
+  itemsPerPageOptions: number[]
 } {
   const selectedRows = ref<any[]>([])
 
@@ -88,5 +102,14 @@ export function useDataTable(host: DataTableHost): {
     host.getList()
   }
 
-  return { selectedRows, onSelectionChange, clearSelection, onPageChange, onSizeChange, sortBy, onSortChange }
+  return {
+    selectedRows,
+    onSelectionChange,
+    clearSelection,
+    onPageChange,
+    onSizeChange,
+    sortBy,
+    onSortChange,
+    itemsPerPageOptions: ITEMS_PER_PAGE_OPTIONS
+  }
 }

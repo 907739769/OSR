@@ -13,6 +13,7 @@
         :items-length="total"
         :headers="headers"
         :items-per-page="queryParams.pageSize"
+        :items-per-page-options="itemsPerPageOptions"
         :page="queryParams.pageNum"
         :sort-by="sortBy"
         class="modern-table"
@@ -110,7 +111,7 @@ const { taskList, loading, total, queryParams, getList } = useTaskList<SearchPar
 })
 
 // 翻页 / 换页长 / 表头排序的接线统一在 useDataTable 里（这张表没有勾选，不取 selectedRows）
-const { onPageChange, onSizeChange, sortBy, onSortChange } = useDataTable({ queryParams, getList })
+const { onPageChange, onSizeChange, sortBy, onSortChange, itemsPerPageOptions } = useDataTable({ queryParams, getList })
 
 // ---------- 移动端 - 分页辅助 ----------
 const totalPages = computed(() => Math.ceil(total.value / queryParams.pageSize) || 1)

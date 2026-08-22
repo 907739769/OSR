@@ -59,6 +59,7 @@
         :items-length="total"
         :headers="headers"
         :items-per-page="queryParams.pageSize"
+        :items-per-page-options="itemsPerPageOptions"
         :page="queryParams.pageNum"
         :sort-by="sortBy"
         class="modern-table"
@@ -265,7 +266,7 @@ const handleSubmitClick = async () => {
 }
 
 // 翻页 / 换页长 / 表头排序的接线统一在 useDataTable 里（这张表没有勾选，不取 selectedRows）
-const { onPageChange, onSizeChange, sortBy, onSortChange } = useDataTable({ queryParams, getList })
+const { onPageChange, onSizeChange, sortBy, onSortChange, itemsPerPageOptions } = useDataTable({ queryParams, getList })
 
 const headers = [
   { title: '规则名称', key: 'name', minWidth: '140' },

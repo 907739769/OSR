@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { reactive } from 'vue'
-import { useDataTable } from '../useDataTable'
+import { useDataTable, ITEMS_PER_PAGE_OPTIONS } from '../useDataTable'
 import { resetQueryParams } from '../queryParams'
 
 function build() {
@@ -59,5 +59,18 @@ describe('useDataTable 的表头排序', () => {
     expect(queryParams.title).toBeUndefined()
     expect(queryParams.orderByColumn).toBe('createTime')
     expect(queryParams.isAsc).toBe('desc')
+  })
+})
+
+describe('useDataTable 的每页条数档位', () => {
+  it('不含 Vuetify 默认的「全部」档（-1）：后端只会回 1000 条，写「全部」是误导', () => {
+    expect(ITEMS_PER_PAGE_OPTIONS).not.toContain(-1)
+    expect(ITEMS_PER_PAGE_OPTIONS[ITEMS_PER_PAGE_OPTIONS.length - 1]).toBe(1000)
+  })
+
+  it('档位随 table 一起返回，页面直接绑给 items-per-page-options', () => {
+    const { table } = build()
+
+    expect(table.itemsPerPageOptions).toBe(ITEMS_PER_PAGE_OPTIONS)
   })
 })
