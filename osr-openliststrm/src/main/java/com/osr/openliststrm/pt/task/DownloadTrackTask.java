@@ -1,6 +1,7 @@
 package com.osr.openliststrm.pt.task;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
+import com.osr.common.utils.FaultThrottle;
 import com.osr.common.utils.Threads;
 import com.osr.common.utils.ThreadTraceIdUtil;
 import com.osr.common.utils.spring.SpringUtils;
@@ -44,6 +45,13 @@ public class DownloadTrackTask {
 
     /** 单轮耗时超过心跳间隔时，避免重叠触发重复轮询所有下载器 */
     private final AtomicBoolean running = new AtomicBoolean(false);
+    /**
+     * 故障告警节流。<b>作为单例 bean 的实例字段是正确的</b>：它存的是需要跨轮次存活的
+     * 组件级状态，与「@Component 是单例、不能用实例字段存<b>单次请求</b>状态」那条规矩
+     * 说的不是一回事——放进方法局部变量的话每轮都重新开始，节流就不存在了。
+     */
+    private final FaultThrottle faultThrottle = new FaultThrottle();
+
 
     @EventListener(ApplicationReadyEvent.class)
     public void start() {
@@ -85,17 +93,40 @@ public class DownloadTrackTask {
             // 才能把 IYUU 转移与"种子被删了"区分开，边拉边处理的话先处理的那些拿不到后面的快照
             List<DownloaderSnapshot> snapshots = new ArrayList<>();
             for (PtDownloaderPlus downloader : downloaders) {
+                String key = "fetch:" + downloader.getId();
                 try {
                     snapshots.add(new DownloaderSnapshot(downloader, fetchTorrents(downloader)));
+                    if (faultThrottle.onSuccess(key)) {
+                        log.info("下载器[{}]已恢复，种子列表拉取正常", downloader.getName());
+                    }
                 } catch (Exception e) {
-                    log.warn("拉取下载器[{}]种子列表失败：{}", downloader.getName(), e.getMessage());
+                    // 本任务每 30 秒一轮：下载器离线时原先是每天 2880 条逐字相同的 WARN，
+                    // 既淹掉别的日志，又不比第一条多告诉你任何事。只在故障开始/恢复时喊。
+                    FaultThrottle.Decision d = faultThrottle.onFailure(key);
+                    if (d.shouldReport()) {
+                        log.warn("拉取下载器[{}]种子列表失败（连续第 {} 次）：{}",
+                                downloader.getName(), d.consecutiveFailures(), e.getMessage());
+                    } else {
+                        log.debug("拉取下载器[{}]种子列表仍在失败（连续第 {} 次）：{}",
+                                downloader.getName(), d.consecutiveFailures(), e.getMessage());
+                    }
                 }
             }
             for (DownloaderSnapshot snapshot : snapshots) {
+                String name = snapshot.downloader().getName();
+                String key = "track:" + snapshot.downloader().getId();
                 try {
                     trackService.track(snapshot.downloader(), snapshot.torrents(), snapshots);
+                    if (faultThrottle.onSuccess(key)) {
+                        log.info("下载器[{}]追踪已恢复", name);
+                    }
                 } catch (Exception e) {
-                    log.warn("追踪下载器[{}]失败：{}", snapshot.downloader().getName(), e.getMessage());
+                    FaultThrottle.Decision d = faultThrottle.onFailure(key);
+                    if (d.shouldReport()) {
+                        log.warn("追踪下载器[{}]失败（连续第 {} 次）：{}", name, d.consecutiveFailures(), e.getMessage());
+                    } else {
+                        log.debug("追踪下载器[{}]仍在失败（连续第 {} 次）：{}", name, d.consecutiveFailures(), e.getMessage());
+                    }
                 }
             }
         } catch (Exception e) {

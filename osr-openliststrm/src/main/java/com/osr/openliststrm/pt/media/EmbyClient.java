@@ -1,5 +1,6 @@
 package com.osr.openliststrm.pt.media;
 
+import com.osr.common.utils.FaultThrottle;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONException;
 import com.alibaba.fastjson2.JSONObject;
@@ -27,6 +28,13 @@ import java.util.Set;
 @Slf4j
 @Component
 public class EmbyClient implements IMediaServerClient {
+    /**
+     * 「媒体库里查不到这部剧」的日志节流，key 是 tmdbId。
+     * 本类是 @Component 单例，字段在这里存的是跨轮次的组件级状态而非单次调用状态——
+     * 与「单例不能用实例字段存单次请求状态」那条规矩说的不是一回事。
+     */
+    private final FaultThrottle missingSeries = new FaultThrottle();
+
 
     private static final String TYPE = "EMBY";
 
@@ -60,9 +68,18 @@ public class EmbyClient implements IMediaServerClient {
 
         String seriesId = findItemId(config, "Series", tmdbId);
         if (seriesId == null) {
-            log.debug("媒体服务器中未找到 tmdbId={} 的剧集", tmdbId);
+            // 「这部剧不在媒体库」是一个会<持续>成立的状态，而对账每 10 分钟跑一遍全部订阅：
+            // 逐轮打的话，一部还没下完的剧会一直重复同一行（实测这一条占掉全量日志的 12%）。
+            // 有价值的只有它第一次出现的时候，所以按 tmdbId 节流；下面查到了会清掉标记，
+            // 「本来有、后来从媒体库消失」仍然会重新报一次。
+            FaultThrottle.Decision d = missingSeries.onFailure(tmdbId);
+            if (d.shouldReport()) {
+                log.debug("媒体服务器中未找到 tmdbId={} 的剧集（连续第 {} 轮）", tmdbId, d.consecutiveFailures());
+            }
             return result;
         }
+        // 查到了就清掉标记，让「本来有、后来消失」还能再报一次
+        missingSeries.onSuccess(tmdbId);
 
         Map<String, String> query = new LinkedHashMap<>();
         query.put("season", String.valueOf(season));

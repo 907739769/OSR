@@ -44,7 +44,10 @@ public class TmdbCacheService {
                .last("LIMIT 1");
         TmdbCache cache = tmdbCacheMapper.selectOne(wrapper);
         if (cache != null) {
-            log.debug("TMDb缓存命中: type={}, key={}", cacheType, cacheKey);
+            // 刻意不记「缓存命中」：命中是正常路径上的高频事件，没有任何诊断价值——
+            // 没人会因为「命中了」去查什么。实测它一家占掉全量日志的 22%（一次对账 236 行）。
+            // 未命中那一侧由 cacheResponse 的「缓存写入」间接标记（未命中必然回源并回填），
+            // 想看命中率应该走指标而不是逐条日志。
             return cache.getResponseData();
         }
         return null;
