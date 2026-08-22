@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.baomidou.mybatisplus.core.metadata.OrderItem;
 import com.osr.common.core.controller.BaseController;
 import com.osr.common.core.domain.PageResult;
 import com.osr.common.core.domain.Result;
@@ -39,6 +40,14 @@ public class SysDictDataApiController extends BaseController
     {
         PageDomain pageDomain = TableSupport.buildPageRequest();
         Page<SysDictData> page = new Page<>(pageDomain.getPageNum(), pageDomain.getPageSize());
+        // 本类没走 BaseController#selectPage（它查的是 XML 里的分页 SQL），表头排序要自己接上，
+        // 不接的话前端点了表头顺序一动不动。分页拦截器会把这里的排序放在 SQL 自带的
+        // order by dict_sort 之前，dict_sort 自然降为次级键，同值行的顺序仍然稳定
+        OrderItem order = buildOrderItem(pageDomain);
+        if (order != null)
+        {
+            page.addOrder(order);
+        }
         List<SysDictData> list = dictDataService.selectDictDataListPage(page, dictData);
         return Result.success(PageResult.of(list, page.getTotal(), (int) page.getCurrent(), (int) page.getSize()));
     }

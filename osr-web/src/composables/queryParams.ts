@@ -14,9 +14,15 @@ import type { SearchParams } from '@/types'
  *
  * pageSize 不还原：它由分页器控制，属于用户的浏览偏好而非筛选条件，
  * 点"重置"时把每页条数跳回默认值反而突兀。pageNum 由调用方的 handleQuery 归 1。
+ *
+ * orderByColumn / isAsc 同理不还原，而且这里还多一层理由：表头的排序箭头是
+ * v-data-table-server 自己的状态（`:sort-by` 由 useDataTable 持有），重置动不到它。
+ * 清掉排序参数的话，箭头还指着"创建时间升序"、数据却已经按默认序回来了，
+ * 比"重置没清排序"更难解释。
  */
 export function resetQueryParams(queryParams: SearchParams, defaults: SearchParams) {
   const pageSize = queryParams.pageSize
+  const { orderByColumn, isAsc } = queryParams
   // 默认值里没有的键（页面自行挂上去的筛选字段、日期区间写入的 params）直接删掉，
   // 只做 Object.assign 的话它们会残留下来继续参与查询
   Object.keys(queryParams).forEach(key => {
@@ -24,4 +30,8 @@ export function resetQueryParams(queryParams: SearchParams, defaults: SearchPara
   })
   Object.assign(queryParams, defaults)
   queryParams.pageSize = pageSize
+  if (orderByColumn) {
+    queryParams.orderByColumn = orderByColumn
+    queryParams.isAsc = isAsc
+  }
 }

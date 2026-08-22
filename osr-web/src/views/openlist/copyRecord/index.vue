@@ -118,6 +118,7 @@
         :headers="headers"
         :items-per-page="queryParams.pageSize"
         :page="queryParams.pageNum"
+        :sort-by="sortBy"
         show-select
         item-value="copyId"
         return-object
@@ -126,6 +127,7 @@
         @update:model-value="onSelectionChange"
         @update:page="onPageChange"
         @update:items-per-page="onSizeChange"
+        @update:sort-by="onSortChange"
       >
         <template #item.detail="{ item }">
           <div class="path-box">
@@ -184,14 +186,14 @@ const {
 } = useCopyRecord()
 
 const headers = [
-  { title: '复制详情', key: 'detail', minWidth: '300' },
+  { title: '复制详情', key: 'detail', minWidth: '300', sortable: false },
   { title: '状态', key: 'copyStatus', align: 'center' as const, width: '80' },
   { title: '创建时间', key: 'createTime', width: '170', align: 'center' as const },
   { title: '操作', key: 'actions', align: 'center' as const, width: '170', sortable: false }
 ]
 
-// 表格接线（选中承接 / 翻页 / 换页长）统一在 useDataTable 里，见该文件注释
-const { selectedRows, onSelectionChange, clearSelection, onPageChange, onSizeChange } =
+// 表格接线（选中承接 / 翻页 / 换页长 / 表头排序）统一在 useDataTable 里，见该文件注释
+const { selectedRows, onSelectionChange, clearSelection, onPageChange, onSizeChange, sortBy, onSortChange } =
   useDataTable({ queryParams, getList, handleSelectionChange })
 
 

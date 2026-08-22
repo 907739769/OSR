@@ -70,6 +70,7 @@
         :headers="headers"
         :items-per-page="queryParams.pageSize"
         :page="queryParams.pageNum"
+        :sort-by="sortBy"
         show-select
         item-value="strmTaskId"
         return-object
@@ -78,6 +79,7 @@
         @update:model-value="onSelectionChange"
         @update:page="onPageChange"
         @update:items-per-page="onSizeChange"
+        @update:sort-by="onSortChange"
       >
         <template #item.strmTaskPath="{ item }">
           <div class="path-text" :title="item.strmTaskPath">
@@ -216,8 +218,8 @@ const headers = [
   { title: '操作', key: 'actions', align: 'center' as const, width: '220', sortable: false }
 ]
 
-// 表格接线（选中承接 / 翻页 / 换页长）统一在 useDataTable 里，见该文件注释
-const { selectedRows, onSelectionChange, clearSelection, onPageChange, onSizeChange } =
+// 表格接线（选中承接 / 翻页 / 换页长 / 表头排序）统一在 useDataTable 里，见该文件注释
+const { selectedRows, onSelectionChange, clearSelection, onPageChange, onSizeChange, sortBy, onSortChange } =
   useDataTable({ queryParams, getList, handleSelectionChange })
 
 </script>

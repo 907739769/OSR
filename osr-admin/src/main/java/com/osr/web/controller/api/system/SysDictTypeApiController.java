@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.baomidou.mybatisplus.core.metadata.OrderItem;
 import com.osr.common.core.controller.BaseController;
 import com.osr.common.core.domain.PageResult;
 import com.osr.common.core.domain.Result;
@@ -47,6 +48,13 @@ public class SysDictTypeApiController extends BaseController
     {
         PageDomain pageDomain = TableSupport.buildPageRequest();
         Page<SysDictType> page = new Page<>(pageDomain.getPageNum(), pageDomain.getPageSize());
+        // 本类没走 BaseController#selectPage（它查的是 XML 里的分页 SQL），表头排序要自己接上，
+        // 不接的话前端点了表头顺序一动不动。该分页 SQL 自己没有 ORDER BY，不指定就沿用库序
+        OrderItem order = buildOrderItem(pageDomain);
+        if (order != null)
+        {
+            page.addOrder(order);
+        }
         List<SysDictType> list = dictTypeService.selectDictTypeListPage(page, dictType);
         return Result.success(PageResult.of(list, page.getTotal(), (int) page.getCurrent(), (int) page.getSize()));
     }

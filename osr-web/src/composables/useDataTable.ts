@@ -1,5 +1,11 @@
 import { ref, type Ref } from 'vue'
 
+/** Vuetify 表格的排序项：`order` 省略时按升序处理 */
+export interface DataTableSortItem {
+  key: string
+  order?: boolean | 'asc' | 'desc'
+}
+
 interface DataTableHost {
   /** 列表 composable 的 queryParams（至少含 pageNum / pageSize） */
   queryParams: { pageNum: number; pageSize: number; [key: string]: any }
@@ -11,8 +17,8 @@ interface DataTableHost {
 /**
  * v-data-table-server 与列表 composable 之间的接线。
  *
- * 这四件事（承接选中行的本地 ref、把选中转交给 composable、翻页、换每页条数）原先在
- * 10 个 PC 列表页里逐字重复，每页约 20 行。它们没有一处是页面自己的判断——
+ * 这五件事（承接选中行的本地 ref、把选中转交给 composable、翻页、换每页条数、排序）
+ * 原先在 10 个 PC 列表页里逐字重复，每页约 20 行。它们没有一处是页面自己的判断——
  * 页面唯一需要决定的是表头怎么排。
  *
  * selectedRows 必须是本地 ref：v-data-table-server 的多选走 `:model-value` +
@@ -24,6 +30,8 @@ export function useDataTable(host: DataTableHost): {
   clearSelection: () => void
   onPageChange: (page: number) => void
   onSizeChange: (size: number) => void
+  sortBy: Ref<DataTableSortItem[]>
+  onSortChange: (sort: DataTableSortItem[]) => void
 } {
   const selectedRows = ref<any[]>([])
 
@@ -47,5 +55,38 @@ export function useDataTable(host: DataTableHost): {
     host.getList()
   }
 
-  return { selectedRows, onSelectionChange, clearSelection, onPageChange, onSizeChange }
+  /**
+   * 表头排序。
+   *
+   * v-data-table-server **只发事件、不自己排数据**（它拿到的本来就只有当前一页），
+   * 所以不接这个事件的表现是：点表头箭头翻转、一行都不动。10 个 PC 列表页此前全是
+   * 这个状态，只有定时任务页因为用的是客户端的 v-data-table 才「碰巧」能排。
+   *
+   * 排序落到 orderByColumn / isAsc 两个参数上，由后端 `BaseController#selectPage` 消费
+   * （驼峰列名在那边转下划线）。因此**表头 key 不是数据库列的列必须标 `sortable: false`**
+   * ——合成列（detail / config / fileInfo 这类把好几个字段拼成一格的）传过去就是一个
+   * 不存在的列名，整页会变成 500，而用户只是点了一下表头。
+   *
+   * sortBy 由本 composable 持有并回填给表格（`:sort-by`）：排序参数在「重置」时是保留的
+   * （见 resetQueryParams），受控之后箭头才不会和实际顺序对不上。
+   */
+  const sortBy = ref<DataTableSortItem[]>([])
+
+  const onSortChange = (sort: DataTableSortItem[]) => {
+    sortBy.value = sort || []
+    const first = sortBy.value[0]
+    if (first?.key) {
+      host.queryParams.orderByColumn = first.key
+      host.queryParams.isAsc = first.order === 'desc' ? 'desc' : 'asc'
+    } else {
+      // 取消排序（第三次点击）：删掉参数，回到后端的默认排序
+      delete host.queryParams.orderByColumn
+      delete host.queryParams.isAsc
+    }
+    // 换排序等于换了一份结果集，停在第 3 页看到的是新顺序的第 3 页，没有意义
+    host.queryParams.pageNum = 1
+    host.getList()
+  }
+
+  return { selectedRows, onSelectionChange, clearSelection, onPageChange, onSizeChange, sortBy, onSortChange }
 }

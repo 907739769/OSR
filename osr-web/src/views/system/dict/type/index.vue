@@ -14,9 +14,11 @@
         :headers="headers"
         :items-per-page="queryParams.pageSize"
         :page="queryParams.pageNum"
+        :sort-by="sortBy"
         class="modern-table"
         @update:page="onPageChange"
         @update:items-per-page="onSizeChange"
+        @update:sort-by="onSortChange"
       >
         <template #item.status="{ item }">
           <StatusChip :value="item.status" enabled-value="0" on-text="正常" off-text="停用" />
@@ -107,8 +109,8 @@ const { taskList, loading, total, queryParams, getList } = useTaskList<SearchPar
   defaultQuery: {}
 })
 
-// 翻页 / 换页长的接线统一在 useDataTable 里（这张表没有勾选，不取 selectedRows）
-const { onPageChange, onSizeChange } = useDataTable({ queryParams, getList })
+// 翻页 / 换页长 / 表头排序的接线统一在 useDataTable 里（这张表没有勾选，不取 selectedRows）
+const { onPageChange, onSizeChange, sortBy, onSortChange } = useDataTable({ queryParams, getList })
 
 // ---------- 移动端 - 分页辅助 ----------
 const totalPages = computed(() => Math.ceil(total.value / queryParams.pageSize) || 1)

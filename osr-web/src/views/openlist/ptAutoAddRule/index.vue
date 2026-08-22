@@ -60,9 +60,11 @@
         :headers="headers"
         :items-per-page="queryParams.pageSize"
         :page="queryParams.pageNum"
+        :sort-by="sortBy"
         class="modern-table"
         @update:page="onPageChange"
         @update:items-per-page="onSizeChange"
+        @update:sort-by="onSortChange"
       >
         <template #item.mediaType="{ item }">{{ item.mediaType === 'MOVIE' ? '电影' : '剧集' }}</template>
         <template #item.source="{ item }">{{ sourceLabel(item.source) }}</template>
@@ -262,8 +264,8 @@ const handleSubmitClick = async () => {
   submitForm()
 }
 
-// 翻页 / 换页长的接线统一在 useDataTable 里（这张表没有勾选，不取 selectedRows）
-const { onPageChange, onSizeChange } = useDataTable({ queryParams, getList })
+// 翻页 / 换页长 / 表头排序的接线统一在 useDataTable 里（这张表没有勾选，不取 selectedRows）
+const { onPageChange, onSizeChange, sortBy, onSortChange } = useDataTable({ queryParams, getList })
 
 const headers = [
   { title: '规则名称', key: 'name', minWidth: '140' },
