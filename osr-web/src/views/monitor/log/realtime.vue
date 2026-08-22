@@ -108,9 +108,13 @@ const MAX_LINES = 5000
 // 日志源只剩两档，对应 logback 里合并后的两个文件：sys-all.log 与 sys-error.log。
 // 早先的 Info/Debug 两档是<互斥>切分的两个文件（sys-debug.log 只含 DEBUG、sys-info.log 含 INFO 及以上），
 // 而业务模块跑在 DEBUG、框架跑在 INFO——同一条调用链被劈在两个文件里，选哪个都看不全。
+// 「访问日志」单列一档：它由独立 logger 写进 sys-access.log（logback 里 additivity=false），
+// 不进 sys-all.log。分出去是为了让全量日志只剩业务内容，但页面上必须还看得到，
+// 否则就不是降噪而是功能退化。
 const sourceItems = [
   { title: '全部', value: 'all' },
   { title: '仅错误', value: 'error' },
+  { title: '访问日志', value: 'access' },
 ]
 
 const logType = ref('all')

@@ -88,6 +88,32 @@
     </appender>
 
     <!--
+        访问日志（每请求一行，由 RequestLogFilter 写）。
+
+        与业务日志分开是有意的：访问日志是按请求恒定产生的运维流水，业务日志讲的是系统在做什么。
+        混在一起时前者会把后者淹没——实测合并前 RequestLogFilter + ApiInterceptor 两个组件
+        对同一个请求各打两行，合计占掉 sys-all.log 的 60%（其中健康检查一家就 60.5%，已单独排除）。
+        sys-user.log 早就是按同样的理由独立出去的。
+
+        保留 14 天、总量 1GB：它比业务日志更值得往回翻（「上周三那次报错是谁点的、返回了什么」），
+        单条又比业务日志短得多。
+    -->
+    <appender name="file_access" class="ch.qos.logback.core.rolling.RollingFileAppender">
+        <file>${log.path}/sys-access.log</file>
+
+        <rollingPolicy class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+            <fileNamePattern>${log.path}/sys-access.%d{yyyy-MM-dd}.%i.log</fileNamePattern>
+            <maxFileSize>50MB</maxFileSize>
+            <maxHistory>14</maxHistory>
+            <totalSizeCap>1GB</totalSizeCap>
+        </rollingPolicy>
+
+        <encoder>
+            <pattern>${log.pattern}</pattern>
+        </encoder>
+    </appender>
+
+    <!--
         异步包装。
         RollingFileAppender 直接挂在 root 上时，写盘发生在<调用线程>里，而
         OutputStreamAppender 每次 append 都要拿同一把锁、且默认 immediateFlush=true 逐条刷盘。
@@ -110,6 +136,15 @@
         <queueSize>4096</queueSize>
         <discardingThreshold>0</discardingThreshold>
         <appender-ref ref="file_all" />
+    </appender>
+
+    <!--
+        访问日志留默认 discardingThreshold：它是流水，洪水时丢掉一部分正是想要的降级方向——
+        与 sys-error.log「一条都不能丢」的取向相反，那边丢一条就可能丢掉唯一的故障线索。
+    -->
+    <appender name="async_access" class="ch.qos.logback.classic.AsyncAppender">
+        <queueSize>2048</queueSize>
+        <appender-ref ref="file_access" />
     </appender>
 
     <appender name="async_error" class="ch.qos.logback.classic.AsyncAppender">
@@ -156,7 +191,15 @@
         <appender-ref ref="async_error" />
     </root>
 
-    <!-- 用户访问日志（独立 Logger，不进入 root） -->
+    <!--
+        访问日志（独立 Logger，不进入 root）。
+        additivity="false" 是关键：漏掉它就会同时写进 sys-all.log，等于白分。
+    -->
+    <logger name="access" level="info" additivity="false">
+        <appender-ref ref="async_access"/>
+    </logger>
+
+    <!-- 用户行为日志（独立 Logger，不进入 root） -->
     <logger name="sys-user" level="info" additivity="false">
         <appender-ref ref="sys-user"/>
     </logger>

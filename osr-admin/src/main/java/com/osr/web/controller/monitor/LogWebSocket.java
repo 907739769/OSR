@@ -167,12 +167,21 @@ public class LogWebSocket {
     /**
      * logType 到日志文件的映射。
      *
-     * <p>只剩「全量」与「仅错误」两档，对应 logback 里合并后的两个文件。旧的
-     * {@code info} / {@code debug} 两个取值不再有对应文件，一并落到全量——它们本来就是
-     * 同一份日志的两半，客户端还在用旧值时给全量是唯一说得通的降级。
+     * <p>三档：「全量」「仅错误」「访问日志」，对应 logback 里的三个文件。访问日志是
+     * 独立 logger（additivity=false）写的，不进 sys-all.log，所以必须单开一档——否则
+     * 它从页面上彻底消失，那是功能退化而不是降噪。
+     *
+     * <p>旧的 {@code info} / {@code debug} 两个取值不再有对应文件，一并落到全量——
+     * 它们本来就是同一份日志的两半，客户端还在用旧值时给全量是唯一说得通的降级。
      */
     private String resolveFileName(String logType) {
-        return "error".equalsIgnoreCase(logType) ? "sys-error.log" : "sys-all.log";
+        if ("error".equalsIgnoreCase(logType)) {
+            return "sys-error.log";
+        }
+        if ("access".equalsIgnoreCase(logType)) {
+            return "sys-access.log";
+        }
+        return "sys-all.log";
     }
 
     private void rejectUnauthorized(Session session, String reason, String logType) {

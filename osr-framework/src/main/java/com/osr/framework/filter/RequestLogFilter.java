@@ -19,10 +19,35 @@ import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Component
-@Order(1)
+@Order(RequestLogFilter.ORDER)
 public class RequestLogFilter implements Filter {
 
+    /**
+     * 排在 Spring Security 之前。
+     *
+     * <p>原先是 {@code @Order(1)}，而 Spring Boot 给 Security 过滤器链的默认 order 是
+     * <b>-100</b>——也就是说这个 filter 一直排在 Security <b>后面</b>，被 Security 拦下的请求
+     * 根本走不到这里。实测发两个无 token 的请求（受保护接口与不存在的路径，均返回 401），
+     * 日志里<b>一行都没有</b>：整套请求日志对认证失败完全失明，而「点什么都没反应」「接口报 401」
+     * 恰恰是最常需要回溯的一类问题。
+     *
+     * <p>-101 是紧挨着 Security 之前的位置，不去抢 XssFilter（HIGHEST_PRECEDENCE）的次序。
+     * 顺带的好处：traceId 现在也在 Security 之前就绪，JwtAuthenticationFilter 里的日志
+     * 从此也带得上 traceId。
+     */
+    static final int ORDER = -101;
+
+    /** 本类自身的问题（记日志时出错）走这个 logger，与访问日志分开 */
     private static final Logger log = LoggerFactory.getLogger(RequestLogFilter.class);
+
+    /**
+     * 访问日志专用 logger，独立 appender 写 sys-access.log（logback 里 additivity=false）。
+     *
+     * <p>访问日志与业务日志是两类东西：前者是运维流水、按请求产生，后者讲的是系统在做什么。
+     * 混在 sys-all.log 里的结果是后者被前者淹没——这正是 sys-user.log 早就独立出去的理由。
+     * 实时日志页因此多一个「访问日志」源，两边都看得到。
+     */
+    private static final Logger accessLog = LoggerFactory.getLogger("access");
 
     /**
      * 只跳过<日志>、不改变请求处理的路径。
@@ -30,8 +55,8 @@ public class RequestLogFilter implements Filter {
      * <p>与下面的 {@link #EXCLUDE_PATHS} 是两回事：那个清单命中后会走「非 GET 一律 405」的
      * 静态资源分支，把一个真实 API 端点放进去会连带改掉它的请求语义。
      *
-     * <p>/api/health 是 docker-compose healthcheck 的探针，每 15 秒一次，本类留两行、
-     * ApiInterceptor 再留两行，合计每天 23040 行。实测它在一份 1085 行的样本里独占 60.5%。
+     * <p>/api/health 是 docker-compose healthcheck 的探针，每 15 秒一次。排除前它与
+     * ApiInterceptor（已删除）合计每天留下 23040 行，在一份 1085 行的样本里独占 60.5%。
      */
     private static final List<String> NO_LOG_PATHS = Arrays.asList("/api/health");
 
@@ -79,8 +104,9 @@ public class RequestLogFilter implements Filter {
             // 初始化traceId
             initTraceId(httpRequest);
 
-            // 先打印请求日志（此时请求体已经被包装缓存，可以读取）
-            if (!skipLog) {
+            // 参数与 body 只在 DEBUG 打：它们对排查个别请求有用，但量大且含业务内容，
+            // 不该进入按请求恒定产生的访问日志。
+            if (!skipLog && accessLog.isDebugEnabled()) {
                 logRequestInfo(wrappedRequest);
             }
 
@@ -88,9 +114,11 @@ public class RequestLogFilter implements Filter {
             chain.doFilter(wrappedRequest, response);
 
         } finally {
-            // 记录耗时
+            // 一条请求一行，收尾时打。放在 finally 里，异常路径同样留痕——这是 filter 相对
+            // 拦截器的天然优势：不需要区分 postHandle / afterCompletion，也没有「哪个回调在
+            // 异常时不被调用」的坑。
             if (!skipLog) {
-                logElapsedTime(httpRequest, startTime);
+                logAccess(httpRequest, response, startTime);
             }
             MDC.clear();
         }
@@ -212,12 +240,52 @@ public class RequestLogFilter implements Filter {
                 .collect(Collectors.joining(", "));
     }
 
-    private void logElapsedTime(HttpServletRequest request, long startTime) {
+    /**
+     * 一次请求 = 一行访问日志。
+     *
+     * <p>合并前这件事由两个组件各打两行：本类的 {@code Request =>} / {@code Response <=}
+     * 与 ApiInterceptor 的两条 {@code [API]}，四行里方法、URI、耗时是重复的，只有
+     * 「参数·body」与「IP·UA·状态码」各自独有。ApiInterceptor 已随本次改造删除，
+     * 它独有的那三个字段并入这里。
+     *
+     * <p>{@code startTime} 是 {@code doFilter} 的<b>方法内局部变量</b>，天生按请求隔离。
+     * 被删掉的 ApiInterceptor 曾把它存成拦截器的实例字段，而 HandlerInterceptor 是单例，
+     * 并发时后到的请求会覆盖先到者的起点，算出来的耗时<b>偏小</b>——慢接口反而显示得很快，
+     * 正好瞒过要靠这条日志找的那类问题（实测 56.7 秒被记成 15.2 秒）。
+     * 不要为了「复用」把它挪到字段上。
+     */
+    private void logAccess(HttpServletRequest request, ServletResponse response, long startTime) {
         long elapsedTime = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startTime);
-        log.debug("Response <= {} {} [Time: {}ms]",
+        int status = response instanceof HttpServletResponse httpResponse ? httpResponse.getStatus() : 0;
+        accessLog.info("{} {} -> {} ({}ms) from {} UA: {}",
                 request.getMethod(),
                 request.getRequestURI(),
-                elapsedTime);
+                status,
+                elapsedTime,
+                getClientIp(request),
+                request.getHeader("User-Agent"));
+    }
+
+    /**
+     * 取真实客户端 IP。本项目前端由 Nginx 反代，直接用 getRemoteAddr() 拿到的是容器网关地址，
+     * 所有请求看起来都来自同一个 IP。
+     */
+    private String getClientIp(HttpServletRequest request) {
+        String ip = request.getHeader("X-Forwarded-For");
+        if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
+            ip = request.getHeader("X-Real-IP");
+        }
+        if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
+            ip = request.getRemoteAddr();
+        }
+        // X-Forwarded-For 是逗号分隔的链，第一个才是最初的客户端
+        if (ip != null) {
+            int comma = ip.indexOf(',');
+            if (comma > 0) {
+                ip = ip.substring(0, comma).trim();
+            }
+        }
+        return ip;
     }
 
     private boolean isStaticResource(String path) {
