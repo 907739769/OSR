@@ -63,6 +63,8 @@ export const CONFIG_META: Record<string, ConfigMeta> = {
   'openlist.strm.outputdir': { type: 'text', hint: 'STRM 文件生成的根目录，默认 /data/strm' },
   'openlist.strm.encode': { type: 'switch', hint: 'STRM 内路径是否进行 URL 编码' },
   'openlist.strm.downloadsub': { type: 'switch', hint: '生成 STRM 时是否同时下载字幕文件' },
+  'openlist.strm.video.extensions': { type: 'textarea', hint: '判定视频文件的扩展名，逗号分隔、不带点。留空会导致所有文件都不被识别为视频，同步与 STRM 生成将不处理任何文件' },
+  'openlist.strm.subtitle.extensions': { type: 'textarea', hint: '判定字幕文件的扩展名，逗号分隔、不带点。仅在开启「生成 STRM 时下载字幕」后生效' },
   // Telegram
   'openlist.tg.token': { type: 'password', hint: 'Telegram 机器人 Token' },
   'openlist.tg.userid': { type: 'text', hint: '允许控制机器人的 Telegram 用户 ID' },

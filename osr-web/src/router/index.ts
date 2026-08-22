@@ -35,18 +35,6 @@ export const constantRoutes: RouteRecordRaw[] = [
     name: 'Dashboard',
     component: () => import('@/views/dashboard/index.vue'),
     meta: { title: '首页', icon: 'Odometer' }
-  },
-  {
-    path: '/system/dict/type',
-    name: 'DictType',
-    component: () => import('@/views/system/dict/type/index.vue'),
-    meta: { title: '字典管理', icon: 'List', hidden: false }
-  },
-  {
-    path: '/system/dict/data',
-    name: 'DictData',
-    component: () => import('@/views/system/dict/data/index.vue'),
-    meta: { title: '字典数据', hidden: false }
   }
 ]
 
@@ -54,9 +42,6 @@ export const constantRoutes: RouteRecordRaw[] = [
 // 路由表本身不再区分设备。
 const componentMap: Record<string, Component | (() => Promise<any>)> = {
   'Layout': () => import('@/layouts/DesktopLayout.vue'),
-  'system/dict/type/index': () => import('@/views/system/dict/type/index.vue'),
-  'system/dict/data/index': () => import('@/views/system/dict/data/index.vue'),
-  'system/dict/index': () => import('@/views/system/dict/type/index.vue'),
   'system/config/index': () => import('@/views/system/config/index.vue'),
   'system/notifyRoute/index': createDeviceView(
     () => import('@/views/system/notifyRoute/index.vue'),

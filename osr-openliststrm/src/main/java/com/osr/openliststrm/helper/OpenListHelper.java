@@ -7,6 +7,7 @@ import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
@@ -23,7 +24,7 @@ public class OpenListHelper {
     private static final String FILTER_OFF = "off";
 
     @Autowired
-    private SysDictDataHelper sysDictDataHelper;
+    private MediaExtensionProvider mediaExtensions;
 
     @Autowired
     private OpenlistConfig config;
@@ -41,7 +42,7 @@ public class OpenListHelper {
      * @return
      */
     public boolean isVideo(String name) {
-        return matchesExtension(name, "openlist_video_type");
+        return matchesExtension(name, mediaExtensions.videoExtensions());
     }
 
     /**
@@ -51,14 +52,14 @@ public class OpenListHelper {
      * @return
      */
     public boolean isSrt(String name) {
-        return matchesExtension(name, "openlist_srt_type");
+        return matchesExtension(name, mediaExtensions.subtitleExtensions());
     }
 
     /**
-     * 按扩展名匹配字典类型。提取一次扩展名并查缓存的小写集合，
-     * 避免在热循环里对每个字典值重复 toLowerCase。
+     * 按扩展名匹配给定集合。集合由 {@link MediaExtensionProvider} 备好（已小写、已去点），
+     * 这里只提取一次扩展名再查一次哈希——目录遍历是热路径，每个条目都要走一遍。
      */
-    private boolean matchesExtension(String name, String dictType) {
+    private boolean matchesExtension(String name, Set<String> extensions) {
         if (name == null) {
             return false;
         }
@@ -67,7 +68,7 @@ public class OpenListHelper {
             return false;
         }
         String ext = name.substring(dot + 1).toLowerCase();
-        return sysDictDataHelper.getAllValueLowerSet(dictType).contains(ext);
+        return extensions.contains(ext);
     }
 
     /**

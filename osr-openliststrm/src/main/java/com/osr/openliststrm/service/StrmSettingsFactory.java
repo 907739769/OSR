@@ -16,8 +16,9 @@ import lombok.extern.slf4j.Slf4j;
  * 可覆盖的三项都只影响写侧（生成 STRM 时用一次），没有下游读取方。
  * <b>URL 编码开关与视频/字幕扩展名刻意不在其列</b>：前者有三个解码侧消费者
  * （{@code RenameOrphanScanServiceImpl}、{@code RenameCleanupService}、
- * {@code StrmSourcePathResolver} 都要从 .strm 内容反解回网盘路径），后者是 sys_dict 里的
- * 全站字典；两者都是「播放器/媒体库吃什么」的全局属性，分库配置只会制造解不开的历史数据。
+ * {@code StrmSourcePathResolver} 都要从 .strm 内容反解回网盘路径），后者是 sys_config 里的
+ * 全站清单（见 {@code MediaExtensionProvider}）；两者都是「播放器/媒体库吃什么」的全局属性，
+ * 分库配置只会制造解不开的历史数据。
  * </p>
  *
  * @author Jack

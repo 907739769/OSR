@@ -15,6 +15,12 @@ import java.util.List;
 @Component
 public class OpenlistConfig {
 
+    /** 配置行缺失时的视频扩展名兜底，与 sql/init.sql 里的初始字典逐字一致 */
+    private static final String DEFAULT_VIDEO_EXTENSIONS = "mp4,mkv,avi,mov,rmvb,flv,webm,m3u8,wmv,iso,ts";
+
+    /** 配置行缺失时的字幕扩展名兜底，与 sql/init.sql 里的初始字典逐字一致 */
+    private static final String DEFAULT_SUBTITLE_EXTENSIONS = "ass,srt";
+
     @Autowired
     private ISysConfigService sysConfigService;
 
@@ -168,6 +174,25 @@ public class OpenlistConfig {
     public String getOpenListStrmDownloadSub() {
         String value = sysConfigService.selectConfigByKey("openlist.strm.downloadsub");
         return (value != null && !value.isBlank()) ? value : "0";
+    }
+
+    /**
+     * 视频扩展名清单，逗号分隔、不带点。配置行缺失时退回内置兜底，
+     * <b>绝不能让它退化成空串</b>：空集意味着"没有任何文件是视频"，同步与 STRM 生成
+     * 会安静地一个文件都不处理，日志里看不出任何异常，而这正是本项目的主链路。
+     */
+    public String getVideoExtensions() {
+        String value = sysConfigService.selectConfigByKey("openlist.strm.video.extensions");
+        return (value != null && !value.isBlank()) ? value : DEFAULT_VIDEO_EXTENSIONS;
+    }
+
+    /**
+     * 字幕扩展名清单，逗号分隔、不带点。配置行缺失时退回内置兜底，理由同
+     * {@link #getVideoExtensions()}。
+     */
+    public String getSubtitleExtensions() {
+        String value = sysConfigService.selectConfigByKey("openlist.strm.subtitle.extensions");
+        return (value != null && !value.isBlank()) ? value : DEFAULT_SUBTITLE_EXTENSIONS;
     }
 
     // API refresh开关 (默认: 1-开启)

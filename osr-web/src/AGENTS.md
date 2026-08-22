@@ -232,7 +232,7 @@ await 过异步组件的 import，此时 chunk 已到位。
 | `.card-grid` `.item-card`（`--failed/--selectable/--compact`）+ `.card-header/body/row/footer` | `styles/list.scss` | PC 卡片网格（PT 配置类页面） |
 | `.mobile-page` `.task-list` `.task-card` `.fab-add` `.batch-bar` `.card-actions` `.drawer-actions` `.date-range-fields` | `styles/mobile-list.scss` | 移动端页面骨架与卡片（骨架三件套已被 `MobileListPage` 包起来，页面不再直接写） |
 | `.menu-item` `.menu-group-label` | `styles/menu.scss` | 两端侧边菜单项（两个 Layout 自己渲染的「首页」那条也用它） |
-| `.mobile-card*` | `styles/mobile-list.scss` | PC 页在 <768px 时的表格降级卡片（monitor/job、dict/*） |
+| `.mobile-card*` | `styles/mobile-list.scss` | PC 页在 <768px 时的表格降级卡片（monitor/job） |
 
 **PC 卡片同理**：`ptSubscription` 的订阅卡曾自造过一整套 `.sub-card / .sub-header / .sub-row / .sub-actions`，把 `.item-card` 的边框、圆角、hover 阴影、可点选态逐条重写了一遍，已退回 `.item-card item-card--compact` + `.card-header/.card-row/.card-footer`，只留海报横排（`.sub-main/.sub-poster`）、进度条（`.sub-progress`）、开关行（`.sub-switches`）这些真正特有的私有类。**网格里的加载条与空态已由 `list.scss` 统一横跨整行**（`.card-grid > .v-empty-state / > .v-progress-linear` 挂 `grid-column: 1 / -1`），页面里不要再各写一份。它们是网格的直接子元素，没有这条就只占一条轨道（≈300px），而 `v-empty-state` 会在自己的盒子里居中，于是整块空态挤在左上角那一格里——屏幕越宽越离谱（2560 的屏上只占 14% 宽度，看着像内容渲染错位而不是「这里没有数据」）。这条漏掉不报错、只是位置不对，实际 6 个卡片网格页全都漏了，其中 `ptDownloadRecord` 还只给加载条补了、没想到空态是同一个问题。
 

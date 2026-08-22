@@ -113,7 +113,8 @@ public class MysqlDdl extends SimpleDdl {
                 "sql/20260788-pt-auto-search-backoff.sql",
                 "sql/20260789-pt-episode-health.sql",
                 "sql/20260790-pt-health-ignore.sql",
-                "sql/20260791-menu-icon-to-lucide.sql"
+                "sql/20260791-menu-icon-to-lucide.sql",
+                "sql/20260792-drop-dict.sql"
         );
     }
 }

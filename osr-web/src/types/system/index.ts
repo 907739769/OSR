@@ -65,28 +65,3 @@ export interface SysConfig {
   remark?: string
 }
 
-export interface SysDictType {
-  dictId: number
-  dictName: string
-  dictType: string
-  status: string
-  createTime: string
-  updateTime: string
-  remark: string
-}
-
-export interface SysDictData {
-  dictCode: number
-  dictLabel: string
-  dictValue: string
-  dictType: string
-  dictSort: number
-  cssClass: string
-  listClass: string
-  isDefault: string
-  status: string
-  createTime: string
-  updateTime: string
-  remark: string
-}
-

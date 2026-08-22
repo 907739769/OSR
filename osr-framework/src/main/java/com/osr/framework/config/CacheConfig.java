@@ -17,7 +17,7 @@ public class CacheConfig {
     public CacheManager cacheManager() {
         CaffeineCacheManager cacheManager = new CaffeineCacheManager();
         cacheManager.setCacheNames(Arrays.asList(
-                "sysCache", "sys-config", "sys-dict", "sys-authCache"
+                "sysCache", "sys-config", "sys-authCache"
         ));
         cacheManager.setCaffeine(Caffeine.newBuilder()
                 .maximumSize(10000)

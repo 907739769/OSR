@@ -80,16 +80,6 @@ public class Constants
     public static final String SYS_CONFIG_KEY = "sys_config:";
 
     /**
-     * 字典管理 cache name
-     */
-    public static final String SYS_DICT_CACHE = "sys-dict";
-
-    /**
-     * 字典管理 cache key
-     */
-    public static final String SYS_DICT_KEY = "sys_dict:";
-
-    /**
      * RMI 远程方法调用
      */
     public static final String LOOKUP_RMI = "rmi:";

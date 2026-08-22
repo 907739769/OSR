@@ -28,13 +28,13 @@ class PageOrderPrecedenceTest
     @Test
     void 分页排序排在SQL自带的orderBy之前()
     {
-        String sql = "SELECT dict_code, dict_sort FROM sys_dict_data ORDER BY dict_sort ASC";
+        String sql = "SELECT config_id, config_key FROM sys_config ORDER BY config_key ASC";
 
         String merged = new PaginationInnerInterceptor()
                 .concatOrderBy(sql, List.of(OrderItem.desc("create_time")));
 
         int userOrder = merged.toUpperCase().indexOf("CREATE_TIME");
-        int sqlOrder = merged.toUpperCase().lastIndexOf("DICT_SORT");
+        int sqlOrder = merged.toUpperCase().lastIndexOf("CONFIG_KEY");
         assertTrue(userOrder > 0, "用户指定的排序列应该出现在 SQL 里：" + merged);
         assertTrue(userOrder < sqlOrder, "用户指定的排序应排在 SQL 自带的 order by 之前：" + merged);
     }

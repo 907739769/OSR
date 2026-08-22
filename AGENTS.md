@@ -10,7 +10,7 @@
 ├── osr-admin/          # 启动模块 (Spring Boot main)，端口 6895
 ├── osr-common/         # 通用工具 (annotation, utils, exception, mybatisplus)
 ├── osr-framework/      # 框架配置 (security, config, websocket)
-├── osr-system/         # 标准系统管理模块 (user/role/menu/dict domain)
+├── osr-system/         # 标准系统管理模块 (user/role/menu/config domain)
 ├── osr-quartz/         # 定时任务 (job scheduler)
 ├── osr-openliststrm/   # ★ 核心业务，新功能几乎都写在这里 (21个子包，见下)
 ├── osr-web/         # Vue 3 前端 (Vite + Pinia + Vuetify 3 + PWA)
@@ -146,7 +146,11 @@ docker compose up -d --build --no-deps backend
   **品牌图标是唯一的例外**：lucide 官方不收 logo（已剥离到 simple-icons），而 Telegram / 企业微信的图标本身就承担「这条通知走哪个渠道」的识别功能。这两个从 simple-icons 取官方路径内联在 `lucideIcons.ts` 里，名字是 `brand-telegram` / `brand-wecom`，是**全站仅有的两个实心图标**——品牌标识按惯例就是实心的，描边版本认不出来。新增通知渠道时照抄，不要为了统一风格把 logo 改成描边。
   另：`mdi-spin` 那类 MDI 字体自带的修饰类随字体一起没了，加载图标的自转改成 `motion.scss` 里针对 `.lucide-loader-circle` 的规则，**它是全站唯一不走 `--osr-dur-*` 令牌的动画**（令牌在 reduced-motion 下被压到 0.01ms，套上去就是每秒转十万圈）。
 - **参数设置页的分组按「配置键前缀」归类**（`SECTION_RULES`，见 `views/system/config/index.vue`），不是按键名里的关键词猜。加同前缀的配置零改动就落到正确分组；全新前缀落进「其他」，看得见但不会错放。旧实现是一串 if-else 匹配子串，41 个配置里有 15 个掉进兜底的「基础配置」——通知类和登录安全类全在里面。
-- **PC 列表页的表头排序全部接在 `useDataTable#onSortChange` 上**，落成 `orderByColumn`/`isAsc` 两个参数交给 `BaseController#selectPage`。`v-data-table-server` **只发事件、不自己排数据**（它手里本来就只有当前一页），不接这个事件的表现是「点表头、箭头翻转、一行不动」——10 个 PC 列表页此前全是这个状态，只有定时任务页因为用的是客户端的 `v-data-table` 才碰巧能排。三条不要改坏的：**表头 key 不是数据库列的必须标 `sortable: false`**（`detail`/`config`/`fileInfo` 这类把几个字段拼成一格的合成列，传过去就是个不存在的列名，整页 500，而用户只是点了一下表头）；**各 Controller `buildQueryWrapper` 里的默认排序要留着**——MyBatis-Plus 的分页拦截器把 `Page` 上的排序放在 SQL 自带 ORDER BY 之**前**（`PageOrderPrecedenceTest` 钉住了这个第三方行为，反过来的话所有排序都会被 create_time 静默吃掉），默认排序因此降为次级键，同值行的先后仍然稳定，去掉它翻页会出现重复行与漏行；**`resetQueryParams` 不清排序参数**，理由与 pageSize 相同，且箭头是表格自己的状态、清了参数就会和实际顺序对不上。字典管理两页不走 `selectPage`（查的是 XML 分页 SQL），排序在 `SysDict*ApiController` 里自己 `page.addOrder`。
+- **字典管理已整套下线（20260792），视频/字幕扩展名迁进参数设置，`sys_dict_data`/`sys_dict_type` 两张表已 DROP**。删的理由不只是「像后台管理系统」：经 20260510/20260511 两次清理后字典只剩 2 个类型 13 条数据，唯一消费者是 `OpenListHelper#isVideo/isSrt`，而那个页面**改了不生效**——`SysDictDataHelper` 的缓存靠 `refreshCache(String)` 失效，那个方法全项目零调用方，用户加一个扩展名保存成功、列表刷新，业务侧仍用旧集合，非重启后端不生效且没有任何错误现象（两个 `SysDict*ApiController` 顺带也没有 `adminOnlyWrite`，任何登录用户都能改全站扩展名）。三条不要改坏的：
+  1. **`MediaExtensionProvider` 按配置原文缓存，不是按配置键名**。这是新实现不会重演上述 bug 的**结构性**保证：配置一变 key 就不同、自动重算，不存在一个「需要有人记得调用」的失效方法。取原文很便宜——`selectConfigByKey` 那层已有 `CacheUtils` 缓存且 `updateConfig` 会刷新它，这里缓存的是 split + toLowerCase 的结果，省的是目录遍历时每个文件都要做的那一次。
+  2. **配置值为空必须退回内置兜底，绝不能退化成空集**（`OpenlistConfig` 的两个 `DEFAULT_*_EXTENSIONS`）。空集的语义是「没有任何文件是视频」，同步与 STRM 生成会安静地一个文件都不处理，而那是本项目的主链路——日志里看不出任何异常，用户只会看到「什么都没生成」。
+  3. **`schema.sql` 的建表与 `init.sql` 的 13 条种子数据刻意保留**（与 `sys_notice` 被 20260510 DROP 但 schema.sql 仍建表同一处理）。迁移脚本要从字典表 `GROUP_CONCAT` 出配置值，全新安装靠 init.sql 那份、存量升级靠用户自己维护的那份，两条路径共用同一份默认值定义、不会漂移。把 init.sql 的 INSERT 删掉的话，全新安装会在这一步读到空表、拼出两条空配置，正好触发上一条。
+- **PC 列表页的表头排序全部接在 `useDataTable#onSortChange` 上**，落成 `orderByColumn`/`isAsc` 两个参数交给 `BaseController#selectPage`。`v-data-table-server` **只发事件、不自己排数据**（它手里本来就只有当前一页），不接这个事件的表现是「点表头、箭头翻转、一行不动」——10 个 PC 列表页此前全是这个状态，只有定时任务页因为用的是客户端的 `v-data-table` 才碰巧能排。三条不要改坏的：**表头 key 不是数据库列的必须标 `sortable: false`**（`detail`/`config`/`fileInfo` 这类把几个字段拼成一格的合成列，传过去就是个不存在的列名，整页 500，而用户只是点了一下表头）；**各 Controller `buildQueryWrapper` 里的默认排序要留着**——MyBatis-Plus 的分页拦截器把 `Page` 上的排序放在 SQL 自带 ORDER BY 之**前**（`PageOrderPrecedenceTest` 钉住了这个第三方行为，反过来的话所有排序都会被 create_time 静默吃掉），默认排序因此降为次级键，同值行的先后仍然稳定，去掉它翻页会出现重复行与漏行；**`resetQueryParams` 不清排序参数**，理由与 pageSize 相同，且箭头是表格自己的状态、清了参数就会和实际顺序对不上。
 - **通知的「发不发、发给谁」由 `notify_route` 表决定，渠道实现只管「怎么发」**。改造前每个渠道自己读 `openlist.notify.{channel}.types` 判断类型，渠道一多就没法统一配置，也没有收件人这一维。现在 `NotifierManager` 查路由，`NotifyRouteService` 整表缓存（通知是热路径，写入后调 `invalidate()`）。三条容易做错的语义：
   1. **路由缺失按「发送」处理**。新增通知类型或新增渠道时路由行还没补上，宁可多发也不能静默丢——丢通知的故障用户根本发现不了。
   2. **`OWNER` 档在通知无归属时回退默认接收人，不是丢弃**。系统级告警（索引器故障、复制超时）本来就没有归属人，理解成丢弃会让这类告警凭空消失。
@@ -237,7 +241,7 @@ docker compose up -d --build --no-deps backend
   2. **`EXCLUDED_DESCRIPTION_KEYWORD` 与 `EXCLUDED_KEYWORD` 是两个码，别合并**。命中的是标题还是描述，决定用户该去改哪个输入框，聚合成一个就分不出来了。
 - **STRM 生成的「输出根目录 / 是否下字幕 / 最小体积」可按任务覆盖**，存在 `openlist_strm_task.strm_override`（JSON），合并规则见 `StrmSettingsFactory`——照 `pt_subscription.filter_override` 的约定，只有出现在 JSON 里的键才覆盖，该列为空时行为与引入前完全一致。两条不要改坏的约定：
   1. **`strmDir`/`strmOneFile` 按路径反查任务，不要改成让调用方传任务**。半数调用方手里根本没有任务对象（`AsynHelper` 的复制完成触发、`CopyRecoveryTask` 的兜底恢复、TG 的 `/strm <路径>`），它们退回全局配置就会让同一目录因「谁触发的」而输出到不同根目录，长出两棵 STRM 树，一致性检查还会把其中一棵报成孤儿。匹配走 `pickCoveringTask`：落在路径分隔符上、取最长（最具体）的任务、停用的任务照样参与。
-  2. **URL 编码开关与视频/字幕扩展名刻意不可覆盖**。encode 有三个解码侧消费者（`RenameOrphanScanServiceImpl`、`RenameCleanupService`、`StrmSourcePathResolver` 都要从 .strm 内容反解回网盘路径），扩展名是 `sys_dict` 全站字典；两者都是「播放器吃什么」的全局属性，分库配置只会制造解不开的历史数据。
+  2. **URL 编码开关与视频/字幕扩展名刻意不可覆盖**。encode 有三个解码侧消费者（`RenameOrphanScanServiceImpl`、`RenameCleanupService`、`StrmSourcePathResolver` 都要从 .strm 内容反解回网盘路径），扩展名是 `sys_config` 里的全站清单（`MediaExtensionProvider`）；两者都是「播放器吃什么」的全局属性，分库配置只会制造解不开的历史数据。
 - **TMDb 匹配里，打分只排序，采纳与否由两道独立检验决定**（`TMDbClient#doSearchOnce`）：正面的 `hasEnoughEvidence`（标题命中 / 年份接近 / 英文规范名命中，三选一）与反面的 `episodeCountContradicts`（候选剧的全剧总集数装不下这一集）。三条容易改坏的语义：
   1. **冠军没通过就往下看次席，不是整批放弃**（上限 `MAX_CANDIDATES_EXAMINED=3`）。正确答案经常只是打分上的第二名——中文作品拿英文名去搜时，它的 name/original_name 全是中文，一分标题分都拿不到。`Perfect.World.S01E282.2021` 被刮成 TMDb 上 2000 年那部 6 集英国喜剧就是这么来的：英国剧 `original_name` 与解析标题逐字相等拿满 +100，国产动画《完美世界》只有年份吻合的加分，还顺带把年份改写成 2000、按 `origin_country=GB` 分到了「欧美剧」。
   2. **集号反证留一倍余量**（`episode > total * 2` 才判矛盾），不是简单的 `episode > total`。集号有三套（见上一条），发布组按绝对集号命名时集号本来就可能略超 TMDb 的记录，新集刚播出时 TMDb 滞后一两集也是常态；只否掉差着数量级的情况，误否的代价（该文件不重命名）才压得住。

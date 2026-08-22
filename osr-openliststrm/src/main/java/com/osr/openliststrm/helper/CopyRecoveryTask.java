@@ -367,7 +367,7 @@ public class CopyRecoveryTask {
      * {@code strmOneFile} 内部按 {@code existsStrm} 去重，与内存链重复触发也不会写两次。
      *
      * <p>视频类型仍要判一次：目录级生成（{@code StrmServiceImpl#getData}）是按视频扩展名过滤的，
-     * 逐文件恢复不判的话，用户改过视频类型字典之后两条路径会给出不一样的结果。
+     * 逐文件恢复不判的话，用户改过视频扩展名配置之后两条路径会给出不一样的结果。
      */
     private boolean generateStrm(OpenlistCopyPlus copy) {
         String dstFile = dstFilePath(copy);
