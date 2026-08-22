@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <PageHeader
-      icon="mdi-file-remove-outline"
+      icon="file-x"
       title="重命名一致性检查"
       desc="双向扫描：记录指向的文件是否还在，以及库里的文件是否还有记录。可清理或忽略"
     />
@@ -46,11 +46,11 @@
     <v-card class="table-card">
       <div class="action-bar">
         <div class="action-left">
-          <v-btn color="primary" prepend-icon="mdi-refresh" :loading="scanning" @click="handleScanNow">
+          <v-btn color="primary" prepend-icon="refresh-cw" :loading="scanning" @click="handleScanNow">
             立即扫描
           </v-btn>
         </div>
-        <v-btn variant="text" prepend-icon="mdi-filter-outline" @click="showSearch = !showSearch">
+        <v-btn variant="text" prepend-icon="funnel" @click="showSearch = !showSearch">
           {{ showSearch ? '隐藏搜索' : '显示搜索' }}
         </v-btn>
       </div>
@@ -104,10 +104,10 @@
           <StatusChip v-else type="info" text="已忽略" />
         </template>
         <template #item.actions="{ item }">
-          <v-btn v-if="item.status === '0'" variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleCleanOne(item)">
+          <v-btn v-if="item.status === '0'" variant="text" color="error" size="small" prepend-icon="trash-2" @click="handleCleanOne(item)">
             清理
           </v-btn>
-          <v-btn v-if="item.status === '0'" variant="text" color="warning" size="small" prepend-icon="mdi-alert-outline" @click="handleIgnoreOne(item)">
+          <v-btn v-if="item.status === '0'" variant="text" color="warning" size="small" prepend-icon="triangle-alert" @click="handleIgnoreOne(item)">
             忽略
           </v-btn>
         </template>

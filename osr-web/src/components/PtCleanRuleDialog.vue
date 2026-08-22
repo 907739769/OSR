@@ -94,7 +94,7 @@
             </div>
           </v-card-text>
         </v-card>
-        <v-btn v-else color="primary" variant="outlined" prepend-icon="mdi-plus" class="mt-2" @click="startAdd">
+        <v-btn v-else color="primary" variant="outlined" prepend-icon="plus" class="mt-2" @click="startAdd">
           新增规则
         </v-btn>
 
@@ -127,10 +127,10 @@
         </div>
       </v-card-text>
       <v-card-actions>
-        <v-btn variant="outlined" :loading="previewLoading" prepend-icon="mdi-eye-outline" @click="handlePreview">
+        <v-btn variant="outlined" :loading="previewLoading" prepend-icon="eye" @click="handlePreview">
           预览（不删除）
         </v-btn>
-        <v-btn variant="outlined" color="error" :loading="runLoading" prepend-icon="mdi-broom" @click="confirmRun">
+        <v-btn variant="outlined" color="error" :loading="runLoading" prepend-icon="brush-cleaning" @click="confirmRun">
           立即清理
         </v-btn>
         <v-spacer />

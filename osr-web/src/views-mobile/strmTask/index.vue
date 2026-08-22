@@ -2,7 +2,7 @@
   <MobileListPage
     :loading="loading"
     :empty="!loading && taskList.length === 0"
-    empty-icon="mdi-inbox-outline"
+    empty-icon="inbox"
     empty-title="暂无STRM任务"
   >
     <template #head>
@@ -40,16 +40,16 @@
         @toggle-all="toggleSelectAllPage"
         @cancel="clearSelection"
       >
-        <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-play-circle-outline" @click="handleBatchExecute">
+        <v-btn variant="text" color="primary" size="small" prepend-icon="circle-play" @click="handleBatchExecute">
           批量执行
         </v-btn>
-        <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(undefined, `是否确认删除选中的 ${selectedIds.length} 个STRM任务？`)">
+        <v-btn variant="text" color="error" size="small" prepend-icon="trash-2" @click="handleDelete(undefined, `是否确认删除选中的 ${selectedIds.length} 个STRM任务？`)">
           批量删除
         </v-btn>
       </MobileBatchBar>
 
       <!-- Add Button (FAB) -->
-      <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="mdi-plus" @click="handleAdd('新增STRM任务')">
+      <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="plus" @click="handleAdd('新增STRM任务')">
         新增
       </v-btn>
 
@@ -73,20 +73,20 @@
       <div class="card-content">
         <div class="card-top">
           <div class="card-title-row">
-            <v-icon class="card-title-icon" icon="mdi-file-video-outline" size="18" />
+            <v-icon class="card-title-icon" icon="file-video-camera" size="18" />
             <span class="card-title card-title--link" @click.stop="showFullText(task.strmTaskPath, 'STRM目录')">{{ task.strmTaskPath }}</span>
           </div>
           <v-chip v-if="hasOverride(task)" size="x-small" color="primary" variant="tonal">已覆盖</v-chip>
           <StatusChip :value="task.strmTaskStatus" />
         </div>
         <div class="card-time">
-          <v-icon icon="mdi-clock-outline" size="14" />
+          <v-icon icon="clock" size="14" />
           {{ task.createTime }}
         </div>
         <div class="card-actions" @click.stop>
-          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-play-circle-outline" @click="handleExecuteOne(task, `是否确认执行STRM任务“${task.strmTaskPath}”？`)">执行</v-btn>
-          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(task, '修改STRM任务')">修改</v-btn>
-          <v-btn class="action-more" variant="text" color="default" size="small" icon="mdi-dots-horizontal" @click="openSheet(task)" />
+          <v-btn variant="text" color="primary" size="small" prepend-icon="circle-play" @click="handleExecuteOne(task, `是否确认执行STRM任务“${task.strmTaskPath}”？`)">执行</v-btn>
+          <v-btn variant="text" color="primary" size="small" prepend-icon="square-pen" @click="handleUpdate(task, '修改STRM任务')">修改</v-btn>
+          <v-btn class="action-more" variant="text" color="default" size="small" icon="ellipsis" @click="openSheet(task)" />
         </div>
       </div>
     </v-card>
@@ -94,7 +94,7 @@
     <template #foot>
       <!-- 操作抽屉 -->
       <MobileActionSheet v-model="sheetOpen" :target="sheetTarget">
-        <v-btn color="error" block prepend-icon="mdi-delete-outline" @click="run(() => handleDelete(sheetTarget))">删除</v-btn>
+        <v-btn color="error" block prepend-icon="trash-2" @click="run(() => handleDelete(sheetTarget))">删除</v-btn>
       </MobileActionSheet>
 
       <!-- 分页 -->

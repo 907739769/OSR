@@ -2,7 +2,7 @@
   <MobileListPage
     :loading="loading"
     :empty="!loading && taskList.length === 0"
-    empty-icon="mdi-inbox-outline"
+    empty-icon="inbox"
     empty-title="暂无同步任务"
   >
     <template #head>
@@ -58,16 +58,16 @@
         @toggle-all="toggleSelectAllPage"
         @cancel="clearSelection"
       >
-        <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-play-outline" @click="handleBatchExecute">
+        <v-btn variant="text" color="primary" size="small" prepend-icon="play" @click="handleBatchExecute">
           批量执行
         </v-btn>
-        <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(undefined, `是否确认删除选中的 ${selectedIds.length} 个文件同步任务？`)">
+        <v-btn variant="text" color="error" size="small" prepend-icon="trash-2" @click="handleDelete(undefined, `是否确认删除选中的 ${selectedIds.length} 个文件同步任务？`)">
           批量删除
         </v-btn>
       </MobileBatchBar>
 
       <!-- Add Button (FAB) -->
-      <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="mdi-plus" @click="handleAdd('新增文件同步任务')">
+      <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="plus" @click="handleAdd('新增文件同步任务')">
         新增
       </v-btn>
 
@@ -91,31 +91,31 @@
       <div class="card-content">
         <div class="card-top">
           <div class="card-title-row">
-            <v-icon class="card-title-icon" icon="mdi-map-marker-outline" size="18" />
+            <v-icon class="card-title-icon" icon="map-pin" size="18" />
             <span class="card-title card-title--link" @click.stop="showFullText(task.copyTaskSrc, '源目录')">{{ task.copyTaskSrc }}</span>
           </div>
           <StatusChip :value="task.copyTaskStatus" />
         </div>
         <div class="card-path card-path--link" @click.stop="showFullText(task.copyTaskDst, '目标目录')">
-          <v-icon class="card-path-icon" icon="mdi-map-marker-outline" size="14" />
+          <v-icon class="card-path-icon" icon="map-pin" size="14" />
           <span class="card-path-text">{{ task.copyTaskDst }}</span>
         </div>
         <div class="card-path card-path--link card-path--warning" v-if="task.monitorDir" @click.stop="showFullText(task.monitorDir, '监控目录')">
-          <v-icon class="card-path-icon" icon="mdi-filter-outline" size="14" />
+          <v-icon class="card-path-icon" icon="funnel" size="14" />
           <span class="card-path-text">{{ task.monitorDir }}</span>
         </div>
         <div class="card-time">
-          <v-icon icon="mdi-clock-outline" size="12" />
+          <v-icon icon="clock" size="12" />
           {{ task.createTime }}
         </div>
         <div class="card-actions" @click.stop>
-          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-play-outline" @click="handleExecuteOne(task, `是否确认执行同步任务“${task.copyTaskSrc}”？`)">
+          <v-btn variant="text" color="primary" size="small" prepend-icon="play" @click="handleExecuteOne(task, `是否确认执行同步任务“${task.copyTaskSrc}”？`)">
             执行
           </v-btn>
-          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(task, '修改文件同步任务')">
+          <v-btn variant="text" color="primary" size="small" prepend-icon="square-pen" @click="handleUpdate(task, '修改文件同步任务')">
             修改
           </v-btn>
-          <v-btn class="action-more" variant="text" color="default" size="small" icon="mdi-dots-horizontal" @click="openSheet(task)" />
+          <v-btn class="action-more" variant="text" color="default" size="small" icon="ellipsis" @click="openSheet(task)" />
         </div>
       </div>
     </v-card>
@@ -123,7 +123,7 @@
     <template #foot>
       <!-- 操作抽屉 -->
       <MobileActionSheet v-model="sheetOpen" :target="sheetTarget">
-        <v-btn color="error" block prepend-icon="mdi-delete-outline" @click="run(() => handleDelete(sheetTarget))">删除</v-btn>
+        <v-btn color="error" block prepend-icon="trash-2" @click="run(() => handleDelete(sheetTarget))">删除</v-btn>
       </MobileActionSheet>
 
       <!-- 分页 -->

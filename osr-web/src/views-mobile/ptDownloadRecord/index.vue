@@ -2,7 +2,7 @@
   <MobileListPage
     :loading="loading"
     :empty="!loading && taskList.length === 0"
-    empty-icon="mdi-inbox-outline"
+    empty-icon="inbox"
     empty-title="暂无下载记录"
   >
     <template #head>
@@ -127,7 +127,7 @@
           </div>
         </div>
         <div class="card-fail" v-if="item.state === 'FAILED'">
-          <v-icon icon="mdi-alert-circle" size="16" />
+          <v-icon icon="circle-alert" size="16" />
           <StatusChip v-if="item.failReasonCode" :type="failReasonTagType(item.failReasonCode)" :text="failReasonCodeLabel(item.failReasonCode)" />
           <span>{{ item.failReason || '未知原因' }}</span>
         </div>
@@ -137,7 +137,7 @@
             variant="text"
             color="primary"
             size="small"
-            prepend-icon="mdi-refresh"
+            prepend-icon="refresh-cw"
             :loading="retryingIds.has(item.id)"
             @click="handleRetry(item)"
           >
@@ -148,7 +148,7 @@
             variant="text"
             color="default"
             size="small"
-            icon="mdi-dots-horizontal"
+            icon="ellipsis"
             @click="openSheet(item)"
           />
         </div>
@@ -161,7 +161,7 @@
         <v-btn
           color="warning"
           block
-          prepend-icon="mdi-cancel"
+          prepend-icon="ban"
           :loading="blacklistingIds.has(sheetTarget.id)"
           @click="run(() => handleBlacklistGuid(sheetTarget))"
         >
@@ -170,7 +170,7 @@
         <v-btn
           color="error"
           block
-          prepend-icon="mdi-account-cancel-outline"
+          prepend-icon="user-x"
           :loading="blacklistingIds.has(sheetTarget.id)"
           @click="run(() => handleBlacklistReleaseGroup(sheetTarget))"
         >

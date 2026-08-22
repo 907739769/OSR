@@ -3,7 +3,7 @@
     <v-text-field
       v-model="filterText"
       placeholder="搜索目录..."
-      prepend-inner-icon="mdi-magnify"
+      prepend-inner-icon="search"
       clearable
       density="compact"
       class="tree-search"
@@ -13,7 +13,7 @@
         <v-list-item @click="handleNodeClick(node)">
           <template #prepend>
             <v-icon
-              :icon="node.type === 'folder' ? 'mdi-folder-outline' : 'mdi-file-outline'"
+              :icon="node.type === 'folder' ? 'folder' : 'file'"
               :color="node.type === 'folder' ? 'warning' : 'grey'"
               size="18"
             />

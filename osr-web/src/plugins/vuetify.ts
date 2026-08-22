@@ -1,7 +1,7 @@
 import 'vuetify/styles'
-import '@mdi/font/css/materialdesignicons.css'
 import { createVuetify, type ThemeDefinition } from 'vuetify'
 import { zhHans } from 'vuetify/locale'
+import { aliases, lucide } from './lucideIcons'
 
 // 胶片琥珀 + 深空靛蓝：影视/流媒体管理系统调性的自定义主题
 const osrLight: ThemeDefinition = {
@@ -55,8 +55,14 @@ export default createVuetify({
     defaultTheme: 'osrLight',
     themes: { osrLight, osrDark }
   },
+  // 图标是 lucide 的 SVG 组件，按需引入（见 plugins/lucideIcons.ts）。原先是 @mdi/font
+  // 的整包 webfont —— 浏览器实取 403KB、还被 SW 预缓存进去，而全站只用到一百多个图标。
+  // aliases 必须一并给：Vuetify 内置组件（下拉箭头、勾选框、排序箭头、分页）走的是 $ 别名，
+  // 用默认那份会去找 mdi 名，全站这些位置一起变空白
   icons: {
-    defaultSet: 'mdi'
+    defaultSet: 'lucide',
+    aliases,
+    sets: { lucide }
   },
   locale: {
     locale: 'zhHans',

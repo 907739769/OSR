@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <PageHeader
-      icon="mdi-history"
+      icon="history"
       title="PT 下载记录"
       desc="每次推送下载器的记录与结果，失败项可重试或拉黑"
     />
@@ -39,7 +39,7 @@
             {{ selectionMode ? '退出批量操作' : '批量操作' }}
           </v-btn>
         </div>
-        <v-btn variant="text" size="small" prepend-icon="mdi-filter-outline" @click="showSearch = !showSearch">
+        <v-btn variant="text" size="small" prepend-icon="funnel" @click="showSearch = !showSearch">
           {{ showSearch ? '隐藏搜索' : '显示搜索' }}
         </v-btn>
       </div>
@@ -142,7 +142,7 @@
             </span>
           </div>
           <div class="record-fail" v-if="item.state === 'FAILED'">
-            <v-icon icon="mdi-alert-circle" size="16" />
+            <v-icon icon="circle-alert" size="16" />
             <StatusChip v-if="item.failReasonCode" :type="failReasonTagType(item.failReasonCode)" :text="failReasonCodeLabel(item.failReasonCode)" />
             <span>{{ item.failReason || '未知原因' }}</span>
           </div>
@@ -179,7 +179,7 @@
             </v-btn>
           </div>
         </div>
-        <v-empty-state v-if="!loading && taskList.length === 0" icon="mdi-inbox-outline" title="暂无下载记录" />
+        <v-empty-state v-if="!loading && taskList.length === 0" icon="inbox" title="暂无下载记录" />
       </div>
 
       <div class="pagination-wrapper">

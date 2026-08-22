@@ -3,7 +3,7 @@
   <v-dialog v-model="candidateDialogOpen" width="92%">
     <v-card title="选择候选种子">
       <v-card-text>
-        <v-empty-state v-if="candidates.length === 0" icon="mdi-inbox-outline" title="未搜索到匹配资源" />
+        <v-empty-state v-if="candidates.length === 0" icon="inbox" title="未搜索到匹配资源" />
         <div v-else class="candidate-list">
           <div
             v-for="(cand, idx) in candidates"

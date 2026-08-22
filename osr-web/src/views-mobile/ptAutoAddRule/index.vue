@@ -2,7 +2,7 @@
   <MobileListPage
     :loading="loading"
     :empty="!loading && taskList.length === 0"
-    empty-icon="mdi-inbox-outline"
+    empty-icon="inbox"
     empty-title="暂无规则"
   >
     <template #head>
@@ -41,7 +41,7 @@
         </v-form>
       </MobileSearchPanel>
 
-      <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="mdi-plus" @click="handleAdd('新增热门自动订阅规则')">
+      <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="plus" @click="handleAdd('新增热门自动订阅规则')">
         新增
       </v-btn>
     </template>
@@ -73,7 +73,7 @@
         <div class="card-actions">
           <v-btn variant="text" color="primary" size="small" :loading="runningIds.has(item.id)" @click="handleRun(item)">执行</v-btn>
           <v-btn variant="text" color="primary" size="small" @click="handleUpdate(item, '编辑规则')">编辑</v-btn>
-          <v-btn class="action-more" variant="text" color="default" size="small" icon="mdi-dots-horizontal" @click="openSheet(item)" />
+          <v-btn class="action-more" variant="text" color="default" size="small" icon="ellipsis" @click="openSheet(item)" />
         </div>
       </div>
     </v-card>
@@ -81,8 +81,8 @@
     <template #foot>
       <!-- 操作抽屉 -->
       <MobileActionSheet v-model="sheetOpen" :target="sheetTarget">
-        <v-btn block prepend-icon="mdi-text-box-outline" @click="run(() => handleShowLogs(sheetTarget))">日志</v-btn>
-        <v-btn color="error" block prepend-icon="mdi-delete-outline" @click="run(() => handleDelete(sheetTarget))">删除</v-btn>
+        <v-btn block prepend-icon="file-text" @click="run(() => handleShowLogs(sheetTarget))">日志</v-btn>
+        <v-btn color="error" block prepend-icon="trash-2" @click="run(() => handleDelete(sheetTarget))">删除</v-btn>
       </MobileActionSheet>
 
       <MobilePager
@@ -213,7 +213,7 @@
                 <div class="log-meta">{{ log.createTime }}<span v-if="log.season"> · 第{{ log.season }}季</span></div>
                 <div class="log-message" v-if="log.message">{{ log.message }}</div>
               </div>
-              <v-empty-state v-if="!logLoading && logList.length === 0" icon="mdi-inbox-outline" title="暂无日志" />
+              <v-empty-state v-if="!logLoading && logList.length === 0" icon="inbox" title="暂无日志" />
             </div>
           </v-card-text>
         </v-card>

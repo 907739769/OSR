@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <PageHeader
-      icon="mdi-arrow-up-bold-box-outline"
+      icon="square-arrow-up"
       title="PT 洗版规则"
       desc="已入库的集在质量未达目标时，自动搜索并下载更好的版本"
     />

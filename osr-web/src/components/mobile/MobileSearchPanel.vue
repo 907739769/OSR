@@ -2,19 +2,19 @@
   <v-card class="search-panel" :class="{ collapsed }">
     <div class="search-panel-header" @click="collapsed = !collapsed">
       <span class="search-panel-title">
-        <v-icon icon="mdi-magnify" size="16" />
+        <v-icon icon="search" size="16" />
         筛选查询
       </span>
-      <v-icon icon="mdi-chevron-down" class="collapse-icon" :class="{ expanded: !collapsed }" size="16" />
+      <v-icon icon="chevron-down" class="collapse-icon" :class="{ expanded: !collapsed }" size="16" />
     </div>
     <div class="search-panel-body">
       <!-- 各页放自己的 v-form 表单字段 -->
       <slot />
       <div class="search-actions">
-        <v-btn color="primary" prepend-icon="mdi-magnify" :loading="loading" @click="$emit('search')">
+        <v-btn color="primary" prepend-icon="search" :loading="loading" @click="$emit('search')">
           搜索
         </v-btn>
-        <v-btn prepend-icon="mdi-refresh" variant="outlined" @click="$emit('reset')">
+        <v-btn prepend-icon="refresh-cw" variant="outlined" @click="$emit('reset')">
           重置
         </v-btn>
       </div>

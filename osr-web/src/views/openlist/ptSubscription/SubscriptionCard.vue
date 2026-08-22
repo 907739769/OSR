@@ -21,7 +21,7 @@
           @error="onPosterError(item.id)"
         />
         <div v-else class="sub-poster-placeholder" :class="item.mediaType === 'MOVIE' ? 'placeholder-movie' : 'placeholder-tv'">
-          <v-icon :icon="item.mediaType === 'MOVIE' ? 'mdi-filmstrip' : 'mdi-television-play'" size="28" />
+          <v-icon :icon="item.mediaType === 'MOVIE' ? 'film' : 'monitor-play'" size="28" />
           <span class="placeholder-text">{{ item.mediaType === 'MOVIE' ? '电影' : '剧集' }}</span>
         </div>
       </div>
@@ -46,7 +46,7 @@
             size="x-small"
             color="info"
             variant="tonal"
-            prepend-icon="mdi-filter-cog-outline"
+            prepend-icon="funnel"
             title="该订阅有自己的过滤规则覆盖，未覆盖的项仍沿用全局配置"
           >过滤覆盖</v-chip>
         </div>
@@ -106,7 +106,7 @@
       <v-btn variant="text" color="primary" size="small" @click="goDownloadRecords(item)">下载记录</v-btn>
       <v-menu>
         <template #activator="{ props: menuProps }">
-          <v-btn v-bind="menuProps" class="more-actions-trigger" variant="text" color="info" size="small" append-icon="mdi-chevron-down">更多</v-btn>
+          <v-btn v-bind="menuProps" class="more-actions-trigger" variant="text" color="info" size="small" append-icon="chevron-down">更多</v-btn>
         </template>
         <v-list density="compact">
           <v-list-item v-if="item.status !== 'PAUSED'" @click="handleMoreCommand('pause', item)">暂停</v-list-item>

@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <PageHeader
-      icon="mdi-rename-outline"
+      icon="text-cursor-input"
       title="重命名任务配置"
       desc="配置需要按 TMDb 刮削结果重命名的目录，支持同时生成 NFO 与图片"
     />
@@ -45,11 +45,11 @@
       <!-- Action Bar -->
       <div class="action-bar">
         <div class="action-left">
-          <v-btn color="primary" prepend-icon="mdi-plus" @click="handleAdd">
+          <v-btn color="primary" prepend-icon="plus" @click="handleAdd">
             新增
           </v-btn>
         </div>
-        <v-btn variant="text" prepend-icon="mdi-filter-outline" @click="showSearch = !showSearch">
+        <v-btn variant="text" prepend-icon="funnel" @click="showSearch = !showSearch">
           {{ showSearch ? '隐藏搜索' : '显示搜索' }}
         </v-btn>
       </div>
@@ -101,13 +101,13 @@
           <StatusChip :value="item.status" />
         </template>
         <template #item.actions="{ item }">
-          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(item)">
+          <v-btn variant="text" color="primary" size="small" prepend-icon="square-pen" @click="handleUpdate(item)">
             修改
           </v-btn>
-          <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(item)">
+          <v-btn variant="text" color="error" size="small" prepend-icon="trash-2" @click="handleDelete(item)">
             删除
           </v-btn>
-          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-play-outline" @click="handleExecuteOne(item)">
+          <v-btn variant="text" color="primary" size="small" prepend-icon="play" @click="handleExecuteOne(item)">
             执行
           </v-btn>
         </template>

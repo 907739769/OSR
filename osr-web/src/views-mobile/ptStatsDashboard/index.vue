@@ -7,7 +7,7 @@
         <v-btn :value="30" size="small">近30天</v-btn>
         <v-btn :value="90" size="small">近90天</v-btn>
       </v-btn-toggle>
-      <v-btn prepend-icon="mdi-refresh" size="small" variant="outlined" @click="loadAll">刷新</v-btn>
+      <v-btn prepend-icon="refresh-cw" size="small" variant="outlined" @click="loadAll">刷新</v-btn>
     </div>
 
     <div class="stat-grid">
@@ -74,7 +74,7 @@
             <span>上次命中 {{ row.lastMatchTime || '-' }}</span>
           </div>
         </div>
-        <v-empty-state v-if="!topSubscriptionsLoading && topSubscriptions.length === 0" icon="mdi-inbox-outline" title="暂无数据" />
+        <v-empty-state v-if="!topSubscriptionsLoading && topSubscriptions.length === 0" icon="inbox" title="暂无数据" />
       </div>
     </v-card>
   </div>
@@ -146,11 +146,11 @@ async function loadOverview() {
   try {
     const data = await getPtStatsOverviewApi()
     statCards.value = [
-      { label: '总订阅数', value: data.totalSubscriptions, icon: 'mdi-file-document-outline', type: 'primary' },
-      { label: '活跃订阅数', value: data.activeSubscriptions, icon: 'mdi-lan-connect', type: 'success' },
-      { label: '下载记录总数', value: data.totalDownloadRecords, icon: 'mdi-download', type: 'info' },
-      { label: '成功率', value: data.totalDownloadRecords > 0 ? data.successRate + '%' : '--', icon: 'mdi-check-circle-outline', type: 'success' },
-      { label: '平均下载耗时', value: data.avgDurationMinutes > 0 ? Math.round(data.avgDurationMinutes) + ' 分钟' : '--', icon: 'mdi-clock-outline', type: 'warning' }
+      { label: '总订阅数', value: data.totalSubscriptions, icon: 'file-text', type: 'primary' },
+      { label: '活跃订阅数', value: data.activeSubscriptions, icon: 'network', type: 'success' },
+      { label: '下载记录总数', value: data.totalDownloadRecords, icon: 'download', type: 'info' },
+      { label: '成功率', value: data.totalDownloadRecords > 0 ? data.successRate + '%' : '--', icon: 'circle-check', type: 'success' },
+      { label: '平均下载耗时', value: data.avgDurationMinutes > 0 ? Math.round(data.avgDurationMinutes) + ' 分钟' : '--', icon: 'clock', type: 'warning' }
     ]
   } catch (e) {
     console.error('[PtStatsDashboard] Failed to load overview:', e)

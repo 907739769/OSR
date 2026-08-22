@@ -2,7 +2,7 @@
   <MobileListPage
     :loading="loading"
     :empty="!loading && recordList.length === 0"
-    empty-icon="mdi-inbox-outline"
+    empty-icon="inbox"
     empty-title="暂无STRM记录"
   >
     <template #head>
@@ -72,13 +72,13 @@
         @cancel="clearSelection"
       >
         <v-btn variant="text" color="primary" size="small" @click="handleBatchRetry">
-          <v-icon icon="mdi-refresh" start />重试
+          <v-icon icon="refresh-cw" start />重试
         </v-btn>
         <v-btn variant="text" color="error" size="small" @click="handleBatchRemoveNetDisk">
-          <v-icon icon="mdi-download-outline" start />删网盘
+          <v-icon icon="download" start />删网盘
         </v-btn>
         <v-btn variant="text" color="error" size="small" @click="handleBatchDelete">
-          <v-icon icon="mdi-delete-outline" start />删记录
+          <v-icon icon="trash-2" start />删记录
         </v-btn>
       </MobileBatchBar>
 
@@ -102,24 +102,24 @@
       <div class="card-content">
         <div class="card-top">
           <div class="card-title-row">
-            <v-icon class="card-title-icon" icon="mdi-file-video-outline" size="18" />
+            <v-icon class="card-title-icon" icon="file-video-camera" size="18" />
             <span class="card-title card-title--link" @click.stop="showFullText(record.strmFileName, '文件名')">{{ record.strmFileName }}</span>
           </div>
           <StatusChip :value="record.strmStatus" enabled-value="1" on-text="成功" off-text="失败" />
         </div>
         <div class="card-path card-path--link" @click.stop="showFullText(record.strmPath, '路径')">
-          <v-icon class="card-path-icon" icon="mdi-map-marker-outline" size="14" />
+          <v-icon class="card-path-icon" icon="map-pin" size="14" />
           <span class="card-path-text">{{ record.strmPath }}</span>
         </div>
         <div class="card-time">
-          <v-icon icon="mdi-clock-outline" size="14" />
+          <v-icon icon="clock" size="14" />
           {{ record.createTime }}
         </div>
         <div class="card-actions" @click.stop>
-          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-refresh" @click="handleRetryOne(record)">
+          <v-btn variant="text" color="primary" size="small" prepend-icon="refresh-cw" @click="handleRetryOne(record)">
             重试
           </v-btn>
-          <v-btn class="action-more" variant="text" color="default" size="small" icon="mdi-dots-horizontal" @click="openSheet(record)" />
+          <v-btn class="action-more" variant="text" color="default" size="small" icon="ellipsis" @click="openSheet(record)" />
         </div>
       </div>
     </v-card>
@@ -127,8 +127,8 @@
     <template #foot>
       <!-- 操作抽屉 -->
       <MobileActionSheet v-model="sheetOpen" :target="sheetTarget">
-        <v-btn color="warning" block prepend-icon="mdi-download-outline" @click="run(() => handleRemoveNetDiskOne(sheetTarget))">删网盘</v-btn>
-        <v-btn color="error" block prepend-icon="mdi-delete-outline" @click="run(() => handleDeleteOne(sheetTarget))">删记录</v-btn>
+        <v-btn color="warning" block prepend-icon="download" @click="run(() => handleRemoveNetDiskOne(sheetTarget))">删网盘</v-btn>
+        <v-btn color="error" block prepend-icon="trash-2" @click="run(() => handleDeleteOne(sheetTarget))">删记录</v-btn>
       </MobileActionSheet>
 
       <!-- 分页 -->

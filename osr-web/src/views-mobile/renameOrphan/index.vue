@@ -2,7 +2,7 @@
   <MobileListPage
     :loading="loading"
     :empty="!loading && !recordList.length"
-    empty-icon="mdi-inbox-outline"
+    empty-icon="inbox"
     empty-title="暂无数据"
   >
     <template #head>
@@ -42,7 +42,7 @@
       </MobileSearchPanel>
 
       <div class="scan-bar">
-        <v-btn color="primary" size="small" prepend-icon="mdi-refresh" :loading="scanning" @click="handleScanNow">
+        <v-btn color="primary" size="small" prepend-icon="refresh-cw" :loading="scanning" @click="handleScanNow">
           立即扫描
         </v-btn>
       </div>
@@ -55,10 +55,10 @@
         @toggle-all="toggleSelectAllPage"
         @cancel="clearSelection"
       >
-        <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleBatchClean()">
+        <v-btn variant="text" color="error" size="small" prepend-icon="trash-2" @click="handleBatchClean()">
           清理
         </v-btn>
-        <v-btn variant="text" color="warning" size="small" prepend-icon="mdi-alert-outline" @click="handleBatchIgnore()">
+        <v-btn variant="text" color="warning" size="small" prepend-icon="triangle-alert" @click="handleBatchIgnore()">
           忽略
         </v-btn>
       </MobileBatchBar>
@@ -83,7 +83,7 @@
       <div class="card-content">
         <div class="card-top">
           <div class="card-title-row">
-            <v-icon class="card-title-icon" icon="mdi-movie-search-outline" size="18" />
+            <v-icon class="card-title-icon" icon="file-search" size="18" />
             <span class="card-title">
               {{ item.title || '未知' }}<span v-if="item.year" class="orphan-year">（{{ item.year }}）</span>
             </span>
@@ -93,7 +93,7 @@
           <StatusChip v-else type="info" text="已忽略" />
         </div>
         <div class="card-path card-path--link" @click.stop="showFullText(fullPath(item), '重命名后路径')">
-          <v-icon class="card-path-icon" icon="mdi-map-marker-outline" size="14" />
+          <v-icon class="card-path-icon" icon="map-pin" size="14" />
           <span class="card-path-text">{{ fullPath(item) }}</span>
         </div>
         <div class="card-detail">
@@ -105,14 +105,14 @@
           </div>
         </div>
         <div class="card-time">
-          <v-icon icon="mdi-clock-outline" size="14" />
+          <v-icon icon="clock" size="14" />
           {{ item.foundTime }}
         </div>
         <div class="card-actions" v-if="item.status === '0'" @click.stop>
-          <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleCleanOne(item)">
+          <v-btn variant="text" color="error" size="small" prepend-icon="trash-2" @click="handleCleanOne(item)">
             清理
           </v-btn>
-          <v-btn variant="text" color="warning" size="small" prepend-icon="mdi-alert-outline" @click="handleIgnoreOne(item)">
+          <v-btn variant="text" color="warning" size="small" prepend-icon="triangle-alert" @click="handleIgnoreOne(item)">
             忽略
           </v-btn>
         </div>

@@ -4,9 +4,9 @@
          本来就在视口之外，要换月份或换筛选得先一路划回顶部——而那正是这一页最常做的两件事 -->
     <div class="calendar-sticky">
       <div class="calendar-bar">
-        <v-btn icon="mdi-chevron-left" variant="text" density="comfortable" @click="goPrevMonth" />
+        <v-btn icon="chevron-left" variant="text" density="comfortable" @click="goPrevMonth" />
         <span class="month-label">{{ monthLabel }}</span>
-        <v-btn icon="mdi-chevron-right" variant="text" density="comfortable" @click="goNextMonth" />
+        <v-btn icon="chevron-right" variant="text" density="comfortable" @click="goNextMonth" />
         <v-btn variant="text" size="small" class="today-btn" @click="handleGoToday">本月</v-btn>
       </div>
 
@@ -38,13 +38,13 @@
     <!-- 加载失败要单独说：塞回空结果的话渲染出来是「本月没有排播」 -->
     <v-empty-state
       v-if="!loading && loadFailed"
-      icon="mdi-alert-circle-outline"
+      icon="circle-alert"
       color="error"
       title="日历加载失败"
       text="没能拿到排播数据，空白不代表这个月没有更新。"
     >
       <template #actions>
-        <v-btn color="primary" variant="flat" prepend-icon="mdi-refresh" @click="load">重试</v-btn>
+        <v-btn color="primary" variant="flat" prepend-icon="refresh-cw" @click="load">重试</v-btn>
       </template>
     </v-empty-state>
 
@@ -73,7 +73,7 @@
                   cover
                   class="poster"
                 />
-                <v-icon v-else class="card-title-icon" icon="mdi-television-classic" size="18" />
+                <v-icon v-else class="card-title-icon" icon="tv" size="18" />
                 <span class="card-title">{{ entry.title }}</span>
               </div>
               <v-chip size="x-small" :color="stateColor(entry.state)" variant="tonal">
@@ -92,7 +92,7 @@
 
       <v-empty-state
         v-if="!loading && agenda.length === 0"
-        icon="mdi-calendar-blank-outline"
+        icon="calendar"
         :title="activeState ? '本月没有该状态的排播' : '本月没有排播'"
         :text="activeState ? '换一个状态看看' : '只有剧集订阅会出现在这里；播出日期由 TMDb 同步'"
       />

@@ -10,9 +10,9 @@ import { computed, ref } from 'vue'
  */
 
 const links = ref([
-  { path: '/openliststrm/copy', title: '同步任务记录', icon: 'mdi-file' },
-  { path: '/openlist/ptCalendar', title: '追剧日历', icon: 'mdi-calendar' },
-  { path: '/openlist/ptSubscription', title: '订阅管理', icon: 'mdi-bell' }
+  { path: '/openliststrm/copy', title: '同步任务记录', icon: 'file' },
+  { path: '/openlist/ptCalendar', title: '追剧日历', icon: 'calendar' },
+  { path: '/openlist/ptSubscription', title: '订阅管理', icon: 'bell' }
 ])
 
 vi.mock('@/composables/useMenuLinks', () => ({

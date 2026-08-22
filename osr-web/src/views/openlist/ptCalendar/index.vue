@@ -1,21 +1,21 @@
 <template>
   <div class="page-container">
     <PageHeader
-      icon="mdi-calendar-month-outline"
+      icon="calendar-days"
       title="追剧日历"
       desc="按播出日期排布已订阅剧集的每一集，颜色即该集当前状态；暂停的订阅不入历"
     >
       <template #actions>
-        <v-btn variant="outlined" prepend-icon="mdi-calendar-today" @click="goToday">回到本月</v-btn>
+        <v-btn variant="outlined" prepend-icon="calendar-1" @click="goToday">回到本月</v-btn>
       </template>
     </PageHeader>
 
     <v-card class="table-card">
       <div class="calendar-toolbar">
         <div class="month-nav">
-          <v-btn icon="mdi-chevron-left" variant="text" density="comfortable" @click="goPrevMonth" />
+          <v-btn icon="chevron-left" variant="text" density="comfortable" @click="goPrevMonth" />
           <span class="month-label">{{ monthLabel }}</span>
-          <v-btn icon="mdi-chevron-right" variant="text" density="comfortable" @click="goNextMonth" />
+          <v-btn icon="chevron-right" variant="text" density="comfortable" @click="goNextMonth" />
           <!-- 只能一格格翻的话，看三个月前要点三次、看去年要点十二次 -->
           <v-text-field
             :model-value="anchorMonth"
@@ -56,13 +56,13 @@
            而用户对「某个月没排播」本来就没有预期，只会当成真的 -->
       <v-empty-state
         v-if="!loading && loadFailed"
-        icon="mdi-alert-circle-outline"
+        icon="circle-alert"
         color="error"
         title="日历加载失败"
         text="没能拿到排播数据，下面的空白不代表这个月没有更新。"
       >
         <template #actions>
-          <v-btn color="primary" variant="flat" prepend-icon="mdi-refresh" @click="load">重试</v-btn>
+          <v-btn color="primary" variant="flat" prepend-icon="refresh-cw" @click="load">重试</v-btn>
         </template>
       </v-empty-state>
 
@@ -107,7 +107,7 @@
 
         <div v-if="!loading && !hasEntriesInMonth" class="calendar-empty">
           <v-empty-state
-            icon="mdi-calendar-blank-outline"
+            icon="calendar"
             :title="activeState ? '本月没有该状态的排播' : '本月没有排播'"
             :text="activeState
               ? '换一个状态筛选看看，或点「全部」'

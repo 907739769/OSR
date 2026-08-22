@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <PageHeader
-      icon="mdi-download-network-outline"
+      icon="cloud-download"
       title="PT 下载器"
       desc="配置 qBittorrent / Transmission 连接与保存路径"
     />
@@ -34,20 +34,20 @@
     <v-card class="table-card">
       <div class="action-bar">
         <div class="action-left">
-          <v-btn color="primary" prepend-icon="mdi-plus" @click="handleAdd('新增下载器')">
+          <v-btn color="primary" prepend-icon="plus" @click="handleAdd('新增下载器')">
             新增
           </v-btn>
-          <v-btn color="success" prepend-icon="mdi-pencil-outline" :disabled="notOneSelected" @click="handleUpdate(undefined, '修改下载器')">
+          <v-btn color="success" prepend-icon="square-pen" :disabled="notOneSelected" @click="handleUpdate(undefined, '修改下载器')">
             修改
           </v-btn>
-          <v-btn color="error" prepend-icon="mdi-delete-outline" :disabled="noneSelected" @click="handleDelete(undefined, `是否确认删除编号为“${selectedIds}”的下载器？`)">
+          <v-btn color="error" prepend-icon="trash-2" :disabled="noneSelected" @click="handleDelete(undefined, `是否确认删除编号为“${selectedIds}”的下载器？`)">
             批量删除
           </v-btn>
           <v-btn variant="text" class="batch-select-all-btn" @click="toggleSelectAllPage(!isAllPageSelected)">
             {{ isAllPageSelected ? '取消全选' : '全选' }}
           </v-btn>
         </div>
-        <v-btn variant="text" prepend-icon="mdi-filter-outline" @click="showSearch = !showSearch">
+        <v-btn variant="text" prepend-icon="funnel" @click="showSearch = !showSearch">
           {{ showSearch ? '隐藏搜索' : '显示搜索' }}
         </v-btn>
       </div>
@@ -102,18 +102,18 @@
             </div>
           </div>
           <div class="card-footer">
-            <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(item, '修改下载器')">
+            <v-btn variant="text" color="primary" size="small" prepend-icon="square-pen" @click="handleUpdate(item, '修改下载器')">
               修改
             </v-btn>
-            <v-btn variant="text" size="small" prepend-icon="mdi-broom" @click="openCleanRules(item)">
+            <v-btn variant="text" size="small" prepend-icon="brush-cleaning" @click="openCleanRules(item)">
               删种规则
             </v-btn>
-            <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(item)">
+            <v-btn variant="text" color="error" size="small" prepend-icon="trash-2" @click="handleDelete(item)">
               删除
             </v-btn>
           </div>
         </div>
-        <v-empty-state v-if="!loading && taskList.length === 0" icon="mdi-inbox-outline" title="暂无下载器" />
+        <v-empty-state v-if="!loading && taskList.length === 0" icon="inbox" title="暂无下载器" />
       </div>
 
       <div class="pagination-wrapper">

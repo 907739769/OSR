@@ -7,8 +7,8 @@
       <div class="search-fields">
         <slot />
         <div class="search-actions">
-          <v-btn color="primary" prepend-icon="mdi-magnify" :loading="loading" @click="emit('search')">搜索</v-btn>
-          <v-btn variant="outlined" prepend-icon="mdi-refresh" @click="emit('reset')">重置</v-btn>
+          <v-btn color="primary" prepend-icon="search" :loading="loading" @click="emit('search')">搜索</v-btn>
+          <v-btn variant="outlined" prepend-icon="refresh-cw" @click="emit('reset')">重置</v-btn>
         </div>
       </div>
     </v-form>

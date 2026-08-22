@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <PageHeader
-      icon="mdi-format-list-checks"
+      icon="list-checks"
       title="重命名明细"
       desc="逐文件的重命名与刮削结果，可重试改名、清理产物或仅删除记录"
     />
@@ -97,7 +97,7 @@
       <div class="action-bar">
         <div class="action-left">
         </div>
-        <v-btn variant="text" prepend-icon="mdi-filter-outline" @click="showSearch = !showSearch">
+        <v-btn variant="text" prepend-icon="funnel" @click="showSearch = !showSearch">
           {{ showSearch ? '隐藏搜索' : '显示搜索' }}
         </v-btn>
       </div>
@@ -169,15 +169,15 @@
           <span v-else class="scrape-none">-</span>
         </template>
         <template #item.actions="{ item }">
-          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-refresh" @click="handleRetryOne(item)">
+          <v-btn variant="text" color="primary" size="small" prepend-icon="refresh-cw" @click="handleRetryOne(item)">
             重试
           </v-btn>
-          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-movie-search-outline" @click="handleScrapeOne(item)">
+          <v-btn variant="text" color="primary" size="small" prepend-icon="file-search" @click="handleScrapeOne(item)">
             刮削
           </v-btn>
           <v-menu>
             <template #activator="{ props: menuProps }">
-              <v-btn v-bind="menuProps" variant="text" color="info" size="small" append-icon="mdi-chevron-down">
+              <v-btn v-bind="menuProps" variant="text" color="info" size="small" append-icon="chevron-down">
                 更多
               </v-btn>
             </template>
@@ -185,19 +185,19 @@
               <v-list-item
                 v-if="item.scrapeStatus === '1'"
                 base-color="error"
-                prepend-icon="mdi-delete-outline"
+                prepend-icon="trash-2"
                 title="删除刮削"
                 @click="handleDeleteScrapeOne(item)"
               />
               <v-list-item
                 base-color="error"
-                prepend-icon="mdi-broom"
+                prepend-icon="brush-cleaning"
                 title="清理产物"
                 @click="handlePurgeOne(item)"
               />
               <v-list-item
                 base-color="error"
-                prepend-icon="mdi-database-remove-outline"
+                prepend-icon="database"
                 title="仅删记录"
                 @click="handleDeleteOne(item)"
               />

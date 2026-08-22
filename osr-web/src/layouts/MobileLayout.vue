@@ -5,11 +5,11 @@
       <span class="drawer-title">OSR</span>
     </div>
     <v-list nav density="compact" class="mobile-menu" style="--v-list-prepend-gap: 12px" @click:select="menuOpen = false">
-      <v-list-item to="/dashboard" prepend-icon="mdi-view-dashboard-outline" title="首页" rounded="lg" class="menu-item" @click="menuOpen = false" />
+      <v-list-item to="/dashboard" prepend-icon="layout-dashboard" title="首页" rounded="lg" class="menu-item" @click="menuOpen = false" />
       <SidebarMenuItem v-for="menu in sidebarMenus" :key="menu.path" :menu="menu" />
       <v-divider class="my-2" />
       <v-list-item
-        prepend-icon="mdi-tune-variant"
+        prepend-icon="sliders-horizontal"
         title="自定义底栏"
         rounded="lg"
         class="menu-item"
@@ -23,7 +23,7 @@
     <v-app-bar-title>{{ pageTitle }}</v-app-bar-title>
     <ThemeSwitch />
     <!-- 退出登录收进头像菜单，与 DesktopLayout 一致。
-         原先它是紧挨 28px 头像的一个裸 mdi-logout 图标 —— 破坏性动作平铺在顶栏、
+         原先它是紧挨 28px 头像的一个裸 log-out 图标 —— 破坏性动作平铺在顶栏、
          两个热区间距只有 8px，手机上极易误触；项目自己的约定（表格操作列那条）
          就是「破坏性动作优先进菜单，收起来反而更安全」。 -->
     <v-menu location="bottom end">
@@ -31,9 +31,9 @@
         <v-avatar v-bind="menuProps" size="28" color="primary" class="mr-3 user-avatar">{{ avatarText }}</v-avatar>
       </template>
       <v-list density="compact">
-        <v-list-item prepend-icon="mdi-cog-outline" title="修改密码" @click="showPasswordDialog = true" />
+        <v-list-item prepend-icon="settings" title="修改密码" @click="showPasswordDialog = true" />
         <v-divider />
-        <v-list-item prepend-icon="mdi-logout" title="退出登录" @click="handleLogout" />
+        <v-list-item prepend-icon="log-out" title="退出登录" @click="handleLogout" />
       </v-list>
     </v-menu>
   </v-app-bar>
@@ -66,7 +66,7 @@
       <!-- 「更多」= 打开侧边抽屉。抽屉原先只有左上角汉堡键一个入口，那是单手持机时
            最难够到的位置，而 tab 上这四个页面之外（PT 的 4 组 12 页全在此列）都得走它。 -->
       <v-btn :value="MORE_TAB" class="tabbar-item" @click="menuOpen = true">
-        <v-icon icon="mdi-dots-horizontal" />
+        <v-icon icon="ellipsis" />
         <span>更多</span>
       </v-btn>
     </v-bottom-navigation>

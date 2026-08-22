@@ -13,11 +13,11 @@
   },
   "dependencies": {
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
-    "@mdi/font": "^7.4.47",
     "axios": "^1.6.8",
     "dayjs": "^1.11.10",
     "echarts": "^5.6.0",
     "js-cookie": "^3.0.5",
+    "lucide-vue-next": "^1.0.0",
     "nprogress": "^0.2.0",
     "pinia": "^2.1.7",
     "vite-plugin-pwa": "^1.2.0",

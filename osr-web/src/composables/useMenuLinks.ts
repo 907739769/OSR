@@ -27,7 +27,7 @@ function flattenMenus(menus: MenuRoute[], parentPath = ''): MenuLink[] {
       result.push({
         path,
         title: menu.meta?.title || '',
-        icon: getIconComponent(menu.meta?.icon) || 'mdi-menu'
+        icon: getIconComponent(menu.meta?.icon) || 'menu'
       })
     }
   }

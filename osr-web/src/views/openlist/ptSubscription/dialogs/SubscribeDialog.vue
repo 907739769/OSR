@@ -46,7 +46,7 @@
               loading="lazy"
               @error="(e: Event) => ((e.target as HTMLImageElement).style.visibility = 'hidden')"
             />
-            <v-icon v-else icon="mdi-image-outline" class="search-poster-placeholder" />
+            <v-icon v-else icon="image" class="search-poster-placeholder" />
           </template>
           <template #item.title="{ item }">
             {{ item.title }}

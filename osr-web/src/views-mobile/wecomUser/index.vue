@@ -2,7 +2,7 @@
   <MobileListPage
     :loading="loading"
     :empty="!loading && taskList.length === 0"
-    empty-icon="mdi-account-off-outline"
+    empty-icon="user-round-x"
     empty-title="暂无绑定"
     empty-text="在企微后台通讯录查到成员 UserId 后来这里绑定"
   >
@@ -49,7 +49,7 @@
           color="primary"
           variant="outlined"
           block
-          prepend-icon="mdi-menu"
+          prepend-icon="menu"
           :loading="syncingMenu"
           @click="handleSyncMenu"
         >
@@ -58,7 +58,7 @@
       </div>
 
       <!-- 新增 FAB -->
-      <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="mdi-plus" @click="handleAdd('新增企微绑定')">
+      <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="plus" @click="handleAdd('新增企微绑定')">
         新增
       </v-btn>
 
@@ -69,7 +69,7 @@
       <div class="card-content">
         <div class="card-top">
           <div class="card-title-row">
-            <v-icon class="card-title-icon" icon="mdi-wechat" size="16" />
+            <v-icon class="card-title-icon" icon="brand-wecom" size="16" />
             <span class="card-title" :title="item.wecomUserid">{{ item.wecomUserid }}</span>
           </div>
           <StatusChip :type="item.status === '1' ? 'error' : 'success'" :text="item.status === '1' ? '停用' : '正常'" />
@@ -86,10 +86,10 @@
         </div>
         <div class="card-time">{{ item.createTime || '-' }}</div>
         <div class="card-actions">
-          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(item, '编辑企微绑定')">
+          <v-btn variant="text" color="primary" size="small" prepend-icon="square-pen" @click="handleUpdate(item, '编辑企微绑定')">
             编辑
           </v-btn>
-          <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(item)">
+          <v-btn variant="text" color="error" size="small" prepend-icon="trash-2" @click="handleDelete(item)">
             删除
           </v-btn>
         </div>

@@ -41,8 +41,8 @@
             variant="outlined"
             hide-details
           />
-          <v-btn color="primary" prepend-icon="mdi-magnify" @click="logQueryParams.pageNum = 1; getJobLogList()">搜索</v-btn>
-          <v-btn variant="outlined" prepend-icon="mdi-refresh" @click="resetLogQuery">重置</v-btn>
+          <v-btn color="primary" prepend-icon="search" @click="logQueryParams.pageNum = 1; getJobLogList()">搜索</v-btn>
+          <v-btn variant="outlined" prepend-icon="refresh-cw" @click="resetLogQuery">重置</v-btn>
         </div>
 
         <!-- Desktop Table -->
@@ -68,7 +68,7 @@
             {{ formatTime(item.startTime) }}
           </template>
           <template #item.actions="{ item }">
-            <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-eye-outline" @click="handleViewLogDetail(item)">
+            <v-btn variant="text" color="primary" size="small" prepend-icon="eye" @click="handleViewLogDetail(item)">
               详情
             </v-btn>
           </template>
@@ -86,7 +86,7 @@
             <div class="mobile-card-header">
               <div class="mobile-card-title-row">
                 <span class="mobile-card-title">
-                  <v-icon icon="mdi-clock-outline" size="14" />
+                  <v-icon icon="clock" size="14" />
                   {{ item.jobName }}
                 </span>
                 <StatusChip :type="item.status === '0' ? 'success' : 'error'" :text="item.status === '0' ? '成功' : '失败'" />
@@ -111,12 +111,12 @@
               </div>
             </div>
             <div class="mobile-card-actions">
-              <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-eye-outline" @click="handleViewLogDetail(item)">
+              <v-btn variant="text" color="primary" size="small" prepend-icon="eye" @click="handleViewLogDetail(item)">
                 查看详情
               </v-btn>
             </div>
           </v-card>
-          <v-empty-state v-if="!logLoading && !logList.length" icon="mdi-inbox-outline" title="暂无执行记录" />
+          <v-empty-state v-if="!logLoading && !logList.length" icon="inbox" title="暂无执行记录" />
         </div>
 
         <!-- Pagination -->

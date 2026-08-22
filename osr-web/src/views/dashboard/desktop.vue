@@ -180,22 +180,22 @@ onMounted(async () => {
     const failedCount = statsData?.failedCount ?? 0
     const processingCount = statsData?.processingCount ?? 0
     statCards.value = [
-      { label: 'COPY 任务', value: copyCount, icon: 'mdi-file-multiple-outline', type: 'primary', path: getRoutePathForComponent('openlist/copyRecord/index'), sparkKey: 'copy' },
-      { label: 'STRM 任务', value: strmCount, icon: 'mdi-video-outline', type: 'success', path: getRoutePathForComponent('openlist/strmRecord/index'), sparkKey: 'strm' },
-      { label: 'Rename 任务', value: renameCount, icon: 'mdi-pencil-outline', type: 'warning', path: getRoutePathForComponent('openlist/renameDetail/index'), sparkKey: 'rename' },
-      { label: '成功率', value: successRate > 0 ? successRate + '%' : '--', icon: 'mdi-check-circle-outline', type: 'info' },
-      { label: '失败数', value: failedCount, icon: 'mdi-close-circle-outline', type: 'warning' },
-      { label: '处理中', value: processingCount, icon: 'mdi-loading mdi-spin', type: 'primary' }
+      { label: 'COPY 任务', value: copyCount, icon: 'files', type: 'primary', path: getRoutePathForComponent('openlist/copyRecord/index'), sparkKey: 'copy' },
+      { label: 'STRM 任务', value: strmCount, icon: 'video', type: 'success', path: getRoutePathForComponent('openlist/strmRecord/index'), sparkKey: 'strm' },
+      { label: 'Rename 任务', value: renameCount, icon: 'square-pen', type: 'warning', path: getRoutePathForComponent('openlist/renameDetail/index'), sparkKey: 'rename' },
+      { label: '成功率', value: successRate > 0 ? successRate + '%' : '--', icon: 'circle-check', type: 'info' },
+      { label: '失败数', value: failedCount, icon: 'circle-x', type: 'warning' },
+      { label: '处理中', value: processingCount, icon: 'loader-circle', type: 'primary' }
     ]
   } catch (e) {
     console.error('[Dashboard] Failed to load stat cards:', e)
     statCards.value = [
-      { label: 'COPY 任务', value: '0', icon: 'mdi-file-multiple-outline', type: 'primary' },
-      { label: 'STRM 任务', value: '0', icon: 'mdi-video-outline', type: 'success' },
-      { label: 'Rename 任务', value: '0', icon: 'mdi-pencil-outline', type: 'warning' },
-      { label: '成功率', value: '--', icon: 'mdi-check-circle-outline', type: 'info' },
-      { label: '失败数', value: '0', icon: 'mdi-close-circle-outline', type: 'warning' },
-      { label: '处理中', value: '0', icon: 'mdi-loading mdi-spin', type: 'primary' }
+      { label: 'COPY 任务', value: '0', icon: 'files', type: 'primary' },
+      { label: 'STRM 任务', value: '0', icon: 'video', type: 'success' },
+      { label: 'Rename 任务', value: '0', icon: 'square-pen', type: 'warning' },
+      { label: '成功率', value: '--', icon: 'circle-check', type: 'info' },
+      { label: '失败数', value: '0', icon: 'circle-x', type: 'warning' },
+      { label: '处理中', value: '0', icon: 'loader-circle', type: 'primary' }
     ]
   } finally {
     statLoading.value = false

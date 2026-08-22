@@ -51,7 +51,7 @@
 
           <div class="episode-detail-toggle" @click="loadEpisodeDetail">
             {{ episodeDetailOpen ? '收起全部集' : '查看全部集' }}
-            <v-icon icon="mdi-chevron-down" :class="{ 'is-open': episodeDetailOpen }" size="16" />
+            <v-icon icon="chevron-down" :class="{ 'is-open': episodeDetailOpen }" size="16" />
           </div>
           <div v-if="episodeDetailOpen" class="episode-detail-list">
             <v-progress-linear v-if="episodeDetailLoading" indeterminate color="primary" />
@@ -81,7 +81,7 @@
                 @click="handleResetEpisode(ep)"
               >重置</v-btn>
             </div>
-            <v-empty-state v-if="!episodeDetailLoading && episodeDetail.length === 0" icon="mdi-inbox-outline" title="暂无数据" />
+            <v-empty-state v-if="!episodeDetailLoading && episodeDetail.length === 0" icon="inbox" title="暂无数据" />
           </div>
         </template>
       </v-card-text>

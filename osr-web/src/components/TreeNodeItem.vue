@@ -8,12 +8,12 @@
         @click="handleExpand"
       >
         <template #prepend>
-          <v-icon icon="mdi-folder-outline" color="warning" size="18" />
+          <v-icon icon="folder" color="warning" size="18" />
         </template>
         <v-list-item-title>{{ node.name }}</v-list-item-title>
         <template #append>
           <v-btn
-            icon="mdi-check-circle-outline"
+            icon="circle-check"
             variant="text"
             size="x-small"
             density="compact"
@@ -40,7 +40,7 @@
     @click="emit('select', node)"
   >
     <template #prepend>
-      <v-icon icon="mdi-file-outline" color="grey" size="18" />
+      <v-icon icon="file" color="grey" size="18" />
     </template>
     <v-list-item-title>{{ node.name }}</v-list-item-title>
   </v-list-item>

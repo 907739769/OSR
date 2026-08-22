@@ -15,10 +15,10 @@ const STORAGE_KEY = 'osr-mobile-tabs'
  * 写死会让 tab 跳到 404。首页是常量路由，直接给 path。
  */
 const DEFAULT_TABS: { component?: string; path?: string; label: string; icon: string }[] = [
-  { path: '/dashboard', label: '首页', icon: 'mdi-view-dashboard-outline' },
-  { component: 'openlist/copyRecord/index', label: '同步记录', icon: 'mdi-file-multiple-outline' },
-  { component: 'openlist/strmRecord/index', label: 'STRM记录', icon: 'mdi-movie-open-outline' },
-  { component: 'openlist/renameDetail/index', label: '重命名', icon: 'mdi-pencil-outline' }
+  { path: '/dashboard', label: '首页', icon: 'layout-dashboard' },
+  { component: 'openlist/copyRecord/index', label: '同步记录', icon: 'files' },
+  { component: 'openlist/strmRecord/index', label: 'STRM记录', icon: 'clapperboard' },
+  { component: 'openlist/renameDetail/index', label: '重命名', icon: 'square-pen' }
 ]
 
 function readStored(): string[] | null {
@@ -50,7 +50,7 @@ export function useMobileTabs() {
 
   /** 首页 + 当前用户有权限的全部菜单叶子，设置弹窗与底栏共用这一份 */
   const allLinks = computed<MenuLink[]>(() => [
-    { path: '/dashboard', title: '首页', icon: 'mdi-view-dashboard-outline' },
+    { path: '/dashboard', title: '首页', icon: 'layout-dashboard' },
     ...menuLinks.value
   ])
 

@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <!-- Header -->
-    <PageHeader icon="mdi-book-open-variant" title="字典管理" desc="维护系统枚举字典（视频格式、字幕格式、媒体类型等），点击「数据」查看字典项" />
+    <PageHeader icon="book-open" title="字典管理" desc="维护系统枚举字典（视频格式、字幕格式、媒体类型等），点击「数据」查看字典项" />
 
     <!-- Table Card -->
     <v-card class="table-card">
@@ -24,7 +24,7 @@
           <StatusChip :value="item.status" enabled-value="0" on-text="正常" off-text="停用" />
         </template>
         <template #item.actions="{ item }">
-          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-format-list-bulleted" @click="handleData(item)">
+          <v-btn variant="text" color="primary" size="small" prepend-icon="list" @click="handleData(item)">
             数据
           </v-btn>
         </template>
@@ -49,12 +49,12 @@
             </div>
           </div>
           <div class="mobile-card-actions">
-            <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-format-list-bulleted" @click="handleData(item)">
+            <v-btn variant="text" color="primary" size="small" prepend-icon="list" @click="handleData(item)">
               数据
             </v-btn>
           </div>
         </v-card>
-        <v-empty-state v-if="!loading && !taskList.length" icon="mdi-inbox-outline" title="暂无数据" />
+        <v-empty-state v-if="!loading && !taskList.length" icon="inbox" title="暂无数据" />
       </div>
 
       <!-- Pagination (mobile; desktop paginates via v-data-table-server) -->

@@ -10,7 +10,7 @@
       @click="collapsible && toggleGroup(groupKey)"
     >
       <span class="menu-group-title">{{ menu.meta?.title }}</span>
-      <v-icon v-if="collapsible" :icon="open ? 'mdi-chevron-down' : 'mdi-chevron-right'" size="14" />
+      <v-icon v-if="collapsible" :icon="open ? 'chevron-down' : 'chevron-right'" size="14" />
     </div>
     <template v-if="open">
       <SidebarMenuItem

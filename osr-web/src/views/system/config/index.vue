@@ -1,9 +1,9 @@
 <template>
   <div class="page-container">
     <!-- Header -->
-    <PageHeader icon="mdi-cog" title="参数设置" desc="系统全局参数配置 — 开关直接切换即时生效，其余点击 ✏️ 编辑后保存">
+    <PageHeader icon="settings" title="参数设置" desc="系统全局参数配置 — 开关直接切换即时生效，其余点击 ✏️ 编辑后保存">
       <template #actions>
-        <v-btn color="primary" variant="outlined" prepend-icon="mdi-refresh" :loading="refreshing" @click="handleRefreshCache">
+        <v-btn color="primary" variant="outlined" prepend-icon="refresh-cw" :loading="refreshing" @click="handleRefreshCache">
           刷新缓存
         </v-btn>
       </template>
@@ -51,7 +51,7 @@
       </v-card>
 
       <!-- Empty State -->
-      <v-empty-state v-else icon="mdi-cog-off-outline" title="暂无参数配置" />
+      <v-empty-state v-else icon="settings" title="暂无参数配置" />
     </template>
   </div>
 </template>

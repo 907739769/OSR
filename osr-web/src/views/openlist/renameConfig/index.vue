@@ -1,16 +1,16 @@
 <template>
   <div class="page-container">
     <PageHeader
-      icon="mdi-file-swap-outline"
+      icon="replace"
       title="重命名规则设置"
       desc="配置文件名生成模板与分类目录规则，可在下方直接测试解析效果"
     />
 
     <v-card class="table-card">
       <v-tabs v-model="activeTab" color="primary">
-        <v-tab value="template" prepend-icon="mdi-file-document-edit-outline">文件名模板</v-tab>
-        <v-tab value="rules" prepend-icon="mdi-folder-cog-outline">分类规则</v-tab>
-        <v-tab value="test" prepend-icon="mdi-flask-outline">重命名测试</v-tab>
+        <v-tab value="template" prepend-icon="file-pen">文件名模板</v-tab>
+        <v-tab value="rules" prepend-icon="folder-cog">分类规则</v-tab>
+        <v-tab value="test" prepend-icon="flask-conical">重命名测试</v-tab>
       </v-tabs>
 
       <v-window v-model="activeTab">
@@ -103,7 +103,7 @@
                 hint="留空则使用默认配置"
                 persistent-hint
               />
-              <v-btn color="primary" prepend-icon="mdi-auto-fix" :loading="testLoading" class="mt-3" @click="doTest">
+              <v-btn color="primary" prepend-icon="wand-sparkles" :loading="testLoading" class="mt-3" @click="doTest">
                 开始分析
               </v-btn>
 

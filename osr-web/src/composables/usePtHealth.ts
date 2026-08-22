@@ -20,25 +20,25 @@ export const BUCKET_META: Record<string, { label: string; color: string; icon: s
   OVERDUE_MISSING: {
     label: '逾期缺失',
     color: 'error',
-    icon: 'mdi-alert-circle-outline',
+    icon: 'circle-alert',
     hint: '已经播出好几天了，却一个资源都没匹配到。这一档是体检真正要抓的问题'
   },
   OVERDUE_IN_FLIGHT: {
     label: '在途逾期',
     color: 'info',
-    icon: 'mdi-download-outline',
+    icon: 'download',
     hint: '已经推给下载器了，卡在下载或上传入库这一段。再补搜一次不解决问题'
   },
   BLOCKED: {
     label: '已熔断',
     color: 'warning',
-    icon: 'mdi-cancel',
+    icon: 'ban',
     hint: '连续失败达到阈值，自动重试已经停了，需要人工处理'
   },
   NO_AIR_DATE: {
     label: '无播出日期',
     color: 'default',
-    icon: 'mdi-calendar-question',
+    icon: 'calendar-off',
     hint: '未定档、TMDb 未录入、或还没被同步任务扫到，算不出逾期天数。电影订阅不参与体检，不会出现在这里'
   }
 }
@@ -86,7 +86,7 @@ export const DIAGNOSIS_META: Record<string, { label: string; color: string; advi
 }
 
 export function bucketMeta(code: string) {
-  return BUCKET_META[code] || { label: code || '未知', color: 'default', icon: 'mdi-help-circle-outline', hint: '' }
+  return BUCKET_META[code] || { label: code || '未知', color: 'default', icon: 'circle-question-mark', hint: '' }
 }
 
 export function diagnosisMeta(code: string) {

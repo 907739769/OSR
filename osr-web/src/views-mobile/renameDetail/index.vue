@@ -2,7 +2,7 @@
   <MobileListPage
     :loading="loading"
     :empty="!loading && recordList.length === 0"
-    empty-icon="mdi-inbox-outline"
+    empty-icon="inbox"
     empty-title="暂无重命名记录"
   >
     <template #head>
@@ -101,19 +101,19 @@
         @toggle-all="toggleSelectAllPage"
         @cancel="clearSelection"
       >
-        <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-refresh" @click="handleBatchExecute">
+        <v-btn variant="text" color="primary" size="small" prepend-icon="refresh-cw" @click="handleBatchExecute">
           执行
         </v-btn>
-        <v-btn variant="text" color="error" size="small" prepend-icon="mdi-broom" @click="handleBatchPurge">
+        <v-btn variant="text" color="error" size="small" prepend-icon="brush-cleaning" @click="handleBatchPurge">
           清产物
         </v-btn>
-        <v-btn variant="text" color="error" size="small" prepend-icon="mdi-database-remove-outline" @click="handleBatchDelete">
+        <v-btn variant="text" color="error" size="small" prepend-icon="database" @click="handleBatchDelete">
           删记录
         </v-btn>
-        <v-btn variant="text" color="warning" size="small" prepend-icon="mdi-refresh" @click="handleBatchScrape">
+        <v-btn variant="text" color="warning" size="small" prepend-icon="refresh-cw" @click="handleBatchScrape">
           刮削
         </v-btn>
-        <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleBatchDeleteScrape">
+        <v-btn variant="text" color="error" size="small" prepend-icon="trash-2" @click="handleBatchDeleteScrape">
           删刮削
         </v-btn>
       </MobileBatchBar>
@@ -144,7 +144,7 @@
               {{ record.originalName }}
             </span>
           </div>
-          <v-icon class="rename-arrow-icon" icon="mdi-arrow-right" size="16" />
+          <v-icon class="rename-arrow-icon" icon="arrow-right" size="16" />
           <div class="rename-side rename-new-side">
             <span class="rename-label rename-label-new">新</span>
             <span class="rename-filename rename-filename-new" @click.stop="showFullText(record.newName, '新文件名')" :title="record.newName">
@@ -155,12 +155,12 @@
         <!-- Path comparison -->
         <div class="rename-paths">
           <div class="rename-path-item rename-path-original" @click.stop="showFullText(record.originalPath, '原路径')">
-            <v-icon class="card-path-icon" icon="mdi-map-marker-outline" size="12" />
+            <v-icon class="card-path-icon" icon="map-pin" size="12" />
             <span class="card-path-text">{{ record.originalPath }}</span>
           </div>
-          <v-icon class="rename-path-arrow" icon="mdi-arrow-right" size="12" />
+          <v-icon class="rename-path-arrow" icon="arrow-right" size="12" />
           <div class="rename-path-item rename-path-new" @click.stop="showFullText(record.newPath, '新路径')">
-            <v-icon class="card-path-icon" icon="mdi-map-marker-outline" size="12" />
+            <v-icon class="card-path-icon" icon="map-pin" size="12" />
             <span class="card-path-text">{{ record.newPath }}</span>
           </div>
         </div>
@@ -171,7 +171,7 @@
           <StatusChip v-else-if="record.scrapeStatus === '0'" type="info" text="未刮削" class="scrape-tag" />
         </div>
         <div class="card-time">
-          <v-icon icon="mdi-clock-outline" size="12" />
+          <v-icon icon="clock" size="12" />
           {{ record.createTime }}
         </div>
         <div class="card-actions" @click.stop>
@@ -181,7 +181,7 @@
           <v-btn variant="text" color="primary" size="small" @click="handleRetryOne(record)">
             重试
           </v-btn>
-          <v-btn class="action-more" variant="text" color="default" size="small" icon="mdi-dots-horizontal" @click="openSheet(record)" />
+          <v-btn class="action-more" variant="text" color="default" size="small" icon="ellipsis" @click="openSheet(record)" />
         </div>
       </div>
     </v-card>
@@ -190,8 +190,8 @@
       <!-- 操作抽屉 -->
       <MobileActionSheet v-model="sheetOpen" :target="sheetTarget">
         <v-btn v-if="sheetTarget.scrapeStatus === '1'" color="error" block @click="run(() => handleDeleteScrapeOne(sheetTarget))">删刮削</v-btn>
-        <v-btn color="error" block prepend-icon="mdi-broom" @click="run(() => handlePurgeOne(sheetTarget))">清理产物</v-btn>
-        <v-btn color="error" variant="outlined" block prepend-icon="mdi-database-remove-outline" @click="run(() => handleDeleteOne(sheetTarget))">仅删记录</v-btn>
+        <v-btn color="error" block prepend-icon="brush-cleaning" @click="run(() => handlePurgeOne(sheetTarget))">清理产物</v-btn>
+        <v-btn color="error" variant="outlined" block prepend-icon="database" @click="run(() => handleDeleteOne(sheetTarget))">仅删记录</v-btn>
       </MobileActionSheet>
 
       <!-- 分页 -->

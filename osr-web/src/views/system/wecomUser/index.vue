@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <PageHeader
-      icon="mdi-wechat"
+      icon="brand-wecom"
       title="企业微信用户"
       desc="企业微信成员与 OSR 账号的绑定关系 — 绑定后该成员才能在企微里订阅，其订阅通知也只推给他"
     >
@@ -9,7 +9,7 @@
         <v-btn
           color="primary"
           variant="outlined"
-          prepend-icon="mdi-menu"
+          prepend-icon="menu"
           :loading="syncingMenu"
           @click="handleSyncMenu"
         >
@@ -57,9 +57,9 @@
     <v-card class="table-card">
       <div class="action-bar">
         <div class="action-left">
-          <v-btn color="primary" prepend-icon="mdi-plus" @click="handleAdd('新增企微绑定')">新增绑定</v-btn>
+          <v-btn color="primary" prepend-icon="plus" @click="handleAdd('新增企微绑定')">新增绑定</v-btn>
         </div>
-        <v-btn variant="text" prepend-icon="mdi-filter-outline" @click="showSearch = !showSearch">
+        <v-btn variant="text" prepend-icon="funnel" @click="showSearch = !showSearch">
           {{ showSearch ? '隐藏搜索' : '显示搜索' }}
         </v-btn>
       </div>
@@ -86,17 +86,17 @@
             </div>
           </div>
           <div class="card-footer">
-            <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(item, '编辑企微绑定')">
+            <v-btn variant="text" color="primary" size="small" prepend-icon="square-pen" @click="handleUpdate(item, '编辑企微绑定')">
               编辑
             </v-btn>
-            <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(item)">
+            <v-btn variant="text" color="error" size="small" prepend-icon="trash-2" @click="handleDelete(item)">
               删除
             </v-btn>
           </div>
         </div>
         <v-empty-state
           v-if="!loading && taskList.length === 0"
-          icon="mdi-account-off-outline"
+          icon="user-round-x"
           title="暂无绑定"
           text="在企微管理后台「通讯录」里查到成员的 UserId，再来这里绑定 OSR 账号"
         />

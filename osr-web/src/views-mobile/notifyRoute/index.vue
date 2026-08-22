@@ -2,16 +2,16 @@
   <MobileListPage
     :loading="loading"
     :empty="!loading && types.length === 0"
-    empty-icon="mdi-bell-off-outline"
+    empty-icon="bell-off"
     empty-title="暂无通知类型"
   >
     <template #head>
       <div class="action-bar">
         <div class="action-left">
-          <v-btn variant="text" size="small" prepend-icon="mdi-refresh" :disabled="loading" @click="load">重新加载</v-btn>
+          <v-btn variant="text" size="small" prepend-icon="refresh-cw" :disabled="loading" @click="load">重新加载</v-btn>
         </div>
         <div class="action-right">
-          <v-btn color="primary" size="small" variant="flat" prepend-icon="mdi-content-save-outline" :loading="saving" @click="save">
+          <v-btn color="primary" size="small" variant="flat" prepend-icon="save" :loading="saving" @click="save">
             保存
           </v-btn>
         </div>
@@ -36,7 +36,7 @@
       <div class="card-content">
         <div class="card-top">
           <div class="card-title-row">
-            <v-icon class="card-title-icon" icon="mdi-bell-outline" size="18" />
+            <v-icon class="card-title-icon" icon="bell" size="18" />
             <span class="card-title">{{ t.label }}</span>
           </div>
           <div class="type-toggle">
@@ -49,7 +49,7 @@
           <div class="channel-label">
             <span>
               {{ c.name }}
-              <v-icon v-if="!c.configured" icon="mdi-alert-circle-outline" size="13" color="warning" />
+              <v-icon v-if="!c.configured" icon="circle-alert" size="13" color="warning" />
             </span>
             <span v-if="!c.supportsDirectDelivery" class="channel-hint">单一接收人</span>
           </div>

@@ -7,7 +7,7 @@
         <!-- 筛选时汇总要跟着走，否则会和选中的档位数字打架 -->
         <span v-if="filtering" class="summary-of-total">（共 {{ report.episodeCount }} 集）</span>
       </div>
-      <v-btn icon="mdi-refresh" variant="text" density="comfortable" :loading="loading" :disabled="anyActing" @click="load" />
+      <v-btn icon="refresh-cw" variant="text" density="comfortable" :loading="loading" :disabled="anyActing" @click="load" />
     </div>
 
     <div class="bucket-tabs">
@@ -51,7 +51,7 @@
       color="primary"
       variant="flat"
       class="enable-all-btn"
-      prepend-icon="mdi-magnify-scan"
+      prepend-icon="scan-search"
       :loading="batchActing"
       :disabled="anyActing"
       @click="handleEnableAutoSearch()"
@@ -64,7 +64,7 @@
       <v-btn
         variant="text"
         size="small"
-        :prepend-icon="includeIgnored ? 'mdi-eye-off-outline' : 'mdi-eye-outline'"
+        :prepend-icon="includeIgnored ? 'eye-off' : 'eye'"
         :disabled="loading || anyActing"
         @click="toggleIncludeIgnored"
       >
@@ -78,13 +78,13 @@
          接口挂了和一切正常长得一模一样 -->
     <v-empty-state
       v-if="!loading && loadFailed"
-      icon="mdi-alert-circle-outline"
+      icon="circle-alert"
       color="error"
       title="加载失败"
       text="没能拿到数据，下面的空白不代表没有缺集。"
     >
       <template #actions>
-        <v-btn color="primary" variant="flat" prepend-icon="mdi-refresh" @click="load">重试</v-btn>
+        <v-btn color="primary" variant="flat" prepend-icon="refresh-cw" @click="load">重试</v-btn>
       </template>
     </v-empty-state>
 
@@ -101,13 +101,13 @@
                 cover
                 class="poster"
               />
-              <v-icon v-else class="card-title-icon" icon="mdi-television-classic" size="18" />
+              <v-icon v-else class="card-title-icon" icon="tv" size="18" />
               <span class="card-title card-title--link" @click="openSubscription(sub.subId)">
                 {{ sub.title }}
                 <span v-if="sub.mediaType !== 'MOVIE'" class="card-season">S{{ pad(sub.season) }}</span>
               </span>
             </div>
-            <v-chip v-if="sub.ignored" size="x-small" variant="tonal" prepend-icon="mdi-bell-off-outline">
+            <v-chip v-if="sub.ignored" size="x-small" variant="tonal" prepend-icon="bell-off">
               已忽略
             </v-chip>
             <v-chip v-else-if="sub.maxOverdueDays !== null" size="x-small" color="error" variant="tonal">
@@ -210,7 +210,7 @@
 
       <v-empty-state
         v-if="!loading && subscriptions.length === 0"
-        icon="mdi-check-decagram-outline"
+        icon="badge-check"
         title="没有发现缺集"
         :text="filtering
           ? '当前筛选条件下没有条目'

@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <PageHeader
-      icon="mdi-movie-open-outline"
+      icon="clapperboard"
       title="STRM 生成记录"
       desc="每个 STRM 文件的生成结果，失败项可重试或清理网盘源文件"
     />
@@ -64,7 +64,7 @@
       <div class="action-bar">
         <div class="action-left">
         </div>
-        <v-btn variant="text" prepend-icon="mdi-filter-outline" @click="showSearch = !showSearch">
+        <v-btn variant="text" prepend-icon="funnel" @click="showSearch = !showSearch">
           {{ showSearch ? '隐藏搜索' : '显示搜索' }}
         </v-btn>
       </div>
@@ -109,7 +109,7 @@
         <template #item.fileInfo="{ item }">
           <div class="file-info-box">
             <div class="file-name" :title="item.strmFileName">
-              <v-icon icon="mdi-file-video-outline" size="14" />
+              <v-icon icon="file-video-camera" size="14" />
               {{ item.strmFileName }}
             </div>
             <div class="file-path" :title="item.strmPath">{{ item.strmPath }}</div>
@@ -119,17 +119,17 @@
           <StatusChip :value="item.strmStatus" enabled-value="1" on-text="成功" off-text="失败" />
         </template>
         <template #item.actions="{ item }">
-          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-refresh" @click="handleRetryOne(item)">
+          <v-btn variant="text" color="primary" size="small" prepend-icon="refresh-cw" @click="handleRetryOne(item)">
             重试
           </v-btn>
           <v-menu>
             <template #activator="{ props: menuProps }">
-              <v-btn v-bind="menuProps" class="more-actions-trigger" variant="text" color="info" size="small" append-icon="mdi-chevron-down">更多</v-btn>
+              <v-btn v-bind="menuProps" class="more-actions-trigger" variant="text" color="info" size="small" append-icon="chevron-down">更多</v-btn>
             </template>
             <v-list density="compact">
-              <v-list-item prepend-icon="mdi-download-outline" @click="handleRemoveNetDiskOne(item)">删除网盘文件</v-list-item>
+              <v-list-item prepend-icon="download" @click="handleRemoveNetDiskOne(item)">删除网盘文件</v-list-item>
               <v-divider class="my-1" />
-              <v-list-item class="more-actions-danger" prepend-icon="mdi-delete-outline" @click="handleDeleteOne(item)">删除记录</v-list-item>
+              <v-list-item class="more-actions-danger" prepend-icon="trash-2" @click="handleDeleteOne(item)">删除记录</v-list-item>
             </v-list>
           </v-menu>
         </template>

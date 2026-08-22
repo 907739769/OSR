@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <PageHeader
-      icon="mdi-clock-outline"
+      icon="clock"
       title="定时任务"
       desc="基于 Quartz 的调度任务，可手动执行并查看执行日志"
     />
@@ -37,7 +37,7 @@
       <div class="action-bar">
         <div class="action-left">
         </div>
-        <v-btn variant="text" prepend-icon="mdi-filter-outline" @click="showSearch = !showSearch">
+        <v-btn variant="text" prepend-icon="funnel" @click="showSearch = !showSearch">
           {{ showSearch ? '隐藏搜索' : '显示搜索' }}
         </v-btn>
       </div>
@@ -64,13 +64,13 @@
           />
         </template>
         <template #item.actions="{ item }">
-          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(item, '修改定时任务')">
+          <v-btn variant="text" color="primary" size="small" prepend-icon="square-pen" @click="handleUpdate(item, '修改定时任务')">
             修改
           </v-btn>
-          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-play-outline" @click="handleRun(item)">
+          <v-btn variant="text" color="primary" size="small" prepend-icon="play" @click="handleRun(item)">
             执行
           </v-btn>
-          <v-btn variant="text" color="secondary" size="small" prepend-icon="mdi-format-list-bulleted" @click="handleViewLogs(item)">
+          <v-btn variant="text" color="secondary" size="small" prepend-icon="list" @click="handleViewLogs(item)">
             记录
           </v-btn>
         </template>
@@ -81,7 +81,7 @@
         <v-progress-linear v-if="loading" indeterminate color="primary" />
         <v-card v-for="item in jobList" :key="item.jobId" variant="outlined" class="mobile-card">
           <div class="mobile-card-header">
-            <span class="mobile-card-title"><v-icon icon="mdi-cog-outline" size="14" /> {{ item.jobName }}</span>
+            <span class="mobile-card-title"><v-icon icon="settings" size="14" /> {{ item.jobName }}</span>
             <v-switch
               v-model="item.status"
               true-value="0"
@@ -99,18 +99,18 @@
             </div>
           </div>
           <div class="mobile-card-actions">
-            <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(item, '修改定时任务')">
+            <v-btn variant="text" color="primary" size="small" prepend-icon="square-pen" @click="handleUpdate(item, '修改定时任务')">
               修改
             </v-btn>
-            <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-play-outline" @click="handleRun(item)">
+            <v-btn variant="text" color="primary" size="small" prepend-icon="play" @click="handleRun(item)">
               执行
             </v-btn>
-            <v-btn variant="text" color="secondary" size="small" prepend-icon="mdi-format-list-bulleted" @click="handleViewLogs(item)">
+            <v-btn variant="text" color="secondary" size="small" prepend-icon="list" @click="handleViewLogs(item)">
               记录
             </v-btn>
           </div>
         </v-card>
-        <v-empty-state v-if="!loading && !jobList.length" icon="mdi-inbox-outline" title="暂无数据" />
+        <v-empty-state v-if="!loading && !jobList.length" icon="inbox" title="暂无数据" />
       </div>
 
       <!-- Pagination -->

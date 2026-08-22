@@ -134,12 +134,12 @@ const recordPaths = {
 
 function buildStatCards(data: any): StatCard[] {
   return [
-    { label: '同步记录', value: data?.copyRecordCount ?? 0, icon: 'mdi-file-multiple-outline', type: 'primary', path: recordPaths.copy },
-    { label: 'STRM 记录', value: data?.strmRecordCount ?? 0, icon: 'mdi-video-outline', type: 'success', path: recordPaths.strm },
-    { label: '重命名明细', value: data?.renameDetailCount ?? 0, icon: 'mdi-pencil-outline', type: 'warning', path: recordPaths.renameDetail },
-    { label: '成功率', value: data?.successRate > 0 ? data.successRate + '%' : '--', icon: 'mdi-check-circle-outline', type: 'info' },
-    { label: '失败数', value: data?.failedCount ?? 0, icon: 'mdi-close-circle-outline', type: 'warning' },
-    { label: '处理中', value: data?.processingCount ?? 0, icon: 'mdi-loading mdi-spin', type: 'primary' }
+    { label: '同步记录', value: data?.copyRecordCount ?? 0, icon: 'files', type: 'primary', path: recordPaths.copy },
+    { label: 'STRM 记录', value: data?.strmRecordCount ?? 0, icon: 'video', type: 'success', path: recordPaths.strm },
+    { label: '重命名明细', value: data?.renameDetailCount ?? 0, icon: 'square-pen', type: 'warning', path: recordPaths.renameDetail },
+    { label: '成功率', value: data?.successRate > 0 ? data.successRate + '%' : '--', icon: 'circle-check', type: 'info' },
+    { label: '失败数', value: data?.failedCount ?? 0, icon: 'circle-x', type: 'warning' },
+    { label: '处理中', value: data?.processingCount ?? 0, icon: 'loader-circle', type: 'primary' }
   ]
 }
 
@@ -151,9 +151,9 @@ function sumStatusCounts(data: Record<string, number> | null | undefined): numbe
 
 function buildTodayStatCards(copy: number, strm: number, rename: number): StatCard[] {
   return [
-    { label: '今日同步', value: copy, icon: 'mdi-file-multiple-outline', type: 'primary', path: recordPaths.copy },
-    { label: '今日STRM', value: strm, icon: 'mdi-video-outline', type: 'success', path: recordPaths.strm },
-    { label: '今日重命名', value: rename, icon: 'mdi-pencil-outline', type: 'warning', path: recordPaths.renameDetail }
+    { label: '今日同步', value: copy, icon: 'files', type: 'primary', path: recordPaths.copy },
+    { label: '今日STRM', value: strm, icon: 'video', type: 'success', path: recordPaths.strm },
+    { label: '今日重命名', value: rename, icon: 'square-pen', type: 'warning', path: recordPaths.renameDetail }
   ]
 }
 

@@ -7,7 +7,7 @@
         :placeholder="placeholder"
         readonly
         density="comfortable"
-        append-inner-icon="mdi-folder-open-outline"
+        append-inner-icon="folder-open"
       />
     </template>
     <v-card min-width="300">

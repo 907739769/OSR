@@ -5,7 +5,7 @@
       <span v-show="appStore.sidebarOpened" class="logo-title">OSR</span>
     </div>
     <v-list nav density="compact" :opened="[]" style="--v-list-prepend-gap: 12px">
-      <v-list-item to="/dashboard" prepend-icon="mdi-view-dashboard-outline" title="首页" rounded="lg" class="menu-item" />
+      <v-list-item to="/dashboard" prepend-icon="layout-dashboard" title="首页" rounded="lg" class="menu-item" />
       <!-- rail 态（64px）下分组标题没地方显示，交给组件的 showGroupLabel 控制 -->
       <SidebarMenuItem
         v-for="menu in sidebarMenus"
@@ -19,7 +19,7 @@
 
   <v-app-bar flat density="comfortable" height="56">
     <v-app-bar-nav-icon @click="toggleSidebar">
-      <v-icon :icon="appStore.sidebarOpened ? 'mdi-menu-open' : 'mdi-menu'" />
+      <v-icon :icon="appStore.sidebarOpened ? 'panel-left-close' : 'menu'" />
     </v-app-bar-nav-icon>
     <!-- 顶栏这条位置以前整条空着。放面包屑而不是重复一遍页面标题：
          菜单收敛成两级后，页面本身完全不体现自己属于哪个分组，而 PT 那四组
@@ -37,13 +37,13 @@
         <div class="avatar-wrapper" v-bind="menuProps">
           <v-avatar size="32" color="primary" class="mr-2">{{ avatarText }}</v-avatar>
           <span class="username">{{ displayName }}</span>
-          <v-icon icon="mdi-chevron-down" size="14" class="ml-1" />
+          <v-icon icon="chevron-down" size="14" class="ml-1" />
         </div>
       </template>
       <v-list density="compact">
-        <v-list-item prepend-icon="mdi-cog-outline" title="修改密码" @click="showPasswordDialog = true" />
+        <v-list-item prepend-icon="settings" title="修改密码" @click="showPasswordDialog = true" />
         <v-divider />
-        <v-list-item prepend-icon="mdi-logout" title="退出登录" @click="handleLogout" />
+        <v-list-item prepend-icon="log-out" title="退出登录" @click="handleLogout" />
       </v-list>
     </v-menu>
   </v-app-bar>

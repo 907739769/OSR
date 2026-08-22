@@ -4,7 +4,7 @@
       <span class="chart-title">最近失败记录</span>
     </div>
     <div v-if="!recentFailures.length" class="empty-tip">
-      <v-empty-state icon="mdi-check-circle-outline" title="暂无失败记录" />
+      <v-empty-state icon="circle-check" title="暂无失败记录" />
     </div>
     <div v-else class="failure-list">
       <div
@@ -77,7 +77,7 @@ async function loadRecentFailures() {
   try {
     const res: any = await getStrmRecordListApi({ pageNum: 1, pageSize: 5, strmStatus: '0' })
     for (const r of res?.records || []) {
-      items.push({ type: 'strm', typeLabel: 'STRM', color: 'success', icon: 'mdi-video-outline', id: r.strmId, name: r.strmFileName, time: r.createTime, path: strmPath })
+      items.push({ type: 'strm', typeLabel: 'STRM', color: 'success', icon: 'video', id: r.strmId, name: r.strmFileName, time: r.createTime, path: strmPath })
     }
   } catch (e) {
     console.error('[Dashboard] Failed to load strm failures:', e)
@@ -86,7 +86,7 @@ async function loadRecentFailures() {
   try {
     const res: any = await getCopyRecordListApi({ pageNum: 1, pageSize: 5, copyStatus: '0' })
     for (const r of res?.records || []) {
-      items.push({ type: 'copy', typeLabel: 'COPY', color: 'primary', icon: 'mdi-file-multiple-outline', id: r.copyId, name: r.copySrcFileName, time: r.createTime, path: copyPath })
+      items.push({ type: 'copy', typeLabel: 'COPY', color: 'primary', icon: 'files', id: r.copyId, name: r.copySrcFileName, time: r.createTime, path: copyPath })
     }
   } catch (e) {
     console.error('[Dashboard] Failed to load copy failures:', e)
@@ -95,7 +95,7 @@ async function loadRecentFailures() {
   try {
     const res: any = await getRenameDetailListApi({ pageNum: 1, pageSize: 5, status: '0' })
     for (const r of res?.records || []) {
-      items.push({ type: 'rename', typeLabel: 'Rename', color: 'warning', icon: 'mdi-pencil-outline', id: r.id, name: r.originalName, time: r.createTime, path: renamePath })
+      items.push({ type: 'rename', typeLabel: 'Rename', color: 'warning', icon: 'square-pen', id: r.id, name: r.originalName, time: r.createTime, path: renamePath })
     }
   } catch (e) {
     console.error('[Dashboard] Failed to load rename failures:', e)

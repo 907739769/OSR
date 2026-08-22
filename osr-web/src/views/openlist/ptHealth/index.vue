@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <PageHeader
-      icon="mdi-stethoscope"
+      icon="stethoscope"
       title="缺集体检"
       :desc="`列出播出超过 ${report.overdueDays} 天仍未入库的集，并说明每一集「为什么还缺」`"
     >
@@ -11,7 +11,7 @@
           v-if="autoSearchOffIds.length > 0"
           color="primary"
           variant="flat"
-          prepend-icon="mdi-magnify-scan"
+          prepend-icon="scan-search"
           :loading="batchActing"
           :disabled="anyActing"
           :title="filtering
@@ -21,7 +21,7 @@
         >
           为{{ filtering ? '筛选出的' : '' }} {{ autoSearchOffIds.length }} 条订阅开启自动补搜
         </v-btn>
-        <v-btn variant="outlined" prepend-icon="mdi-refresh" :loading="loading" :disabled="anyActing" @click="load">刷新</v-btn>
+        <v-btn variant="outlined" prepend-icon="refresh-cw" :loading="loading" :disabled="anyActing" @click="load">刷新</v-btn>
       </template>
     </PageHeader>
 
@@ -86,7 +86,7 @@
         <v-btn
           variant="text"
           size="small"
-          :prepend-icon="includeIgnored ? 'mdi-eye-off-outline' : 'mdi-eye-outline'"
+          :prepend-icon="includeIgnored ? 'eye-off' : 'eye'"
           :disabled="loading || anyActing"
           @click="toggleIncludeIgnored"
         >
@@ -101,13 +101,13 @@
            接口挂了和一切正常长得一模一样，对体检页来说这是最不该给的错误答案 -->
       <v-empty-state
         v-if="!loading && loadFailed"
-        icon="mdi-alert-circle-outline"
+        icon="circle-alert"
         color="error"
         title="体检报告加载失败"
         text="没能拿到数据，所以下面是空的——这不代表没有缺集。请检查后端是否可用后重试。"
       >
         <template #actions>
-          <v-btn color="primary" variant="flat" prepend-icon="mdi-refresh" @click="load">重试</v-btn>
+          <v-btn color="primary" variant="flat" prepend-icon="refresh-cw" @click="load">重试</v-btn>
         </template>
       </v-empty-state>
 
@@ -128,7 +128,7 @@
               cover
               class="poster"
             />
-            <v-icon v-else class="poster-fallback" icon="mdi-television-classic" size="24" />
+            <v-icon v-else class="poster-fallback" icon="tv" size="24" />
 
             <div class="item-body">
               <div class="item-title-row">
@@ -139,7 +139,7 @@
                 <span v-if="sub.maxOverdueDays !== null" class="item-overdue">
                   已播出 {{ sub.maxOverdueDays }} 天
                 </span>
-                <v-chip v-if="sub.ignored" size="x-small" variant="tonal" prepend-icon="mdi-bell-off-outline">
+                <v-chip v-if="sub.ignored" size="x-small" variant="tonal" prepend-icon="bell-off">
                   已忽略
                 </v-chip>
               </div>
@@ -241,7 +241,7 @@
 
         <v-empty-state
           v-if="!loading && subscriptions.length === 0"
-          icon="mdi-check-decagram-outline"
+          icon="badge-check"
           title="没有发现缺集"
           :text="filtering
             ? '当前筛选条件下没有条目，换一个筛选看看'

@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <PageHeader
-      icon="mdi-filter-cog-outline"
+      icon="funnel"
       title="PT 过滤规则"
       desc="全局的种子硬性过滤与择优排序规则，可被单条订阅覆盖"
     />

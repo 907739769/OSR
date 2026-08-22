@@ -24,8 +24,8 @@
           <v-checkbox v-model="filterInfo" density="compact" hide-details label="Info" />
           <v-checkbox v-model="filterWarn" density="compact" hide-details label="Warn" />
           <v-checkbox v-model="filterError" density="compact" hide-details label="Error" />
-          <v-btn size="small" variant="outlined" prepend-icon="mdi-delete-outline" @click="clearLog">清屏</v-btn>
-          <v-btn size="small" variant="outlined" prepend-icon="mdi-refresh" @click="reconnect">重连</v-btn>
+          <v-btn size="small" variant="outlined" prepend-icon="trash-2" @click="clearLog">清屏</v-btn>
+          <v-btn size="small" variant="outlined" prepend-icon="refresh-cw" @click="reconnect">重连</v-btn>
         </div>
       </div>
 
@@ -67,10 +67,10 @@ let refreshedOnce = false
 
 const connectionStatus = computed(() => {
   switch (connectionState.value) {
-    case 'connected': return { text: '已连接', icon: 'mdi-check-circle-outline', tagType: 'success' }
-    case 'connecting': return { text: '连接中', icon: 'mdi-loading mdi-spin', tagType: 'warning' }
-    case 'closed': return { text: '已断开', icon: 'mdi-alert-outline', tagType: 'error' }
-    default: return { text: '未连接', icon: 'mdi-alert-outline', tagType: 'error' }
+    case 'connected': return { text: '已连接', icon: 'circle-check', tagType: 'success' }
+    case 'connecting': return { text: '连接中', icon: 'loader-circle', tagType: 'warning' }
+    case 'closed': return { text: '已断开', icon: 'triangle-alert', tagType: 'error' }
+    default: return { text: '未连接', icon: 'triangle-alert', tagType: 'error' }
   }
 })
 

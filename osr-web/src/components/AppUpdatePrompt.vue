@@ -1,7 +1,7 @@
 <template>
   <transition :name="isMobile ? 'slide-up' : 'slide-left'">
     <div v-if="needRefresh" class="app-update-prompt" :class="isMobile ? 'is-mobile' : 'is-desktop'">
-      <v-icon icon="mdi-refresh" class="update-icon" />
+      <v-icon icon="refresh-cw" class="update-icon" />
       <div class="update-text">
         <span class="update-title">新版本已就绪</span>
         <span v-if="!isMobile" class="update-desc">刷新后即可使用最新功能</span>
@@ -9,7 +9,7 @@
       <v-btn color="primary" size="small" :loading="updating" @click="applyUpdate">
         刷新
       </v-btn>
-      <v-icon icon="mdi-close" class="dismiss-btn" @click="dismiss" />
+      <v-icon icon="x" class="dismiss-btn" @click="dismiss" />
     </div>
   </transition>
 </template>

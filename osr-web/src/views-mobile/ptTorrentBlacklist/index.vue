@@ -2,7 +2,7 @@
   <MobileListPage
     :loading="loading"
     :empty="!loading && taskList.length === 0"
-    empty-icon="mdi-inbox-outline"
+    empty-icon="inbox"
     empty-title="暂无黑名单规则"
   >
     <template #head>
@@ -33,7 +33,7 @@
       </MobileSearchPanel>
 
       <!-- 新增 FAB -->
-      <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="mdi-plus" @click="handleAdd('新增发布组黑名单')">
+      <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="plus" @click="handleAdd('新增发布组黑名单')">
         新增
       </v-btn>
 
@@ -61,7 +61,7 @@
           </div>
         </div>
         <div class="card-actions">
-          <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(item)">
+          <v-btn variant="text" color="error" size="small" prepend-icon="trash-2" @click="handleDelete(item)">
             删除
           </v-btn>
         </div>

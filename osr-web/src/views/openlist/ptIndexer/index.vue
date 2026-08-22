@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <PageHeader
-      icon="mdi-magnify-scan"
+      icon="scan-search"
       title="PT 索引器"
       desc="配置 Torznab 接口，用于 RSS 轮询与搜索补集"
     />
@@ -34,20 +34,20 @@
     <v-card class="table-card">
       <div class="action-bar">
         <div class="action-left">
-          <v-btn color="primary" prepend-icon="mdi-plus" @click="handleAdd('新增索引器')">
+          <v-btn color="primary" prepend-icon="plus" @click="handleAdd('新增索引器')">
             新增
           </v-btn>
-          <v-btn color="success" prepend-icon="mdi-pencil-outline" :disabled="notOneSelected" @click="handleUpdate(undefined, '修改索引器')">
+          <v-btn color="success" prepend-icon="square-pen" :disabled="notOneSelected" @click="handleUpdate(undefined, '修改索引器')">
             修改
           </v-btn>
-          <v-btn color="error" prepend-icon="mdi-delete-outline" :disabled="noneSelected" @click="handleDelete(undefined, `是否确认删除编号为“${selectedIds}”的索引器？`)">
+          <v-btn color="error" prepend-icon="trash-2" :disabled="noneSelected" @click="handleDelete(undefined, `是否确认删除编号为“${selectedIds}”的索引器？`)">
             批量删除
           </v-btn>
           <v-btn variant="text" class="batch-select-all-btn" @click="toggleSelectAllPage(!isAllPageSelected)">
             {{ isAllPageSelected ? '取消全选' : '全选' }}
           </v-btn>
         </div>
-        <v-btn variant="text" prepend-icon="mdi-filter-outline" @click="showSearch = !showSearch">
+        <v-btn variant="text" prepend-icon="funnel" @click="showSearch = !showSearch">
           {{ showSearch ? '隐藏搜索' : '显示搜索' }}
         </v-btn>
       </div>
@@ -108,15 +108,15 @@
             </div>
           </div>
           <div class="card-footer">
-            <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(item, '修改索引器')">
+            <v-btn variant="text" color="primary" size="small" prepend-icon="square-pen" @click="handleUpdate(item, '修改索引器')">
               修改
             </v-btn>
-            <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(item)">
+            <v-btn variant="text" color="error" size="small" prepend-icon="trash-2" @click="handleDelete(item)">
               删除
             </v-btn>
           </div>
         </div>
-        <v-empty-state v-if="!loading && taskList.length === 0" icon="mdi-inbox-outline" title="暂无索引器" />
+        <v-empty-state v-if="!loading && taskList.length === 0" icon="inbox" title="暂无索引器" />
       </div>
 
       <div class="pagination-wrapper">

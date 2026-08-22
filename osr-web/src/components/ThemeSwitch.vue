@@ -6,7 +6,7 @@
              触发它的那个控件自己也该动一下，否则视觉上像是「页面自己变了」 -->
         <v-icon
           :key="isDark ? 'dark' : 'light'"
-          :icon="isDark ? 'mdi-weather-night' : 'mdi-white-balance-sunny'"
+          :icon="isDark ? 'moon' : 'sun'"
           class="theme-switch-icon"
         />
       </v-btn>
@@ -30,9 +30,9 @@ import { useThemeMode, type ThemeMode } from '@/composables/useThemeMode'
 const { mode, isDark, setMode } = useThemeMode()
 
 const options: { value: ThemeMode; label: string; icon: string }[] = [
-  { value: 'light', label: '浅色', icon: 'mdi-white-balance-sunny' },
-  { value: 'dark', label: '深色', icon: 'mdi-weather-night' },
-  { value: 'system', label: '跟随系统', icon: 'mdi-theme-light-dark' }
+  { value: 'light', label: '浅色', icon: 'sun' },
+  { value: 'dark', label: '深色', icon: 'moon' },
+  { value: 'system', label: '跟随系统', icon: 'sun-moon' }
 ]
 </script>
 

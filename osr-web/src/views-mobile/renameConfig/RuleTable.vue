@@ -70,14 +70,14 @@
       </FormField>
 
       <div class="rule-card-actions">
-        <v-btn variant="text" size="small" icon="mdi-arrow-up" :disabled="row.isFallback === '1'" @click="$emit('move', mediaType, index, -1)" />
-        <v-btn variant="text" size="small" icon="mdi-arrow-down" :disabled="row.isFallback === '1'" @click="$emit('move', mediaType, index, 1)" />
+        <v-btn variant="text" size="small" icon="arrow-up" :disabled="row.isFallback === '1'" @click="$emit('move', mediaType, index, -1)" />
+        <v-btn variant="text" size="small" icon="arrow-down" :disabled="row.isFallback === '1'" @click="$emit('move', mediaType, index, 1)" />
         <v-spacer />
-        <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" :disabled="row.isFallback === '1'" @click="$emit('remove', mediaType, index)">删除</v-btn>
+        <v-btn variant="text" color="error" size="small" prepend-icon="trash-2" :disabled="row.isFallback === '1'" @click="$emit('remove', mediaType, index)">删除</v-btn>
       </div>
     </div>
 
-    <v-btn variant="outlined" block class="add-btn" prepend-icon="mdi-plus" @click="$emit('add', mediaType)">新增规则</v-btn>
+    <v-btn variant="outlined" block class="add-btn" prepend-icon="plus" @click="$emit('add', mediaType)">新增规则</v-btn>
   </div>
 </template>
 

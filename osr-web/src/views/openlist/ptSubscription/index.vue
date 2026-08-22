@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <PageHeader
-      icon="mdi-bookmark-multiple-outline"
+      icon="bookmark"
       title="PT 订阅"
       desc="按 TMDb 作品订阅，自动匹配 RSS 与补搜缺集"
     >
@@ -9,7 +9,7 @@
         <!-- 缺集体检回答的是「这一格为什么还是灰的」，是这一页的天然去处。
              放页头而不是每张卡片的「更多」里：体检页按分档列全部订阅，不支持按单条订阅过滤，
              挂成行操作会点进去看到一整页别的订阅 -->
-        <v-btn v-if="healthPath" variant="text" prepend-icon="mdi-stethoscope" @click="goHealth">
+        <v-btn v-if="healthPath" variant="text" prepend-icon="stethoscope" @click="goHealth">
           缺集体检
         </v-btn>
       </template>
@@ -55,7 +55,7 @@
     <v-card class="table-card">
       <div class="action-bar">
         <div class="action-left">
-          <v-btn color="primary" prepend-icon="mdi-plus" @click="openSubscribeDialog">
+          <v-btn color="primary" prepend-icon="plus" @click="openSubscribeDialog">
             新增订阅
           </v-btn>
           <v-btn variant="text" @click="toggleSelectionMode">
@@ -75,7 +75,7 @@
             style="width: 170px"
             @update:model-value="handleQuery"
           />
-          <v-btn variant="text" prepend-icon="mdi-filter-outline" @click="showSearch = !showSearch">
+          <v-btn variant="text" prepend-icon="funnel" @click="showSearch = !showSearch">
             {{ showSearch ? '隐藏搜索' : '显示搜索' }}
           </v-btn>
         </div>
@@ -106,7 +106,7 @@
       <div v-else class="card-grid card-grid--wide" ref="gridRef">
         <v-progress-linear v-if="loading" indeterminate color="primary" />
         <SubscriptionCard v-for="item in taskList" :key="item.id" :item="item" />
-        <v-empty-state v-if="!loading && taskList.length === 0" icon="mdi-inbox-outline" title="暂无订阅" />
+        <v-empty-state v-if="!loading && taskList.length === 0" icon="inbox" title="暂无订阅" />
       </div>
 
       <div class="pagination-wrapper">

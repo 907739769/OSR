@@ -178,3 +178,26 @@ html.osr-theme-transition {
 ::view-transition {
   pointer-events: none;
 }
+
+/* ---- 加载图标自转 ----
+
+   换 lucide 之前用的是 `mdi-loading mdi-spin` —— 那个 spin 是 @mdi/font 的 CSS
+   自带的修饰类，随字体一起没了。lucide 是纯 SVG，没有这类工具类。
+
+   规则直接挂在 lucide 给 svg 打的 `.lucide-loader-circle` 上，而不是要求调用方
+   额外写一个 class：loader-circle 这个图标存在的唯一用途就是表示「正在转」，
+   静止的加载图标是坏的，让它必须靠调用方记得加 class 才转，迟早会漏。
+
+   **这是本文件里唯一一个不用 --osr-dur-* 令牌的动画，是有意的。**
+   令牌在 prefers-reduced-motion 下被压到 0.01ms（tokens.scss 末尾），套到这里
+   就是每秒转十万圈的一团糊，比不转还糟。而这个动画也不该被降级关掉——
+   停住的加载图标读起来是「卡死了」，那正是 reduced-motion 用户最没法分辨的状态。 */
+.lucide-loader-circle {
+  animation: osr-spin 1s linear infinite;
+}
+
+@keyframes osr-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

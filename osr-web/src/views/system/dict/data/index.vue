@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <!-- Header -->
-    <PageHeader icon="mdi-format-list-bulleted" title="字典数据">
+    <PageHeader icon="list" title="字典数据">
       <template #desc>字典类型：<code class="dict-type-code">{{ currentDictType || '—' }}</code></template>
     </PageHeader>
 
@@ -9,10 +9,10 @@
     <v-card class="table-card">
       <div class="action-bar">
         <div class="action-left">
-          <v-btn variant="outlined" prepend-icon="mdi-arrow-left" @click="handleBack">
+          <v-btn variant="outlined" prepend-icon="arrow-left" @click="handleBack">
             返回
           </v-btn>
-          <v-btn color="primary" prepend-icon="mdi-plus" @click="handleAdd">
+          <v-btn color="primary" prepend-icon="plus" @click="handleAdd">
             新增
           </v-btn>
         </div>
@@ -37,10 +37,10 @@
           <StatusChip :value="item.status" enabled-value="0" on-text="正常" off-text="停用" />
         </template>
         <template #item.actions="{ item }">
-          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(item)">
+          <v-btn variant="text" color="primary" size="small" prepend-icon="square-pen" @click="handleUpdate(item)">
             编辑
           </v-btn>
-          <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(item, `是否确认删除字典编码为“${item.dictCode}”的数据项？`)">
+          <v-btn variant="text" color="error" size="small" prepend-icon="trash-2" @click="handleDelete(item, `是否确认删除字典编码为“${item.dictCode}”的数据项？`)">
             删除
           </v-btn>
         </template>
@@ -65,15 +65,15 @@
             </div>
           </div>
           <div class="mobile-card-actions">
-            <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(item)">
+            <v-btn variant="text" color="primary" size="small" prepend-icon="square-pen" @click="handleUpdate(item)">
               编辑
             </v-btn>
-            <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(item, `是否确认删除字典编码为“${item.dictCode}”的数据项？`)">
+            <v-btn variant="text" color="error" size="small" prepend-icon="trash-2" @click="handleDelete(item, `是否确认删除字典编码为“${item.dictCode}”的数据项？`)">
               删除
             </v-btn>
           </div>
         </v-card>
-        <v-empty-state v-if="!loading && !taskList.length" icon="mdi-inbox-outline" title="暂无数据" />
+        <v-empty-state v-if="!loading && !taskList.length" icon="inbox" title="暂无数据" />
       </div>
 
       <!-- Pagination (mobile; desktop paginates via v-data-table-server) -->

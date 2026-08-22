@@ -31,7 +31,7 @@
         </v-data-table>
         <v-empty-state
           v-if="!searchLogLoading && visibleSearchLogs.length === 0"
-          icon="mdi-inbox-outline"
+          icon="inbox"
           :title="searchLogRejectedOnly && searchLogs.length ? '没有被淘汰的记录' : '暂无日志'"
           :text="searchLogRejectedOnly && searchLogs.length ? '最近 100 条里每一条都通过了过滤' : '还没轮询/搜索过，或该订阅日志已被清理'"
         />

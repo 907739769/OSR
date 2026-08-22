@@ -22,7 +22,7 @@
           </div>
           <v-empty-state
             v-if="!searchLogLoading && visibleSearchLogs.length === 0"
-            icon="mdi-inbox-outline"
+            icon="inbox"
             :title="searchLogRejectedOnly && searchLogs.length ? '没有被淘汰的记录' : '暂无日志'"
           />
         </div>

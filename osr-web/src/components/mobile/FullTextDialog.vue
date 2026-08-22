@@ -4,7 +4,7 @@
       <v-card-text class="full-text-content">{{ content }}</v-card-text>
       <v-card-actions>
         <v-spacer />
-        <v-btn size="small" prepend-icon="mdi-content-copy" @click="copy">复制</v-btn>
+        <v-btn size="small" prepend-icon="copy" @click="copy">复制</v-btn>
         <v-btn size="small" color="primary" variant="flat" @click="visible = false">关闭</v-btn>
       </v-card-actions>
     </v-card>

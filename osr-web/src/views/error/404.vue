@@ -1,6 +1,6 @@
 <template>
   <div class="error-page">
-    <v-empty-state icon="mdi-alert-outline" title="404" text="页面不存在">
+    <v-empty-state icon="triangle-alert" title="404" text="页面不存在">
       <template #actions>
         <v-btn color="primary" @click="goHome">返回首页</v-btn>
       </template>

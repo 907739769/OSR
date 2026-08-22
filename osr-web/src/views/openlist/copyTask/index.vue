@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <PageHeader
-      icon="mdi-folder-sync-outline"
+      icon="folder-sync"
       title="文件同步任务"
       desc="配置源目录到目标目录的同步规则，可选监控本地目录变化自动触发"
     />
@@ -55,11 +55,11 @@
       <!-- Action Bar -->
       <div class="action-bar">
         <div class="action-left">
-          <v-btn color="primary" prepend-icon="mdi-plus" @click="handleAdd('新增文件同步任务')">
+          <v-btn color="primary" prepend-icon="plus" @click="handleAdd('新增文件同步任务')">
             新增
           </v-btn>
         </div>
-        <v-btn variant="text" prepend-icon="mdi-filter-outline" @click="showSearch = !showSearch">
+        <v-btn variant="text" prepend-icon="funnel" @click="showSearch = !showSearch">
           {{ showSearch ? '隐藏搜索' : '显示搜索' }}
         </v-btn>
       </div>
@@ -112,13 +112,13 @@
           <StatusChip :value="item.copyTaskStatus" />
         </template>
         <template #item.actions="{ item }">
-          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(item, '修改文件同步任务')">
+          <v-btn variant="text" color="primary" size="small" prepend-icon="square-pen" @click="handleUpdate(item, '修改文件同步任务')">
             修改
           </v-btn>
-          <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(item)">
+          <v-btn variant="text" color="error" size="small" prepend-icon="trash-2" @click="handleDelete(item)">
             删除
           </v-btn>
-          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-play-outline" @click="handleExecuteOne(item, `是否确认执行文件同步任务“${item.copyTaskSrc} → ${item.copyTaskDst}”？`)">
+          <v-btn variant="text" color="primary" size="small" prepend-icon="play" @click="handleExecuteOne(item, `是否确认执行文件同步任务“${item.copyTaskSrc} → ${item.copyTaskDst}”？`)">
             执行
           </v-btn>
         </template>

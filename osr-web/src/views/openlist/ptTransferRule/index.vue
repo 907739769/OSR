@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <PageHeader
-      icon="mdi-swap-horizontal"
+      icon="arrow-left-right"
       title="转移做种"
       desc="把下载器里已完成的种子搬到另一个下载器继续做种，数据文件原地不动"
     />
@@ -36,19 +36,19 @@
     <v-card class="table-card">
       <div class="action-bar">
         <div class="action-left">
-          <v-btn color="primary" prepend-icon="mdi-plus" @click="handleAdd('新增转移规则')">新增</v-btn>
-          <v-btn color="success" prepend-icon="mdi-pencil-outline" :disabled="notOneSelected" @click="handleUpdate(undefined, '修改转移规则')">
+          <v-btn color="primary" prepend-icon="plus" @click="handleAdd('新增转移规则')">新增</v-btn>
+          <v-btn color="success" prepend-icon="square-pen" :disabled="notOneSelected" @click="handleUpdate(undefined, '修改转移规则')">
             修改
           </v-btn>
-          <v-btn color="error" prepend-icon="mdi-delete-outline" :disabled="noneSelected" @click="handleDelete(undefined, `是否确认删除编号为“${selectedIds}”的转移规则？`)">
+          <v-btn color="error" prepend-icon="trash-2" :disabled="noneSelected" @click="handleDelete(undefined, `是否确认删除编号为“${selectedIds}”的转移规则？`)">
             批量删除
           </v-btn>
-          <v-btn variant="text" prepend-icon="mdi-history" @click="loadRecords()">转移记录</v-btn>
+          <v-btn variant="text" prepend-icon="history" @click="loadRecords()">转移记录</v-btn>
           <v-btn variant="text" class="batch-select-all-btn" @click="toggleSelectAllPage(!isAllPageSelected)">
             {{ isAllPageSelected ? '取消全选' : '全选' }}
           </v-btn>
         </div>
-        <v-btn variant="text" prepend-icon="mdi-filter-outline" @click="showSearch = !showSearch">
+        <v-btn variant="text" prepend-icon="funnel" @click="showSearch = !showSearch">
           {{ showSearch ? '隐藏搜索' : '显示搜索' }}
         </v-btn>
       </div>
@@ -93,25 +93,25 @@
             </div>
           </div>
           <div class="card-footer">
-            <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-eye-outline" @click="handlePreview(item)">
+            <v-btn variant="text" color="primary" size="small" prepend-icon="eye" @click="handlePreview(item)">
               预览
             </v-btn>
-            <v-btn variant="text" color="success" size="small" prepend-icon="mdi-play-outline" :loading="runLoading" @click="handleRun(item)">
+            <v-btn variant="text" color="success" size="small" prepend-icon="play" :loading="runLoading" @click="handleRun(item)">
               立即执行
             </v-btn>
             <v-menu>
               <template #activator="{ props }">
-                <v-btn variant="text" size="small" append-icon="mdi-chevron-down" v-bind="props">更多</v-btn>
+                <v-btn variant="text" size="small" append-icon="chevron-down" v-bind="props">更多</v-btn>
               </template>
               <v-list density="compact">
-                <v-list-item prepend-icon="mdi-pencil-outline" title="修改" @click="handleUpdate(item, '修改转移规则')" />
-                <v-list-item prepend-icon="mdi-history" title="转移记录" @click="loadRecords(item.id)" />
-                <v-list-item prepend-icon="mdi-delete-outline" title="删除" @click="handleDelete(item)" />
+                <v-list-item prepend-icon="square-pen" title="修改" @click="handleUpdate(item, '修改转移规则')" />
+                <v-list-item prepend-icon="history" title="转移记录" @click="loadRecords(item.id)" />
+                <v-list-item prepend-icon="trash-2" title="删除" @click="handleDelete(item)" />
               </v-list>
             </v-menu>
           </div>
         </div>
-        <v-empty-state v-if="!loading && taskList.length === 0" icon="mdi-inbox-outline" title="暂无转移规则" />
+        <v-empty-state v-if="!loading && taskList.length === 0" icon="inbox" title="暂无转移规则" />
       </div>
 
       <div class="pagination-wrapper">

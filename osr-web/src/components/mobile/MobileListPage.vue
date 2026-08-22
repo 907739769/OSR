@@ -27,7 +27,7 @@ withDefaults(
   {
     loading: false,
     empty: false,
-    emptyIcon: 'mdi-inbox-outline',
+    emptyIcon: 'inbox',
     emptyTitle: '暂无数据',
     emptyText: undefined
   }

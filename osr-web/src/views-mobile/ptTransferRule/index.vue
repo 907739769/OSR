@@ -2,7 +2,7 @@
   <MobileListPage
     :loading="loading"
     :empty="!loading && taskList.length === 0"
-    empty-icon="mdi-inbox-outline"
+    empty-icon="inbox"
     empty-title="暂无转移规则"
   >
     <template #head>
@@ -44,7 +44,7 @@
       </MobileBatchBar>
 
       <!-- 新增 FAB -->
-      <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="mdi-plus" @click="handleAdd('新增转移规则')">
+      <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="plus" @click="handleAdd('新增转移规则')">
         新增
       </v-btn>
 
@@ -71,7 +71,7 @@
           <StatusChip :value="item.enabled" />
         </div>
         <div class="card-path">
-          <v-icon class="card-path-icon" size="14">mdi-swap-horizontal</v-icon>
+          <v-icon class="card-path-icon" size="14">arrow-left-right</v-icon>
           <span class="card-path-text">
             {{ downloaderName(item.sourceDownloaderId) }} → {{ downloaderName(item.targetDownloaderId) }}
           </span>
@@ -87,16 +87,16 @@
           </div>
         </div>
         <div class="card-actions" @click.stop>
-          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-eye-outline" @click="handlePreview(item)">预览</v-btn>
-          <v-btn variant="text" color="success" size="small" prepend-icon="mdi-play-outline" :loading="runLoading" @click="handleRun(item)">执行</v-btn>
+          <v-btn variant="text" color="primary" size="small" prepend-icon="eye" @click="handlePreview(item)">预览</v-btn>
+          <v-btn variant="text" color="success" size="small" prepend-icon="play" :loading="runLoading" @click="handleRun(item)">执行</v-btn>
           <v-menu>
             <template #activator="{ props }">
-              <v-btn class="action-more" variant="text" size="small" icon="mdi-dots-horizontal" v-bind="props" />
+              <v-btn class="action-more" variant="text" size="small" icon="ellipsis" v-bind="props" />
             </template>
             <v-list density="compact">
-              <v-list-item prepend-icon="mdi-pencil-outline" title="修改" @click="handleUpdate(item, '修改转移规则')" />
-              <v-list-item prepend-icon="mdi-history" title="转移记录" @click="loadRecords(item.id)" />
-              <v-list-item prepend-icon="mdi-delete-outline" title="删除" @click="handleDelete(item)" />
+              <v-list-item prepend-icon="square-pen" title="修改" @click="handleUpdate(item, '修改转移规则')" />
+              <v-list-item prepend-icon="history" title="转移记录" @click="loadRecords(item.id)" />
+              <v-list-item prepend-icon="trash-2" title="删除" @click="handleDelete(item)" />
             </v-list>
           </v-menu>
         </div>

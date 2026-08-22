@@ -42,7 +42,7 @@
                 loading="lazy"
                 @error="(e: Event) => ((e.target as HTMLImageElement).style.visibility = 'hidden')"
               />
-              <v-icon v-else icon="mdi-image-outline" />
+              <v-icon v-else icon="image" />
             </div>
             <div class="result-info">
               <span class="result-title">
@@ -53,9 +53,9 @@
                 {{ item.originalTitle }}
               </span>
             </div>
-            <v-icon v-if="picked && picked.tmdbId === item.tmdbId" icon="mdi-check-circle" color="primary" />
+            <v-icon v-if="picked && picked.tmdbId === item.tmdbId" icon="circle-check" color="primary" />
           </div>
-          <v-empty-state v-if="!searchLoading && searchResults.length === 0" icon="mdi-magnify" title="暂无搜索结果" />
+          <v-empty-state v-if="!searchLoading && searchResults.length === 0" icon="search" title="暂无搜索结果" />
         </div>
 
         <div v-if="picked" class="picked-bar">

@@ -1,13 +1,13 @@
 <template>
   <div class="page-container">
     <PageHeader
-      icon="mdi-bell-cog-outline"
+      icon="bell-ring"
       title="通知路由"
       desc="配置每种通知发送到哪些渠道、发给谁。渠道本身的地址与密钥在「参数设置」里配"
     >
       <template #actions>
-        <v-btn variant="outlined" prepend-icon="mdi-refresh" :disabled="loading" @click="load">重新加载</v-btn>
-        <v-btn color="primary" prepend-icon="mdi-content-save-outline" :loading="saving" @click="save">保存</v-btn>
+        <v-btn variant="outlined" prepend-icon="refresh-cw" :disabled="loading" @click="load">重新加载</v-btn>
+        <v-btn color="primary" prepend-icon="save" :loading="saving" @click="save">保存</v-btn>
       </template>
     </PageHeader>
 
@@ -33,7 +33,7 @@
                 <div class="channel-head">
                   <span class="channel-name">
                     {{ c.name }}
-                    <v-icon v-if="!c.configured" icon="mdi-alert-circle-outline" size="14" color="warning" />
+                    <v-icon v-if="!c.configured" icon="circle-alert" size="14" color="warning" />
                   </span>
                   <span v-if="!c.supportsDirectDelivery" class="channel-hint">单一接收人</span>
                   <div class="channel-toggle">

@@ -1,7 +1,7 @@
 <template>
   <div class="pt-stats-dashboard">
     <PageHeader
-      icon="mdi-chart-box-outline"
+      icon="chart-column"
       title="PT 统计仪表盘"
       desc="下载量趋势、索引器命中率与失败原因分布"
     />
@@ -13,7 +13,7 @@
         <v-btn :value="30">近30天</v-btn>
         <v-btn :value="90">近90天</v-btn>
       </v-btn-toggle>
-      <v-btn prepend-icon="mdi-refresh" variant="outlined" class="refresh-btn" @click="loadAll">刷新</v-btn>
+      <v-btn prepend-icon="refresh-cw" variant="outlined" class="refresh-btn" @click="loadAll">刷新</v-btn>
     </div>
 
     <v-row class="stat-row">
@@ -113,7 +113,7 @@
             </template>
             <template #item.lastMatchTime="{ item }">{{ item.lastMatchTime || '-' }}</template>
             <template #no-data>
-              <v-empty-state icon="mdi-inbox-outline" title="暂无数据" />
+              <v-empty-state icon="inbox" title="暂无数据" />
             </template>
           </v-data-table>
         </v-card>
@@ -207,20 +207,20 @@ async function loadOverview() {
   try {
     const data = await getPtStatsOverviewApi()
     statCards.value = [
-      { label: '总订阅数', value: data.totalSubscriptions, icon: 'mdi-file-document-outline', type: 'primary' },
-      { label: '活跃订阅数', value: data.activeSubscriptions, icon: 'mdi-lan-connect', type: 'success' },
-      { label: '下载记录总数', value: data.totalDownloadRecords, icon: 'mdi-download', type: 'info' },
-      { label: '成功率', value: data.totalDownloadRecords > 0 ? data.successRate + '%' : '--', icon: 'mdi-check-circle-outline', type: 'success' },
-      { label: '平均下载耗时', value: data.avgDurationMinutes > 0 ? Math.round(data.avgDurationMinutes) + ' 分钟' : '--', icon: 'mdi-clock-outline', type: 'warning' }
+      { label: '总订阅数', value: data.totalSubscriptions, icon: 'file-text', type: 'primary' },
+      { label: '活跃订阅数', value: data.activeSubscriptions, icon: 'network', type: 'success' },
+      { label: '下载记录总数', value: data.totalDownloadRecords, icon: 'download', type: 'info' },
+      { label: '成功率', value: data.totalDownloadRecords > 0 ? data.successRate + '%' : '--', icon: 'circle-check', type: 'success' },
+      { label: '平均下载耗时', value: data.avgDurationMinutes > 0 ? Math.round(data.avgDurationMinutes) + ' 分钟' : '--', icon: 'clock', type: 'warning' }
     ]
   } catch (e) {
     console.error('[PtStatsDashboard] Failed to load overview:', e)
     statCards.value = [
-      { label: '总订阅数', value: '0', icon: 'mdi-file-document-outline', type: 'primary' },
-      { label: '活跃订阅数', value: '0', icon: 'mdi-lan-connect', type: 'success' },
-      { label: '下载记录总数', value: '0', icon: 'mdi-download', type: 'info' },
-      { label: '成功率', value: '--', icon: 'mdi-check-circle-outline', type: 'success' },
-      { label: '平均下载耗时', value: '--', icon: 'mdi-clock-outline', type: 'warning' }
+      { label: '总订阅数', value: '0', icon: 'file-text', type: 'primary' },
+      { label: '活跃订阅数', value: '0', icon: 'network', type: 'success' },
+      { label: '下载记录总数', value: '0', icon: 'download', type: 'info' },
+      { label: '成功率', value: '--', icon: 'circle-check', type: 'success' },
+      { label: '平均下载耗时', value: '--', icon: 'clock', type: 'warning' }
     ]
   }
 }

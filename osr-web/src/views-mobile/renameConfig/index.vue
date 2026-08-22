@@ -1,9 +1,9 @@
 <template>
   <div class="mobile-page">
     <v-tabs v-model="activeTab" color="primary" density="compact" grow>
-      <v-tab value="template" prepend-icon="mdi-file-document-edit-outline">模板</v-tab>
-      <v-tab value="rules" prepend-icon="mdi-folder-cog-outline">分类规则</v-tab>
-      <v-tab value="test" prepend-icon="mdi-flask-outline">测试</v-tab>
+      <v-tab value="template" prepend-icon="file-pen">模板</v-tab>
+      <v-tab value="rules" prepend-icon="folder-cog">分类规则</v-tab>
+      <v-tab value="test" prepend-icon="flask-conical">测试</v-tab>
     </v-tabs>
 
     <v-window v-model="activeTab">
@@ -87,7 +87,7 @@
             hint="留空则使用默认配置"
             persistent-hint
           />
-          <v-btn color="primary" block prepend-icon="mdi-auto-fix" :loading="testLoading" class="mt-3" @click="doTest">
+          <v-btn color="primary" block prepend-icon="wand-sparkles" :loading="testLoading" class="mt-3" @click="doTest">
             开始分析
           </v-btn>
 

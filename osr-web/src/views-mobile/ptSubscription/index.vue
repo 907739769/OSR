@@ -2,7 +2,7 @@
   <MobileListPage
     :loading="loading"
     :empty="!loading && taskList.length === 0"
-    empty-icon="mdi-inbox-outline"
+    empty-icon="inbox"
     empty-title="暂无订阅"
   >
     <template #head>
@@ -52,7 +52,7 @@
       </MobileSearchPanel>
 
       <!-- 新增 FAB -->
-      <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="mdi-plus" @click="openSubscribeDialog">
+      <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="plus" @click="openSubscribeDialog">
         新增
       </v-btn>
 
@@ -62,7 +62,7 @@
           {{ selectionMode ? '退出批量操作' : '批量操作' }}
         </v-btn>
         <!-- 缺集体检回答的是「这一格为什么还是灰的」，与 PC 端页头那个入口对齐 -->
-        <v-btn v-if="healthPath" variant="text" size="small" prepend-icon="mdi-stethoscope" @click="goHealth">
+        <v-btn v-if="healthPath" variant="text" size="small" prepend-icon="stethoscope" @click="goHealth">
           缺集体检
         </v-btn>
       </div>

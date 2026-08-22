@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <PageHeader
-      icon="mdi-movie-cog-outline"
+      icon="file-cog"
       title="STRM 任务配置"
       desc="配置需要生成 STRM 文件的网盘目录，可手动执行或由定时任务触发"
     />
@@ -35,11 +35,11 @@
       <!-- Action Bar -->
       <div class="action-bar">
         <div class="action-left">
-          <v-btn color="primary" prepend-icon="mdi-plus" @click="handleAdd('新增STRM任务')">
+          <v-btn color="primary" prepend-icon="plus" @click="handleAdd('新增STRM任务')">
             新增
           </v-btn>
         </div>
-        <v-btn variant="text" prepend-icon="mdi-filter-outline" @click="showSearch = !showSearch">
+        <v-btn variant="text" prepend-icon="funnel" @click="showSearch = !showSearch">
           {{ showSearch ? '隐藏搜索' : '显示搜索' }}
         </v-btn>
       </div>
@@ -83,7 +83,7 @@
       >
         <template #item.strmTaskPath="{ item }">
           <div class="path-text" :title="item.strmTaskPath">
-            <v-icon icon="mdi-folder-open-outline" size="16" />
+            <v-icon icon="folder-open" size="16" />
             {{ item.strmTaskPath }}
             <v-chip v-if="hasOverride(item)" size="x-small" color="primary" variant="tonal" class="override-chip">
               已覆盖
@@ -94,13 +94,13 @@
           <StatusChip :value="item.strmTaskStatus" />
         </template>
         <template #item.actions="{ item }">
-          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(item, '修改STRM任务')">
+          <v-btn variant="text" color="primary" size="small" prepend-icon="square-pen" @click="handleUpdate(item, '修改STRM任务')">
             修改
           </v-btn>
-          <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(item)">
+          <v-btn variant="text" color="error" size="small" prepend-icon="trash-2" @click="handleDelete(item)">
             删除
           </v-btn>
-          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-play-circle-outline" @click="handleExecuteOne(item, `是否确认执行STRM任务“${item.strmTaskPath}”？`)">
+          <v-btn variant="text" color="primary" size="small" prepend-icon="circle-play" @click="handleExecuteOne(item, `是否确认执行STRM任务“${item.strmTaskPath}”？`)">
             执行
           </v-btn>
         </template>

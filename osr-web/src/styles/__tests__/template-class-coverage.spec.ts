@@ -68,7 +68,7 @@ const KNOWN_GAPS: Record<string, string[]> = {
 
 /** Vuetify 自带类与工具类不归本页管 */
 const isFrameworkClass = (name: string) =>
-  /^(v-|mdi-|text-|bg-|ml-|mr-|mt-|mb-|my-|mx-|pa-|pl-|pr-|pt-|pb-|py-|px-|d-|justify-|align-|flex-|w-|h-|rounded|elevation-)/.test(name)
+  /^(v-|lucide|text-|bg-|ml-|mr-|mt-|mb-|my-|mx-|pa-|pl-|pr-|pt-|pb-|py-|px-|d-|justify-|align-|flex-|w-|h-|rounded|elevation-)/.test(name)
 
 /** 一个合法的 class 名（排除模板表达式里被正则误捞的碎片） */
 const isClassName = (name: string) => /^[a-z][a-z0-9]*(?:[-_][a-z0-9]+)*$/.test(name)

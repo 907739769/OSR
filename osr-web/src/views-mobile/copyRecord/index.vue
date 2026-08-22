@@ -2,7 +2,7 @@
   <MobileListPage
     :loading="loading"
     :empty="!loading && recordList.length === 0"
-    empty-icon="mdi-inbox-outline"
+    empty-icon="inbox"
     empty-title="暂无同步记录"
   >
     <template #head>
@@ -89,13 +89,13 @@
         @toggle-all="toggleSelectAllPage"
         @cancel="clearSelection"
       >
-        <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-refresh" @click="handleBatchRetry">
+        <v-btn variant="text" color="primary" size="small" prepend-icon="refresh-cw" @click="handleBatchRetry">
           重试
         </v-btn>
-        <v-btn variant="text" color="error" size="small" prepend-icon="mdi-download-off-outline" @click="handleBatchRemoveNetDisk">
+        <v-btn variant="text" color="error" size="small" prepend-icon="cloud-off" @click="handleBatchRemoveNetDisk">
           删网盘
         </v-btn>
-        <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleBatchDelete">
+        <v-btn variant="text" color="error" size="small" prepend-icon="trash-2" @click="handleBatchDelete">
           删记录
         </v-btn>
       </MobileBatchBar>
@@ -120,32 +120,32 @@
       <div class="card-content">
         <div class="card-top">
           <div class="card-title-row">
-            <v-icon class="card-title-icon" icon="mdi-file-multiple-outline" size="18" />
+            <v-icon class="card-title-icon" icon="files" size="18" />
             <span class="card-title card-title--link" @click.stop="showFullText(record.copySrcFileName, '文件名')">{{ record.copySrcFileName }}</span>
           </div>
           <StatusChip :type="getCopyStatusType(record.copyStatus)" :text="getCopyStatusText(record.copyStatus)" :pulse="record.copyStatus === '1'" />
         </div>
         <div class="card-path card-path--link" @click.stop="showFullText(record.copySrcPath, '源路径')">
-          <v-icon class="card-path-icon" icon="mdi-map-marker-outline" size="14" />
+          <v-icon class="card-path-icon" icon="map-pin" size="14" />
           <span class="card-path-text">{{ record.copySrcPath }}</span>
         </div>
         <div class="card-path card-path--link card-path--success" @click.stop="showFullText(record.copyDstFileName, '目标文件名')">
-          <v-icon class="card-path-icon" icon="mdi-file-outline" size="14" />
+          <v-icon class="card-path-icon" icon="file" size="14" />
           <span class="card-path-text">{{ record.copyDstFileName }}</span>
         </div>
         <div class="card-path card-path--link card-path--success" @click.stop="showFullText(record.copyDstPath, '目标路径')">
-          <v-icon class="card-path-icon" icon="mdi-map-marker-outline" size="14" />
+          <v-icon class="card-path-icon" icon="map-pin" size="14" />
           <span class="card-path-text">{{ record.copyDstPath }}</span>
         </div>
         <div class="card-time">
-          <v-icon icon="mdi-clock-outline" size="12" />
+          <v-icon icon="clock" size="12" />
           {{ record.createTime }}
         </div>
         <div class="card-actions" @click.stop>
-          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-refresh" @click="handleRetryOne(record)">
+          <v-btn variant="text" color="primary" size="small" prepend-icon="refresh-cw" @click="handleRetryOne(record)">
             重试
           </v-btn>
-          <v-btn class="action-more" variant="text" color="default" size="small" icon="mdi-dots-horizontal" @click="openSheet(record)" />
+          <v-btn class="action-more" variant="text" color="default" size="small" icon="ellipsis" @click="openSheet(record)" />
         </div>
       </div>
     </v-card>
@@ -153,8 +153,8 @@
     <template #foot>
       <!-- 操作抽屉 -->
       <MobileActionSheet v-model="sheetOpen" :target="sheetTarget">
-        <v-btn color="warning" block prepend-icon="mdi-download-off-outline" @click="run(() => handleRemoveNetDiskOne(sheetTarget))">删网盘</v-btn>
-        <v-btn color="error" block prepend-icon="mdi-delete-outline" @click="run(() => handleDeleteOne(sheetTarget))">删记录</v-btn>
+        <v-btn color="warning" block prepend-icon="cloud-off" @click="run(() => handleRemoveNetDiskOne(sheetTarget))">删网盘</v-btn>
+        <v-btn color="error" block prepend-icon="trash-2" @click="run(() => handleDeleteOne(sheetTarget))">删记录</v-btn>
       </MobileActionSheet>
 
       <!-- 分页 -->

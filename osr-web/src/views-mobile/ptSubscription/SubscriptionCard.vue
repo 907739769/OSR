@@ -24,7 +24,7 @@
         class="sub-poster-placeholder"
         :class="item.mediaType === 'MOVIE' ? 'placeholder-movie' : 'placeholder-tv'"
       >
-        <v-icon :icon="item.mediaType === 'MOVIE' ? 'mdi-filmstrip' : 'mdi-television-play'" size="22" />
+        <v-icon :icon="item.mediaType === 'MOVIE' ? 'film' : 'monitor-play'" size="22" />
         <span class="placeholder-text">{{ item.mediaType === 'MOVIE' ? '电影' : '剧集' }}</span>
       </div>
     </div>
@@ -49,7 +49,7 @@
           size="x-small"
           color="info"
           variant="tonal"
-          prepend-icon="mdi-filter-cog-outline"
+          prepend-icon="funnel"
         >过滤覆盖</v-chip>
       </div>
       <!-- 入库进度：列表接口已带进度计数，不必逐条点开进度弹窗才知道还缺几集 -->
@@ -103,7 +103,7 @@
       <div class="card-actions" @click.stop>
         <v-btn variant="text" color="primary" size="small" @click="showProgress(item)">进度</v-btn>
         <v-btn variant="text" color="primary" size="small" @click="goDownloadRecords(item)">下载记录</v-btn>
-        <v-btn class="action-more" variant="text" color="default" size="small" icon="mdi-dots-horizontal" @click="emit('more', item)" />
+        <v-btn class="action-more" variant="text" color="default" size="small" icon="ellipsis" @click="emit('more', item)" />
       </div>
     </div>
   </v-card>

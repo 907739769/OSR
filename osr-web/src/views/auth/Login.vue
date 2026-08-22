@@ -30,7 +30,7 @@
             <v-text-field
               v-model="loginForm.username"
               placeholder="用户名"
-              prepend-inner-icon="mdi-account-outline"
+              prepend-inner-icon="user"
               variant="outlined"
               density="comfortable"
               autocomplete="username"
@@ -42,7 +42,7 @@
               v-model="loginForm.password"
               type="password"
               placeholder="密码"
-              prepend-inner-icon="mdi-lock-outline"
+              prepend-inner-icon="lock"
               variant="outlined"
               density="comfortable"
               autocomplete="current-password"

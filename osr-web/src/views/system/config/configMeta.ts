@@ -107,23 +107,23 @@ export const metaOf = (config: SysConfig): ConfigMeta => {
  * 它描述的是通知路由而不是机器人本身。
  */
 export const SECTION_RULES: Array<{ key: string; title: string; icon: string; prefixes: string[] }> = [
-  { key: 'openlist', title: 'OpenList 服务', icon: 'mdi-server-network',
+  { key: 'openlist', title: 'OpenList 服务', icon: 'server',
     prefixes: ['openlist.server.', 'openlist.api.', 'openlist.local.'] },
-  { key: 'copy', title: '复制 & STRM 任务', icon: 'mdi-swap-horizontal',
+  { key: 'copy', title: '复制 & STRM 任务', icon: 'arrow-left-right',
     prefixes: ['openlist.copy.', 'openlist.strm.'] },
-  { key: 'notify', title: '通知渠道', icon: 'mdi-bell-outline',
+  { key: 'notify', title: '通知渠道', icon: 'bell',
     prefixes: ['openlist.notify.'] },
-  { key: 'tg', title: 'Telegram 机器人', icon: 'mdi-telegram',
+  { key: 'tg', title: 'Telegram 机器人', icon: 'brand-telegram',
     prefixes: ['openlist.tg.'] },
-  { key: 'wecom', title: '企业微信', icon: 'mdi-wechat',
+  { key: 'wecom', title: '企业微信', icon: 'brand-wecom',
     prefixes: ['openlist.wecom.'] },
-  { key: 'tmdb', title: 'TMDb 影视配置', icon: 'mdi-flash-outline',
+  { key: 'tmdb', title: 'TMDb 影视配置', icon: 'zap',
     prefixes: ['openlist.tmdb.'] },
-  { key: 'openai', title: 'OpenAI 配置', icon: 'mdi-robot-outline',
+  { key: 'openai', title: 'OpenAI 配置', icon: 'bot',
     prefixes: ['openlist.openai.'] },
-  { key: 'security', title: '登录与安全', icon: 'mdi-shield-lock-outline',
+  { key: 'security', title: '登录与安全', icon: 'shield-check',
     prefixes: ['sys.login.', 'sys.account.'] },
-  { key: 'other', title: '其他', icon: 'mdi-dots-horizontal', prefixes: [] }
+  { key: 'other', title: '其他', icon: 'ellipsis', prefixes: [] }
 ]
 
 export const HIDDEN_KEYS = new Set([

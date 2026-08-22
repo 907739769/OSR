@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <PageHeader
-      icon="mdi-auto-fix"
+      icon="wand-sparkles"
       title="PT 热门自动订阅"
       desc="按 TMDb 热门榜或评分条件定时自动建订阅"
     />
@@ -44,11 +44,11 @@
     <v-card class="table-card">
       <div class="action-bar">
         <div class="action-left">
-          <v-btn color="primary" prepend-icon="mdi-plus" @click="handleAdd('新增热门自动订阅规则')">
+          <v-btn color="primary" prepend-icon="plus" @click="handleAdd('新增热门自动订阅规则')">
             新增规则
           </v-btn>
         </div>
-        <v-btn variant="text" prepend-icon="mdi-filter-outline" @click="showSearch = !showSearch">
+        <v-btn variant="text" prepend-icon="funnel" @click="showSearch = !showSearch">
           {{ showSearch ? '隐藏搜索' : '显示搜索' }}
         </v-btn>
       </div>
@@ -80,13 +80,13 @@
           <v-btn variant="text" color="primary" size="small" :loading="runningIds.has(item.id)" @click="handleRun(item)">立即执行</v-btn>
           <v-menu>
             <template #activator="{ props: menuProps }">
-              <v-btn v-bind="menuProps" class="more-actions-trigger" variant="text" color="info" size="small" append-icon="mdi-chevron-down">更多</v-btn>
+              <v-btn v-bind="menuProps" class="more-actions-trigger" variant="text" color="info" size="small" append-icon="chevron-down">更多</v-btn>
             </template>
             <v-list density="compact">
-              <v-list-item prepend-icon="mdi-text-box-outline" @click="handleShowLogs(item)">日志</v-list-item>
-              <v-list-item prepend-icon="mdi-pencil-outline" @click="handleUpdate(item, '编辑规则')">编辑</v-list-item>
+              <v-list-item prepend-icon="file-text" @click="handleShowLogs(item)">日志</v-list-item>
+              <v-list-item prepend-icon="square-pen" @click="handleUpdate(item, '编辑规则')">编辑</v-list-item>
               <v-divider class="my-1" />
-              <v-list-item class="more-actions-danger" prepend-icon="mdi-delete-outline" @click="handleDelete(item)">删除</v-list-item>
+              <v-list-item class="more-actions-danger" prepend-icon="trash-2" @click="handleDelete(item)">删除</v-list-item>
             </v-list>
           </v-menu>
         </template>
@@ -217,7 +217,7 @@
               <StatusChip :type="resultTagType(item.result)" :text="resultLabel(item.result)" />
             </template>
           </v-data-table>
-          <v-empty-state v-if="!logLoading && logList.length === 0" icon="mdi-inbox-outline" title="暂无日志" />
+          <v-empty-state v-if="!logLoading && logList.length === 0" icon="inbox" title="暂无日志" />
         </v-card-text>
       </v-card>
     </v-dialog>

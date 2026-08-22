@@ -4,13 +4,13 @@
       <span class="total-text">共 {{ total }} 条</span>
     </div>
     <div class="pagination-controls">
-      <v-btn icon="mdi-chevron-left" variant="text" size="small" :disabled="pageNum <= 1" class="page-btn" @click="$emit('prev')" />
+      <v-btn icon="chevron-left" variant="text" size="small" :disabled="pageNum <= 1" class="page-btn" @click="$emit('prev')" />
       <div class="page-num-box">
         <span class="current-page">{{ pageNum }}</span>
         <span class="page-divider">/</span>
         <span class="total-pages">{{ totalPages }}</span>
       </div>
-      <v-btn icon="mdi-chevron-right" variant="text" size="small" :disabled="pageNum >= totalPages" class="page-btn" @click="$emit('next')" />
+      <v-btn icon="chevron-right" variant="text" size="small" :disabled="pageNum >= totalPages" class="page-btn" @click="$emit('next')" />
       <v-select
         :model-value="pageSize"
         :items="pageSizes"

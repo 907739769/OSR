@@ -1,7 +1,7 @@
 <template>
   <div class="page-container">
     <PageHeader
-      icon="mdi-cancel"
+      icon="ban"
       title="PT 黑名单"
       desc="被拉黑的种子与发布组，命中后不再推送下载"
     />
@@ -33,11 +33,11 @@
     <v-card class="table-card">
       <div class="action-bar">
         <div class="action-left">
-          <v-btn color="primary" prepend-icon="mdi-plus" @click="handleAdd('新增发布组黑名单')">
+          <v-btn color="primary" prepend-icon="plus" @click="handleAdd('新增发布组黑名单')">
             新增发布组规则
           </v-btn>
         </div>
-        <v-btn variant="text" prepend-icon="mdi-filter-outline" @click="showSearch = !showSearch">
+        <v-btn variant="text" prepend-icon="funnel" @click="showSearch = !showSearch">
           {{ showSearch ? '隐藏搜索' : '显示搜索' }}
         </v-btn>
       </div>
@@ -64,12 +64,12 @@
             </div>
           </div>
           <div class="card-footer">
-            <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(item)">
+            <v-btn variant="text" color="error" size="small" prepend-icon="trash-2" @click="handleDelete(item)">
               删除
             </v-btn>
           </div>
         </div>
-        <v-empty-state v-if="!loading && taskList.length === 0" icon="mdi-inbox-outline" title="暂无黑名单规则" />
+        <v-empty-state v-if="!loading && taskList.length === 0" icon="inbox" title="暂无黑名单规则" />
       </div>
 
       <div class="pagination-wrapper">

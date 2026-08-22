@@ -442,7 +442,7 @@ RuoYi 遗留）。`:disabled="multiple"` 字面读作「多选时禁用」、实
 分组标题的显隐由调用方传 `showGroupLabel`（PC 收成 rail 时藏起来），**组件自己不读 store**
 ——`App.vue` 在移动端会调 `closeSidebar()`，读 store 的话移动端标题会跟着一起消失。
 
-**退出登录收在头像菜单里**，与 PC 一致。它原先是紧挨 28px 头像的一个裸 `mdi-logout` 图标，
+**退出登录收在头像菜单里**，与 PC 一致。它原先是紧挨 28px 头像的一个裸 `log-out` 图标，
 两个热区间距只有 8px；破坏性动作进菜单这条约定（见下方表格操作列那段）在这里同样成立。
 
 **设备判定走 `MOBILE_MEDIA_QUERY`（`stores/app.ts`）**，不是 `window.innerWidth < 768`。

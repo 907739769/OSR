@@ -26,7 +26,7 @@
           color="primary"
           variant="outlined"
           size="small"
-          prepend-icon="mdi-pencil-outline"
+          prepend-icon="square-pen"
           @click="emit('edit', config)"
         >
           编辑
@@ -46,7 +46,7 @@
       <span class="value-text" :class="{ 'value-text--empty': !config.configValue }">{{ displayValue(config) }}</span>
       <v-tooltip v-if="isSensitive(config.configKey) && config.configValue" :text="config.configValue" location="top" open-delay="300">
         <template #activator="{ props: tooltipProps }">
-          <v-icon v-bind="tooltipProps" icon="mdi-magnify-plus-outline" class="value-expand" size="14" />
+          <v-icon v-bind="tooltipProps" icon="zoom-in" class="value-expand" size="14" />
         </template>
       </v-tooltip>
     </div>

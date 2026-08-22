@@ -2,7 +2,7 @@
   <MobileListPage
     :loading="loading"
     :empty="!loading && taskList.length === 0"
-    empty-icon="mdi-inbox-outline"
+    empty-icon="inbox"
     empty-title="暂无下载器"
   >
     <template #head>
@@ -44,7 +44,7 @@
       </MobileBatchBar>
 
       <!-- 新增 FAB -->
-      <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="mdi-plus" @click="handleAdd('新增下载器')">
+      <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="plus" @click="handleAdd('新增下载器')">
         新增
       </v-btn>
 
@@ -105,9 +105,9 @@
           </div>
         </div>
         <div class="card-actions" @click.stop>
-          <v-btn variant="text" color="primary" size="small" prepend-icon="mdi-pencil-outline" @click="handleUpdate(item, '修改下载器')">修改</v-btn>
-          <v-btn variant="text" size="small" prepend-icon="mdi-broom" @click="openCleanRules(item)">删种规则</v-btn>
-          <v-btn variant="text" color="error" size="small" prepend-icon="mdi-delete-outline" @click="handleDelete(item)">删除</v-btn>
+          <v-btn variant="text" color="primary" size="small" prepend-icon="square-pen" @click="handleUpdate(item, '修改下载器')">修改</v-btn>
+          <v-btn variant="text" size="small" prepend-icon="brush-cleaning" @click="openCleanRules(item)">删种规则</v-btn>
+          <v-btn variant="text" color="error" size="small" prepend-icon="trash-2" @click="handleDelete(item)">删除</v-btn>
         </div>
       </div>
     </v-card>
