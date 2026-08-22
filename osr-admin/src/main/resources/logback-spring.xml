@@ -125,6 +125,31 @@
     <logger name="com.osr.openliststrm" level="debug" />
     <logger name="com.osr.framework.filter.RequestLogFilter" level="debug" />
 
+    <!--
+        关掉 MyBatis 的 SQL 日志。
+
+        它此前不是被选择的，是被上面那条包级 DEBUG <连带>出来的：MyBatis 的 SQL logger 名
+        就是 mapper 接口的全限定名，而 com.osr.openliststrm.mybatisplus.mapper.* 正好落在
+        com.osr.openliststrm 底下。铁证是另外两个 mapper 包——com.osr.system.mapper 与
+        com.osr.quartz.mapper 在 com.osr（info）下，一条 SQL 都没打；真要看 SQL 不会只看
+        三个模块里的一个。
+
+        代价是实测出来的：一份 18719 行 / 3.1MB 的 sys-all.log 里，SQL 占 86% 的行、
+        89.9% 的字节（selectList 13176 行、selectById 2805 行），业务日志只剩约 300KB。
+        这正好抵消掉合并日志文件的收益——50MB 一卷里只有 5MB 值得读，实时日志页上滚过去的
+        九成是 SELECT，往回翻的时间窗口也被压到十分之一。
+
+        SQL 日志不是没用，但它只在排查特定问题时有用（数据对不上、查询条件没生效），
+        而那种排查是主动发起的。所以这里关掉、需要时临时开，而不是常态开着让它淹没自己：
+          docker compose run -e LOGGING_LEVEL_COM_OSR_OPENLISTSTRM_MYBATISPLUS_MAPPER=debug backend
+        （environment 变量走 Spring Boot 的 logging.level.*，它在 logback 配置加载之后应用，
+          因此能覆盖这里——这正是「不要在 application.yml 里配 logging.level.*」那条的另一面。）
+
+        刻意不改成 mybatis-plus 的 log-impl: NoLoggingImpl：那是全局关死，连上面这个临时
+        开关的口子都堵了，非改配置重启不可。
+    -->
+    <logger name="com.osr.openliststrm.mybatisplus.mapper" level="info" />
+
     <!-- 系统日志输出 -->
     <root level="info">
         <appender-ref ref="async_all" />
