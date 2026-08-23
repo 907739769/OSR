@@ -44,16 +44,31 @@ public class SubscriptionMatcher {
      */
     public MatchResult match(TorrentInfo torrent, List<PtSubscriptionPlus> subscriptions,
                              Map<Integer, AbsoluteEpisodeMap> absoluteMaps) {
-        // parsedTitle/parsedTitleEn 都解析失败（特殊命名格式）时回退到种子原始标题，避免漏判；
-        // 与 SearchSupplementService#titleMatches 的兜底策略保持一致，否则会出现
-        // RSS 自动匹配漏掉、手动搜索补集却能补回来的不一致体验。
-        String t1 = torrent.getParsedTitle();
-        String t2 = torrent.getParsedTitleEn();
-        String tFallback = (t1 == null && t2 == null) ? torrent.getTitle() : null;
-        Set<String> torrentTitles = normalizeAll(t1, t2, tFallback);
-        if (torrentTitles.isEmpty()) {
+        Set<String> torrentTitles = torrentTitles(torrent);
+        if (!torrentTitles.isEmpty()) {
+            MatchResult byTitle = matchAgainst(torrent, subscriptions, absoluteMaps, torrentTitles);
+            if (byTitle != null) {
+                return byTitle;
+            }
+        }
+        // 标题一轮全落空，才拿 description 里的别名再走一遍，见 descriptionAliases 的注释
+        Set<String> aliases = descriptionAliases(torrent, torrentTitles);
+        if (aliases.isEmpty()) {
             return null;
         }
+        return matchAgainst(torrent, subscriptions, absoluteMaps, aliases);
+    }
+
+    /**
+     * 拿一组归一化后的种子标题遍历全部订阅，命中即返回。
+     * <p>
+     * 抽出来是为了让「标题一轮、别名一轮」这件事在 {@link #match} 里读得出来——
+     * 两轮的<b>顺序</b>是有语义的，不是可以随手合并的重复代码：把别名并进同一个集合跑一轮的话，
+     * 靠别名命中的订阅会抢在靠标题命中的订阅前面（本方法取首个命中），而后者才是正确答案。
+     * </p>
+     */
+    private MatchResult matchAgainst(TorrentInfo torrent, List<PtSubscriptionPlus> subscriptions,
+                                     Map<Integer, AbsoluteEpisodeMap> absoluteMaps, Set<String> torrentTitles) {
         for (PtSubscriptionPlus sub : subscriptions) {
             Set<String> subTitles = normalizeAll(sub.getTitle(), sub.getOriginalTitle(), sub.getEnglishTitle());
             if (Collections.disjoint(torrentTitles, subTitles)) {
@@ -66,6 +81,44 @@ public class SubscriptionMatcher {
             }
         }
         return null;
+    }
+
+    /**
+     * 种子侧的候选标题集合（归一化后）。
+     * <p>
+     * parsedTitle/parsedTitleEn 都解析失败（特殊命名格式）时回退到种子原始标题，避免漏判；
+     * 与 {@code SearchSupplementService#titleMatches} 共用本方法，否则会出现
+     * RSS 自动匹配漏掉、手动搜索补集却能补回来的不一致体验。
+     * </p>
+     */
+    Set<String> torrentTitles(TorrentInfo torrent) {
+        String t1 = torrent.getParsedTitle();
+        String t2 = torrent.getParsedTitleEn();
+        String tFallback = (t1 == null && t2 == null) ? torrent.getTitle() : null;
+        return normalizeAll(t1, t2, tFallback);
+    }
+
+    /**
+     * 种子 description 里的作品别名（归一化后），已排除与 {@code known} 重复的项。
+     * <p>
+     * 国内站发布的日本动画常用罗马音命名，而 TMDb 给订阅的三个标题（中文名/原语言名/英文名）
+     * 里没有罗马音这一种，两边在标题这一步就对不上——能把它们对上的那个名字一直摆在
+     * description 的别名列表里。抽取规则与其中的取舍见 {@link DescriptionAliases}。
+     * </p>
+     * <p>
+     * 排除 {@code known} 不只是省一遍循环：剩下的集合为空就意味着「别名没带来任何新信息」，
+     * 第二轮必然与第一轮同样落空，直接短路掉。
+     * </p>
+     */
+    Set<String> descriptionAliases(TorrentInfo torrent, Set<String> known) {
+        Set<String> aliases = new LinkedHashSet<>();
+        for (String alias : DescriptionAliases.parse(torrent.getDescription())) {
+            String normalized = normalize(alias);
+            if (normalized != null && !known.contains(normalized)) {
+                aliases.add(normalized);
+            }
+        }
+        return aliases;
     }
 
     private MatchResult matchEpisode(TorrentInfo torrent, PtSubscriptionPlus sub, AbsoluteEpisodeMap absolutes) {
@@ -103,50 +156,22 @@ public class SubscriptionMatcher {
     /**
      * 绝对集号兜底匹配。标题已经确认是这部剧，这里只解决「集号用的不是同一套编号」。
      * <p>
-     * 三个约束，缺一不可：
-     * </p>
-     * <ol>
-     *   <li><b>该订阅确实使用绝对编号</b>（{@link AbsoluteEpisodeMap} 非空）。普通剧集绝不走这条路，
-     *       否则 S01E05 会被任意一季的第 5 集认领</li>
-     *   <li><b>种子季号缺失或为 1</b>。绝对编号发布的约定俗成写法就这两种；
-     *       写着 S02 却想按绝对号解释的，多半是真的第 2 季，不该猜</li>
-     *   <li><b>该绝对号确实属于本订阅这一季</b>。映射里只有本季的集，
-     *       别季的绝对号查不到，自然落空</li>
-     * </ol>
-     * <p>
-     * 季包（有季无集）不走绝对匹配：一个标着 S01 的季包对绝对编号的剧来说是「整部剧」，
-     * 认成本季季包会让下载器去拉一千多集。
+     * 判据整套在 {@link AbsoluteEpisodeMap#toLocalRange}——三个约束、区间两端的处理、
+     * 季包不参与，全在那里，<b>不要在这里另写一份</b>：搜索补集侧曾各写一份且只认单集，
+     * 于是同一个绝对号区间在两条链路上给出相反结论。本方法只负责把结果包成 {@link MatchResult}。
      * </p>
      */
     private MatchResult matchByAbsolute(TorrentInfo torrent, PtSubscriptionPlus sub, AbsoluteEpisodeMap absolutes) {
-        if (absolutes == null || absolutes.isEmpty()) {
+        if (absolutes == null) {
             return null;
         }
-        Integer season = torrent.getParsedSeason();
-        if (season != null && season != 1) {
+        AbsoluteEpisodeMap.LocalRange range = absolutes.toLocalRange(
+                torrent.getParsedSeason(), torrent.getParsedEpisode(), torrent.getParsedEpisodeEnd());
+        if (range == null) {
             return null;
         }
-
-        Integer parsed = torrent.getParsedEpisode();
-        if (parsed == null) {
-            // 有季无集 = 季包，见方法注释；无季无集则根本判不出是哪一集
-            return null;
-        }
-
-        Integer local = absolutes.toLocal(parsed);
-        if (local == null) {
-            return null;
-        }
-        Integer parsedEnd = torrent.getParsedEpisodeEnd();
-        if (parsedEnd != null && parsedEnd > parsed) {
-            Integer localEnd = absolutes.toLocal(parsedEnd);
-            // 区间两端都要能落回本季，否则跨季的绝对号区间会被截成一段假区间
-            if (localEnd != null && localEnd > local) {
-                return new MatchResult(sub, local, localEnd);
-            }
-            return null;
-        }
-        return new MatchResult(sub, local);
+        return range.isRange() ? new MatchResult(sub, range.start(), range.end())
+                : new MatchResult(sub, range.start());
     }
 
     /**

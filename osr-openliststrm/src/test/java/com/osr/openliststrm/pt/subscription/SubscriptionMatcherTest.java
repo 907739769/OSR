@@ -310,4 +310,65 @@ class SubscriptionMatcherTest {
         assertNull(matcher.match(torrent("The Office US", "The Office US", null, 1, 5),
                 List.of(tvSub(10, "The Office", "The Office", 1))));
     }
+
+    // ---------- description 别名兜底 ----------
+
+    /** 青蛙站的真实条目：种子标题是罗马音，而订阅的三个标题里没有罗马音这一种 */
+    private static final String RE_ZERO_DESCRIPTION = "Re：从零开始的异世界生活 / Re:ゼロから始める異世界生活 / "
+            + "Re:Zero kara Hajimeru Isekai Seikatsu / Re:ZERO -Starting Life in Another World- "
+            + "| S01E51-E66 | 内封简繁字幕";
+
+    private PtSubscriptionPlus reZeroSub() {
+        PtSubscriptionPlus sub = tvSub(10, "Re：从零开始的异世界生活", "Re:ゼロから始める異世界生活", 1);
+        sub.setEnglishTitle("Re:ZERO -Starting Life in Another World-");
+        return sub;
+    }
+
+    @Test
+    void 罗马音种子_三个订阅标题全对不上_靠description别名匹配() {
+        TorrentInfo t = torrent("Re Zero kara Hajimeru Isekai Seikatsu", null, 1, 5);
+        t.setDescription(RE_ZERO_DESCRIPTION);
+
+        MatchResult result = matcher.match(t, List.of(reZeroSub()));
+
+        assertNotNull(result, "别名列表里的中文名与订阅标题归一化后相等，应当匹配");
+        assertEquals(10, result.getSubscription().getId());
+        assertEquals(5, result.getEpisode());
+    }
+
+    @Test
+    void 没有description时行为与改造前完全一致() {
+        assertNull(matcher.match(torrent("Re Zero kara Hajimeru Isekai Seikatsu", null, 1, 5),
+                List.of(reZeroSub())));
+    }
+
+    @Test
+    void 标题匹配优先于别名_不被排在前面的订阅抢走() {
+        // 种子标题指向订阅 20，而 description 的别名列表指向排在前面的订阅 10。
+        // 两轮匹配的顺序就是为这个场景存在的：合并成一轮求交集会让订阅 10 抢先命中
+        TorrentInfo t = torrent("Breaking Bad", null, 1, 5);
+        t.setDescription("绝命毒师 / Breaking Bad Spinoff | 第5集");
+
+        MatchResult result = matcher.match(t,
+                List.of(tvSub(10, "绝命毒师", 1), tvSub(20, "Breaking Bad", 1)));
+
+        assertNotNull(result);
+        assertEquals(20, result.getSubscription().getId());
+    }
+
+    @Test
+    void 别名段是剧情简介时不参与匹配() {
+        TorrentInfo t = torrent("Some Unparsed Release", null, 1, 5);
+        t.setDescription("少年在异世界醒来，发现自己拥有死亡回归的能力");
+
+        assertNull(matcher.match(t, List.of(tvSub(10, "少年在异世界醒来", 1))));
+    }
+
+    @Test
+    void 别名命中后仍要过季集判定_季号对不上照样不匹配() {
+        TorrentInfo t = torrent("Re Zero kara Hajimeru Isekai Seikatsu", null, 3, 5);
+        t.setDescription(RE_ZERO_DESCRIPTION);
+
+        assertNull(matcher.match(t, List.of(reZeroSub())), "别名只解决『是不是这部剧』，不放宽季号");
+    }
 }

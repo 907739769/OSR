@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -110,5 +111,81 @@ class DescriptionEpisodeTest {
     @Test
     void 数字与单位之间允许空白() {
         assertEquals(21, DescriptionEpisode.parse("某剧 | 第 21 集 | 1080p").start());
+    }
+    // ---------- SxxExx 写法 ----------
+
+    /** 实测样本：青蛙站的 Torznab 条目，标题标成整季，真实范围只在 description 里 */
+    private static final String QINGWA_SAMPLE =
+            "Re：从零开始的异世界生活 / Re:ゼロから始める異世界生活 / "
+                    + "Re:Zero kara Hajimeru Isekai Seikatsu / Re:ZERO -Starting Life in Another World- "
+                    + "| S01E51-E66 | 内封简繁字幕";
+
+    @Test
+    void 青蛙实测样本_解析出S01的E51到E66() {
+        DescriptionEpisode.Episodes episodes = DescriptionEpisode.parse(QINGWA_SAMPLE);
+
+        assertNotNull(episodes);
+        assertEquals(1, episodes.season());
+        assertEquals(51, episodes.start());
+        assertEquals(66, episodes.end());
+        assertTrue(episodes.isRange());
+    }
+
+    @Test
+    void 区间的各种写法() {
+        assertEquals(66, DescriptionEpisode.parse("x | S01E51-66 | y").end());
+        assertEquals(66, DescriptionEpisode.parse("x | S01E51-S01E66 | y").end());
+        assertEquals(66, DescriptionEpisode.parse("x | E51-E66 | y").end());
+        assertEquals(66, DescriptionEpisode.parse("x | EP51-EP66 | y").end());
+        assertEquals(66, DescriptionEpisode.parse("x | s01e51-e66 | y").end());
+        assertEquals(66, DescriptionEpisode.parse("x | S01E51 - E66 | y").end());
+    }
+
+    @Test
+    void 单集写法() {
+        DescriptionEpisode.Episodes episodes = DescriptionEpisode.parse("某剧 | S01E21 | 1080p");
+
+        assertNotNull(episodes);
+        assertEquals(1, episodes.season());
+        assertEquals(21, episodes.start());
+        assertFalse(episodes.isRange());
+    }
+
+    @Test
+    void 集号允许四位_长篇动画的绝对编号是常态() {
+        assertEquals(1173, DescriptionEpisode.parse("海贼王 | S01E1173 | 2160p").start());
+    }
+
+    @Test
+    void 季号缺失时season为null_中文写法同样为null() {
+        assertNull(DescriptionEpisode.parse("某剧 | E21 | 1080p").season());
+        assertNull(DescriptionEpisode.parse("某剧 | 第21集 | 1080p").season());
+    }
+
+    @Test
+    void 区间结尾省略E前缀时不认四位数_否则年份会被当成结尾集号() {
+        // E01-2021 只可能是「第 1 集」加一个年份，不是 1~2021 集
+        DescriptionEpisode.Episodes episodes = DescriptionEpisode.parse("某剧 | E01-2021 | 1080p");
+
+        assertNotNull(episodes);
+        assertFalse(episodes.isRange(), "应降级成单集 E01 而不是区间 1-2021");
+        assertEquals(1, episodes.start());
+    }
+
+    @Test
+    void 编码串里的字母数字不会被当成集号() {
+        assertNull(DescriptionEpisode.parse("某剧 | 2160p HEVC 10bit TrueHD7.1 Atmos | 内封字幕"),
+                "HEVC 的 E、TrueHD7 的 D7 都不是词首 E+数字");
+        assertNull(DescriptionEpisode.parse("某剧 | WEB-DL DDP5.1 x265-FROGE | 1080p"));
+    }
+
+    @Test
+    void SxxExx优先于中文写法_两者冲突时信前者() {
+        assertEquals(21, DescriptionEpisode.parse("某剧 | S01E21 | 更新至第30集").start());
+    }
+
+    @Test
+    void 中文写法照旧可用_SxxExx缺席时不受影响() {
+        assertEquals(21, DescriptionEpisode.parse(REAL_SAMPLE).start());
     }
 }

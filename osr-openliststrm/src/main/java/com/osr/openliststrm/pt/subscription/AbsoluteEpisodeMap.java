@@ -87,6 +87,64 @@ public final class AbsoluteEpisodeMap {
     }
 
     /**
+     * 一个种子按绝对编号解释后落在本季的哪几集。单集时 {@code end == start}。
+     */
+    public record LocalRange(int start, int end) {
+
+        /** 是不是一个真区间（跨多集），单集返回 false */
+        public boolean isRange() {
+            return end > start;
+        }
+    }
+
+    /**
+     * 把种子解析出的季/集号按绝对编号解释成本地集号，解释不通返回 {@code null}。
+     * <p>
+     * <b>「怎么解释绝对号」的判据只有这一份</b>，RSS 匹配（{@code SubscriptionMatcher#matchByAbsolute}）
+     * 与搜索补集（{@code SearchSupplementService#filterByTarget}）都调它。两边曾各写一份，
+     * 而搜索那份只转换单集、不认区间——于是 {@code S01E51-E66} 这种绝对号区间在 RSS 上能展开成
+     * 本季 1~16 集，用户手动搜第 5 集却被判成不匹配，同一个种子两条链路给出相反结论。
+     * </p>
+     * <p>
+     * 三个约束，缺一不可：
+     * </p>
+     * <ol>
+     *   <li><b>该订阅确实使用绝对编号</b>（映射非空）。普通剧集绝不走这条路，
+     *       否则 S01E05 会被任意一季的第 5 集认领</li>
+     *   <li><b>种子季号缺失或为 1</b>。绝对编号发布的约定俗成写法就这两种；
+     *       写着 S02 却想按绝对号解释的，多半是真的第 2 季，不该猜</li>
+     *   <li><b>该绝对号确实属于本订阅这一季</b>。映射里只有本季的集，别季的绝对号查不到，
+     *       自然落空</li>
+     * </ol>
+     * <p>
+     * 区间要求<b>两端都能落回本季</b>，否则跨季的绝对号区间会被截成一段假区间。
+     * 集号缺失（有季无集 = 季包）一律返回 null：一个标着 S01 的季包对绝对编号的剧来说是
+     * 「整部剧」，认成本季季包会让下载器去拉一千多集。
+     * </p>
+     *
+     * @param season     种子解析出的季号，可为 null
+     * @param episode    种子解析出的集号（绝对号），为 null 时直接判解释不通
+     * @param episodeEnd 种子解析出的集数区间结尾（绝对号），非区间时为 null
+     */
+    public LocalRange toLocalRange(Integer season, Integer episode, Integer episodeEnd) {
+        if (isEmpty() || episode == null) {
+            return null;
+        }
+        if (season != null && season != 1) {
+            return null;
+        }
+        Integer local = toLocal(episode);
+        if (local == null) {
+            return null;
+        }
+        if (episodeEnd == null || episodeEnd <= episode) {
+            return new LocalRange(local, local);
+        }
+        Integer localEnd = toLocal(episodeEnd);
+        return localEnd != null && localEnd > local ? new LocalRange(local, localEnd) : null;
+    }
+
+    /**
      * 把一个「来源不明的集号」归一化成本地集号：认得出的绝对号转成本地号，认不出的原样返回。
      * <p>
      * 用于种子内文件名解析出的集号——同一个包里的文件未必用同一套编号，而且普通剧集

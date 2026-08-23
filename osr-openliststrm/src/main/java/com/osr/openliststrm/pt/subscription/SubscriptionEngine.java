@@ -843,6 +843,18 @@ public class SubscriptionEngine {
      *   <li><b>判不出来就维持现状</b>（当整季包处理），由下载器的真实文件列表事后对账兜底。
      *       本方法只是把「不知道包里是第几集」的窗口期从「推送到元数据解析完成」提前到推送之前。</li>
      * </ul>
+     * <p>
+     * description 用 {@code SxxExx} 写法时会一并给出季号，此时多做一道<b>交叉校验</b>：
+     * 与标题解析出的季号不一致就整条不采纳。两边都在说同一个种子，说法冲突意味着必有一方
+     * 解析错了，而这里分不出是哪一方——补一个可能属于别季的集号，比不补糟得多。
+     * 中文写法与裸 {@code E51} 给不出季号，没有可校验的东西，维持原样。
+     * </p>
+     * <p>
+     * 补出的集号<b>可能是绝对编号</b>（{@code S01E51-E66} 里的 51 是把整部剧连编的第 51 集，
+     * 而不是第一季第 51 集）。这里不做任何换算——{@code SubscriptionMatcher#matchByAbsolute}
+     * 已经在处理这件事，且它手里有 {@link AbsoluteEpisodeMap} 这个唯一可靠的判据，
+     * 在这一层猜只会多一个说不清的转换。
+     * </p>
      */
     private void applyDescriptionEpisode(TorrentInfo torrent) {
         if (torrent.getParsedSeason() == null || torrent.getParsedEpisode() != null) {
@@ -850,6 +862,11 @@ public class SubscriptionEngine {
         }
         DescriptionEpisode.Episodes episodes = DescriptionEpisode.parse(torrent.getDescription());
         if (episodes == null) {
+            return;
+        }
+        if (episodes.season() != null && !episodes.season().equals(torrent.getParsedSeason())) {
+            log.debug("description 的季号 S{} 与标题的 S{} 不一致，不采纳其集号：{}",
+                    episodes.season(), torrent.getParsedSeason(), torrent.getTitle());
             return;
         }
         torrent.setParsedEpisode(episodes.start());

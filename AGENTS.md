@@ -173,9 +173,12 @@ docker compose up -d --build --no-deps backend
   
   **搜索侧同理**：PT 站上同一集常有两种命名并存——`One Piece S23E18`（季内相对号）与
   `One Piece S01E1173`（绝对号、季号写死 1）。匹配器原本一见季号不等就淘汰，后者整批搜不到。
-  现在 `SubscriptionMatcher#matchByAbsolute` 与 `SearchSupplementService#absoluteEpisodeOf`
-  共用同一套判据兜底（约束：订阅确实用绝对编号 + 种子季号缺失或为 1 + 该绝对号属于本季 +
-  季包不参与，否则会去拉一千多集）。检索侧还要对这类订阅补一次**不带季号**的外部 ID 搜索，
+  「怎么解释绝对号」的判据收口在 `AbsoluteEpisodeMap#toLocalRange` 一份，RSS 侧
+  （`SubscriptionMatcher#matchByAbsolute`）与搜索侧（`SearchSupplementService#filterByTarget`）
+  都调它（约束：订阅确实用绝对编号 + 种子季号缺失或为 1 + 该绝对号属于本季 + 区间两端都要
+  落回本季 + 季包不参与，否则会去拉一千多集）。**两边曾各写一份，而搜索那份只转换单集、不认区间**
+  ——`S01E51-E66` 这种绝对号区间在 RSS 上能展开成本季 1~16 集，用户手动搜第 5 集却被判成不匹配，
+  同一个种子两条链路给出相反结论，而日志里两边看着都"正常"。检索侧还要对这类订阅补一次**不带季号**的外部 ID 搜索，
   否则 `season=23` 会在索引器那一层就把 S01 的资源过滤掉，匹配再宽松也无米下锅。
   
   **第三处：种子内文件名也可能是绝对号**。`DownloadTrackService` 读下载器的文件列表判断
@@ -239,6 +242,17 @@ docker compose up -d --build --no-deps backend
 - **PT 过滤的关键词有标题、描述两套，判定对象不同、缺失时的取向也相反**。`exclude_keywords` 只匹配标题，`description_exclude_keywords` 只匹配描述（`TorrentFilterEngine#rejectReason`，两条相邻）。加后者是因为有一类属性标题里根本不写——蓝光原盘最典型：国内站只在种子描述里标一句「原盘」，标题与压制版逐字同构，两者都解析成 `source=BluRay`，来源白名单分不开；体积上限虽能挡住原盘，却会连体积区间重叠的 REMUX 一起切掉，而 REMUX 是 mkv、播放器本来吃得下。两条不要改坏的：
   1. **标题为空一律淘汰（`BLANK_TITLE`），描述为空一律放行**。标题是索引器必给的字段，描述不是——不少索引器压根不返回 `<description>`，按「判不出即淘汰」处理会把这些站点的候选整批清光。
   2. **`EXCLUDED_DESCRIPTION_KEYWORD` 与 `EXCLUDED_KEYWORD` 是两个码，别合并**。命中的是标题还是描述，决定用户该去改哪个输入框，聚合成一个就分不出来了。
+- **`description` 里的集号有中文与 `SxxExx` 两种写法，后者更可靠因而排在前面**（`DescriptionEpisode`）。青蛙站那条种子标题标成整季 `S01`，真实范围只在 description 里：`… | S01E51-E66 | 内封简繁字幕`。不解析它就落回「有季无集 = 整季包」，占位订阅全部缺失集、推送后才由文件列表对账中止——正是这个类当初为中文写法而生的那条连锁。四条不要改坏的：
+  1. **`SxxExx` 优先于 `第N集`**。`E` 与数字构成的锚定在自由文本里几乎不可能偶然出现，而 `第\d+集` 再怎么加约束也是在中文散文里捞数字（那三条前置/后置约束就是被假阳性逼出来的）。两种写法在同一段里给出不同答案罕见到可以不考虑，真出现时信 `SxxExx`。
+  2. **集号允许 4 位，但区间结尾省略 `E` 前缀时只许 3 位**。`E1173` 这种绝对编号是长篇动画的常态，有 `E` 锚定之后四位数被误当年份的可能性没有了；而 `E01-2021` 里的 `2021` 没有锚定，放开位数就会被当成结尾集号，把一个单集种子撑成 2021 集的区间。`(?<![A-Za-z0-9])` 要求 `S`/`E` 是词首，挡掉 `HEVC`、`TrueHD7.1`、`DDP5.1` 这类编码串。
+  3. **`SxxExx` 会一并给出季号，要与标题解析出的季号交叉校验，不一致就整条不采纳**（`SubscriptionEngine#applyDescriptionEpisode`）。两边说的是同一个种子，说法冲突意味着必有一方解析错了，而在这一层分不出是哪一方——补一个可能属于别季的集号，比不补糟得多。中文写法与裸 `E51` 给不出季号，没有可校验的东西，维持原样。
+  4. **补出的集号可能是绝对编号，这一层不做任何换算**。`S01E51-E66` 的 51 是把整部剧连编的第 51 集（Re:Zero 第三季的第 1 集），不是第一季第 51 集。换算交给 `AbsoluteEpisodeMap#toLocalRange`——那里有 `tmdb_episode_number` 这个唯一可靠的判据，在解析层猜只会多一个说不清的转换。
+- **种子的 `description` 里除了集号还有<b>作品别名</b>，标题匹配落空时拿它兜底**（`DescriptionAliases`，与 `DescriptionEpisode` 是同一份 description 的两半、同一站点模板的第一段与第二段）。起因是一类实测搜不到的资源：国内站发布的日本动画常用<b>罗马音</b>命名（`Re Zero kara Hajimeru Isekai Seikatsu S01 2016 1080p BluRay Remux…`），而 TMDb 给订阅的三个标题——中文名、原语言名（日文）、英文名（`Re:ZERO -Starting Life in Another World-`）——里恰恰**没有罗马音这一种**，两两归一化后一个都对不上，`SubscriptionMatcher` 在标题那一步就把整条淘汰了；而能把两边对上的名字一直摆在 description 的别名列表里（`Re：从零开始的异世界生活 / Re:ゼロから始める異世界生活 / Re:Zero kara Hajimeru Isekai Seikatsu / Re:ZERO -… | S01E51-E66 | 内封简繁字幕`），站点模板正是拿它当别名字段用的。四条不要改坏的：
+  1. **两轮匹配，标题一轮全落空才走别名一轮**（`SubscriptionMatcher#matchAgainst` 被调用两次）。合并成一轮求交集看着等价，实际不是：`match` 取**首个**命中的订阅，靠别名命中的订阅会抢在靠标题命中的订阅前面，而后者才是正确答案。这与「description 的集号只在标题判不出集号时补位」是同一条取向——站点自填的自由文本，可靠性低于遵循命名规范的标题。
+  2. **只取 `|` 之前的第一段**。这是整个类最要紧的一条约束：往后每一段都可能含 `/`（`类型: 剧情/奇幻/冒险` 是实测写法），整串切开必然产出一批题材词当别名，而一个叫《冒险》的订阅就会认领走一条毫不相干的种子。**假别名比没有别名糟得多**——没有别名只是退回现状（这条搜不到，用户手动搜），假别名会让种子被错误的订阅认领、下错内容，且没有任何一层能发现。
+  3. **段长 200 / 单别名 2~80 字 / 最多 10 段，且超段数是整段放弃而不是截断取前 N 个**。没有 `|` 的 description 会让「第一段」等于整段文本，那多半是剧情简介；「用 `/` 切出十几段」本身就是「这不是别名列表」的信号（题材串、演员表、音轨列表都是这个形态），取前 N 个只是把噪声换成更少的噪声。判句子只列中日文句读 `。，、；！？…`，**刻意不列半角** `, . ;`——`Crazy, Stupid, Love`、`Dr. No` 里它们完全合法，排掉会漏一批真别名，半角句子那侧由段长上限兜底。
+  4. **RSS 与搜索两条链路共用 `SubscriptionMatcher#torrentTitles` / `#descriptionAliases`**，理由与标题归一化收口到 `TitleNormalizer` 完全相同：各写一份的表现是「RSS 自动匹配漏掉、手动搜索却能补回来」，同一部作品两条链路给出相反结论。搜索侧（`SearchSupplementService#titleMatches`）不必分两轮——目标订阅已经定了，只回答是/否，没有谁抢谁的问题。
+  **别名只解决「是不是这部剧」，不放宽季集判定**：命中后照样走 `matchEpisode`，季号对不上仍然不匹配。
 - **STRM 生成的「输出根目录 / 是否下字幕 / 最小体积」可按任务覆盖**，存在 `openlist_strm_task.strm_override`（JSON），合并规则见 `StrmSettingsFactory`——照 `pt_subscription.filter_override` 的约定，只有出现在 JSON 里的键才覆盖，该列为空时行为与引入前完全一致。两条不要改坏的约定：
   1. **`strmDir`/`strmOneFile` 按路径反查任务，不要改成让调用方传任务**。半数调用方手里根本没有任务对象（`AsynHelper` 的复制完成触发、`CopyRecoveryTask` 的兜底恢复、TG 的 `/strm <路径>`），它们退回全局配置就会让同一目录因「谁触发的」而输出到不同根目录，长出两棵 STRM 树，一致性检查还会把其中一棵报成孤儿。匹配走 `pickCoveringTask`：落在路径分隔符上、取最长（最具体）的任务、停用的任务照样参与。
   2. **URL 编码开关与视频/字幕扩展名刻意不可覆盖**。encode 有三个解码侧消费者（`RenameOrphanScanServiceImpl`、`RenameCleanupService`、`StrmSourcePathResolver` 都要从 .strm 内容反解回网盘路径），扩展名是 `sys_config` 里的全站清单（`MediaExtensionProvider`）；两者都是「播放器吃什么」的全局属性，分库配置只会制造解不开的历史数据。

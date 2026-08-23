@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -165,5 +166,80 @@ class AbsoluteEpisodeMatchTest {
         // 在标题匹配那一步就被淘汰，走不到绝对号判定。这里把现状钉住：
         // 哪天有人修了 YearSeasonEpisodeExtractor 的标题截断，这条会变红，提示同步放开集号侧
         assertNull(match("[Sakurato] One Piece - 1173 [2160p][HEVC-10bit AAC]"));
+    }
+    // ---------- 绝对号<b>区间</b>（description 补出来的那一类） ----------
+
+    /** Re:Zero 第三季：本地 1..16 ↔ 绝对 51..66，对应青蛙站 description 里的 S01E51-E66 */
+    private static AbsoluteEpisodeMap reZeroSeason3() {
+        List<PtSubscriptionEpisodePlus> episodes = new ArrayList<>();
+        for (int i = 1; i <= 16; i++) {
+            PtSubscriptionEpisodePlus ep = new PtSubscriptionEpisodePlus();
+            ep.setEpisode(i);
+            ep.setTmdbEpisodeNumber(50 + i);
+            episodes.add(ep);
+        }
+        return AbsoluteEpisodeMap.from(episodes);
+    }
+
+    private static PtSubscriptionPlus reZero() {
+        PtSubscriptionPlus sub = new PtSubscriptionPlus();
+        sub.setId(90);
+        sub.setMediaType("TV");
+        sub.setTitle("Re：从零开始的异世界生活");
+        sub.setEnglishTitle("Re:ZERO -Starting Life in Another World-");
+        sub.setSeason(3);
+        return sub;
+    }
+
+    @Test
+    void description补出的绝对号区间_展开成本季1到16集() {
+        // 青蛙站的真实条目，两件事都靠同一份 description：
+        // 标题是罗马音、订阅的三个标题都对不上，靠别名列表才认出是这部剧（DescriptionAliases）；
+        // 标题只有 S01 没有集号，区间由 SubscriptionEngine#applyDescriptionEpisode 从
+        // S01E51-E66 补进 parsedEpisode/parsedEpisodeEnd（这里直接设成它的产物）
+        TorrentInfo t = torrent("Re Zero kara Hajimeru Isekai Seikatsu S01 2016 1080p BluRay Remux AVC FLAC 2.0-FROGE");
+        t.setDescription("Re：从零开始的异世界生活 / Re:ゼロから始める異世界生活 / "
+                + "Re:Zero kara Hajimeru Isekai Seikatsu / Re:ZERO -Starting Life in Another World- "
+                + "| S01E51-E66 | 内封简繁字幕");
+        t.setParsedEpisode(51);
+        t.setParsedEpisodeEnd(66);
+
+        MatchResult result = matcher.match(t, List.of(reZero()), Map.of(90, reZeroSeason3()));
+
+        assertNotNull(result, "51-66 是绝对号，季号 1≠3 时必须走绝对匹配");
+        assertEquals(1, result.getEpisode());
+        assertEquals(16, result.getEpisodeEnd());
+    }
+
+    @Test
+    void 绝对号区间跨出本季时整条不认_不截成一段假区间() {
+        AbsoluteEpisodeMap map = reZeroSeason3();
+
+        assertNull(map.toLocalRange(1, 51, 90), "66 之后的绝对号不属于本季");
+        assertNull(map.toLocalRange(1, 40, 60), "起点就不在本季");
+    }
+
+    @Test
+    void toLocalRange的三条约束() {
+        AbsoluteEpisodeMap map = reZeroSeason3();
+
+        assertNull(map.toLocalRange(2, 51, 66), "种子季号既不缺失也不为 1");
+        assertNull(map.toLocalRange(1, null, null), "有季无集 = 季包，不走绝对匹配");
+        assertNull(AbsoluteEpisodeMap.EMPTY.toLocalRange(1, 51, 66), "这部剧不用绝对编号");
+    }
+
+    @Test
+    void 单集与区间在toLocalRange上给出一致的形态() {
+        AbsoluteEpisodeMap map = reZeroSeason3();
+
+        AbsoluteEpisodeMap.LocalRange single = map.toLocalRange(1, 55, null);
+        assertNotNull(single);
+        assertEquals(5, single.start());
+        assertEquals(5, single.end());
+        assertFalse(single.isRange());
+
+        AbsoluteEpisodeMap.LocalRange range = map.toLocalRange(1, 51, 66);
+        assertNotNull(range);
+        assertTrue(range.isRange());
     }
 }

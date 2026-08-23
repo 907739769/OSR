@@ -1155,10 +1155,11 @@ public class SearchSupplementService {
             Integer parsedSeason = candidate.getParsedSeason();
             if (parsedSeason == null || !parsedSeason.equals(subSeason)) {
                 // 季号对不上时再看绝对编号：One Piece S01E1173 其实是第 23 季第 18 集。
-                // 判据与 RSS 链路的 SubscriptionMatcher#matchByAbsolute 保持一致
-                Integer localEpisode = absoluteEpisodeOf(candidate, sub, absolutes);
-                if (localEpisode != null && episode != SubscriptionMatcher.SEASON_PACK
-                        && localEpisode == episode) {
+                // 判据与 RSS 链路共用 AbsoluteEpisodeMap#toLocalRange，绝不在这里另写一份
+                AbsoluteEpisodeMap.LocalRange localRange = absolutes.toLocalRange(
+                        parsedSeason, candidate.getParsedEpisode(), candidate.getParsedEpisodeEnd());
+                if (localRange != null && episode != SubscriptionMatcher.SEASON_PACK
+                        && episodeInRange(episode, localRange.start(), localRange.end())) {
                     matched.add(candidate);
                 }
                 continue;
@@ -1184,22 +1185,6 @@ public class SearchSupplementService {
                 new LambdaQueryWrapper<PtSubscriptionEpisodePlus>()
                         .eq(PtSubscriptionEpisodePlus::getSubId, sub.getId())
                         .isNotNull(PtSubscriptionEpisodePlus::getTmdbEpisodeNumber)));
-    }
-
-    /** 候选按绝对编号解释时对应的本地集号，解释不通返回 null。约束同 SubscriptionMatcher#matchByAbsolute */
-    private Integer absoluteEpisodeOf(TorrentInfo candidate, PtSubscriptionPlus sub, AbsoluteEpisodeMap absolutes) {
-        if (absolutes.isEmpty()) {
-            return null;
-        }
-        Integer season = candidate.getParsedSeason();
-        if (season != null && season != 1) {
-            return null;
-        }
-        Integer parsed = candidate.getParsedEpisode();
-        if (parsed == null) {
-            return null;
-        }
-        return absolutes.toLocal(parsed);
     }
 
     /**
@@ -1320,13 +1305,22 @@ public class SearchSupplementService {
     /**
      * TV 候选标题校验：解析标题（中/英文任一命中即可）与订阅标题归一化后有交集即视为匹配；
      * parsedTitle/parsedTitleEn 都解析失败时回退到种子原始标题，避免特殊命名格式漏判。
+     * <p>
+     * 标题一轮落空后再看 description 里的别名（罗马音命名的日本动画在 TMDb 三个标题里都对不上，
+     * 见 {@link DescriptionAliases}）。判据整套取自 {@link SubscriptionMatcher}——RSS 自动匹配
+     * 与搜索补集对「这个候选是不是这部剧」必须给出同一个答案，各写一份迟早漂移。
+     * </p>
+     * <p>
+     * 这里不需要像 {@code SubscriptionMatcher#match} 那样严格分两轮：那边一次要在多个订阅里
+     * 挑一个，顺序决定谁被选中；这里目标订阅已经定了，只回答「是/否」。
+     * </p>
      */
     private boolean titleMatches(Set<String> subTitles, TorrentInfo candidate) {
-        String t1 = candidate.getParsedTitle();
-        String t2 = candidate.getParsedTitleEn();
-        String tFallback = (t1 == null && t2 == null) ? candidate.getTitle() : null;
-        Set<String> torrentTitles = matcher.normalizeAll(t1, t2, tFallback);
-        return !Collections.disjoint(torrentTitles, subTitles);
+        Set<String> torrentTitles = matcher.torrentTitles(candidate);
+        if (!Collections.disjoint(torrentTitles, subTitles)) {
+            return true;
+        }
+        return !Collections.disjoint(matcher.descriptionAliases(candidate, torrentTitles), subTitles);
     }
 
     /**
