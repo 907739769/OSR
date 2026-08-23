@@ -1,5 +1,6 @@
 package com.osr.openliststrm.monitor.processor;
 
+import com.osr.common.utils.LogOnce;
 import com.osr.openliststrm.service.ICopyService;
 import lombok.extern.slf4j.Slf4j;
 
@@ -21,6 +22,13 @@ public class MediaUploadProcessor implements FileProcessor {
 
     private final Set<Path> processing = ConcurrentHashMap.newKeySet();
 
+    /**
+     * 「文件仍在写入」按路径去重。这是<b>持续状态</b>不是事件：文件每被写一次就来一个
+     * ENTRY_MODIFY，同一个路径每轮都得到同一个答案。实测一个临时文件在 3 秒内刷了 569 行。
+     * 文件转为稳定时 forget，之后它再次被改写还会照常记一次。
+     */
+    private final LogOnce writingLogged = new LogOnce();
+
     public MediaUploadProcessor(String copyTaskSrc, String copyTaskDst, String monitorDir, ICopyService copyService) {
         this.copyTaskSrc = copyTaskSrc;
         this.copyTaskDst = copyTaskDst;
@@ -32,15 +40,18 @@ public class MediaUploadProcessor implements FileProcessor {
     public void process(Path file) {
         Path p = file.toAbsolutePath().normalize();
         String fileName = p.toString();
-        // 1. 忽略常见的临时文件后缀 (根据你的下载软件调整，如 .!qB, .part, .downloading)
-        if (fileName.endsWith(".!qB") || fileName.endsWith(".part") || fileName.endsWith(".tmp")) {
+        // 1. 忽略下载器/网盘客户端的在途产物（清单与判据见 FileStabilityUtils）
+        if (FileStabilityUtils.isTransientArtifact(p)) {
             return;
         }
         //判断文件是否还在写入中
         if (!FileStabilityUtils.isFileStable(p)) {
-            log.debug("文件仍在写入，稍后再试：{}", p);
+            if (writingLogged.firstTime(fileName)) {
+                log.debug("文件仍在写入，稍后再试：{}", p);
+            }
             return;
         }
+        writingLogged.forget(fileName);
         if (!processing.add(p)) {
             log.debug("跳过重复处理：{}", p);
             return;
