@@ -70,6 +70,18 @@ public class SearchCandidateDTO {
     /** 种子发布时间 */
     private String pubDate;
 
+    /**
+     * 种子描述原文，仅供前端在推送时原样回传，不做展示。
+     * <p>
+     * 不能省：推送接口拿到的是前端回传的几个字段，后端会用它们<b>重新</b>跑一遍
+     * {@code SubscriptionEngine#fillParsed}，而集号有一类只写在 description 里
+     * （{@code … | S01E51-E66 | 内封简繁字幕}，标题标成整季，见 {@code DescriptionEpisode}）。
+     * 不带这一段的话，搜索时明明解析出了 E51-E66 的种子在推送时又变回「有季无集」，
+     * 占位范围与用户在列表里看到的对不上。
+     * </p>
+     */
+    private String description;
+
     /** 解析出的集号；为 null 表示整季合集（或电影） */
     private Integer parsedEpisode;
 

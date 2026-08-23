@@ -261,11 +261,34 @@ public class SubscriptionEngine {
      * </p>
      */
     public PushOutcome pushManual(PtSubscriptionPlus sub, int episode, List<TorrentInfo> candidates) {
-        return push(sub, episode, candidates, PushMode.FILL_MISSING, SearchLogService.SOURCE_MANUAL);
+        return pushManual(sub, episode, null, candidates);
+    }
+
+    /**
+     * 手动选择推送（区间包）：用户点选的种子覆盖 {@code episode..episodeEnd} 这一段。
+     * <p>
+     * 必须在<b>进入</b> {@link #handleGroup} 前就把区间带上，不能指望里面那段「按 best 的实际区间
+     * 重算 match」兜底——那段代码排在 {@code targets.isEmpty()} 的短路之后。区间包的起始集
+     * 常常早就入库了（{@code S01E51-E66} 里缺的往往只是尾部几集），按起点单集去占位必然一个
+     * 目标都找不到，用户看到的是「无可占位的缺失集（可能已入库或在途）」——而他明明是在缺集
+     * 弹窗里点的这个包。带上区间后 {@code resolveTargets} 会占位区间内<b>所有</b> MISSING 集。
+     * </p>
+     *
+     * @param episodeEnd 区间结尾集号（已归一化成本地编号）；单集/季包传 null
+     */
+    public PushOutcome pushManual(PtSubscriptionPlus sub, int episode, Integer episodeEnd,
+                                  List<TorrentInfo> candidates) {
+        return push(sub, episode, episodeEnd, candidates, PushMode.FILL_MISSING,
+                SearchLogService.SOURCE_MANUAL);
     }
 
     private PushOutcome push(PtSubscriptionPlus sub, int episode, List<TorrentInfo> candidates,
                              PushMode mode, String source) {
+        return push(sub, episode, null, candidates, mode, source);
+    }
+
+    private PushOutcome push(PtSubscriptionPlus sub, int episode, Integer episodeEnd,
+                             List<TorrentInfo> candidates, PushMode mode, String source) {
         PtFilterConfigPlus globalConfig = filterConfigService.getConfig();
         TorrentBlacklist blacklist = TorrentBlacklist.from(blacklistService.list());
         // 调用方（如 SearchSupplementService）通常已经调用过 fillParsed，这里幂等地补一遍，
@@ -276,7 +299,11 @@ public class SubscriptionEngine {
         // 搜索补集/手动推送同样要打 H&R 标记，否则 avoidHitAndRun 只在 RSS 路径生效，
         // 用户会看到"自动下载避开了 H&R 站，手动搜索却照样推了一个"这种前后不一致
         markHitAndRun(candidates);
-        MatchResult match = new MatchResult(sub, episode);
+        // end 必须严格大于 start 才算区间：下游多处按「end != null && end > start」判区间，
+        // 填一个等于 start 的值只是把同一件事换个说法，却多出一种要考虑的形态
+        MatchResult match = (episodeEnd != null && episodeEnd > episode)
+                ? new MatchResult(sub, episode, episodeEnd)
+                : new MatchResult(sub, episode);
         Map<Integer, List<PtSubscriptionEpisodePlus>> episodeCache = new LinkedHashMap<>();
         List<PtDownloaderPlus> enabledDownloaders = loadEnabledDownloaders();
         Map<Integer, Long> downloaderLoadCache = loadDownloaderLoadCounts(enabledDownloaders);

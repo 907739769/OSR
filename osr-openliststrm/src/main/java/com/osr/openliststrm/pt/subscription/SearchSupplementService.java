@@ -359,15 +359,27 @@ public class SearchSupplementService {
         torrent.setPubDate(request.getPubDate());
 
         subscriptionEngine.fillParsed(torrent);
-        int target = resolvePushTarget(sub, targetEpisode, torrent, absolutes);
+        PushTarget target = resolvePushTarget(sub, targetEpisode, torrent, absolutes);
         // 走 pushManual 而不是 pushBest：手动推送要拿到未推送的真实原因，
         // 且不受「该种子有一条不可重试的失败记录」这层自动路径护栏约束
-        PushOutcome outcome = subscriptionEngine.pushManual(sub, target, List.of(torrent));
+        PushOutcome outcome = subscriptionEngine.pushManual(
+                sub, target.episode(), target.episodeEnd(), List.of(torrent));
 
         log.info("{} 手动选择推送[{}]：{}",
-                PtLogText.subject(sub, target, null), torrent.getTitle(),
+                PtLogText.subject(sub, target.episode(), target.episodeEnd()), torrent.getTitle(),
                 outcome.pushed() ? "已推送" : "推送失败（" + outcome.reason() + "）");
         return outcome;
+    }
+
+    /**
+     * 手动推送的占位范围：单集时 {@code episodeEnd} 为 null，区间包时是它实际覆盖的那一段
+     * （均已归一化成本地编号）。
+     */
+    record PushTarget(int episode, Integer episodeEnd) {
+
+        static PushTarget single(int episode) {
+            return new PushTarget(episode, null);
+        }
     }
 
     /**
@@ -387,15 +399,22 @@ public class SearchSupplementService {
      * 包内到底有哪几集只有文件列表才知道，交给 {@code trySelectFiles} 兜底；
      * 种子有明确集号时，整季目标改按它的实际集号占位，具体集目标则要求它确实覆盖该集，否则拒绝。
      * </p>
+     * <p>
+     * <b>区间包按整个区间占位，不是钉在用户点选的那一集上。</b>用户在「第 59 集」的弹窗里点了
+     * {@code S01E51-E66}，这一个种子下下来的是 51~66 全部，只占 59 一集会让区间内其余缺集
+     * 保持 MISSING、下一轮补搜再去搜一遍同样的东西；而按<b>区间起点</b>占位（改造前的行为）更糟——
+     * 起点那一集往往早就入库了，{@code resolveTargets} 一个目标都找不到，推送以
+     * 「无可占位的缺失集」告终，用户完全看不出是哪一步把范围缩到了那一集。
+     * </p>
      * <p>电影没有季集号可比对，原样放行（年份/标题校验由手动列表侧的过滤负责）。</p>
      *
-     * @return 实际用于占位的目标集号
+     * @return 实际用于占位的目标集号（区间包带着区间结尾）
      * @throws IllegalArgumentException 种子与目标明显不符，拒绝推送（原因会原样回给前端）
      */
-    private int resolvePushTarget(PtSubscriptionPlus sub, int episode, TorrentInfo torrent,
-                                  AbsoluteEpisodeMap absolutes) {
+    private PushTarget resolvePushTarget(PtSubscriptionPlus sub, int episode, TorrentInfo torrent,
+                                         AbsoluteEpisodeMap absolutes) {
         if (SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType())) {
-            return episode;
+            return PushTarget.single(episode);
         }
         Integer parsedEpisode = torrent.getParsedEpisode();
         // 绝对编号的剧集：站上标的季号恒为 1（One Piece S01E1174 其实是第 23 季第 19 集），
@@ -412,21 +431,21 @@ public class SearchSupplementService {
                     + sub.getSeason() + " 季，已拒绝推送");
         }
         if (parsedEpisode == null) {
-            return episode;
+            return PushTarget.single(episode);
         }
         // 归一化到本地集号后再比较：下面的区间判断与报错文案都按本地编号说事，
         // 否则用户会看到「该种子是第 1174 集的资源，不含第 19 集」这种自相矛盾的提示
         int localParsed = absolutes.toLocalOrSelf(parsedEpisode);
         Integer parsedEnd = torrent.getParsedEpisodeEnd();
         Integer localParsedEnd = parsedEnd == null ? null : absolutes.toLocalOrSelf(parsedEnd);
-        if (episode == SubscriptionMatcher.SEASON_PACK) {
-            return localParsed;
-        }
-        if (!episodeInRange(episode, localParsed, localParsedEnd)) {
+        if (episode != SubscriptionMatcher.SEASON_PACK
+                && !episodeInRange(episode, localParsed, localParsedEnd)) {
             throw new IllegalArgumentException("该种子是" + describeParsedEpisodes(localParsed, localParsedEnd)
                     + "的资源，不含第 " + episode + " 集，已拒绝推送");
         }
-        return episode;
+        // 整季目标与具体集目标在这里合流：两者都按种子自己覆盖的范围占位。
+        // 单集种子（end 为 null）时 localParsed 必然等于 episode——上面的 episodeInRange 已经保证
+        return new PushTarget(localParsed, localParsedEnd);
     }
 
     /** 候选解析出的集号范围（已归一化成本地编号），用于拒绝推送时把原因说清楚 */
@@ -460,6 +479,8 @@ public class SearchSupplementService {
                         .infoHash(t.getInfoHash())
                         .parsedYear(t.getParsedYear())
                         .pubDate(t.getPubDate())
+                        // 不展示，供前端推送时原样回传：集号可能只写在这里面（见该字段注释）
+                        .description(t.getDescription())
                         .parsedEpisode(t.getParsedEpisode())
                         .parsedEpisodeEnd(t.getParsedEpisodeEnd())
                         .build())

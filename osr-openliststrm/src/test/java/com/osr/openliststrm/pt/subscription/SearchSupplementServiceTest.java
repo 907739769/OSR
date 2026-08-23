@@ -55,6 +55,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
@@ -1449,13 +1450,13 @@ class SearchSupplementServiceTest {
         when(subscriptionService.getById(10)).thenReturn(sub);
         stubAbsoluteEpisodes(10);
         stubFillParsed(1, 1174, null);
-        when(subscriptionEngine.pushManual(same(sub), eq(19), anyList())).thenReturn(PushOutcome.ok());
+        when(subscriptionEngine.pushManual(same(sub), eq(19), isNull(), anyList())).thenReturn(PushOutcome.ok());
 
         assertTrue(service.pushSelected(10, 1174,
                 pushRequest("One Piece S01E1174 1999 2160p WEB-DL H265 AAC-ADWeb", 1174)).pushed());
 
         // 必须按本地第 19 集占位，不能拿 1174 去占
-        verify(subscriptionEngine).pushManual(same(sub), eq(19), anyList());
+        verify(subscriptionEngine).pushManual(same(sub), eq(19), isNull(), anyList());
     }
 
     /** 绝对编号的资源在站上标的季号恒为 1，季号检查不能把它当成「第 1 季的资源」拒掉 */
@@ -1465,7 +1466,7 @@ class SearchSupplementServiceTest {
         when(subscriptionService.getById(10)).thenReturn(sub);
         stubAbsoluteEpisodes(10);
         stubFillParsed(1, 1174, null);
-        when(subscriptionEngine.pushManual(same(sub), eq(19), anyList())).thenReturn(PushOutcome.ok());
+        when(subscriptionEngine.pushManual(same(sub), eq(19), isNull(), anyList())).thenReturn(PushOutcome.ok());
 
         assertTrue(service.pushSelected(10, 19,
                 pushRequest("One Piece S01E1174 1999 2160p WEB-DL", 19)).pushed());
@@ -1491,13 +1492,14 @@ class SearchSupplementServiceTest {
         PtSubscriptionPlus sub = tvSub(10, 8, 10);
         when(subscriptionService.getById(10)).thenReturn(sub);
         stubFillParsed(8, 7, null);
-        when(subscriptionEngine.pushManual(same(sub), eq(7), anyList())).thenReturn(PushOutcome.ok());
+        when(subscriptionEngine.pushManual(same(sub), eq(7), isNull(), anyList())).thenReturn(PushOutcome.ok());
 
         assertTrue(service.pushSelected(10, SubscriptionMatcher.SEASON_PACK,
                 pushRequest("Great Escape S08E07 2026 1080p WEB-DL", SubscriptionMatcher.SEASON_PACK)).pushed());
 
         // 关键：不能再用 -1 去占位——那会把当前所有缺失集都标成在途，而包里只有第 7 集
-        verify(subscriptionEngine, never()).pushManual(any(), eq(SubscriptionMatcher.SEASON_PACK), anyList());
+        verify(subscriptionEngine, never())
+                .pushManual(any(), eq(SubscriptionMatcher.SEASON_PACK), any(), anyList());
     }
 
     @Test
@@ -1511,17 +1513,41 @@ class SearchSupplementServiceTest {
 
         assertTrue(e.getMessage().contains("第 7 集"), e.getMessage());
         assertTrue(e.getMessage().contains("不含第 8 集"), e.getMessage());
-        verify(subscriptionEngine, never()).pushManual(any(), anyInt(), anyList());
+        verify(subscriptionEngine, never()).pushManual(any(), anyInt(), any(), anyList());
     }
 
+    /**
+     * 区间包按<b>整个区间</b>占位，不是钉在用户点选的那一集上：一个种子下下来的是 7~9 全部，
+     * 只占第 8 集会让 7 和 9 保持缺失、下一轮补搜再去搜同一个东西。
+     */
     @Test
-    void pushSelected_区间包覆盖目标集_放行且沿用目标集号() {
+    void pushSelected_区间包覆盖目标集_按整个区间占位() {
         PtSubscriptionPlus sub = tvSub(10, 8, 10);
         when(subscriptionService.getById(10)).thenReturn(sub);
         stubFillParsed(8, 7, 9);
-        when(subscriptionEngine.pushManual(same(sub), eq(8), anyList())).thenReturn(PushOutcome.ok());
+        when(subscriptionEngine.pushManual(same(sub), eq(7), eq(9), anyList())).thenReturn(PushOutcome.ok());
 
         assertTrue(service.pushSelected(10, 8, pushRequest("Great Escape S08E07-E09 1080p", 8)).pushed());
+
+        verify(subscriptionEngine).pushManual(same(sub), eq(7), eq(9), anyList());
+    }
+
+    /**
+     * 用户实际遇到的报错：缺 9、10 两集，点了列表里那个 E7-E10 的包，推送却回
+     * 「无可占位的缺失集（可能已入库或在途）」——前端传的是候选解析出的<b>区间起点</b>（7），
+     * 而第 7 集早就入库了。按区间占位后，resolveTargets 会占到区间内还缺的那几集。
+     */
+    @Test
+    void pushSelected_区间起点已入库_仍按区间占位而不是只占起点那一集() {
+        PtSubscriptionPlus sub = tvSub(10, 8, 10);
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        stubFillParsed(8, 7, 10);
+        when(subscriptionEngine.pushManual(same(sub), eq(7), eq(10), anyList())).thenReturn(PushOutcome.ok());
+
+        // 前端按 candidate.parsedEpisode 传上来的就是区间起点
+        assertTrue(service.pushSelected(10, 7, pushRequest("Great Escape S08E07-E10 1080p", 7)).pushed());
+
+        verify(subscriptionEngine, never()).pushManual(any(), eq(7), isNull(), anyList());
     }
 
     @Test
@@ -1529,7 +1555,8 @@ class SearchSupplementServiceTest {
         PtSubscriptionPlus sub = tvSub(10, 8, 10);
         when(subscriptionService.getById(10)).thenReturn(sub);
         stubFillParsed(8, null, null);
-        when(subscriptionEngine.pushManual(same(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList())).thenReturn(PushOutcome.ok());
+        when(subscriptionEngine.pushManual(same(sub), eq(SubscriptionMatcher.SEASON_PACK), isNull(), anyList()))
+                .thenReturn(PushOutcome.ok());
 
         assertTrue(service.pushSelected(10, SubscriptionMatcher.SEASON_PACK,
                 pushRequest("Great Escape S08 2026 1080p WEB-DL", SubscriptionMatcher.SEASON_PACK)).pushed());
@@ -1545,7 +1572,7 @@ class SearchSupplementServiceTest {
                 () -> service.pushSelected(10, 7, pushRequest("Great Escape S07E07 1080p", 7)));
 
         assertTrue(e.getMessage().contains("第 7 季"), e.getMessage());
-        verify(subscriptionEngine, never()).pushManual(any(), anyInt(), anyList());
+        verify(subscriptionEngine, never()).pushManual(any(), anyInt(), any(), anyList());
     }
 
     @Test
@@ -1553,7 +1580,7 @@ class SearchSupplementServiceTest {
         PtSubscriptionPlus sub = movieSub(20, "Some Movie", "2026");
         when(subscriptionService.getById(20)).thenReturn(sub);
         stubFillParsed(null, null, null);
-        when(subscriptionEngine.pushManual(same(sub), eq(0), anyList())).thenReturn(PushOutcome.ok());
+        when(subscriptionEngine.pushManual(same(sub), eq(0), isNull(), anyList())).thenReturn(PushOutcome.ok());
 
         assertTrue(service.pushSelected(20, 0, pushRequest("Some Movie 2026 2160p WEB-DL", 0)).pushed());
     }

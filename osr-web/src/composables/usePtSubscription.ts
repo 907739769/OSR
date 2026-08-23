@@ -564,7 +564,11 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
         guid: candidate.guid,
         downloadUrl: candidate.downloadUrl,
         infoHash: candidate.infoHash,
-        pubDate: candidate.pubDate
+        pubDate: candidate.pubDate,
+        // 原样回传描述：后端会用这些字段重新解析一遍种子，而有一类种子的集号只写在描述里
+        // （标题标成整季、描述里才是 S01E51-E66）。不带的话它在推送时又退化成"有季无集"，
+        // 占位范围与列表里显示的集号对不上
+        description: candidate.description
       })
       message.success('已推送下载')
       candidateDialogOpen.value = false
