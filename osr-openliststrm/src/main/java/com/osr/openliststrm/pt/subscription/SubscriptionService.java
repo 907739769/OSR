@@ -6,6 +6,8 @@ import com.osr.openliststrm.helper.TgHelper;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloadRecordPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtMediaServerPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
+import com.osr.common.utils.FaultThrottle;
+import com.osr.openliststrm.pt.PtLogText;
 import com.osr.openliststrm.pt.calendar.TmdbEpisodeAligner;
 import com.osr.openliststrm.pt.media.IMediaServerClient;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
@@ -174,7 +176,8 @@ public class SubscriptionService {
         List<Integer> numbers = episodeNumbers(movie, totalEpisodes);
         Map<Integer, TmdbEpisodeAligner.TmdbEpisodeRef> aligned =
                 alignTmdbEpisodes(movie, request.getTmdbId(), season, numbers);
-        Set<Integer> inLibrary = queryLibrary(request.getMediaType(), request.getTmdbId(), season, numbers, aligned);
+        Set<Integer> inLibrary = queryLibrary("《" + detail.getTitle() + "》",
+                request.getMediaType(), request.getTmdbId(), season, numbers, aligned);
 
         PtSubscriptionPlus sub = new PtSubscriptionPlus();
         sub.setTmdbId(request.getTmdbId());
@@ -207,9 +210,14 @@ public class SubscriptionService {
         }
         episodeService.saveBatch(episodes);
 
-        log.info("已建立订阅[{}] {} 共{}集，其中已入库{}集", sub.getId(), sub.getTitle(), totalEpisodes, inLibrary.size());
+        log.info("已建立订阅 {}：共 {} 集，其中已入库 {} 集", PtLogText.subject(sub), totalEpisodes, inLibrary.size());
         return sub;
     }
+
+    /**
+     * 「媒体库里一集都没有」的日志节流，key 是 tmdbId。跨轮次存活，见 {@link FaultThrottle} 的类注释。
+     */
+    private final FaultThrottle missingInLibrary = new FaultThrottle();
 
     /**
      * 对账刷新：重新拉 TMDb 总集数补齐集行 → 查 Emby → 推进集状态 → 重算订阅状态。
@@ -219,10 +227,11 @@ public class SubscriptionService {
      * 代价是进度显示偏乐观，这是有意的取舍。
      * </p>
      *
+     * @return 本轮新推进到 IN_LIBRARY 的集数，供调用方汇总记日志；0 表示这条订阅这一轮没有变化
      * @throws IllegalArgumentException 订阅不存在
      */
     @Transactional
-    public void refresh(Integer subId) {
+    public int refresh(Integer subId) {
         PtSubscriptionPlus sub = requireSubscription(subId);
         boolean movie = TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType());
         // listBySubscription 的返回值不保证可变（测试里就是 List.of 的不可变列表），
@@ -235,12 +244,13 @@ public class SubscriptionService {
             try {
                 totalEpisodes = tmdbSearchService.getSeasonEpisodeCount(sub.getTmdbId(), sub.getSeason());
             } catch (Exception e) {
-                log.warn("刷新订阅[{}]时取 TMDb 总集数失败，沿用原值 {}：{}", subId, totalEpisodes, e.getMessage());
+                log.warn("刷新 {} 时取 TMDb 总集数失败，沿用原值 {}：{}",
+                        PtLogText.subject(sub), totalEpisodes, e.getMessage());
             }
             appendNewEpisodes(sub, episodes, totalEpisodes);
         }
 
-        Set<Integer> inLibrary = queryLibrary(sub.getMediaType(), sub.getTmdbId(), sub.getSeason(),
+        Set<Integer> inLibrary = queryLibrary(PtLogText.subject(sub), sub.getMediaType(), sub.getTmdbId(), sub.getSeason(),
                 episodes.stream().map(PtSubscriptionEpisodePlus::getEpisode).toList(),
                 // 对账用已落库的 TMDb 集号，不再打一次 TMDb：同步任务负责保持它是新的
                 episodes.stream()
@@ -263,6 +273,10 @@ public class SubscriptionService {
         }
         if (!upgraded.isEmpty()) {
             episodeService.updateBatchById(upgraded);
+            // 「某一集入库了」是整个产品最核心的业务事件，改造前这里只发通知、不写日志：
+            // 通知渠道一旦没配好或被用户关掉，这件事在任何地方都查不到。日志必须是通知的超集
+            log.info("{} 已入库{}", PtLogText.subject(sub),
+                    movie ? "" : "：第 " + PtLogText.episodes(upgraded) + " 集");
             notifyLibrarySync(sub, movie, upgraded);
         }
 
@@ -275,7 +289,13 @@ public class SubscriptionService {
             sub.setStatus(STATUS_PAUSED.equals(sub.getStatus()) ? STATUS_PAUSED : newStatus);
             sub.setTotalEpisodes(totalEpisodes);
             subscriptionService.updateById(sub);
+            if (statusChanged && STATUS_COMPLETED.equals(newStatus)) {
+                // 追完是有始有终的里程碑，也是这条订阅从此不再参与补搜/对账的原因；
+                // 不记的话，日后查「它为什么不搜了」得先想到去看状态字段
+                log.info("{} 全部 {} 集已入库，订阅转为已完成", PtLogText.subject(sub), totalEpisodes);
+            }
         }
+        return upgraded.size();
     }
 
     /**
@@ -295,11 +315,11 @@ public class SubscriptionService {
             if (StringUtils.isBlank(title) || title.equals(sub.getTitle())) {
                 return false;
             }
-            log.info("订阅[{}] 标题补中文名：{} → {}", sub.getId(), sub.getTitle(), title);
+            log.info("订阅[#{}] 标题补中文名：{} → {}", sub.getId(), sub.getTitle(), title);
             sub.setTitle(title);
             return true;
         } catch (Exception e) {
-            log.warn("刷新订阅[{}]中文标题失败，沿用原标题：{}", sub.getId(), e.getMessage());
+            log.warn("刷新 {} 的中文标题失败，沿用原标题：{}", PtLogText.subject(sub), e.getMessage());
             return false;
         }
     }
@@ -485,7 +505,7 @@ public class SubscriptionService {
      */
     @Transactional
     public void resetEpisode(Integer subId, Integer episode) {
-        requireSubscription(subId);
+        PtSubscriptionPlus sub = requireSubscription(subId);
         PtSubscriptionEpisodePlus ep = episodeService.getOne(new LambdaQueryWrapper<PtSubscriptionEpisodePlus>()
                 .eq(PtSubscriptionEpisodePlus::getSubId, subId)
                 .eq(PtSubscriptionEpisodePlus::getEpisode, episode));
@@ -496,7 +516,7 @@ public class SubscriptionService {
         ep.setFailCount(0);
         ep.setDownloadId(null);
         episodeService.updateById(ep);
-        log.info("订阅[{}] 第{}集已手动重置为缺失", subId, episode);
+        log.info("{} 已手动重置为缺失", PtLogText.subject(sub, episode, null));
     }
 
     // ---------- 内部 ----------
@@ -534,12 +554,12 @@ public class SubscriptionService {
      * 误判成已入库。而航海王的 1168 与 13 差得足够远，不存在这种碰撞。
      * </p>
      */
-    private Set<Integer> queryLibrary(String mediaType, String tmdbId, int season,
+    private Set<Integer> queryLibrary(String subject, String mediaType, String tmdbId, int season,
                                       List<Integer> localEpisodes,
                                       Map<Integer, TmdbEpisodeAligner.TmdbEpisodeRef> aligned) {
         PtMediaServerPlus server = mediaServerService.getActive();
         if (server == null) {
-            log.warn("未配置启用中的媒体服务器，订阅 {} 的已入库集数按 0 处理", tmdbId);
+            log.warn("未配置启用中的媒体服务器，{} 的已入库集数按 0 处理", subject);
             return Collections.emptySet();
         }
         try {
@@ -576,10 +596,34 @@ public class SubscriptionService {
                     result.add(episode);
                 }
             }
+            reportLibraryCoverage(subject, tmdbId, result.isEmpty());
             return result;
         } catch (Exception e) {
-            log.warn("查询媒体库失败，订阅 {} 的已入库集数按 0 处理：{}", tmdbId, e.getMessage());
+            log.warn("查询媒体库失败，{} 的已入库集数按 0 处理：{}", subject, e.getMessage());
             return Collections.emptySet();
+        }
+    }
+
+    /**
+     * 「这部剧在媒体库里一集都没有」的节流输出。
+     *
+     * <p>这条判断原先在 {@code EmbyClient#listEpisodes} 里，按 tmdbId 记日志——于是一整屏
+     * {@code 未找到 tmdbId=281281 的剧集}，<b>一部剧都认不出来</b>（实测占了某次采样全部日志的
+     * 三分之一）。挪到这里有两个好处：拿得到订阅标题；判据也更准——那边看的是「剧条目在不在」，
+     * 这里看的是「这条订阅要的集一个都没入库」，后者才是用户关心的事（剧条目在、但这一季
+     * 还没开始下，同样应该算"没有"）。
+     *
+     * <p>节流理由不变：对账每 10 分钟跑一遍全部订阅，而「还没下完」是个会持续成立的状态，
+     * 逐轮打的话一部剧一天能刷 144 行。查到之后清标记，「本来有、后来从媒体库消失」还会再报一次。
+     */
+    private void reportLibraryCoverage(String subject, String tmdbId, boolean empty) {
+        if (!empty) {
+            missingInLibrary.onSuccess(tmdbId);
+            return;
+        }
+        FaultThrottle.Decision d = missingInLibrary.onFailure(tmdbId);
+        if (d.shouldReport()) {
+            log.debug("媒体库中暂无 {} 的任何集（连续第 {} 轮）", subject, d.consecutiveFailures());
         }
     }
 
@@ -605,7 +649,8 @@ public class SubscriptionService {
         }
         episodeService.saveBatch(added);
         existing.addAll(added);
-        log.info("订阅[{}] 总集数由 {} 增至 {}，已补齐 {} 个新集", sub.getId(), maxExisting, totalEpisodes, added.size());
+        log.info("{} 总集数由 {} 增至 {}，已补齐 {} 个新集",
+                PtLogText.subject(sub), maxExisting, totalEpisodes, added.size());
     }
 
     /**

@@ -116,8 +116,10 @@ public class RssPollService {
 
     /**
      * 轮询一轮：先对冷却期已过的停用索引器做一次自愈探测，再并发拉取所有到期索引器的种子。
+     *
+     * @return 本轮结果，日志由调用方汇总打印（这样「什么都没发生」那一轮也能被心跳兜住）
      */
-    public void poll() {
+    public PollOutcome poll() {
         selfHeal();
 
         List<PtIndexerPlus> indexers = indexerService.listEnabled();
@@ -131,7 +133,8 @@ public class RssPollService {
             }
         }
         if (due.isEmpty()) {
-            return;
+            // 各索引器有自己的轮询间隔，"本轮没有到期的"是常态而非异常
+            return PollOutcome.NOTHING_DUE;
         }
 
         // 并发拉取所有到期索引器，各索引器互不依赖
@@ -145,15 +148,31 @@ public class RssPollService {
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
         }
 
-        if (!allTorrents.isEmpty()) {
-            int pushed = subscriptionEngine.process(allTorrents);
-            // 这里刻意不发「本轮推送了 N 个种子」的汇总通知。三条理由，每条单独都够：
-            // ①它与 SubscriptionEngine 逐条发出的「订阅命中」完全重复——推 3 个种子，
-            //   用户会收到 3 条命中详情外加 1 条只有数字的汇总；
-            // ②它是广播（拿不到归属人），多用户环境下 B 会收到"推送了 3 个种子"，
-            //   而那 3 条命中详情只发给了 A，B 只能看见一个无从追查的数字；
-            // ③信息量本就为零，同样的内容下一行的 log.info 已经记了，排查时够用。
-            log.info("本轮共拉取 {} 条种子，推送 {} 个", allTorrents.size(), pushed);
+        // 这里刻意不发「本轮推送了 N 个种子」的汇总<b>通知</b>。三条理由，每条单独都够：
+        // ①它与 SubscriptionEngine 逐条发出的「订阅命中」完全重复——推 3 个种子，
+        //   用户会收到 3 条命中详情外加 1 条只有数字的汇总；
+        // ②它是广播（拿不到归属人），多用户环境下 B 会收到"推送了 3 个种子"，
+        //   而那 3 条命中详情只发给了 A，B 只能看见一个无从追查的数字；
+        // ③信息量本就为零，日志里记着就够排查了。
+        // 注意这条只针对通知——<b>日志</b>反过来必须记，它是「RSS 还在拉」的唯一证据。
+        int pushed = allTorrents.isEmpty() ? 0 : subscriptionEngine.process(allTorrents);
+        return new PollOutcome(due.size(), allTorrents.size(), pushed);
+    }
+
+    /**
+     * 一轮 RSS 轮询的结果。
+     *
+     * @param dueIndexers 本轮到期、实际发起拉取的索引器数
+     * @param torrents    拉回来的种子总数
+     * @param pushed      其中推送给下载器的数量
+     */
+    public record PollOutcome(int dueIndexers, int torrents, int pushed) {
+
+        static final PollOutcome NOTHING_DUE = new PollOutcome(0, 0, 0);
+
+        /** 本轮是否发生了值得记一条 INFO 的事 */
+        public boolean changed() {
+            return pushed > 0;
         }
     }
 

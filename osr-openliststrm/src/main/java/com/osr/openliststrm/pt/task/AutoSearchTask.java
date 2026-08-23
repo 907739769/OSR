@@ -1,5 +1,6 @@
 package com.osr.openliststrm.pt.task;
 
+import com.osr.common.utils.RoundHeartbeat;
 import com.osr.common.utils.Threads;
 import com.osr.common.utils.ThreadTraceIdUtil;
 import com.osr.common.utils.spring.SpringUtils;
@@ -42,7 +43,7 @@ public class AutoSearchTask {
     public void start() {
         ThreadTraceIdUtil.initTraceId();
         scheduler.scheduleAtFixedRate(Threads.wrap(this::poll), Instant.now().plusSeconds(180), Duration.ofMinutes(30));
-        log.info("AutoSearchTask started");
+        log.info("AutoSearchTask started, 心跳间隔=30min（各订阅的实际补搜周期由 pt_filter_config.auto_search_interval_hours 决定）");
     }
 
     @PreDestroy
@@ -50,6 +51,9 @@ public class AutoSearchTask {
         log.info("AutoSearchTask stopped");
         MDC.clear();
     }
+
+    /** 无变化时最多半小时报一次平安：不打的话「一切正常」和「调度器死了」在日志上一模一样 */
+    private final RoundHeartbeat heartbeat = new RoundHeartbeat();
 
     private void poll() {
         if (!running.compareAndSet(false, true)) {
@@ -63,7 +67,21 @@ public class AutoSearchTask {
         }
         roundStartNanos = System.nanoTime();
         try {
-            autoSearchService.run();
+            AutoSearchService.RoundOutcome outcome = autoSearchService.run();
+            if (outcome.changed()) {
+                heartbeat.active();
+                log.info("自动补搜完成：{} 个候选订阅中 {} 个到期并已检索{}",
+                        outcome.candidates(), outcome.searched(),
+                        outcome.failed() > 0 ? "，" + outcome.failed() + " 个失败" : "");
+            } else {
+                // 每条订阅默认 24 小时才到期一次，而心跳 30 分钟一次——绝大多数轮次
+                // 一个订阅都不到期，这是设计如此，不是"补搜没在跑"
+                RoundHeartbeat.Beat beat = heartbeat.quiet();
+                if (beat.shouldReport()) {
+                    log.info("自动补搜完成：{} 个候选订阅均未到期（最近 {} 轮均无）",
+                            outcome.candidates(), beat.quietRounds());
+                }
+            }
         } catch (Exception e) {
             log.error("AutoSearchTask poll error", e);
         } finally {

@@ -1,5 +1,6 @@
 package com.osr.openliststrm.pt.autoadd;
 
+import com.osr.common.utils.RoundHeartbeat;
 import com.osr.common.utils.Threads;
 import com.osr.common.utils.ThreadTraceIdUtil;
 import com.osr.common.utils.spring.SpringUtils;
@@ -37,7 +38,7 @@ public class AutoAddPopularTask {
     public void start() {
         ThreadTraceIdUtil.initTraceId();
         scheduler.scheduleAtFixedRate(Threads.wrap(this::run), Instant.now().plusSeconds(120), Duration.ofMinutes(30));
-        log.info("AutoAddPopularTask started");
+        log.info("AutoAddPopularTask started, 心跳间隔=30min（各规则的实际执行周期由规则自身的 interval_hours 决定）");
     }
 
     @PreDestroy
@@ -46,13 +47,26 @@ public class AutoAddPopularTask {
         MDC.clear();
     }
 
+    /** 无变化时最多半小时报一次平安：不打的话「一切正常」和「调度器死了」在日志上一模一样 */
+    private final RoundHeartbeat heartbeat = new RoundHeartbeat();
+
     private void run() {
         if (!running.compareAndSet(false, true)) {
             log.debug("AutoAddPopularTask 上一轮尚未结束，跳过本次触发");
             return;
         }
         try {
-            autoAddPopularService.runDueRules();
+            int ran = autoAddPopularService.runDueRules();
+            if (ran > 0) {
+                // 具体新订了什么由 AutoAddPopularService 逐条记，这里只负责证明这一轮跑过
+                heartbeat.active();
+                log.info("热门自动订阅完成：本轮执行了 {} 条规则", ran);
+            } else {
+                RoundHeartbeat.Beat beat = heartbeat.quiet();
+                if (beat.shouldReport()) {
+                    log.info("热门自动订阅完成：没有到期的规则（最近 {} 轮均无）", beat.quietRounds());
+                }
+            }
         } catch (Exception e) {
             log.error("AutoAddPopularTask run error", e);
         } finally {

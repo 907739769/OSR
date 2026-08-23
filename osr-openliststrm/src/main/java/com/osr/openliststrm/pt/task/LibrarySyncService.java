@@ -3,6 +3,7 @@ package com.osr.openliststrm.pt.task;
 import com.osr.common.utils.Threads;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
+import com.osr.openliststrm.pt.PtLogText;
 import com.osr.openliststrm.pt.subscription.SubscriptionService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -12,6 +13,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 媒体库对账的编排逻辑：把「有缺集的订阅」逐条交给
@@ -62,26 +64,30 @@ public class LibrarySyncService {
      * 剩下几十条这一轮全部不对账。
      * </p>
      *
-     * @return 本轮实际发起对账的订阅数，供调用方记日志
+     * @return 本轮的对账结果，供调用方记日志
      */
-    public int refreshAll() {
+    public SyncOutcome refreshAll() {
         List<PtSubscriptionPlus> active = subscriptionService.listActiveWithMissing();
         if (active.isEmpty()) {
-            return 0;
+            return SyncOutcome.EMPTY;
         }
+        AtomicInteger episodesIn = new AtomicInteger();
+        AtomicInteger failed = new AtomicInteger();
         Semaphore permits = new Semaphore(concurrency);
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             List<CompletableFuture<Void>> futures = active.stream()
-                    .map(sub -> CompletableFuture.runAsync(Threads.wrap(() -> refreshOne(sub, permits)), executor))
+                    .map(sub -> CompletableFuture.runAsync(
+                            Threads.wrap(() -> refreshOne(sub, permits, episodesIn, failed)), executor))
                     .toList();
             // 必须等齐：调用方紧接着要跑 StuckEpisodeSweepService，而那一步依赖
             // 「本轮刚被推进 IN_LIBRARY 的集」已经落库，否则它们会被当成卡死的在途集
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
         }
-        return active.size();
+        return new SyncOutcome(active.size(), episodesIn.get(), failed.get());
     }
 
-    private void refreshOne(PtSubscriptionPlus sub, Semaphore permits) {
+    private void refreshOne(PtSubscriptionPlus sub, Semaphore permits,
+                            AtomicInteger episodesIn, AtomicInteger failed) {
         try {
             permits.acquire();
         } catch (InterruptedException e) {
@@ -89,11 +95,33 @@ public class LibrarySyncService {
             return;
         }
         try {
-            subscriptionBiz.refresh(sub.getId());
+            episodesIn.addAndGet(subscriptionBiz.refresh(sub.getId()));
         } catch (Exception e) {
-            log.warn("对账订阅[{}]失败：{}", sub.getId(), e.getMessage());
+            failed.incrementAndGet();
+            log.warn("对账 {} 失败：{}", PtLogText.subject(sub), e.getMessage());
         } finally {
             permits.release();
+        }
+    }
+
+    /**
+     * 一轮对账的结果。
+     *
+     * <p><b>扫描数和变化数必须分开报</b>：改造前这里只返回 {@code active.size()}，日志写的是
+     * 「本轮对账 103 条订阅」——那是<b>输入</b>而不是<b>结果</b>，103 这个数每轮都一样、
+     * 与这一轮有没有干成任何事无关。实测一整天里有 32 集完成了入库，而日志对此只字未提。
+     *
+     * @param scanned    本轮发起对账的订阅数
+     * @param episodesIn 本轮新推进到 IN_LIBRARY 的集数——这才是「这一轮干了什么」
+     * @param failed     对账失败的订阅数（各自已经 warn 过，这里只用于汇总时提一句）
+     */
+    public record SyncOutcome(int scanned, int episodesIn, int failed) {
+
+        static final SyncOutcome EMPTY = new SyncOutcome(0, 0, 0);
+
+        /** 本轮是否发生了值得记一条 INFO 的事 */
+        public boolean changed() {
+            return episodesIn > 0 || failed > 0;
         }
     }
 }

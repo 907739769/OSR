@@ -2,6 +2,7 @@ package com.osr.openliststrm.pt.task;
 
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.osr.common.utils.FaultThrottle;
+import com.osr.common.utils.RoundHeartbeat;
 import com.osr.common.utils.Threads;
 import com.osr.common.utils.ThreadTraceIdUtil;
 import com.osr.common.utils.spring.SpringUtils;
@@ -57,7 +58,7 @@ public class DownloadTrackTask {
     public void start() {
         ThreadTraceIdUtil.initTraceId();
         scheduler.scheduleAtFixedRate(Threads.wrap(this::poll), Instant.now().plusSeconds(30), Duration.ofSeconds(30));
-        log.info("DownloadTrackTask started");
+        log.info("DownloadTrackTask started, interval=30s");
     }
 
     @PreDestroy
@@ -80,6 +81,12 @@ public class DownloadTrackTask {
                 ? client.listByTag(downloader, downloader.getTag())
                 : client.listAll(downloader);
     }
+
+    /**
+     * 存活心跳。本任务不直接产生业务变化（那些由 DownloadTrackService 自己记），
+     * 所以恒走 {@code quiet()}——半小时一条，用来回答「追踪循环还在转吗」。
+     */
+    private final RoundHeartbeat heartbeat = new RoundHeartbeat();
 
     private void poll() {
         if (!running.compareAndSet(false, true)) {
@@ -111,6 +118,15 @@ public class DownloadTrackTask {
                                 downloader.getName(), d.consecutiveFailures(), e.getMessage());
                     }
                 }
+            }
+            // 纯存活心跳：状态真发生推进时 DownloadTrackService 自己会打 INFO（完成/失败/
+            // H&R 达标），这里只回答「追踪循环还在转吗」。本任务 30 秒一轮，每轮都打就是
+            // 2880 行/天，所以恒走 quiet() 让它半小时才出一次声
+            RoundHeartbeat.Beat beat = heartbeat.quiet();
+            if (beat.shouldReport()) {
+                int torrents = snapshots.stream().mapToInt(s -> s.torrents().size()).sum();
+                log.info("下载追踪运行中：{} 个下载器共 {} 个种子（最近 {} 轮）",
+                        snapshots.size(), torrents, beat.quietRounds());
             }
             for (DownloaderSnapshot snapshot : snapshots) {
                 String name = snapshot.downloader().getName();

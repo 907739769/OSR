@@ -5,6 +5,7 @@ import com.osr.openliststrm.helper.TgHelper;
 import com.osr.openliststrm.notify.NotificationType;
 import com.osr.openliststrm.notify.NotifyTarget;
 import com.osr.openliststrm.mybatisplus.domain.PtFilterConfigPlus;
+import com.osr.openliststrm.pt.PtLogText;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtFilterConfigPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtIndexerPlusService;
@@ -101,23 +102,25 @@ public class AutoSearchService {
     /**
      * 扫一轮：对每个开启自动补搜、到期、且仍有缺集的订阅发起一次搜索。单个订阅异常不影响其他订阅。
      */
-    public void run() {
+    public RoundOutcome run() {
         // 「ACTIVE + 开着开关 + 有 MISSING 集」三个条件由 SQL 完成，不再拉全部 ACTIVE 再内存过滤
         List<PtSubscriptionPlus> candidates = subscriptionService.listAutoSearchCandidates();
         if (candidates.isEmpty()) {
-            return;
+            // 自动补搜的库默认值就是关的（见 pt/health 那套设计），一个候选都没有是常见状态
+            return RoundOutcome.NO_CANDIDATE;
         }
         // 一个启用中的索引器都没有时整轮直接跳过并说明原因。否则每个订阅都会走完一遍
         // 搜索流程、各自得到「0 个候选」，日志里看起来像是「站上都没资源」，
         // 而实际上一个请求都没发出去过——用户会照着去改过滤规则和关键词
         if (indexerService.listEnabled().isEmpty()) {
             log.warn("没有启用中的索引器，本轮自动补搜跳过（共 {} 个待搜订阅）", candidates.size());
-            return;
+            return new RoundOutcome(candidates.size(), 0, 0);
         }
         int intervalHours = resolveIntervalHours();
         long now = System.currentTimeMillis();
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(Math.max(0L, roundBudgetMillis));
         int searched = 0;
+        int failed = 0;
 
         for (int i = 0; i < candidates.size(); i++) {
             PtSubscriptionPlus sub = candidates.get(i);
@@ -130,14 +133,34 @@ public class AutoSearchService {
                 log.warn("自动补搜已用满 {}ms 单轮预算，本轮搜了 {} 个订阅，剩余 {} 个候选留到下一轮"
                                 + "（它们的 last_search_time 未改动，下轮心跳会接着搜）",
                         roundBudgetMillis, searched, candidates.size() - i);
-                return;
+                return new RoundOutcome(candidates.size(), searched, failed);
             }
             try {
                 trySearch(sub, intervalHours);
                 searched++;
             } catch (Exception e) {
-                log.warn("订阅[{}]自动补搜失败：{}", sub.getId(), e.getMessage());
+                failed++;
+                log.warn("{} 自动补搜失败：{}", PtLogText.subject(sub), e.getMessage());
             }
+        }
+        return new RoundOutcome(candidates.size(), searched, failed);
+    }
+
+    /**
+     * 一轮自动补搜的结果。
+     *
+     * @param candidates 有缺集且开着自动补搜开关的订阅数
+     * @param searched   其中本轮真正到期、发起了检索的订阅数——绝大多数轮次是 0
+     *                   （每条订阅默认 24 小时才到期一次，而心跳是 30 分钟一次）
+     * @param failed     检索过程中抛异常的订阅数
+     */
+    public record RoundOutcome(int candidates, int searched, int failed) {
+
+        static final RoundOutcome NO_CANDIDATE = new RoundOutcome(0, 0, 0);
+
+        /** 本轮是否发生了值得记一条 INFO 的事 */
+        public boolean changed() {
+            return searched > 0 || failed > 0;
         }
     }
 

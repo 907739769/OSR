@@ -1,6 +1,7 @@
 package com.osr.openliststrm.tmdb;
 
 import com.osr.common.utils.ThreadTraceIdUtil;
+import com.osr.common.utils.RoundHeartbeat;
 import com.osr.common.utils.Threads;
 import com.osr.common.utils.spring.SpringUtils;
 import jakarta.annotation.PreDestroy;
@@ -49,7 +50,7 @@ public class TmdbCachePurgeTask {
     public void start() {
         ThreadTraceIdUtil.initTraceId();
         scheduler.scheduleAtFixedRate(Threads.wrap(this::run), Instant.now().plus(INITIAL_DELAY), INTERVAL);
-        log.info("TmdbCachePurgeTask started");
+        log.info("TmdbCachePurgeTask started, interval={}", INTERVAL);
     }
 
     @PreDestroy
@@ -58,13 +59,25 @@ public class TmdbCachePurgeTask {
         MDC.clear();
     }
 
+    /** 无变化时最多半小时报一次平安：不打的话「一切正常」和「调度器死了」在日志上一模一样 */
+    private final RoundHeartbeat heartbeat = new RoundHeartbeat();
+
     private void run() {
         if (!running.compareAndSet(false, true)) {
             log.debug("TmdbCachePurgeTask 上一轮尚未结束，跳过本次触发");
             return;
         }
         try {
-            tmdbCacheService.purgeExpired();
+            int purged = tmdbCacheService.purgeExpired();
+            if (purged > 0) {
+                // 真删了东西时 TmdbCacheService 自己已经打过一条，这里只需重置心跳
+                heartbeat.active();
+            } else {
+                RoundHeartbeat.Beat beat = heartbeat.quiet();
+                if (beat.shouldReport()) {
+                    log.info("TMDb 缓存清理完成：无过期记录（最近 {} 轮均无）", beat.quietRounds());
+                }
+            }
         } catch (Exception e) {
             log.error("TmdbCachePurgeTask run error", e);
         } finally {

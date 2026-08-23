@@ -1,5 +1,6 @@
 package com.osr.openliststrm.pt.task;
 
+import com.osr.common.utils.RoundHeartbeat;
 import com.osr.common.utils.Threads;
 import com.osr.common.utils.ThreadTraceIdUtil;
 import com.osr.common.utils.spring.SpringUtils;
@@ -38,7 +39,7 @@ public class RssPollTask {
     public void start() {
         ThreadTraceIdUtil.initTraceId();
         scheduler.scheduleAtFixedRate(Threads.wrap(this::poll), Instant.now().plusSeconds(60), Duration.ofSeconds(60));
-        log.info("RssPollTask started");
+        log.info("RssPollTask started, 心跳间隔=60s（各索引器的实际拉取周期由索引器自身配置决定）");
     }
 
     @PreDestroy
@@ -47,13 +48,27 @@ public class RssPollTask {
         MDC.clear();
     }
 
+    /** 无变化时最多半小时报一次平安：不打的话「一切正常」和「调度器死了」在日志上一模一样 */
+    private final RoundHeartbeat heartbeat = new RoundHeartbeat();
+
     private void poll() {
         if (!running.compareAndSet(false, true)) {
             log.debug("RssPollTask 上一轮尚未结束，跳过本次触发");
             return;
         }
         try {
-            rssPollService.poll();
+            RssPollService.PollOutcome outcome = rssPollService.poll();
+            if (outcome.changed()) {
+                heartbeat.active();
+                log.info("RSS 轮询完成：{} 个索引器拉回 {} 条种子，推送 {} 个",
+                        outcome.dueIndexers(), outcome.torrents(), outcome.pushed());
+            } else {
+                RoundHeartbeat.Beat beat = heartbeat.quiet();
+                if (beat.shouldReport()) {
+                    log.info("RSS 轮询完成：{} 个索引器拉回 {} 条种子，无匹配（最近 {} 轮均无）",
+                            outcome.dueIndexers(), outcome.torrents(), beat.quietRounds());
+                }
+            }
         } catch (Exception e) {
             log.error("RssPollTask poll error", e);
         } finally {

@@ -59,7 +59,7 @@ public class EpisodeHealthNotifyTask {
     public void start() {
         ThreadTraceIdUtil.initTraceId();
         scheduler.scheduleAtFixedRate(Threads.wrap(this::run), Instant.now().plus(INITIAL_DELAY), INTERVAL);
-        log.info("EpisodeHealthNotifyTask started");
+        log.info("EpisodeHealthNotifyTask started, interval={}", INTERVAL);
     }
 
     @PreDestroy

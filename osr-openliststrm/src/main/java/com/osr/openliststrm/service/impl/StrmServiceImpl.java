@@ -442,7 +442,11 @@ public class StrmServiceImpl implements IStrmService {
                     .toList();
         }
         strmHelper.batchAddStrm(pendingRecords, existingIdByKey);
-        log.info("STRM文件并行处理完成，共处理 {} 个文件", fileEntryCount);
+        // 打 pendingRecords 而不是 fileEntryCount：后者是 BFS 扫到的<b>输入</b>数，
+        // 而真正生成的是前者。扫了 500 个文件、因为非媒体/太小/已处理而一个 .strm 都没生成时，
+        // 原先那行会说「共处理 500 个文件」——读起来完全像成功了
+        log.info("STRM 文件并行处理完成：扫描 {} 个文件，生成 {} 个 .strm 记录",
+                fileEntryCount, pendingRecords.size());
     }
 
     /**
@@ -588,7 +592,7 @@ public class StrmServiceImpl implements IStrmService {
 
         if (!openListHelper.isVideo(rawName) && !openListHelper.isSrt(rawName)) {
             if (log.isDebugEnabled()) {
-                log.debug("Skipping no media file {}", rawName);
+                log.debug("跳过非媒体文件：{}", rawName);
             }
             return Collections.emptyList();
         }
@@ -602,7 +606,7 @@ public class StrmServiceImpl implements IStrmService {
 
         if (openListHelper.isVideo(rawName)) {
             if (size < ctx.minSize()) {
-                log.debug("Skipping small file {} ({} bytes)", rawName, size);
+                log.debug("跳过小文件：{}（{} 字节）", rawName, size);
                 return records;
             }
 

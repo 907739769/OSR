@@ -1,6 +1,9 @@
 package com.osr.openliststrm.pt.transfer;
 
 import com.osr.common.utils.ThreadTraceIdUtil;
+import com.osr.common.utils.RoundHeartbeat;
+
+import java.util.List;
 import com.osr.common.utils.Threads;
 import com.osr.common.utils.spring.SpringUtils;
 import jakarta.annotation.PreDestroy;
@@ -62,13 +65,31 @@ public class TorrentTransferTask {
         MDC.clear();
     }
 
+    /** 无变化时最多半小时报一次平安：不打的话「一切正常」和「调度器死了」在日志上一模一样 */
+    private final RoundHeartbeat heartbeat = new RoundHeartbeat();
+
     private void poll() {
         if (!running.compareAndSet(false, true)) {
             log.debug("TorrentTransferTask 上一轮尚未结束，跳过本次触发");
             return;
         }
         try {
-            transferService.transferAll();
+            List<TransferSummary> summaries = transferService.transferAll();
+            int started = summaries.stream().mapToInt(TransferSummary::getStarted).sum();
+            int completed = summaries.stream().mapToInt(TransferSummary::getCompleted).sum();
+            int failed = summaries.stream().mapToInt(TransferSummary::getFailed).sum();
+            if (started > 0 || completed > 0 || failed > 0) {
+                heartbeat.active();
+                log.info("转移做种完成：新发起 {} 个，完成 {} 个{}",
+                        started, completed, failed > 0 ? "，失败 " + failed + " 个" : "");
+            } else {
+                RoundHeartbeat.Beat beat = heartbeat.quiet();
+                if (beat.shouldReport()) {
+                    int scanned = summaries.stream().mapToInt(TransferSummary::getScanned).sum();
+                    log.info("转移做种完成：{} 条规则扫描 {} 个种子，无可转移（最近 {} 轮均无）",
+                            summaries.size(), scanned, beat.quietRounds());
+                }
+            }
         } catch (Exception e) {
             log.error("TorrentTransferTask poll error", e);
         } finally {

@@ -130,17 +130,20 @@ public class AutoAddPopularService {
     /**
      * 到期的启用规则依次执行一轮。由 {@link AutoAddPopularTask} 定时调用。
      */
-    public void runDueRules() {
+    public int runDueRules() {
+        int ran = 0;
         for (PtAutoAddRulePlus rule : ruleService.listEnabled()) {
             if (!due(rule)) {
                 continue;
             }
             try {
                 runRule(rule);
+                ran++;
             } catch (Exception e) {
                 log.error("热门自动订阅规则[{}]执行异常", rule.getId(), e);
             }
         }
+        return ran;
     }
 
     private boolean due(PtAutoAddRulePlus rule) {

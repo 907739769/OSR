@@ -1,6 +1,10 @@
 package com.osr.openliststrm.pt.clean;
 
 import com.osr.common.utils.ThreadTraceIdUtil;
+import com.osr.common.utils.RoundHeartbeat;
+import com.osr.openliststrm.pt.PtNotifyText;
+
+import java.util.List;
 import com.osr.common.utils.Threads;
 import com.osr.common.utils.spring.SpringUtils;
 import jakarta.annotation.PreDestroy;
@@ -60,13 +64,35 @@ public class TorrentCleanTask {
         MDC.clear();
     }
 
+    /** 无变化时最多半小时报一次平安：不打的话「一切正常」和「调度器死了」在日志上一模一样 */
+    private final RoundHeartbeat heartbeat = new RoundHeartbeat();
+
     private void poll() {
         if (!running.compareAndSet(false, true)) {
             log.debug("TorrentCleanTask 上一轮尚未结束，跳过本次触发");
             return;
         }
         try {
-            cleanService.cleanAll();
+            List<CleanSummary> summaries = cleanService.cleanAll();
+            int torrents = summaries.stream().mapToInt(CleanSummary::getDeletedTorrents).sum();
+            int groups = summaries.stream().mapToInt(CleanSummary::getDeletedGroups).sum();
+            int failed = summaries.stream().mapToInt(CleanSummary::getFailedGroups).sum();
+            long freed = summaries.stream().mapToLong(CleanSummary::getFreedBytes).sum();
+            if (torrents > 0 || failed > 0) {
+                heartbeat.active();
+                // size() 在 <=0 时返回 null（通知里那边是「整段不写」的语义），
+                // 只删失败没删成时 freed 就是 0，直接拼会打出「释放 null」
+                String freedText = freed > 0 ? PtNotifyText.size(freed) : "0 MB";
+                log.info("自动删种完成：删除 {} 个种子（{} 组），释放 {}{}",
+                        torrents, groups, freedText,
+                        failed > 0 ? "，" + failed + " 组删除失败" : "");
+            } else {
+                RoundHeartbeat.Beat beat = heartbeat.quiet();
+                if (beat.shouldReport()) {
+                    int scanned = summaries.stream().mapToInt(CleanSummary::getScannedGroups).sum();
+                    log.info("自动删种完成：扫描 {} 组，无需删除（最近 {} 轮均无）", scanned, beat.quietRounds());
+                }
+            }
         } catch (Exception e) {
             log.error("TorrentCleanTask poll error", e);
         } finally {

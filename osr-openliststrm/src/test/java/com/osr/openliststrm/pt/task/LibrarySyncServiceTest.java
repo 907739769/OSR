@@ -62,7 +62,7 @@ class LibrarySyncServiceTest {
     void 没有待对账订阅_不发起任何对账() {
         when(subscriptionService.listActiveWithMissing()).thenReturn(List.of());
 
-        assertEquals(0, service(4).refreshAll());
+        assertEquals(0, service(4).refreshAll().scanned());
         verify(subscriptionBiz, never()).refresh(anyInt());
     }
 
@@ -70,7 +70,7 @@ class LibrarySyncServiceTest {
     void 每条有缺集的订阅都被对账一次() {
         candidates(10);
 
-        assertEquals(10, service(4).refreshAll());
+        assertEquals(10, service(4).refreshAll().scanned());
 
         for (int i = 1; i <= 10; i++) {
             verify(subscriptionBiz).refresh(i);
@@ -86,7 +86,7 @@ class LibrarySyncServiceTest {
         candidates(5);
         doThrow(new RuntimeException("emby down")).when(subscriptionBiz).refresh(3);
 
-        assertEquals(5, service(4).refreshAll());
+        assertEquals(5, service(4).refreshAll().scanned());
 
         verify(subscriptionBiz).refresh(1);
         verify(subscriptionBiz).refresh(2);
@@ -113,7 +113,7 @@ class LibrarySyncServiceTest {
             peak.updateAndGet(prev -> Math.max(prev, now));
             Thread.sleep(20);
             inFlight.decrementAndGet();
-            return null;
+            return 0;
         }).when(subscriptionBiz).refresh(anyInt());
 
         service(4).refreshAll();
@@ -136,7 +136,7 @@ class LibrarySyncServiceTest {
         doAnswer(invocation -> {
             threads.add(Thread.currentThread().threadId());
             Thread.sleep(30);
-            return null;
+            return 0;
         }).when(subscriptionBiz).refresh(anyInt());
 
         service(4).refreshAll();
@@ -159,7 +159,7 @@ class LibrarySyncServiceTest {
         doAnswer(invocation -> {
             Thread.sleep(15);
             done.incrementAndGet();
-            return null;
+            return 0;
         }).when(subscriptionBiz).refresh(anyInt());
 
         service(4).refreshAll();
@@ -172,7 +172,7 @@ class LibrarySyncServiceTest {
     void 并发度配置非法_退化为单条串行而不是卡死() {
         candidates(3);
 
-        assertEquals(3, service(0).refreshAll());
+        assertEquals(3, service(0).refreshAll().scanned());
 
         verify(subscriptionBiz).refresh(1);
         verify(subscriptionBiz).refresh(2);

@@ -1,6 +1,7 @@
 package com.osr.openliststrm.pt.calendar;
 
 import com.osr.common.utils.ThreadTraceIdUtil;
+import com.osr.common.utils.RoundHeartbeat;
 import com.osr.common.utils.Threads;
 import com.osr.common.utils.spring.SpringUtils;
 import jakarta.annotation.PreDestroy;
@@ -44,7 +45,7 @@ public class EpisodeAirDateSyncTask {
     public void start() {
         ThreadTraceIdUtil.initTraceId();
         scheduler.scheduleAtFixedRate(Threads.wrap(this::run), Instant.now().plus(INITIAL_DELAY), INTERVAL);
-        log.info("EpisodeAirDateSyncTask started");
+        log.info("EpisodeAirDateSyncTask started, interval={}", INTERVAL);
     }
 
     @PreDestroy
@@ -53,13 +54,25 @@ public class EpisodeAirDateSyncTask {
         MDC.clear();
     }
 
+    /** 无变化时最多半小时报一次平安：不打的话「一切正常」和「调度器死了」在日志上一模一样 */
+    private final RoundHeartbeat heartbeat = new RoundHeartbeat();
+
     private void run() {
         if (!running.compareAndSet(false, true)) {
             log.debug("EpisodeAirDateSyncTask 上一轮尚未结束，跳过本次触发");
             return;
         }
         try {
-            syncService.syncAll();
+            int updated = syncService.syncAll();
+            if (updated > 0) {
+                // 有更新时 EpisodeAirDateSyncService 自己已经打过明细，这里只重置心跳
+                heartbeat.active();
+            } else {
+                RoundHeartbeat.Beat beat = heartbeat.quiet();
+                if (beat.shouldReport()) {
+                    log.info("播出日期同步完成：无日期变化（最近 {} 轮均无）", beat.quietRounds());
+                }
+            }
         } catch (Exception e) {
             log.error("EpisodeAirDateSyncTask run error", e);
         } finally {

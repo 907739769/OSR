@@ -1,5 +1,6 @@
 package com.osr.openliststrm.pt.upgrade;
 
+import com.osr.common.utils.RoundHeartbeat;
 import com.osr.common.utils.Threads;
 import com.osr.common.utils.ThreadTraceIdUtil;
 import com.osr.common.utils.spring.SpringUtils;
@@ -52,7 +53,7 @@ public class UpgradeScanTask {
     public void start() {
         ThreadTraceIdUtil.initTraceId();
         scheduler.scheduleAtFixedRate(Threads.wrap(this::poll), Instant.now().plusSeconds(300), Duration.ofHours(1));
-        log.info("UpgradeScanTask started");
+        log.info("UpgradeScanTask started, 心跳间隔=1h（实际扫描周期见洗版配置）");
     }
 
     @PreDestroy
@@ -61,6 +62,9 @@ public class UpgradeScanTask {
         MDC.clear();
     }
 
+    /** 无变化时最多半小时报一次平安：不打的话「一切正常」和「调度器死了」在日志上一模一样 */
+    private final RoundHeartbeat heartbeat = new RoundHeartbeat();
+
     private void poll() {
         if (!running.compareAndSet(false, true)) {
             log.debug("UpgradeScanTask 上一轮尚未结束，跳过本次触发");
@@ -68,12 +72,20 @@ public class UpgradeScanTask {
         }
         try {
             if (!isDue()) {
+                // 未到期不算一轮：它不代表扫描跑过，拿它喂心跳会让「洗版其实一直没扫」
+                // 看起来一切正常
                 return;
             }
             lastRunMillis = System.currentTimeMillis();
             int pushed = upgradeScanService.run();
             if (pushed > 0) {
-                log.info("本轮洗版扫描推送了 {} 个升级下载", pushed);
+                heartbeat.active();
+                log.info("洗版扫描完成：推送了 {} 个升级下载", pushed);
+            } else {
+                RoundHeartbeat.Beat beat = heartbeat.quiet();
+                if (beat.shouldReport()) {
+                    log.info("洗版扫描完成：无可升级的集（最近 {} 轮均无）", beat.quietRounds());
+                }
             }
         } catch (Exception e) {
             log.error("UpgradeScanTask poll error", e);
