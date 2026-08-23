@@ -8,6 +8,10 @@ import lombok.extern.slf4j.Slf4j;
 import java.io.IOException;
 import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.Locale;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -94,8 +98,43 @@ public class WatchServiceMonitor implements FileMonitor {
         } catch (ClosedWatchServiceException e) {
             log.info("WatchService 已关闭，目录监听退出");
         } catch (Exception e) {
-            log.error("目录监听主循环异常", e);
+            if (isShutdownRejection(e)) {
+                // 应用关停时 WatchService 还在派事件，而派给的 executor 已经在关了。
+                // 不是故障、也无从处理，却会带着一整份堆栈进 sys-error.log——而那个文件的
+                // 全部价值在于噪音为零（后端异常不进 docker stdout，它是排查启动失败的唯一入口）。
+                // 处理方式与 GlobalExceptionHandler 对客户端断连的降级同源。
+                log.info("应用关停中，目录监听退出: {}", root);
+            } else {
+                log.error("目录监听主循环异常: {} —— {}", root, e.getMessage(), e);
+            }
         }
+    }
+
+    /**
+     * 是不是「executor 已在关停」导致的任务被拒。
+     * <p>
+     * 按<b>类名后缀 + 消息关键字</b>沿异常链找，刻意不 import
+     * {@code org.springframework.core.task.TaskRejectedException}：同一件事在不同层会被包成
+     * 不同类型（底层是 {@code RejectedExecutionException}），按类型硬判会漏。
+     * </p>
+     * <p>
+     * 消息关键字是必需的，不能只看类型：任务被拒也可能是<b>队列满了</b>——那是真故障，
+     * 必须留在 ERROR。只有消息明说 shutdown/terminated 的才是关停。
+     * </p>
+     */
+    static boolean isShutdownRejection(Throwable e) {
+        Set<Throwable> seen = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (Throwable t = e; t != null && seen.add(t); t = t.getCause()) {
+            String type = t.getClass().getSimpleName();
+            if (!type.endsWith("TaskRejectedException") && !type.endsWith("RejectedExecutionException")) {
+                continue;
+            }
+            String msg = t.getMessage() == null ? "" : t.getMessage().toLowerCase(Locale.ROOT);
+            if (msg.contains("shutdown") || msg.contains("shut down") || msg.contains("terminated")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override

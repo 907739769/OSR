@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 /**
  * 从 TMDb 下载媒体图片（海报、背景图等）。
@@ -78,7 +79,7 @@ public class MediaImageDownloader {
      * 之前串行下载会导致耗时随图片数量线性叠加。
      */
     private void downloadAllImages(JsonNode details, Path outputDir, boolean forceOverwrite) {
-        List<Runnable> tasks = List.of(
+        List<Supplier<Boolean>> tasks = List.of(
                 () -> downloadImage(details, "poster", "poster.jpg", outputDir, forceOverwrite),
                 () -> downloadImage(details, "backdrop", "fanart.jpg", outputDir, forceOverwrite),
                 () -> downloadLogo(details, outputDir, forceOverwrite),
@@ -87,12 +88,21 @@ public class MediaImageDownloader {
                 () -> downloadImageByIndex(details, "backdrops", "landscape.jpg", 2, forceOverwrite, outputDir),
                 () -> downloadImageByIndex(details, "posters", "thumb.jpg", 1, forceOverwrite, outputDir)
         );
+        long downloaded;
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            List<CompletableFuture<Void>> futures = tasks.stream()
-                    .map(t -> CompletableFuture.runAsync(Threads.wrap(t), executor))
+            List<CompletableFuture<Boolean>> futures = tasks.stream()
+                    .map(t -> CompletableFuture.supplyAsync(Threads.wrapSupplier(t), executor))
                     .toList();
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+            downloaded = futures.stream().filter(CompletableFuture::join).count();
         }
+        // 汇总一行，取代此前每张图片各一行的「已存在，跳过」：那是缓存命中，回答不了
+        // 「谁会因为它做什么决定」（照 WatchServiceMonitor#registerAll 的先例：批量只报总数，
+        // 例外逐条报）。真正下载了的仍逐张 INFO，失败仍逐张 WARN——那两类才是事件。
+        // 「其余」而不是「已就位」：这一档里除了已存在，还混着「TMDb 没有这种图」和「下载失败」，
+        // 后者各自另有 WARN。把三者说成「已就位」会让一次全失败的刮削读起来像一切正常。
+        log.debug("图片处理完成：新下载 {} 张，其余 {} 张已就位或无图 -> {}",
+                downloaded, tasks.size() - downloaded, outputDir);
     }
 
     /**
@@ -134,46 +144,53 @@ public class MediaImageDownloader {
         }
     }
 
-    private void downloadImage(JsonNode details, String type, String filename, Path outputDir, boolean forceOverwrite) {
+    /** @return 是否真的下载了（false = 已存在、无此图片或失败） */
+    private boolean downloadImage(JsonNode details, String type, String filename, Path outputDir, boolean forceOverwrite) {
         try {
             String imgUrl = extractImageUrl(details, type);
             if (imgUrl == null) {
                 log.debug("未找到 {} 图片", type);
-                return;
+                return false;
             }
-            downloadImageLocked(imgUrl, outputDir.resolve(filename), forceOverwrite, type);
+            return downloadImageLocked(imgUrl, outputDir.resolve(filename), forceOverwrite, type);
         } catch (Exception e) {
             log.warn("下载 {} 图片失败: {}", type, e.getMessage());
+            return false;
         }
     }
 
-    private void downloadLogo(JsonNode details, Path outputDir, boolean forceOverwrite) {
+    /** @return 是否真的下载了（false = 已存在、无此图片或失败） */
+    private boolean downloadLogo(JsonNode details, Path outputDir, boolean forceOverwrite) {
         try {
             String imgUrl = extractLogoUrl(details, 0);
-            if (imgUrl == null) return;
-            downloadImageLocked(imgUrl, outputDir.resolve("clearlogo.png"), forceOverwrite, "clearlogo");
+            if (imgUrl == null) return false;
+            return downloadImageLocked(imgUrl, outputDir.resolve("clearlogo.png"), forceOverwrite, "clearlogo");
         } catch (Exception e) {
             log.warn("下载 clearlogo 图片失败: {}", e.getMessage());
+            return false;
         }
     }
 
     /**
      * 从图片列表中按索引下载图片，如果索引超出范围则回退到第一张
+     *
+     * @return 是否真的下载了（false = 已存在、无此图片或失败）
      */
-    private void downloadImageByIndex(JsonNode details, String imagesKey, String filename,
+    private boolean downloadImageByIndex(JsonNode details, String imagesKey, String filename,
                                       int preferredIndex, boolean forceOverwrite, Path outputDir) {
         try {
             JsonNode imagesArray = details.path(imagesKey);
-            if (!imagesArray.isArray() || imagesArray.size() == 0) return;
+            if (!imagesArray.isArray() || imagesArray.size() == 0) return false;
 
             // 如果有足够的图片，使用指定索引；否则使用第一张
             int idx = Math.min(preferredIndex, imagesArray.size() - 1);
             String url = selectImageFromListAt(imagesArray, idx);
-            if (url == null) return;
+            if (url == null) return false;
 
-            downloadImageLocked(url, outputDir.resolve(filename), forceOverwrite, filename);
+            return downloadImageLocked(url, outputDir.resolve(filename), forceOverwrite, filename);
         } catch (Exception e) {
             log.warn("下载 {} 图片失败: {}", filename, e.getMessage());
+            return false;
         }
     }
 
@@ -181,17 +198,20 @@ public class MediaImageDownloader {
      * 按目标文件路径加锁 + 临时文件下载后原子替换，避免同一图片文件（如 season-poster.jpg）
      * 被多个并发刮削任务同时写入导致内容交错/半下载文件。
      */
-    private void downloadImageLocked(String urlStr, Path target, boolean forceOverwrite, String logLabel) {
+    /** @return 是否真的下载了（false = 已存在或失败） */
+    private boolean downloadImageLocked(String urlStr, Path target, boolean forceOverwrite, String logLabel) {
+        boolean[] downloaded = {false};
         try {
             ScrapeFileLock.withLock(target, () -> {
+                // 「已存在，跳过」原先在这里各打一行：缓存命中，由调用方汇总成一行代之
                 if (Files.exists(target) && !forceOverwrite) {
-                    log.debug("{} 已存在，跳过: {}", logLabel, target);
                     return;
                 }
                 Path tmpFile = target.resolveSibling(target.getFileName().toString() + ".tmp");
                 try {
                     downloadToFile(urlStr, tmpFile);
                     Files.move(tmpFile, target, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+                    downloaded[0] = true;
                     log.info("下载 {} 图片: {} -> {}", logLabel, urlStr, target);
                 } finally {
                     Files.deleteIfExists(tmpFile);
@@ -200,6 +220,7 @@ public class MediaImageDownloader {
         } catch (Exception e) {
             log.warn("下载 {} 图片失败: {}", logLabel, e.getMessage());
         }
+        return downloaded[0];
     }
 
     private String extractImageUrl(JsonNode details, String type) {
