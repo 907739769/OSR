@@ -81,12 +81,12 @@ public class TMDbClient {
                 try {
                     enrichEpisodeDetails(info, api);
                 } catch (Exception e) {
-                    log.warn("enrichEpisodeDetails failed for tvId={}, season={}: {}",
+                    log.warn("补全分集详情失败：tvId={}, season={}：{}",
                             info.getTmdbId(), info.getSeason(), e.getMessage());
                 }
             }
         } catch (Exception e) {
-            log.error("TMDb enrich error", e);
+            log.error("TMDb 信息补全异常", e);
         }
     }
 
@@ -122,7 +122,7 @@ public class TMDbClient {
                 try {
                     enrichEpisodeDetails(info, api);
                 } catch (Exception e) {
-                    log.warn("enrichEpisodeDetails failed for tvId={}, season={}: {}",
+                    log.warn("补全分集详情失败：tvId={}, season={}：{}",
                             tmdbId, info.getSeason(), e.getMessage());
                 }
             }
@@ -130,7 +130,7 @@ public class TMDbClient {
             log.warn("tmdbId 格式非法，回退为搜索匹配：{}", tmdbId);
             enrich(info);
         } catch (Exception e) {
-            log.error("TMDb enrichByTmdbId error, tmdbId={}", tmdbId, e);
+            log.error("按 tmdbId 补全 TMDb 信息异常：tmdbId={}", tmdbId, e);
         }
     }
 
@@ -345,7 +345,7 @@ public class TMDbClient {
     private String doSearchOnce(String type, MediaInfo info, com.fasterxml.jackson.databind.JsonNode root, TMDbApiService api) throws IOException {
         if (root == null) return null;
         JsonNode results = root.path("results");
-        log.debug("doSearchOnce: {} results: {}", info.getOriginalName(), results);
+        log.debug("TMDb 搜索 {} 命中：{}", info.getOriginalName(), results);
         if (!results.isArray() || results.isEmpty()) return null;
 
         List<JsonNode> ranked = rankCandidates(type, info, results);
@@ -385,7 +385,7 @@ public class TMDbClient {
             try {
                 fetchDetails(type, id, info, api);
             } catch (Exception e) {
-                log.warn("fetchDetails failed: {}", e.getMessage());
+                log.warn("拉取 TMDb 详情失败：{}", e.getMessage());
             }
 
             return best;
@@ -878,7 +878,7 @@ public class TMDbClient {
         }
         JsonNode root = mapper.readTree(raw);
         if (root == null) return null;
-        log.debug("fetchChineseAlias: {}", root);
+        log.debug("TMDb 中文别名响应：{}", root);
 
         JsonNode titles = type.equals("movie") ? root.get("titles") : root.get("results");
         if (titles == null) return null;

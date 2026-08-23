@@ -76,10 +76,10 @@ public class RenameEventListenerFactoryImpl implements RenameEventListenerFactor
             record.setStatus("1");
 
             saveOrUpdate(record);
-            log.debug("Persist rename success task={} {} -> {}", taskId, original, dest);
+            log.debug("重命名成功已落库：task={} {} -> {}", taskId, original, dest);
             return record.getId();
         } catch (Exception e) {
-            log.error("Persist rename success failed", e);
+            log.error("重命名成功记录落库失败", e);
         }
         return null;
     }
@@ -105,9 +105,9 @@ public class RenameEventListenerFactoryImpl implements RenameEventListenerFactor
             record.setStatus("0");
 
             saveOrUpdate(record);
-            log.info("Persist rename failed task={} {} reason={}", taskId, original, reason);
+            log.info("重命名失败已落库：task={} {} reason={}", taskId, original, reason);
         } catch (Exception e) {
-            log.error("Persist rename failed error", e);
+            log.error("重命名失败记录落库失败", e);
         }
     }
 

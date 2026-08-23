@@ -264,6 +264,11 @@ public class TMDbApiService {
         }
 
         // 3. 带重试的 HTTP 调用
+        // 两级缓存都没命中，这里是真的发出去了一次外部请求——TMDb 侧唯一值得逐条记的事件。
+        // 打 encodedPath 而不是完整 url：后者的 query 里带着 api_key，写进保留 7 天的日志文件
+        // 等于把密钥落盘。路径本身（/3/tv/1399/season/23）已经足够认出是哪部剧的哪一季，
+        // 而原先这条记在 TmdbCacheService 里、载荷是一个 MD5，谁也认不出来
+        log.debug("TMDb 回源请求：{} {}", methodName, req.url().encodedPath());
         String result = executeWithRetry(req, methodName);
 
         // 4. 写入数据库缓存 + 进程内缓存

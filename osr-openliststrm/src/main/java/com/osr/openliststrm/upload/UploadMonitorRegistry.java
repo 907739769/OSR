@@ -89,10 +89,10 @@ public class UploadMonitorRegistry {
             );
             svc.start();
             monitors.put(task.getCopyTaskId(), new MonitorInfo(svc, task.getCopyTaskSrc(), task.getCopyTaskDst(), task.getMonitorDir()));
-            log.info("Started monitor for upload task {}", task.getCopyTaskId());
+            log.info("已启动上传任务 {} 的目录监听", task.getCopyTaskId());
         } catch (
                 Exception e) {
-            log.error("Failed to start monitor for upload task {}", task.getCopyTaskId(), e);
+            log.error("启动上传任务 {} 的目录监听失败", task.getCopyTaskId(), e);
         }
     }
 
@@ -104,7 +104,7 @@ public class UploadMonitorRegistry {
                 mi.service.stop();
             } catch (Exception ignored) {
             }
-            log.info("Stopped monitor for upload task {}", id);
+            log.info("已停止上传任务 {} 的目录监听", id);
         }
     }
 

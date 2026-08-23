@@ -42,13 +42,13 @@ public class MediaUploadProcessor implements FileProcessor {
             return;
         }
         if (!processing.add(p)) {
-            log.debug("Skip duplicate processing {}", p);
+            log.debug("跳过重复处理：{}", p);
             return;
         }
         try {
             copyService.syncOneFile(copyTaskSrc, copyTaskDst, file.toAbsolutePath().toString().replace(monitorDir, ""));
         } catch (Exception e) {
-            log.error("process failed {}", p, e);
+            log.error("处理文件失败：{}", p, e);
         } finally {
             processing.remove(p);
         }

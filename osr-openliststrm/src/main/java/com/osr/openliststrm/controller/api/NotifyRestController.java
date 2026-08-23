@@ -42,7 +42,7 @@ public class NotifyRestController
     @PostMapping("/notifyByDir")
     public Result<Void> notifyByDir(@RequestBody @Valid NotifyReq req, HttpServletRequest request)
     {
-        log.debug("req: {}", req);
+        log.debug("收到目录变更通知：{}", req);
         if (StringUtils.isBlank(request.getHeader("X-API-KEY")))
         {
             log.warn("没有设置参数openlist.api.apikey");

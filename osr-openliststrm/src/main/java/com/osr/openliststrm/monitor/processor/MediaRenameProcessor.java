@@ -136,13 +136,13 @@ public class MediaRenameProcessor implements FileProcessor {
             return;
         }
         if (!processing.add(p)) {
-            log.debug("Skip duplicate processing {}", p);
+            log.debug("跳过重复处理：{}", p);
             return;
         }
         try {
             handleFile(p);
         } catch (Exception e) {
-            log.error("process failed {}", p, e);
+            log.error("处理文件失败：{}", p, e);
         } finally {
             processing.remove(p);
         }
@@ -164,7 +164,7 @@ public class MediaRenameProcessor implements FileProcessor {
     public void processOnce(Path sourceDir) {
         try {
             if (!Files.exists(sourceDir) || !Files.isDirectory(sourceDir)) {
-                log.warn("processOnce: sourceDir does not exist or not a directory: {}", sourceDir);
+                log.warn("源目录不存在或不是目录，本轮跳过：{}", sourceDir);
                 return;
             }
             IRenameDetailPlusService renameDetailPlusService = SpringUtils.getBean(IRenameDetailPlusService.class);
@@ -222,7 +222,7 @@ public class MediaRenameProcessor implements FileProcessor {
                                 try {
                                     handleFileIfReady(p);
                                 } catch (Exception e) {
-                                    log.error("processOnce handleFileIfReady failed for {}", p, e);
+                                    log.error("单文件就绪检查失败：{}", p, e);
                                 } finally {
                                     processing.remove(p);
                                 }
@@ -234,7 +234,7 @@ public class MediaRenameProcessor implements FileProcessor {
                 CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
             }
         } catch (IOException e) {
-            log.error("processOnce failed", e);
+            log.error("单轮重命名扫描失败", e);
         }
     }
 
@@ -285,11 +285,11 @@ public class MediaRenameProcessor implements FileProcessor {
             boolean isStrm = openListHelper.isStrm(filename);
             boolean isVideo = openListHelper.isVideo(filename);
             if (!isStrm && !isVideo) {
-                log.debug("Skipping non-video file {}", p);
+                log.debug("跳过非视频文件：{}", p);
                 return false;
             }
             if (!isStrm && size < minFileSizeBytes) {
-                log.debug("Skipping small file {} ({} bytes)", p, size);
+                log.debug("跳过小文件：{}（{} 字节）", p, size);
                 return false;
             }
         } else if (size < minFileSizeBytes) {
@@ -380,7 +380,7 @@ public class MediaRenameProcessor implements FileProcessor {
             try {
                 detailId = renameListener.onRename(source, destFile, info, mediaType);
             } catch (Exception e) {
-                log.warn("renameListener failed: {}", e.getMessage());
+                log.warn("重命名成功回调失败：{}", e.getMessage());
             }
         }
         try {
@@ -395,7 +395,7 @@ public class MediaRenameProcessor implements FileProcessor {
             try {
                 renameListener.onRenameFailed(p, targetRoot, info, mediaType, reason);
             } catch (Exception e) {
-                log.warn("renameListener.onRenameFailed failed: {}", e.getMessage());
+                log.warn("重命名失败回调本身失败：{}", e.getMessage());
             }
         }
     }

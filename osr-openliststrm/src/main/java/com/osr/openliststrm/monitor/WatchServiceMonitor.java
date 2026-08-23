@@ -91,9 +91,9 @@ public class WatchServiceMonitor implements FileMonitor {
                 key.reset();
             }
         } catch (ClosedWatchServiceException e) {
-            log.info("WatchService closed, monitor exiting");
+            log.info("WatchService 已关闭，目录监听退出");
         } catch (Exception e) {
-            log.error("watch loop error", e);
+            log.error("目录监听主循环异常", e);
         }
     }
 
@@ -139,7 +139,7 @@ public class WatchServiceMonitor implements FileMonitor {
                 }
             }
         } catch (Exception e) {
-            log.error("handleCreate error {}", path, e);
+            log.error("处理新增文件事件失败：{}", path, e);
         }
     }
 
@@ -191,7 +191,7 @@ public class WatchServiceMonitor implements FileMonitor {
     private void register(Path dir) throws IOException {
         Path p = dir.toAbsolutePath().normalize();
         p.register(watchService, ENTRY_CREATE, ENTRY_MODIFY);
-        log.debug("Registered {}", p);
+        log.debug("已注册目录监听：{}", p);
     }
 
 }

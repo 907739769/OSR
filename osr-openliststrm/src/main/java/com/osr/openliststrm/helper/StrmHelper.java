@@ -61,7 +61,7 @@ public class StrmHelper {
         } catch (Exception e) {
             // 保持原异步实现的语义：写记录失败不往上抛，.strm 文件本身已经写好了，
             // 抛出去会让 strmOneFile 的 catch 分支再调一次 addStrm，把一次失败放大成两次
-            log.error("Error adding strm: path={}, fileName={}", strmPath, strmFileName, e);
+            log.error("写入 STRM 记录失败：path={}, fileName={}", strmPath, strmFileName, e);
         }
     }
 

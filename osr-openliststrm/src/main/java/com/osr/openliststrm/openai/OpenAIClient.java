@@ -67,7 +67,7 @@ public class OpenAIClient {
 
             if (root == null) return false;
 
-            log.debug("OpenAI response JSON: {}", root.toString());
+            log.debug("OpenAI 响应 JSON：{}", root.toString());
             boolean updated = false;
             updated |= setIfMissing(info::getOriginalTitle, info::setOriginalTitle, root, "originalTitle");
             updated |= setIfMissing(info::getTitle, info::setTitle, root, "title");

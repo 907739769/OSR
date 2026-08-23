@@ -36,7 +36,7 @@ public class OpenlistApi {
                 .readTimeout(90, TimeUnit.SECONDS)
                 .writeTimeout(90, TimeUnit.SECONDS)
                 .build();
-        log.debug("OkHttpClient initialized successfully.");
+        log.debug("OkHttpClient 初始化完成");
     }
 
     private Headers buildHeaders() {
@@ -72,7 +72,7 @@ public class OpenlistApi {
                         log.debug("{}成功", logPrefix);
                         return jsonResponse;
                     }
-                    log.debug("Response Body: {}", jsonResponse != null ? jsonResponse.toJSONString() : "null");
+                    log.debug("响应体：{}", jsonResponse != null ? jsonResponse.toJSONString() : "null");
                     log.warn("{}第{}次失败", logPrefix, i + 1);
                 } else {
                     log.warn("{}第{}次失败，HTTP状态码: {}", logPrefix, i + 1, response.code());
@@ -95,8 +95,8 @@ public class OpenlistApi {
                 log.debug("{}成功", logPrefix);
                 return jsonResponse;
             }
-            log.warn("Request failed with code: {}", response.code());
-            log.error("Request failed with response: {}", response);
+            log.warn("请求失败，HTTP {}", response.code());
+            log.error("请求失败，响应：{}", response);
             return null;
         } catch (Exception e) {
             // 合成一条：原先「上下文」与「堆栈」分成两条 ERROR 打，sys-error.log 里各占一条，

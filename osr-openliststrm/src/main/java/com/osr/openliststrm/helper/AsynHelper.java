@@ -78,7 +78,7 @@ public class AsynHelper {
                 // 开始递归检查
                 processCopyListRecursive(copyList, dstDir, strmDir, deadline, 0);
             } catch (Exception e) {
-                log.error("Error in isCopyDone initialization", e);
+                log.error("初始化复制完成判定失败", e);
             }
         }), Instant.now().plusSeconds(30));
     }
@@ -149,7 +149,7 @@ public class AsynHelper {
                     iterator.remove(); // 移除已完成任务
                 }
             } catch (Exception e) {
-                log.error("Error checking task status for id: {}", taskId, e);
+                log.error("查询复制任务状态失败：taskId={}", taskId, e);
             }
         }
 
@@ -290,7 +290,7 @@ public class AsynHelper {
                     Instant.now().plusSeconds(interval));
 
         } catch (Exception e) {
-            log.error("Error in checkOneFileRecursive for path: {}", path, e);
+            log.error("递归检查单文件复制状态失败：{}", path, e);
         }
     }
 
@@ -321,7 +321,7 @@ public class AsynHelper {
             }
             strmService.strmDir(newDstDir + "/" + newStrmDir); // 生成 STRM 文件
         } catch (Exception e) {
-            log.error("Error generating strm for dir: {}", dstDir, e);
+            log.error("为目录生成 STRM 失败：{}", dstDir, e);
         }
     }
 }

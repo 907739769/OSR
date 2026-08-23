@@ -34,7 +34,7 @@ public class RenameClientProvider {
         String newKey = config.getTmdbApiKey();
         if (StringUtils.isBlank(newKey)) {
             if (tmdbClient != null) {
-                log.warn("TMDb key removed, disabling TMDb client");
+                log.warn("TMDb key 已移除，停用 TMDb 客户端");
             }
             tmdbClient = null;
             tmdbKey = null;
@@ -43,7 +43,7 @@ public class RenameClientProvider {
         if (!StringUtils.equals(newKey, tmdbKey)) {
             tmdbClient = new TMDbClient(newKey);
             tmdbKey = newKey;
-            log.info("TMDb client initialized / refreshed");
+            log.info("TMDb 客户端已初始化/刷新");
         }
     }
 
@@ -73,7 +73,7 @@ public class RenameClientProvider {
             openAiKey = key;
             openAiEndpoint = endpoint;
             openAiModel = model;
-            log.info("OpenAI client initialized / refreshed");
+            log.info("OpenAI 客户端已初始化/刷新");
         }
     }
 

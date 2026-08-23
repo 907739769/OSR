@@ -130,10 +130,10 @@ public class RenameMonitorRegistry {
                     task.getScrapeNfo() != null ? task.getScrapeNfo() : "0",
                     task.getScrapeImages() != null ? task.getScrapeImages() : "0"
             ));
-            log.info("Started monitor for rename task {}", task.getId());
+            log.info("已启动重命名任务 {} 的目录监听", task.getId());
         } catch (
                 Exception e) {
-            log.error("Failed to start monitor for rename task {}", task.getId(), e);
+            log.error("启动重命名任务 {} 的目录监听失败", task.getId(), e);
         }
     }
 
@@ -145,7 +145,7 @@ public class RenameMonitorRegistry {
                 mi.service.stop();
             } catch (Exception ignored) {
             }
-            log.info("Stopped monitor for rename task {}", id);
+            log.info("已停止重命名任务 {} 的目录监听", id);
         }
     }
 

@@ -45,14 +45,14 @@ public class CopyHelper {
                 }
             } catch (MybatisPlusException e) {
                 if (e.getMessage() != null && e.getMessage().contains("Duplicate entry")) {
-                    log.debug("Copy record already exists: path={}, fileName={}",
+                    log.debug("复制记录已存在：path={}, fileName={}",
                             openlistCopyPlus.getCopySrcPath(), openlistCopyPlus.getCopySrcFileName());
                 } else {
-                    log.error("Error adding copy: path={}, fileName={}",
+                    log.error("写入复制记录失败：path={}, fileName={}",
                             openlistCopyPlus.getCopySrcPath(), openlistCopyPlus.getCopySrcFileName(), e);
                 }
             } catch (Exception e) {
-                log.error("Error adding copy: path={}, fileName={}",
+                log.error("写入复制记录失败：path={}, fileName={}",
                         openlistCopyPlus.getCopySrcPath(), openlistCopyPlus.getCopySrcFileName(), e);
             }
         });

@@ -46,7 +46,7 @@ public class TmdbCacheService {
         if (cache != null) {
             // 刻意不记「缓存命中」：命中是正常路径上的高频事件，没有任何诊断价值——
             // 没人会因为「命中了」去查什么。实测它一家占掉全量日志的 22%（一次对账 236 行）。
-            // 未命中那一侧由 cacheResponse 的「缓存写入」间接标记（未命中必然回源并回填），
+            // 未命中那一侧由 TMDbApiService 的「回源请求」标记（未命中必然回源），
             // 想看命中率应该走指标而不是逐条日志。
             return cache.getResponseData();
         }
@@ -75,7 +75,10 @@ public class TmdbCacheService {
         cache.setExpireTime(new Date(expireMillis));
         cache.setCreateTime(new Date());
         tmdbCacheMapper.upsert(cache);
-        log.debug("TMDb缓存写入: type={}, key={}, ttl={}min", cacheType, cacheKey, ttlMinutes);
+        // 这里刻意不记日志：它与 TMDbApiService 的「回源请求」是同一个事件的一体两面
+        // （回源成功必然回填），而那边拿得到请求路径、这边手里只有一个 MD5 缓存键。
+        // 原先这条一轮播出日期同步能刷 55 行 type=getSeasonEpisodes, key=<hash>，
+        // 一部剧都认不出来
     }
 
     /**

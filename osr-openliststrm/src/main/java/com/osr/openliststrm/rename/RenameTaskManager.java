@@ -72,7 +72,7 @@ public class RenameTaskManager {
     public void executeRenameDetails(Integer id, String title, String year, String season, String episode) {
         RenameDetailPlus rd = renameDetailService.getById(id);
         if (rd == null) {
-            log.warn("Rename task not found: {}", id);
+            log.warn("重命名任务不存在：{}", id);
             return;
         }
 
@@ -111,13 +111,13 @@ public class RenameTaskManager {
             if (taskId == null) return;
             RenameTaskPlus task = renameTaskService.getById(taskId);
             if (task == null) {
-                log.warn("executeTaskNow: task {} not found", taskId);
+                log.warn("立即执行：重命名任务 {} 不存在", taskId);
                 return;
             }
             String src = task.getSourceFolder();
             String tgt = task.getTargetRoot();
             if (src == null || tgt == null) {
-                log.warn("executeTaskNow: task {} missing source/target", taskId);
+                log.warn("立即执行：重命名任务 {} 缺少源目录或目标目录", taskId);
                 return;
             }
             MediaRenameProcessor processor = new MediaRenameProcessor(
@@ -129,7 +129,7 @@ public class RenameTaskManager {
             );
             processor.processOnce(Paths.get(src));
         } catch (Exception e) {
-            log.error("executeTaskNow error for {}: {}", taskId, e.getMessage(), e);
+            log.error("立即执行重命名任务 {} 失败：{}", taskId, e.getMessage(), e);
         }
     }
 
