@@ -1,6 +1,7 @@
 package com.osr.openliststrm.rename.model;
 
 import lombok.Data;
+import lombok.ToString;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -47,7 +48,40 @@ public class MediaInfo {
     private List<String> genreIds = new ArrayList<>();
     private String originalLanguage; // e.g. "zh", "en"
     private List<String> originCountries = new ArrayList<>();
+    /**
+     * TMDb 原始响应（images / content_ratings / external_ids / season_images 等），按 key 存 JsonNode。
+     * <p>
+     * 排除出 toString：这些 JsonNode 是完整响应体，一份 images 就有 26 KB。整个 MediaInfo 会被
+     * {@code MediaParser} 逐个文件 log 出来，实测单行最高 58 KB、12 个文件占掉整份日志的 29%，
+     * 而真正要看的 title/season/episode/tmdbId 都在前 600 字符。同一份 images JSON 在
+     * {@code TMDbClient} 那侧还会各自记一条摘要，这里再全量打一遍是第二次重复。
+     * 用 {@link #metadataSummary()} 代之：只报有哪些 key、各自多大，够回答「元数据拉到了没」。
+     */
+    @ToString.Exclude
     private Map<String, Object> metadata = new HashMap<>();
+
+    /**
+     * metadata 在 toString 里的替身：{@code metadata={images:26.1KB, external_ids:321B}}。
+     * <p>
+     * 刻意不叫 {@code getMetadataSummary()}：那会让它变成一个 bean 属性，被各路
+     * 反射式序列化（Jackson、MyBatis）当成真字段处理。
+     */
+    @ToString.Include(name = "metadata")
+    private String metadataSummary() {
+        if (metadata.isEmpty()) return "{}";
+        StringBuilder sb = new StringBuilder("{");
+        metadata.forEach((k, v) -> {
+            if (sb.length() > 1) sb.append(", ");
+            sb.append(k).append(':').append(sizeOf(v));
+        });
+        return sb.append('}').toString();
+    }
+
+    private static String sizeOf(Object v) {
+        if (v == null) return "null";
+        int n = String.valueOf(v).length();
+        return n >= 1024 ? String.format("%.1fKB", n / 1024.0) : n + "B";
+    }
 
     public MediaInfo(String originalName) {
         this.originalName = originalName;

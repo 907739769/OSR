@@ -345,10 +345,20 @@ public class TMDbClient {
     private String doSearchOnce(String type, MediaInfo info, com.fasterxml.jackson.databind.JsonNode root, TMDbApiService api) throws IOException {
         if (root == null) return null;
         JsonNode results = root.path("results");
-        log.debug("TMDb 搜索 {} 命中：{}", info.getOriginalName(), results);
-        if (!results.isArray() || results.isEmpty()) return null;
+        if (!results.isArray() || results.isEmpty()) {
+            log.debug("TMDb 搜索 {} 无命中", info.getOriginalName());
+            return null;
+        }
 
         List<JsonNode> ranked = rankCandidates(type, info, results);
+        // 只打候选的名字/年份/id，不打整个 results 数组：那是完整响应体（实测平均 1.2KB 一条），
+        // 而下面两道检验的日志引用候选靠的正是「第 N 名」+ 名字，数组里其余字段一个都用不上。
+        // 放在排序之后：这里的名次与 doSearchOnce 后续日志里的「第 N 名」是同一套编号，
+        // 打原始顺序反而对不上号。
+        if (log.isDebugEnabled()) {
+            log.debug("TMDb 搜索 {} 命中 {} 条，按排序前 {} 名：{}", info.getOriginalName(), results.size(),
+                    Math.min(ranked.size(), MAX_CANDIDATES_EXAMINED), describeTop(type, ranked));
+        }
 
         for (int rank = 0; rank < ranked.size() && rank < MAX_CANDIDATES_EXAMINED; rank++) {
             JsonNode picked = ranked.get(rank);
@@ -362,7 +372,13 @@ public class TMDbClient {
             }
 
             if (!hasEnoughEvidence(type, info, picked, id, api)) {
-                log.info("TMDb 结果证据不足，跳过：{} —— 第 {} 名候选是「{}（{}）」，"
+                // 降 DEBUG 并写明「还有后手」：这是三级回退链的<b>中间步骤</b>，不是终态。
+                // 罗马音命名的文件必然走到这里（TMDb 的三个标题里没有罗马音这一种），
+                // 随后由下一个候选标题或 AI 兜底接住，实测 8 集全部刮削成功。
+                // 原先打在 INFO、话说到「跳过」为止，读起来就是刮削失败——读日志的人会去
+                // 追查一个并不存在的故障。真正落空时紧跟着的 MediaParser「使用AI识别」才是那个信号。
+                log.debug("TMDb 结果证据不足，不采纳该候选（继续看下一候选，全部落空则换标题重搜、最终由 AI 兜底）：{} "
+                                + "—— 第 {} 名候选是「{}（{}）」，"
                                 + "但与解析出的标题「{}」既不匹配（含英文规范名）、年份也不接近（解析年份 {}）",
                         info.getOriginalName(), rank + 1, describeCandidate(type, picked),
                         getYearSafe(picked, type), firstNonBlankTitle(info), info.getYear());
@@ -616,6 +632,18 @@ public class TMDbClient {
     }
 
     /** 日志里描述一个候选，够用即可 */
+    /** 候选摘要：{@code 「Re：从零开始的异世界生活」(2016)#65942}，逗号分隔前 N 名 */
+    private String describeTop(String type, List<JsonNode> ranked) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < ranked.size() && i < MAX_CANDIDATES_EXAMINED; i++) {
+            JsonNode n = ranked.get(i);
+            if (i > 0) sb.append(", ");
+            sb.append('「').append(describeCandidate(type, n)).append('」')
+              .append('(').append(getYearSafe(n, type)).append(")#").append(n.path("id").asInt());
+        }
+        return sb.toString();
+    }
+
     private String describeCandidate(String type, JsonNode node) {
         String[] fields = candidateTitleFields(type, node);
         for (String f : fields) {
@@ -800,6 +828,27 @@ public class TMDbClient {
     }
 
     /**
+     * JSON 响应摘要：数组报长度、对象报各数组字段的长度、其余报字段数。
+     * <p>
+     * {@code {backdrops=134, posters=79, logos=12}} —— 够回答「这次拉到东西了吗、大概多少」，
+     * 而这正是这条日志唯一被用来回答的问题；完整响应体除了撑爆文件没有别的作用。
+     * </p>
+     */
+    static String summarize(JsonNode node) {
+        if (node == null || node.isNull()) return "null";
+        if (node.isArray()) return node.size() + " 条";
+        if (!node.isObject()) return node.asText();
+        StringBuilder sb = new StringBuilder("{");
+        node.properties().forEach(e -> {
+            if (!e.getValue().isArray()) return;
+            if (sb.length() > 1) sb.append(", ");
+            sb.append(e.getKey()).append('=').append(e.getValue().size());
+        });
+        if (sb.length() == 1) return node.size() + " 个字段";
+        return sb.append('}').toString();
+    }
+
+    /**
      * 通用元数据获取：调用 API 获取 JSON 并存入 metadata，自动处理异常和日志。
      */
     private void fetchAndStore(TMDbApiService api, MediaInfo info, String key, String label,
@@ -812,7 +861,11 @@ public class TMDbClient {
                 synchronized (info.getMetadata()) {
                     info.getMetadata().put(key, node);
                 }
-                log.debug("获取{} {} 成功: {}", label, key, node);
+                // 打摘要而不是 node 本身：node 是完整响应体，一份 tv images 实测 26KB，
+                // 12 次刮削就占掉整份日志的 15%。隔壁 fetchSeasonImagesIfNeeded 一直是对的写法。
+                if (log.isDebugEnabled()) {
+                    log.debug("获取{} {} 成功: {}", label, key, summarize(node));
+                }
             }
         } catch (Exception e) {
             log.warn("获取{} {} 失败: {}", label, key, e.getMessage());
