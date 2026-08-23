@@ -12,6 +12,7 @@ import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusServic
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.osr.openliststrm.mybatisplus.service.IWecomUserPlusService;
 import com.osr.openliststrm.pt.subscription.SubscriptionSearchOnCreateTrigger;
+import com.osr.openliststrm.pt.PtLogText;
 import com.osr.openliststrm.pt.subscription.SubscriptionService;
 import com.osr.openliststrm.pt.subscription.TmdbSearchService;
 import com.osr.openliststrm.pt.subscription.dto.SubscribeRequest;
@@ -355,7 +356,7 @@ public class WeComCommandService {
                 searchOnCreateTrigger.triggerAsync(sub.getId());
             } catch (Exception e) {
                 // 补搜只是加速首次抓取，失败不影响订阅本身，正常的 RSS 轮询照样会命中
-                log.warn("订阅[{}]建订阅补搜触发失败：{}", sub.getId(), e.getMessage());
+                log.warn("{} 建订阅后补搜触发失败：{}", PtLogText.subject(sub), e.getMessage());
             }
         }
         return "已订阅：" + describe(sub) + "\n编号 " + sub.getId()

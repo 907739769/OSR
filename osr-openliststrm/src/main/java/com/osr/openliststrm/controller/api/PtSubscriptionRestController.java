@@ -16,6 +16,7 @@ import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.osr.openliststrm.pt.subscription.PushOutcome;
 import com.osr.openliststrm.pt.subscription.SearchSupplementService;
 import com.osr.openliststrm.pt.subscription.SubscriptionSearchOnCreateTrigger;
+import com.osr.openliststrm.pt.PtLogText;
 import com.osr.openliststrm.pt.subscription.SubscriptionService;
 import com.osr.openliststrm.pt.subscription.TmdbSearchService;
 import com.osr.openliststrm.pt.subscription.dto.BatchOperationResult;
@@ -233,7 +234,7 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
             try {
                 searchOnCreateTrigger.triggerAsync(sub.getId());
             } catch (Exception e) {
-                log.warn("订阅[{}]建订阅补搜触发失败：{}", sub.getId(), e.getMessage());
+                log.warn("{} 建订阅后补搜触发失败：{}", PtLogText.subject(sub), e.getMessage());
             }
         }
         return Result.success();

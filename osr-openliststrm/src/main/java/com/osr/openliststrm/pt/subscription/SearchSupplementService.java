@@ -15,6 +15,7 @@ import com.osr.openliststrm.mybatisplus.service.IPtIndexerPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtTorrentBlacklistPlusService;
+import com.osr.openliststrm.pt.PtLogText;
 import com.osr.openliststrm.pt.filter.EpisodeCountResolver;
 import com.osr.openliststrm.pt.filter.FilterCriteria;
 import com.osr.openliststrm.pt.filter.FilterCriteriaFactory;
@@ -251,9 +252,9 @@ public class SearchSupplementService {
 
             subscriptionService.updateLastSearchTime(sub.getId(), new Date());
 
-            log.info("订阅[{}] {} 关键词[{}]手动搜索补集：原始{}个，季集匹配后{}个，规则过滤后{}个"
+            log.info("{} 关键词[{}]手动搜索补集：原始{}个，季集匹配后{}个，规则过滤后{}个"
                     + "（开启 DEBUG 日志可看到每个候选具体被哪一步、哪条规则淘汰）",
-                    sub.getId(), sub.getTitle(), keyword, totalCandidates, allMatched.size(), survivors.size());
+                    PtLogText.subject(sub), keyword, totalCandidates, allMatched.size(), survivors.size());
             return new SupplementResult(false, totalCandidates, toCandidateDtos(survivors));
         }
 
@@ -320,8 +321,8 @@ public class SearchSupplementService {
         // last_match_time，整实体写回会把它覆盖回旧值（见 IPtSubscriptionPlusService#updateLastSearchTime）
         subscriptionService.updateLastSearchTime(sub.getId(), new Date());
 
-        log.info("订阅[{}] {} 关键词[{}]搜索补集：候选{}个，{}",
-                sub.getId(), sub.getTitle(), keyword, totalCandidates, pushed ? "已推送" : "未推送");
+        log.info("{} 关键词[{}]搜索补集：候选{}个，{}",
+                PtLogText.subject(sub), keyword, totalCandidates, pushed ? "已推送" : "未推送");
         return new SupplementResult(pushed, totalCandidates);
     }
 
@@ -363,9 +364,8 @@ public class SearchSupplementService {
         // 且不受「该种子有一条不可重试的失败记录」这层自动路径护栏约束
         PushOutcome outcome = subscriptionEngine.pushManual(sub, target, List.of(torrent));
 
-        log.info("订阅[{}] {} 手动选择推送[{}] 目标{}：{}",
-                sub.getId(), sub.getTitle(), torrent.getTitle(),
-                target == SubscriptionMatcher.SEASON_PACK ? "整季" : "第" + target + "集",
+        log.info("{} 手动选择推送[{}]：{}",
+                PtLogText.subject(sub, target, null), torrent.getTitle(),
                 outcome.pushed() ? "已推送" : "推送失败（" + outcome.reason() + "）");
         return outcome;
     }
@@ -538,7 +538,7 @@ public class SearchSupplementService {
             try {
                 pushed = supplement(subId, 0, sub.getTitle()).isPushed();
             } catch (Exception e) {
-                log.warn("订阅[{}] 补搜失败：{}", subId, e.getMessage());
+                log.warn("{} 补搜失败：{}", PtLogText.subject(sub), e.getMessage());
             }
             SearchLogService.RejectionDigest digest = pushed
                     ? SearchLogService.RejectionDigest.EMPTY
@@ -557,7 +557,8 @@ public class SearchSupplementService {
                 try {
                     seasonPushed = subscriptionEngine.pushBest(sub, SubscriptionMatcher.SEASON_PACK, seasonCandidates);
                 } catch (Exception e) {
-                    log.warn("订阅[{}] 补搜整季包推送异常：{}", subId, e.getMessage());
+                    log.warn("{} 补搜整季包推送异常：{}",
+                            PtLogText.subject(sub, SubscriptionMatcher.SEASON_PACK, null), e.getMessage());
                 }
             }
         }
@@ -598,7 +599,7 @@ public class SearchSupplementService {
                     episodesPushed++;
                 }
             } catch (Exception e) {
-                log.warn("订阅[{}] 补搜第{}集推送失败：{}", subId, ep.getEpisode(), e.getMessage());
+                log.warn("{} 补搜推送失败：{}", PtLogText.subject(sub, ep.getEpisode(), null), e.getMessage());
             }
         }
 
@@ -672,9 +673,9 @@ public class SearchSupplementService {
                 .limit(perEpisodeFallbackLimit)
                 .toList();
         if (targets.size() < unmatched.size()) {
-            log.warn("订阅[{}] {} 季搜索未覆盖 {} 集，本轮只补发前 {} 集的单集检索"
+            log.warn("{} 季搜索未覆盖 {} 集，本轮只补发前 {} 集的单集检索"
                             + "（上限 pt.search.per-episode-fallback-limit），其余留到下一轮",
-                    sub.getId(), sub.getTitle(), unmatched.size(), targets.size());
+                    PtLogText.subject(sub), unmatched.size(), targets.size());
         }
 
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(perEpisodeFallbackBudgetMillis);
@@ -683,8 +684,8 @@ public class SearchSupplementService {
         for (PtSubscriptionEpisodePlus ep : targets) {
             // 软上限：只在每一集开始前检查，不打断已发出的请求
             if (perEpisodeFallbackBudgetMillis > 0 && deadline - System.nanoTime() < 0) {
-                log.warn("订阅[{}] {} 单集补发耗尽 {}ms 预算，已跑 {}/{} 集，其余留到下一轮",
-                        sub.getId(), sub.getTitle(), perEpisodeFallbackBudgetMillis, done, targets.size());
+                log.warn("{} 单集补发耗尽 {}ms 预算，已跑 {}/{} 集，其余留到下一轮",
+                        PtLogText.subject(sub), perEpisodeFallbackBudgetMillis, done, targets.size());
                 break;
             }
             String keyword = sub.getTitle() + " S" + pad(sub.getSeason()) + "E" + pad(ep.getEpisode());
@@ -693,13 +694,13 @@ public class SearchSupplementService {
                     pushed++;
                 }
             } catch (Exception e) {
-                log.warn("订阅[{}] 第{}集单集补发失败：{}", sub.getId(), ep.getEpisode(), e.getMessage());
+                log.warn("{} 单集补发失败：{}", PtLogText.subject(sub, ep.getEpisode(), null), e.getMessage());
             }
             done++;
         }
         if (done > 0) {
-            log.info("订阅[{}] {} 单集补发：季搜索未覆盖 {} 集，补发 {} 集，推送 {} 集",
-                    sub.getId(), sub.getTitle(), unmatched.size(), done, pushed);
+            log.info("{} 单集补发：季搜索未覆盖 {} 集，补发 {} 集，推送 {} 集",
+                    PtLogText.subject(sub), unmatched.size(), done, pushed);
         }
         return pushed;
     }

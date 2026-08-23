@@ -21,6 +21,7 @@ import com.osr.openliststrm.enums.PtSmartClassifyLevelEnum;
 import com.osr.openliststrm.helper.TgHelper;
 import com.osr.openliststrm.notify.NotificationType;
 import com.osr.openliststrm.notify.NotifyTarget;
+import com.osr.openliststrm.pt.PtLogText;
 import com.osr.openliststrm.pt.downloader.DownloaderClientFactory;
 import com.osr.openliststrm.pt.filter.EpisodeCountResolver;
 import com.osr.openliststrm.pt.filter.FilterCriteria;
@@ -278,7 +279,7 @@ public class SubscriptionEngine {
             String reason = mode.isUpgrade()
                     ? "该集已不在可洗版状态（可能已被其它轮次占位或退回缺失）"
                     : "无可占位的缺失集（可能已入库或在途）";
-            log.debug("订阅[{}] 集{} {}，跳过", sub.getId(), match.getEpisode(), reason);
+            log.debug("{} {}，跳过", PtLogText.subject(sub, match.getEpisode(), null), reason);
             searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, reason);
             return PushOutcome.fail(reason);
         }
@@ -288,12 +289,12 @@ public class SubscriptionEngine {
             String reason;
             if (candidates.isEmpty()) {
                 reason = "搜索未返回任何候选种子";
-                log.debug("订阅[{}] 集{} 无可用候选种子（搜索未返回结果），跳过", sub.getId(), match.getEpisode());
+                log.debug("{} 无可用候选种子（搜索未返回结果），跳过", PtLogText.subject(sub, match.getEpisode(), null));
             } else {
                 // 手动推送走不到这个分支：excludeAlreadyRecorded 对人工决定不做排除，
                 // 所以这句文案只会出现在自动路径上，可以放心地写成「本轮跳过」
                 reason = "候选种子都已推送过，本轮跳过";
-                log.debug("订阅[{}] 集{} 的候选都有已有下载记录，跳过", sub.getId(), match.getEpisode());
+                log.debug("{} 的候选都有已有下载记录，跳过", PtLogText.subject(sub, match.getEpisode(), null));
             }
             searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, reason);
             return PushOutcome.fail(reason);
@@ -323,7 +324,7 @@ public class SubscriptionEngine {
             // 按 RejectCode 聚合而不是按 reason 文本：文案里嵌着实际值，按文本分组只会得到
             // 一堆计数为 1 的碎片，看不出主要卡在哪条规则上。
             String summary = summarizeRejections(verdicts);
-            log.info("订阅[{}] 集{} {}", sub.getId(), match.getEpisode(), summary);
+            log.info("{} {}", PtLogText.subject(sub, match.getEpisode(), null), summary);
             searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, summary);
             return PushOutcome.fail(summary);
         }
@@ -356,14 +357,15 @@ public class SubscriptionEngine {
         synchronized (downloaderLoadCache) {
             downloader = resolveDownloader(sub, enabledDownloaders, downloaderLoadCache);
             if (downloader == null) {
-                log.warn("没有可用的下载器，订阅[{}] 本轮跳过", sub.getId());
+                log.warn("没有可用的下载器，{} 本轮跳过", PtLogText.subject(sub));
                 searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, "没有可用的下载器");
                 return PushOutcome.fail("没有可用的下载器，请到「下载器」页面添加或启用至少一个");
             }
 
             if (isOverCapacity(downloader, downloaderLoadCache)) {
-                log.debug("下载器[{}] 已达最大并发 {}，订阅[{}] 集{} 本轮跳过",
-                        downloader.getId(), downloader.getMaxConcurrent(), sub.getId(), match.getEpisode());
+                log.debug("下载器[{}] 已达最大并发 {}，{} 本轮跳过",
+                        downloader.getName(), downloader.getMaxConcurrent(),
+                        PtLogText.subject(sub, match.getEpisode(), null));
                 searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, "下载器并发已达上限");
                 return PushOutcome.fail("下载器「" + downloader.getName() + "」已达最大并发 "
                         + downloader.getMaxConcurrent() + "，请等待在途任务完成或调高上限");
@@ -382,7 +384,7 @@ public class SubscriptionEngine {
             }
         }
         if (claimed.isEmpty()) {
-            log.debug("订阅[{}] 集{} 已被并发轮询占位，跳过", sub.getId(), match.getEpisode());
+            log.debug("{} 已被并发轮询占位，跳过", PtLogText.subject(sub, match.getEpisode(), null));
             downloaderLoadCache.merge(downloader.getId(), -1L, Long::sum);
             return PushOutcome.fail("该集刚被另一次推送占位（可能是 RSS 轮询或自动搜索），无需重复推送");
         }
@@ -434,8 +436,9 @@ public class SubscriptionEngine {
         subscriptionService.updateById(sub);
         PtStatusWebSocket.pushSubscriptionEvent(sub);
 
-        log.info("订阅[{}] {} 已推送{}种子：{}（占位 {} 集）",
-                sub.getId(), sub.getTitle(), mode.isUpgrade() ? "洗版" : "", best.getTitle(), claimed.size());
+        log.info("{} 已推送{}种子：{}（占位 {} 集）",
+                PtLogText.subject(sub, match.getEpisode(), null),
+                mode.isUpgrade() ? "洗版" : "", best.getTitle(), claimed.size());
         if (mode.isUpgrade()) {
             // 第一期不碰旧文件：OSR 从不删种，新旧两个版本会同时存在，清理由用户手动完成。
             // 通知里必须把这件事说清楚，否则用户会以为系统已经替换好了。
@@ -453,7 +456,8 @@ public class SubscriptionEngine {
             // 一集，且未必是本次要补的那一集——推送那一刻没有任何信号能分辨，只有下载器给出文件列表
             // 才知道。原先在这里就发「订阅命中」，于是用户先收到一条命中、紧接着收到一条「种子内不含
             // 任何目标集，已中止」，一次白跑发两条通知，日更剧每天要刷好几轮。
-            log.info("订阅[{}] 季包已推送，命中通知延后到文件列表确认后：{}", sub.getId(), best.getTitle());
+            log.info("{} 已推送，命中通知延后到文件列表确认后：{}",
+                    PtLogText.subject(sub, match.getEpisode(), null), best.getTitle());
         } else {
             notifySafely(NotificationType.SUBSCRIPTION_HIT, "📌 订阅命中：" + describeSubject(match)
                     + "\n" + StringUtils.escapeHtml(best.getTitle())
@@ -1115,8 +1119,8 @@ public class SubscriptionEngine {
             // 走到这里说明订阅指定的下载器已停用、已删除、或被改成了 SEED_ONLY（见
             // loadEnabledDownloaders）。后一种不是配置事故而是用户的分工意图，同样只能改派——
             // 把订阅推到只做种的机器上，比换一台下载器糟得多
-            log.warn("订阅[{}] 指定的下载器 {} 不在订阅下载池中（已停用/已删除/已改为仅做种），"
-                    + "改用负载最低的下载器", sub.getId(), sub.getDownloaderId());
+            log.warn("{} 指定的下载器 {} 不在订阅下载池中（已停用/已删除/已改为仅做种），"
+                    + "改用负载最低的下载器", PtLogText.subject(sub), sub.getDownloaderId());
         }
         PtDownloaderPlus best = enabled.get(0);
         long bestLoad = loadCache.getOrDefault(best.getId(), 0L);

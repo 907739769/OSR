@@ -9,6 +9,7 @@ import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtMediaServerPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
+import com.osr.openliststrm.pt.PtLogText;
 import com.osr.openliststrm.notify.NotificationType;
 import com.osr.openliststrm.pt.subscription.SubscriptionEpisodeState;
 import lombok.extern.slf4j.Slf4j;
@@ -190,8 +191,11 @@ public class StuckEpisodeSweepService {
         for (Map.Entry<Integer, List<Integer>> entry : dueBySub.entrySet()) {
             PtSubscriptionPlus sub = subscriptionService.getById(entry.getKey());
             String title = sub == null ? ("订阅#" + entry.getKey()) : sub.getTitle();
-            log.info("订阅[{}] 第 {} 集文件已下好但超过 {} 小时未入库，疑似上传/入库链路卡住（不重下）",
-                    entry.getKey(), join(entry.getValue()), stuckTimeoutHours);
+            // 剧名在上一行就取出来喂给通知了，日志却长期只写 id——这条 INFO 是要用户
+            // 去「复制记录」页动手的，认不出是哪部剧等于没提醒
+            log.info("{} 第 {} 集文件已下好但超过 {} 小时未入库，疑似上传/入库链路卡住（不重下）",
+                    sub == null ? PtLogText.subject(entry.getKey()) : PtLogText.subject(sub),
+                    join(entry.getValue()), stuckTimeoutHours);
             notifySafely("📤 文件已下好但一直没入库：《" + StringUtils.escapeHtml(title) + "》"
                     + "\n第 " + join(entry.getValue()) + " 集下载完成已超过 " + stuckTimeoutHours + " 小时"
                     + "\n种子里确实有这些文件，所以卡住的是上传到网盘或 STRM/刮削这一段，"

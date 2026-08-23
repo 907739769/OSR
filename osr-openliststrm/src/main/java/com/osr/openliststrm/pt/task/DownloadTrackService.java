@@ -16,6 +16,7 @@ import com.osr.openliststrm.mybatisplus.service.IPtDownloadRecordPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtIndexerPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
+import com.osr.openliststrm.pt.PtLogText;
 import com.osr.openliststrm.pt.PtNotifyText;
 import com.osr.openliststrm.pt.downloader.DownloaderClientFactory;
 import com.osr.openliststrm.pt.downloader.model.DownloaderTorrent;
@@ -860,7 +861,7 @@ public class DownloadTrackService {
                 }
             }
         } catch (Exception e) {
-            log.warn("订阅[{}] 下载追踪覆盖不是合法 JSON，已回退全局默认值：{}", sub.getId(), e.getMessage());
+            log.warn("{} 的下载追踪覆盖不是合法 JSON，已回退全局默认值：{}", PtLogText.subject(sub), e.getMessage());
         }
         return zombieTimeoutMillisDefault;
     }
@@ -1092,8 +1093,11 @@ public class DownloadTrackService {
                 + (upgraded ? "\n⚠️ 旧版本不会被自动删除，请自行清理，否则媒体库里会出现同一集的两个版本" : "")
                 + (hitAndRun ? "\n🌱 该站点有 H&R 考核，需保种至「" + StringUtils.escapeHtml(describeRequirement(indexer))
                         + "」，达标前请勿删除" : ""), sub == null ? null : sub.getOwnerUserId());
-        log.info("下载记录[{}] 已完成：{}{}", record.getId(), record.getTitle(),
-                hitAndRun ? "（进入 H&R 保种考核）" : "");
+        // 与上面那条通知同一个道理：先说哪部作品的哪一集，种子标题跟在后面。
+        // 只有种子标题时，国内站的长前缀和「整季一个名」让人对不上是哪条订阅在动
+        log.info("{} 下载完成：{}{}",
+                PtLogText.subject(sub, record.getEpisode(), record.getEpisodeEnd()),
+                record.getTitle(), hitAndRun ? "（进入 H&R 保种考核）" : "");
         // 补缺集时集状态不动，仍是 IN_FLIGHT，等 Emby 对账确认入库（洗版则已在 finishUpgrade 收尾）；
         // 下载器关联了 STRM 任务时异步触发一次增量生成+提前对账，没关联时纯靠 LibrarySyncTask 下一轮兜底
         completionSyncTrigger.triggerAsync(record, downloader);
@@ -1206,8 +1210,9 @@ public class DownloadTrackService {
         notifySafely(NotificationType.DOWNLOAD_FAILED,
                 (notice != null ? notice : describeFailure(sub, record, reason, upgradeReverted > 0)) + blockedNotice,
                 sub == null ? null : sub.getOwnerUserId());
-        log.warn("下载记录[{}] 失败（{} 个集回退缺失，{} 个集回退入库）：{}",
-                record.getId(), rollback.released(), upgradeReverted, record.getTitle());
+        log.warn("{} 下载失败（{} 个集回退缺失，{} 个集回退入库）：{}",
+                PtLogText.subject(sub, record.getEpisode(), record.getEpisodeEnd()),
+                rollback.released(), upgradeReverted, record.getTitle());
     }
 
     /** 回退结果：released=回退的集数，blocked=其中因连续失败达阈值而熔断的集数 */

@@ -10,6 +10,7 @@ import com.osr.openliststrm.mybatisplus.service.IPtFilterConfigPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtUpgradeConfigPlusService;
+import com.osr.openliststrm.pt.PtLogText;
 import com.osr.openliststrm.pt.filter.EpisodeCountResolver;
 import com.osr.openliststrm.pt.filter.FilterCriteria;
 import com.osr.openliststrm.pt.filter.FilterCriteriaFactory;
@@ -113,7 +114,8 @@ public class UpgradeScanService {
                     pushed++;
                 }
             } catch (Exception e) {
-                log.warn("订阅[{}] 第{}集洗版失败：{}", episode.getSubId(), episode.getEpisode(), e.getMessage());
+                log.warn("{} 第 {} 集洗版失败：{}",
+                        PtLogText.subject(episode.getSubId()), episode.getEpisode(), e.getMessage());
             }
         }
         return pushed;
@@ -135,8 +137,10 @@ public class UpgradeScanService {
         }
         if (evaluator.reachedTarget(current, criteria)) {
             markUpgradeState(episode, UpgradeState.REACHED);
-            log.debug("订阅[{}] 第{}集已达目标质量（{}），不再参与洗版",
-                    episode.getSubId(), episode.getEpisode(), current.describe());
+            // 这里还没加载订阅（下面几行才查），而「已达目标」是最常见的分支，
+            // 为一条 DEBUG 多打一次库不划算——格式统一成 订阅[#id]，显式表示此处没有剧名
+            log.debug("{} 第 {} 集已达目标质量（{}），不再参与洗版",
+                    PtLogText.subject(episode.getSubId()), episode.getEpisode(), current.describe());
             return false;
         }
 
@@ -152,7 +156,8 @@ public class UpgradeScanService {
         TorrentInfo best = evaluator.pickBest(better, QualityProfile::from, criteria);
         boolean pushed = subscriptionEngine.pushUpgrade(sub, episode.getEpisode(), List.of(best));
         if (pushed) {
-            log.info("订阅[{}] 第{}集洗版已推送：{} → {}（{}）", episode.getSubId(), episode.getEpisode(),
+            log.info("{} 洗版已推送：{} → {}（{}）",
+                    PtLogText.subject(sub, episode.getEpisode(), null),
                     current.describe(), QualityProfile.from(best).describe(),
                     evaluator.describeUpgrade(QualityProfile.from(best), current, criteria));
         }
@@ -206,8 +211,9 @@ public class UpgradeScanService {
                 better.add(torrent);
             }
         }
-        log.debug("订阅[{}] 第{}集洗版搜索：原始 {} 条，本集 {} 条，过滤后 {} 条，严格更优 {} 条",
-                sub.getId(), episode.getEpisode(), raw.size(), sameEpisode.size(), survivors.size(), better.size());
+        log.debug("{} 洗版搜索：原始 {} 条，本集 {} 条，过滤后 {} 条，严格更优 {} 条",
+                PtLogText.subject(sub, episode.getEpisode(), null),
+                raw.size(), sameEpisode.size(), survivors.size(), better.size());
         return better;
     }
 
