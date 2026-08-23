@@ -3,6 +3,7 @@ package com.osr.openliststrm.pt.subscription;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.osr.common.utils.LogOnce;
 import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloadRecordPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloaderPlus;
@@ -87,6 +88,43 @@ public class SubscriptionEngine {
     /** 全淘汰摘要里最多列举几类淘汰原因 */
     private static final int REJECT_SUMMARY_TOP_N = 3;
 
+    /**
+     * 「这个种子没匹配上任何订阅」只在<b>首次</b>见到它时记一行。
+     * <p>
+     * RSS 的拉取窗口是 24 小时而轮询间隔只有几分钟，同一个种子会在窗口里被反复拉到、
+     * 反复走一遍匹配；而「没匹配上」是 RSS 的<b>正常主流程</b>——索引器返回的是站点全部新种，
+     * 用户订的那几十部剧当然对不上其中绝大多数。实测这一条 DEBUG 在 10.5 小时里写出 39913 行、
+     * 占掉整份 sys-all.log 的 <b>93%</b>，而不重复的种子只有 886 个（平均每个记了 45 遍）。
+     * </p>
+     * <p>
+     * 它<b>不能直接删掉</b>：没匹配上就没有订阅可挂，{@code pt_search_log} 里也不会有记录，
+     * 这行日志是「我订了这部剧、站上明明有资源、为什么没推给我」唯一的排查入口。
+     * 按标题去重之后 886 行照旧写全，排查价值一分不少。
+     * </p>
+     * <p>
+     * 键取标题而不是 guid：同一个标题在两个站点各有一条种子时，按 guid 去重会写出两行
+     * 逐字相同的日志，而那行文本里并没有站点信息，读的人分不出它们。
+     * </p>
+     */
+    private final LogOnce unmatchedLogged = new LogOnce();
+
+    /** 「从 description 补出集号」同理：同一批种子每轮都要补一次，只在首次记 */
+    private final LogOnce descriptionEpisodeLogged = new LogOnce();
+
+    /**
+     * 「无可占位的缺失集」在 RSS 路径上的去重键（{@code 订阅id:集号}）。
+     * <p>
+     * 集已入库或已在途、而站上那条种子还留在 RSS 窗口里——这是稳态，不是事件，
+     * 每轮各记一行只是把窗口重放了一遍（实测 574 行/10.5 小时）。搜索与手动路径不去重：
+     * 那两条是用户刚刚发起的动作，他等的就是这个回音。
+     * </p>
+     * <p>
+     * 压掉的只是日志：{@code searchLogService.recordSummary} 在这个分支里照常写
+     * {@code pt_search_log}，逐次的明细一条不少。
+     * </p>
+     */
+    private final LogOnce noTargetLogged = new LogOnce();
+
     private final IPtSubscriptionPlusService subscriptionService;
     private final IPtSubscriptionEpisodePlusService episodeService;
     private final IPtDownloadRecordPlusService recordService;
@@ -162,7 +200,10 @@ public class SubscriptionEngine {
             fillParsed(torrent);
             MatchResult match = matcher.match(torrent, subscriptions, absoluteMaps);
             if (match == null) {
-                log.debug("种子未匹配到任何订阅：{}", torrent.getTitle());
+                // 去重：见 unmatchedLogged 的注释
+                if (unmatchedLogged.firstTime(torrent.getTitle())) {
+                    log.debug("种子未匹配到任何订阅：{}", torrent.getTitle());
+                }
                 continue;
             }
             String key = match.getSubscription().getId() + "#" + match.getEpisode();
@@ -279,7 +320,11 @@ public class SubscriptionEngine {
             String reason = mode.isUpgrade()
                     ? "该集已不在可洗版状态（可能已被其它轮次占位或退回缺失）"
                     : "无可占位的缺失集（可能已入库或在途）";
-            log.debug("{} {}，跳过", PtLogText.subject(sub, match.getEpisode(), null), reason);
+            // RSS 路径去重：见 noTargetLogged 的注释。落库的 recordSummary 不受影响
+            if (!SearchLogService.SOURCE_RSS.equals(source)
+                    || noTargetLogged.firstTime(sub.getId() + ":" + match.getEpisode())) {
+                log.debug("{} {}，跳过", PtLogText.subject(sub, match.getEpisode(), null), reason);
+            }
             searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, reason);
             return PushOutcome.fail(reason);
         }
@@ -324,7 +369,14 @@ public class SubscriptionEngine {
             // 按 RejectCode 聚合而不是按 reason 文本：文案里嵌着实际值，按文本分组只会得到
             // 一堆计数为 1 的碎片，看不出主要卡在哪条规则上。
             String summary = summarizeRejections(verdicts);
-            log.info("{} {}", PtLogText.subject(sub, match.getEpisode(), null), summary);
+            // 全被拉黑淘汰时降到 DEBUG：拉黑是用户自己按下的终态开关，那条种子会一直留在
+            // RSS 窗口里，每轮告诉他一次「这个被拉黑了」既不是新消息也无事可做。其余原因
+            // （freeOnly、分辨率白名单…）留在 INFO——那才是「你可能配错了」需要被看见的一类
+            if (allRejectedByBlacklist(verdicts)) {
+                log.debug("{} {}", PtLogText.subject(sub, match.getEpisode(), null), summary);
+            } else {
+                log.info("{} {}", PtLogText.subject(sub, match.getEpisode(), null), summary);
+            }
             searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, summary);
             return PushOutcome.fail(summary);
         }
@@ -514,6 +566,25 @@ public class SubscriptionEngine {
                     dropped.getTitle(), dropped.getFiles(), targetCount);
         }
         return complete;
+    }
+
+    /**
+     * 候选是不是<b>全部</b>因为「已拉黑」被淘汰的？
+     * <p>
+     * 两个拉黑码都算：{@link RejectCode#BLACKLISTED_GUID}（这条种子）与
+     * {@link RejectCode#BLACKLISTED_GROUP}（这个发布组）。它们的共同点是<b>用户自己按下的
+     * 终态开关</b>——不是配置可能出错的那类淘汰原因，重复播报没有任何处置价值。
+     * </p>
+     */
+    private boolean allRejectedByBlacklist(List<TorrentFilterEngine.Verdict> verdicts) {
+        List<TorrentFilterEngine.Verdict> rejected = verdicts.stream()
+                .filter(v -> !v.accepted())
+                .toList();
+        // 一条淘汰都没有却走到这里，说明是别的原因让 pickBest 空手而归——那是意料之外的情况，
+        // 不该被静默降级成 DEBUG（allMatch 对空流恒为 true，不显式挡住就会正好反过来）
+        return !rejected.isEmpty()
+                && rejected.stream().allMatch(v -> v.rejectCode() == RejectCode.BLACKLISTED_GUID
+                        || v.rejectCode() == RejectCode.BLACKLISTED_GROUP);
     }
 
     /**
@@ -785,8 +856,10 @@ public class SubscriptionEngine {
         // 单集时 episodeEnd 必须留 null：下游多处按「end != null && end > start」判区间，
         // 填一个等于 start 的值只是把同一件事换个说法，却会让区间展开逻辑多一种要考虑的形态
         torrent.setParsedEpisodeEnd(episodes.isRange() ? episodes.end() : null);
-        log.debug("标题无集号，已从 description 补出 E{}{}：{}", episodes.start(),
-                episodes.isRange() ? "-E" + episodes.end() : "", torrent.getTitle());
+        if (descriptionEpisodeLogged.firstTime(torrent.getTitle())) {
+            log.debug("标题无集号，已从 description 补出 E{}{}：{}", episodes.start(),
+                    episodes.isRange() ? "-E" + episodes.end() : "", torrent.getTitle());
+        }
     }
 
     /**
