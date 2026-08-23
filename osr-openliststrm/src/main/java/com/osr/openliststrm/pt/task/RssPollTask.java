@@ -58,6 +58,11 @@ public class RssPollTask {
         }
         try {
             RssPollService.PollOutcome outcome = rssPollService.poll();
+            if (!outcome.ranAnything()) {
+                // 本轮没有到期的索引器：这是常态（60 秒触发 vs 索引器自己的 10 分钟周期），
+                // 不算跑过一轮，见 PollOutcome#ranAnything
+                return;
+            }
             if (outcome.changed()) {
                 heartbeat.active();
                 log.info("RSS 轮询完成：{} 个索引器拉回 {} 条种子，推送 {} 个",

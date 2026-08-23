@@ -31,6 +31,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -115,6 +116,36 @@ class RssPollServiceTest {
 
         verify(torznabClient, never()).fetch(any());
         verify(subscriptionEngine, never()).process(anyList());
+    }
+
+    /**
+     * {@code RssPollTask} 每 60 秒触发一次而索引器周期常见 10 分钟，所以绝大多数触发都是空转。
+     * 空转必须报出 {@code ranAnything()==false}，否则它会去喂 {@code RoundHeartbeat}：
+     * 一边把计时器一直按回去、压掉真正拉回几百条种子的那一轮，一边让 30 分钟的心跳有
+     * 约 10/11 的概率落在空转那一刻，打出「0 个索引器拉回 0 条种子」——读起来像索引器全没了。
+     */
+    @Test
+    void 一个索引器都没到期时_本轮不算跑过() throws Exception {
+        when(indexerService.listEnabled()).thenReturn(
+                List.of(indexer(1, 600, new java.util.Date(System.currentTimeMillis() - 1000), 0)));
+
+        RssPollService.PollOutcome outcome = service().poll();
+
+        assertFalse(outcome.ranAnything(), "空转不算跑过一轮，不能拿去喂心跳");
+        assertFalse(outcome.changed());
+        assertEquals(0, outcome.dueIndexers());
+    }
+
+    @Test
+    void 有索引器到期时_本轮算跑过() throws Exception {
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1, 600, null, 0)));
+        when(torznabClient.fetch(any())).thenReturn(List.of(torrent("t1")));
+
+        RssPollService.PollOutcome outcome = service().poll();
+
+        assertTrue(outcome.ranAnything());
+        assertEquals(1, outcome.dueIndexers());
+        assertEquals(1, outcome.torrents());
     }
 
     @Test

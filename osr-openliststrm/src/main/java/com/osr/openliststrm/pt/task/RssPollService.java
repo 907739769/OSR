@@ -170,6 +170,21 @@ public class RssPollService {
 
         static final PollOutcome NOTHING_DUE = new PollOutcome(0, 0, 0);
 
+        /**
+         * 本轮到底有没有拉过东西？
+         * <p>
+         * {@code RssPollTask} 每 60 秒触发一次，而各索引器有自己的拉取周期（常见 10 分钟），
+         * 所以<b>绝大多数触发都没有到期的索引器</b>。这种空转不算「跑过一轮」，不能拿去喂心跳——
+         * 它会一直把心跳的计时器按回去，让真正拉回几百条种子的那一轮反而被压掉；
+         * 等 30 分钟的心跳真要报平安时，落在空转那一刻的概率约 10/11，
+         * 于是日志里出现「RSS 轮询完成：0 个索引器拉回 0 条种子」，读起来像索引器全没了。
+         * 口径与 {@code UpgradeScanTask#isDue} 那处一致。
+         * </p>
+         */
+        public boolean ranAnything() {
+            return dueIndexers > 0;
+        }
+
         /** 本轮是否发生了值得记一条 INFO 的事 */
         public boolean changed() {
             return pushed > 0;
