@@ -1,6 +1,6 @@
 <template>
   <!-- 匹配日志 -->
-  <v-dialog v-model="searchLogOpen" max-width="600">
+  <v-dialog v-model="searchLogOpen" max-width="1100" width="92vw">
     <v-card title="匹配日志">
       <v-card-text>
         <div class="log-toolbar">
@@ -22,7 +22,9 @@
           <template #item.source="{ item }">
             <StatusChip :type="item.source === 'RSS' ? 'info' : 'primary'" :text="item.source === 'RSS' ? 'RSS轮询' : '搜索补集'" />
           </template>
-          <template #item.torrentTitle="{ item }">{{ item.torrentTitle || '-' }}</template>
+          <template #item.torrentTitle="{ item }">
+            <span class="log-title">{{ item.torrentTitle || '-' }}</span>
+          </template>
           <template #item.accepted="{ item }">
             <StatusChip v-if="item.accepted === '1'" type="success" text="通过" />
             <StatusChip v-else type="error" text="淘汰" />
@@ -55,12 +57,14 @@ const {
   visibleSearchLogs
 } = usePtSubscriptionContext()
 
+// 种子标题是这张表里唯一没有长度上限的列（PT 标题常有 80~120 字符），
+// 其余四列按内容给固定宽度，把剩下的宽度全留给它和原因两列
 const searchLogHeaders = [
-  { title: '时间', key: 'createTime', sortable: false, width: 160 },
-  { title: '触发方式', key: 'source', sortable: false, width: 100 },
-  { title: '种子标题', key: 'torrentTitle', sortable: false, minWidth: '200' },
-  { title: '结果', key: 'accepted', sortable: false, width: 80 },
-  { title: '原因', key: 'reason', sortable: false, minWidth: '180' }
+  { title: '时间', key: 'createTime', sortable: false, width: 150, nowrap: true },
+  { title: '触发方式', key: 'source', sortable: false, width: 100, nowrap: true },
+  { title: '种子标题', key: 'torrentTitle', sortable: false, minWidth: '360' },
+  { title: '结果', key: 'accepted', sortable: false, width: 80, nowrap: true },
+  { title: '原因', key: 'reason', sortable: false, minWidth: '220' }
 ]
 </script>
 
@@ -74,5 +78,12 @@ const searchLogHeaders = [
 .log-count {
   font-size: 12px;
   color: var(--osr-text-secondary);
+}
+/* 长标题按词换行展示完整内容，不截断——这张表就是拿来读标题的 */
+.log-title {
+  display: inline-block;
+  word-break: break-all;
+  line-height: 1.5;
+  padding: 4px 0;
 }
 </style>
