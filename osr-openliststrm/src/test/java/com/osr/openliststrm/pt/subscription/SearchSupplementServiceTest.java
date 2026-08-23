@@ -97,7 +97,7 @@ class SearchSupplementServiceTest {
         when(searchLogService.digestRejectionsSince(any(), anyLong()))
                 .thenReturn(SearchLogService.RejectionDigest.EMPTY);
         capabilityCache = new IndexerCapabilityCache(torznabClient, 300_000L);
-        service = new SearchSupplementService(indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, blacklistService, searchLogService, 0, 0, 0);
+        service = new SearchSupplementService(indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, blacklistService, searchLogService, 0, 0, 0, 0);
     }
 
     private PtIndexerPlus indexer(int id) {
@@ -243,7 +243,7 @@ class SearchSupplementServiceTest {
         SearchSupplementService budgeted = new SearchSupplementService(
                 indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService,
                 matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService,
-                blacklistService, searchLogService, 80, 0, 0);
+                blacklistService, searchLogService, 80, 0, 0, 0);
         when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
 
         AtomicInteger calls = new AtomicInteger(0);
@@ -271,7 +271,7 @@ class SearchSupplementServiceTest {
         SearchSupplementService budgeted = new SearchSupplementService(
                 indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService,
                 matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService,
-                blacklistService, searchLogService, 60_000, 0, 0);
+                blacklistService, searchLogService, 60_000, 0, 0, 0);
         when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(torrent("t")));
 
@@ -1008,7 +1008,7 @@ class SearchSupplementServiceTest {
     private SearchSupplementService withFallback(int limit) {
         return new SearchSupplementService(indexerService, torznabClient, subscriptionEngine,
                 subscriptionService, episodeService, matcher, capabilityCache, filterConfigService,
-                filterEngine, tmdbSearchService, blacklistService, searchLogService, 0, limit, 0);
+                filterEngine, tmdbSearchService, blacklistService, searchLogService, 0, limit, 0, 0);
     }
 
     /**
@@ -1046,6 +1046,147 @@ class SearchSupplementServiceTest {
         verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(3), anyList());
         assertTrue(summary.isSeasonPushed());
         assertEquals(1, summary.getEpisodesPushed());
+    }
+
+    // ---------- 季包优先 / 单集优先 ----------
+
+    /** 缺集少于阈值时先试单集：阈值 3，本轮只缺 1 集 */
+    private SearchSupplementService withSeasonPackThreshold(int threshold) {
+        return new SearchSupplementService(indexerService, torznabClient, subscriptionEngine,
+                subscriptionService, episodeService, matcher, capabilityCache, filterConfigService,
+                filterEngine, tmdbSearchService, blacklistService, searchLogService, 0, 0, 0, threshold);
+    }
+
+    /**
+     * 用户实际遇到的：季包里没有第 41 集，站上有单独的第 41 集，却永远只下季包。
+     * 成因是季包推送会把当时全部 MISSING 集一次占成 IN_FLIGHT，本轮逐集分支便跳过第 41 集；
+     * 等对账把它退回缺失，下一轮季包又抢先占一次——候选池里那个精确的单集永远轮不到。
+     */
+    @Test
+    void 只缺一集时_先推候选池里的单集而不是整季包() throws Exception {
+        PtSubscriptionPlus sub = tvSub(10, 1, 41);
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        // 第二份快照是单集推送成功后的状态：这一集已被占位，缺口没了
+        when(episodeService.listBySubscription(10)).thenReturn(
+                List.of(episode(41, "MISSING")),
+                List.of(episode(41, "IN_FLIGHT")));
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+
+        TorrentInfo pack = torrent("Some.Show.S01.1080p");
+        pack.setParsedSeason(1);
+        pack.setParsedTitle("Some Show");
+        TorrentInfo ep41 = torrent("Some.Show.S01E41.1080p");
+        ep41.setParsedSeason(1);
+        ep41.setParsedEpisode(41);
+        ep41.setParsedTitle("Some Show");
+        when(torznabClient.search(any(), anyString())).thenReturn(List.of(pack, ep41));
+        when(subscriptionEngine.pushBest(eq(sub), eq(41), anyList())).thenReturn(true);
+
+        SearchAndPushSummary summary = withSeasonPackThreshold(3).searchAndPushMissing(10);
+
+        verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(41), anyList());
+        // 关键：季包一次都没被推——它既下几十 GB 换一集，又可能压根不含这一集。
+        // 兜底那一步也不该补推：它按<b>推完之后</b>的集状态判，缺口已经补上了
+        verify(subscriptionEngine, never()).pushBest(any(), eq(SubscriptionMatcher.SEASON_PACK), anyList());
+        assertFalse(summary.isSeasonPushed());
+        assertEquals(1, summary.getEpisodesPushed());
+    }
+
+    /**
+     * 阈值算的是「已播出且仍缺」的集，未播集不计入——判据与逐集分支、与「整条订阅要不要跳过」
+     * 用的是同一份 {@code SubscriptionService#aired}。
+     * <p>
+     * 漏掉这层的话，一部刚播到第 3 集的 12 集新番会有 9 个未播集恒为 MISSING，缺集数恒 ≥ 阈值、
+     * <b>永远走季包优先</b>——而追更中的最新集正是这条改动要照顾的场景，等于整个改动对新番失效。
+     * 现象还特别隐蔽：它只是"又下了个季包"，没有任何错误。
+     * </p>
+     */
+    @Test
+    void 阈值只数已播出的缺集_未播集不计入() throws Exception {
+        PtSubscriptionPlus sub = tvSub(10, 1, 12);
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        // 播到第 3 集：1、2 已入库，第 3 集缺且已播，4~12 还没播
+        List<PtSubscriptionEpisodePlus> before = new java.util.ArrayList<>(List.of(
+                episodeAiring(1, "IN_LIBRARY", -14),
+                episodeAiring(2, "IN_LIBRARY", -7),
+                episodeAiring(3, "MISSING", -1)));
+        List<PtSubscriptionEpisodePlus> after = new java.util.ArrayList<>(List.of(
+                episodeAiring(1, "IN_LIBRARY", -14),
+                episodeAiring(2, "IN_LIBRARY", -7),
+                episodeAiring(3, "IN_FLIGHT", -1)));
+        for (int i = 4; i <= 12; i++) {
+            before.add(episodeAiring(i, "MISSING", (i - 3) * 7));
+            after.add(episodeAiring(i, "MISSING", (i - 3) * 7));
+        }
+        when(episodeService.listBySubscription(10)).thenReturn(before, after);
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+
+        TorrentInfo pack = torrent("Some.Show.S01.1080p");
+        pack.setParsedSeason(1);
+        pack.setParsedTitle("Some Show");
+        TorrentInfo ep3 = torrent("Some.Show.S01E03.1080p");
+        ep3.setParsedSeason(1);
+        ep3.setParsedEpisode(3);
+        ep3.setParsedTitle("Some Show");
+        when(torznabClient.search(any(), anyString())).thenReturn(List.of(pack, ep3));
+        when(subscriptionEngine.pushBest(eq(sub), eq(3), anyList())).thenReturn(true);
+
+        withSeasonPackThreshold(3).searchAndPushMissing(10);
+
+        // 未播的 9 集不算数：本轮实际只缺 1 集，走单集优先
+        verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(3), anyList());
+        verify(subscriptionEngine, never()).pushBest(any(), eq(SubscriptionMatcher.SEASON_PACK), anyList());
+    }
+
+    /**
+     * 降级成次选，不是关掉：候选池里没有精确的单集资源时，一个整季包仍远比什么都不下强。
+     */
+    @Test
+    void 只缺一集且没有单集资源_仍退回季包兜底() throws Exception {
+        PtSubscriptionPlus sub = tvSub(10, 1, 41);
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(41, "MISSING")));
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+
+        TorrentInfo pack = torrent("Some.Show.S01.1080p");
+        pack.setParsedSeason(1);
+        pack.setParsedTitle("Some Show");
+        when(torznabClient.search(any(), anyString())).thenReturn(List.of(pack));
+        when(subscriptionEngine.pushBest(eq(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList()))
+                .thenReturn(true);
+
+        SearchAndPushSummary summary = withSeasonPackThreshold(3).searchAndPushMissing(10);
+
+        verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList());
+        assertTrue(summary.isSeasonPushed());
+    }
+
+    /** 缺得多时季包仍然优先：一次补一大批正是它的价值所在 */
+    @Test
+    void 缺集数达到阈值时_季包仍然优先() throws Exception {
+        PtSubscriptionPlus sub = tvSub(10, 1, 3);
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        when(episodeService.listBySubscription(10)).thenReturn(
+                List.of(episode(1, "MISSING"), episode(2, "MISSING"), episode(3, "MISSING")),
+                List.of(episode(1, "IN_FLIGHT"), episode(2, "IN_FLIGHT"), episode(3, "IN_FLIGHT")));
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+
+        TorrentInfo pack = torrent("Some.Show.S01.1080p");
+        pack.setParsedSeason(1);
+        pack.setParsedTitle("Some Show");
+        TorrentInfo ep1 = torrent("Some.Show.S01E01.1080p");
+        ep1.setParsedSeason(1);
+        ep1.setParsedEpisode(1);
+        ep1.setParsedTitle("Some Show");
+        when(torznabClient.search(any(), anyString())).thenReturn(List.of(pack, ep1));
+        when(subscriptionEngine.pushBest(eq(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList()))
+                .thenReturn(true);
+
+        SearchAndPushSummary summary = withSeasonPackThreshold(3).searchAndPushMissing(10);
+
+        assertTrue(summary.isSeasonPushed());
+        // 季包占位过的集重查后已不是 MISSING，不会再被逐集推一次
+        verify(subscriptionEngine, never()).pushBest(any(), eq(1), anyList());
     }
 
     /**

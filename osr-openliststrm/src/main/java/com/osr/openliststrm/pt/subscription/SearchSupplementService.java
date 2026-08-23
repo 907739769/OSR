@@ -123,6 +123,30 @@ public class SearchSupplementService {
      */
     private final long perEpisodeFallbackBudgetMillis;
 
+    /**
+     * 「季包优先」所需的最少缺集数：本轮要补的集<b>少于</b>这个数时，先试候选池里精确的单集资源，
+     * 逐集补不上的再退回季包兜底。{@code <= 0} 表示恒季包优先（改造前的行为）。
+     * <p>
+     * 季包的价值在于<b>一次补一大批</b>。只缺零星几集时它是笔亏本买卖：下几十 GB 换一集，
+     * 多背一整包的保种义务；而且<b>包里到底有没有那一集，要等下载器返回文件列表才知道</b>——
+     * 不含的话这一轮整个白跑（{@code NO_TARGET_EPISODE} 中止、删种、集退回缺失），
+     * 下一轮换个发布组的季包再来一遍。
+     * </p>
+     * <p>
+     * 更糟的是它会<b>结构性地饿死单集资源</b>：季包推送成功后本轮要重查集状态（那一步是对的，
+     * 否则每集都会在 resolveTargets 处落空刷一屏噪音），于是被季包占位的集在<b>本轮</b>
+     * 逐集分支里已不是 MISSING、直接跳过；等对账把它退回缺失，下一轮季包又抢先占一次。
+     * 站上季包版本一多（不同发布组/分辨率各一个），"明明有单独的第 41 集，就是永远不下"
+     * 就成了稳态。{@code preferCompletePacks} 的文件数判据在这里也帮不上忙——
+     * 它要求待占位集数 ≥ 2，而这恰恰是只缺一两集的场景。
+     * </p>
+     * <p>
+     * 默认 3 是这样取的：缺 1~2 集基本都是追更中的最新集（站上一定是先有单集、后有合集），
+     * 缺 3 集往上多半是断档或新建订阅，那时一个季包一次补齐反而更省。
+     * </p>
+     */
+    private final int seasonPackMinMissing;
+
     public SearchSupplementService(IPtIndexerPlusService indexerService,
                                    TorznabClient torznabClient,
                                    SubscriptionEngine subscriptionEngine,
@@ -138,7 +162,8 @@ public class SearchSupplementService {
                                    @Value("${pt.search.indexer-budget-ms:30000}") long indexerBudgetMillis,
                                    @Value("${pt.search.per-episode-fallback-limit:5}") int perEpisodeFallbackLimit,
                                    @Value("${pt.search.per-episode-fallback-budget-ms:180000}")
-                                   long perEpisodeFallbackBudgetMillis) {
+                                   long perEpisodeFallbackBudgetMillis,
+                                   @Value("${pt.search.season-pack-min-missing:3}") int seasonPackMinMissing) {
         this.indexerService = indexerService;
         this.torznabClient = torznabClient;
         this.subscriptionEngine = subscriptionEngine;
@@ -154,6 +179,7 @@ public class SearchSupplementService {
         this.indexerBudgetMillis = indexerBudgetMillis;
         this.perEpisodeFallbackLimit = perEpisodeFallbackLimit;
         this.perEpisodeFallbackBudgetMillis = perEpisodeFallbackBudgetMillis;
+        this.seasonPackMinMissing = seasonPackMinMissing;
     }
 
     /**
@@ -570,18 +596,20 @@ public class SearchSupplementService {
         // 单次全季节搜索（三级回退：ID → 中文 → 英文/原语言）
         List<TorrentInfo> candidates = searchSeasonCandidates(sub);
 
-        // 先试季包
+        // 季包优先还是单集优先，只看这一轮要补几集（判据与理由见 seasonPackMinMissing）。
+        // 缺得少时把季包推到后面当兜底，否则「季包占位 → 对账发现不含这一集 → 退回 →
+        // 下一轮换个季包再占一次」会让候选池里那个精确的单集永远轮不到
+        long missingCount = episodes.stream()
+                .filter(ep -> SubscriptionService.STATE_MISSING.equals(ep.getState()) && aired(ep, today))
+                .count();
+        boolean seasonPackFirst = seasonPackMinMissing <= 0 || missingCount >= seasonPackMinMissing;
+
         boolean seasonPushed = false;
-        if (!candidates.isEmpty()) {
-            List<TorrentInfo> seasonCandidates = filterByTarget(sub, SubscriptionMatcher.SEASON_PACK, candidates);
-            if (!seasonCandidates.isEmpty()) {
-                try {
-                    seasonPushed = subscriptionEngine.pushBest(sub, SubscriptionMatcher.SEASON_PACK, seasonCandidates);
-                } catch (Exception e) {
-                    log.warn("{} 补搜整季包推送异常：{}",
-                            PtLogText.subject(sub, SubscriptionMatcher.SEASON_PACK, null), e.getMessage());
-                }
-            }
+        if (seasonPackFirst) {
+            seasonPushed = trySeasonPack(sub, candidates);
+        } else {
+            log.debug("{} 本轮只缺 {} 集（阈值 {}），先试单集资源，季包留作兜底",
+                    PtLogText.subject(sub), missingCount, seasonPackMinMissing);
         }
 
         // 季包推送会把当时<b>所有</b> MISSING 集一次占成 IN_FLIGHT（见
@@ -627,6 +655,18 @@ public class SearchSupplementService {
         // 候选池里一集都没匹配上的，补发真正的单集检索
         episodesPushed += fallbackPerEpisode(sub, unmatched);
 
+        // 单集优先模式下的兜底：逐集与补发都没能覆盖的集，仍然交给季包。
+        // 「候选池里没有精确的单集资源」时，一个整季包仍然远比什么都不下强——
+        // 这条兜底在的意义是：把季包从「首选」降级成「次选」，而不是把它关掉。
+        // 必须重查一次集状态：上面刚推成功的集已不是 MISSING，拿本轮开头的快照判会多推一个白跑的包
+        if (!seasonPackFirst) {
+            boolean stillMissing = episodeService.listBySubscription(subId).stream()
+                    .anyMatch(ep -> SubscriptionService.STATE_MISSING.equals(ep.getState()) && aired(ep, today));
+            if (stillMissing) {
+                seasonPushed = trySeasonPack(sub, candidates);
+            }
+        }
+
         // 剧集分支不走 supplement()，需自行记录本次搜索时间供 AutoSearchService 到期判断
         // 定向更新这一列，不要 updateById(sub)：推送链路可能在另一份订阅实例上写过
         // last_match_time，整实体写回会把它覆盖回旧值（见 IPtSubscriptionPlusService#updateLastSearchTime）
@@ -638,6 +678,30 @@ public class SearchSupplementService {
                 : searchLogService.digestRejectionsSince(subId, watermark);
         return new SearchAndPushSummary(false, seasonPushed, episodesPushed,
                 digest.summary(), digest.signature());
+    }
+
+    /**
+     * 从季搜索的候选池里挑一个整季包推送。季包优先与季包兜底两条路径共用这一份——
+     * 各写一份的话，「先试单集」那条路上的季包会慢慢与主路径漂移，
+     * 而两者本就是同一件事（同一个候选池、同一个 SEASON_PACK 目标、同一套过滤择优）。
+     *
+     * @return 是否成功推送了一个季包
+     */
+    private boolean trySeasonPack(PtSubscriptionPlus sub, List<TorrentInfo> candidates) {
+        if (candidates.isEmpty()) {
+            return false;
+        }
+        List<TorrentInfo> seasonCandidates = filterByTarget(sub, SubscriptionMatcher.SEASON_PACK, candidates);
+        if (seasonCandidates.isEmpty()) {
+            return false;
+        }
+        try {
+            return subscriptionEngine.pushBest(sub, SubscriptionMatcher.SEASON_PACK, seasonCandidates);
+        } catch (Exception e) {
+            log.warn("{} 补搜整季包推送异常：{}",
+                    PtLogText.subject(sub, SubscriptionMatcher.SEASON_PACK, null), e.getMessage());
+            return false;
+        }
     }
 
     /**
