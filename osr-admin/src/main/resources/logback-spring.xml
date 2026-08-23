@@ -161,6 +161,16 @@
     <logger name="com.osr.framework.filter.RequestLogFilter" level="debug" />
 
     <!--
+        telegrambots 的 Ability 在启动时会为每个 Bot 指令打一行
+        「No post action was detected for method with name [xxx]」——本项目有 17 个指令，
+        于是每次重启多 17 行英文 INFO，说的是「你没给这个指令配 post action」，
+        而本项目本来就不用那个特性。它不是告警、不需要任何处置，
+        却和目录监听那批一起把重启后的头几百行占满，而重启往往正是为了看某个改动生没生效。
+        只压这一个类，telegrambots 其余部分照旧——真出问题的是连接与会话，那些在别的 logger 下。
+    -->
+    <logger name="org.telegram.abilitybots.api.objects.Ability" level="warn" />
+
+    <!--
         关掉 MyBatis 的 SQL 日志。
 
         它此前不是被选择的，是被上面那条包级 DEBUG <连带>出来的：MyBatis 的 SQL logger 名

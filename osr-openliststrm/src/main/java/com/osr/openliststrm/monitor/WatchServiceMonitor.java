@@ -10,6 +10,7 @@ import java.nio.file.*;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
@@ -155,8 +156,19 @@ public class WatchServiceMonitor implements FileMonitor {
 
     /**
      * 递归注册。命中 {@link #skipDir} 的子目录整棵跳过，边界见 {@link #skipSubtree}。
+     * <p>
+     * <b>只在结束时汇总一行，不逐个目录记。</b>逐个记的写法在一台真实机器上启动时刷了 229 行、
+     * 215 毫秒内出完，而每一行说的是同一件事；行数随媒体库规模线性增长，大库上千很正常。
+     * 代价不在磁盘（一次重启才一次），在于<b>重启后想看点什么，头几百行全是它</b>——
+     * 而重启往往正是为了确认某个改动生没生效。
+     * </p>
+     * <p>
+     * 被跳过的临时目录<b>照旧逐条记 INFO</b>：那是例外事件，恰恰是这里唯一有诊断价值的东西，
+     * 量本来也小。
+     * </p>
      */
     private void registerAll(Path start) throws IOException {
+        AtomicInteger registered = new AtomicInteger();
         Files.walkFileTree(start, new SimpleFileVisitor<Path>() {
             @Override
             public FileVisitResult preVisitDirectory(Path dir, BasicFileAttributes attrs)
@@ -166,9 +178,13 @@ public class WatchServiceMonitor implements FileMonitor {
                     return FileVisitResult.SKIP_SUBTREE;
                 }
                 register(dir);
+                registered.incrementAndGet();
                 return FileVisitResult.CONTINUE;
             }
         });
+        // handleCreate 发现新目录时也走这里，那时 start 就是那个新目录、计数通常是 1，
+        // 一行「已注册 1 个目录监听：/xxx」与改造前逐条记的信息量完全相等
+        log.debug("已注册 {} 个目录监听：{}", registered.get(), start.toAbsolutePath().normalize());
     }
 
     /** 目录名是否命中跳过规则。取文件名部分判定，根目录（getFileName 为 null）一律不跳 */
@@ -189,9 +205,7 @@ public class WatchServiceMonitor implements FileMonitor {
     }
 
     private void register(Path dir) throws IOException {
-        Path p = dir.toAbsolutePath().normalize();
-        p.register(watchService, ENTRY_CREATE, ENTRY_MODIFY);
-        log.debug("已注册目录监听：{}", p);
+        dir.toAbsolutePath().normalize().register(watchService, ENTRY_CREATE, ENTRY_MODIFY);
     }
 
 }

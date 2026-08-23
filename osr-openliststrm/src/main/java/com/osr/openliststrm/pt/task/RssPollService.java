@@ -69,6 +69,22 @@ public class RssPollService {
     private static final Duration FUTURE_TOLERANCE = Duration.ofHours(1);
 
     /**
+     * 覆盖度「余量」小于几轮轮询时才值得说一句。
+     * <p>
+     * 这行原先是每索引器每轮无条件打的一句「拉取窗口正常」——7 个索引器按 11 分钟一轮算
+     * 就是 917 行/天的「一切正常」，而实测余量是 4.2~23.6 小时、轮询周期只有 10 分钟，
+     * 也就是 25 倍以上的富余，「余量 22.9 小时」这个数字不构成任何信息。
+     * 现在它只在余量收窄到 3 轮以内时才出现，从「报平安」变成「早期预警」——
+     * 再慢一点就要出缺口了，这时候说才有人会动。
+     * </p>
+     * <p>
+     * 取 3 而不是 1：等余量只剩 1 轮再说就来不及了，缺口下一轮就会真的发生，
+     * 而那时 WARN 分支自己会喊。留 3 轮是给「看到 → 去查 → 改配置」留的余地。
+     * </p>
+     */
+    private static final int COVERAGE_MARGIN_ALERT_ROUNDS = 3;
+
+    /**
      * 同时拉取多个到期索引器的最大并发数。
      * <p>
      * 注意这只是本轮轮询内部的一道次级闸门，<b>不是</b>对站点的真正节流——真正的节流在
@@ -447,17 +463,24 @@ public class RssPollService {
                     fetched.size(), coverageWindowHours, inWindow, describeNoise(tooOld, oldestOverall, unparsable, fromFuture),
                     floor, previousCursor, formatDuration(Duration.between(previousCursor, floor)),
                     indexer.getPollInterval(), fails, backoffMultiplier(fails),
-                    (indexer.getPollInterval() == null ? 600 : indexer.getPollInterval()) * backoffMultiplier(fails));
+                    effectiveIntervalSeconds(indexer));
             notifySafely("⚠️ 索引器[" + StringUtils.escapeHtml(indexer.getName()) + "]拉取窗口覆盖不全，"
                     + formatDuration(Duration.between(previousCursor, floor)) + "内发布的种子可能被漏拉。"
                     + "先看该索引器的失败次数（不为 0 时退避已把实际间隔放大数倍），再考虑缩短轮询周期"
                     + "或让索引器提高单页返回数");
         } else {
             Duration margin = Duration.between(floor, previousCursor);
-            log.debug("索引器[{}]拉取窗口正常：本页 {} 条（{} 小时内 {} 条{}），窗口下沿 {}，上轮游标 {}，余量 {}",
-                    indexer.getName(), fetched.size(), coverageWindowHours, inWindow,
-                    describeNoise(tooOld, oldestOverall, unparsable, fromFuture), floor, previousCursor,
-                    formatDuration(margin));
+            // 余量充裕时什么都不说：见 COVERAGE_MARGIN_ALERT_ROUNDS。
+            // 「这一轮到底拉到了多少」由 pollOne 的那行 INFO 每轮记着，不靠这里
+            Duration alertAt = Duration.ofSeconds(
+                    effectiveIntervalSeconds(indexer) * COVERAGE_MARGIN_ALERT_ROUNDS);
+            if (margin.compareTo(alertAt) < 0) {
+                log.debug("索引器[{}]拉取窗口余量偏紧：本页 {} 条（{} 小时内 {} 条{}），"
+                                + "窗口下沿 {}，上轮游标 {}，余量 {}（不足 {} 轮轮询）",
+                        indexer.getName(), fetched.size(), coverageWindowHours, inWindow,
+                        describeNoise(tooOld, oldestOverall, unparsable, fromFuture), floor, previousCursor,
+                        formatDuration(margin), COVERAGE_MARGIN_ALERT_ROUNDS);
+            }
         }
 
         indexer.setLastSeenPubTime(Date.from(newest));
@@ -574,10 +597,21 @@ public class RssPollService {
         if (indexer.getLastPollTime() == null) {
             return true;
         }
+        return now - indexer.getLastPollTime().getTime() >= effectiveIntervalSeconds(indexer) * 1000L;
+    }
+
+    /**
+     * 这个索引器当前实际的轮询间隔（秒）：配置周期 × 退避倍数。
+     * <p>
+     * 三处共用（{@link #isDue} 判到期、覆盖不全的 WARN 文案、余量偏紧的判据）。
+     * 各写一份的话，「默认 600」和退避倍数迟早会漂移，而漂移的表现是判据与日志里
+     * 报出来的数对不上——排查的人会先怀疑自己看错了。
+     * </p>
+     */
+    private long effectiveIntervalSeconds(PtIndexerPlus indexer) {
         int interval = indexer.getPollInterval() == null ? 600 : indexer.getPollInterval();
         int fails = indexer.getFailCount() == null ? 0 : indexer.getFailCount();
-        long effectiveInterval = interval * 1000L * backoffMultiplier(fails);
-        return now - indexer.getLastPollTime().getTime() >= effectiveInterval;
+        return interval * backoffMultiplier(fails);
     }
 
     /** 连续失败次数 → 轮询间隔倍数：1, 2, 4, 8, 16, 32（封顶） */

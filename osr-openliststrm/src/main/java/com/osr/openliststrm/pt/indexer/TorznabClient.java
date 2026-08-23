@@ -70,7 +70,11 @@ public class TorznabClient {
         for (TorrentInfo info : list) {
             info.setIndexerId(indexer.getId());
         }
-        log.debug("索引器[{}]返回{}条种子", indexer.getName(), list.size());
+        // 这里刻意不记条数：唯一的调用方 RssPollService#pollOne 会在 4 毫秒后打
+        // 「索引器[x]拉取到 N 条种子」，同一个数字由传输层和调用方各说一遍，
+        // 与当初 ApiInterceptor 和 RequestLogFilter 对同一个请求各打两行是同一个毛病。
+        // 下面 search / searchByExternalId 的两行保留——那两条路径的调用方
+        // （SearchSupplementService）不会逐索引器再记一次计数，删了就真没有了。
         return list;
     }
 

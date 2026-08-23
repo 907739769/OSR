@@ -48,6 +48,29 @@ class RssPollServiceTest {
 
     private IndexerRateLimiter rateLimiter;
 
+    private ch.qos.logback.classic.Logger coverageLogger;
+    private ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent> logs;
+
+    @org.junit.jupiter.api.BeforeEach
+    void attachLogAppender() {
+        coverageLogger = (ch.qos.logback.classic.Logger)
+                org.slf4j.LoggerFactory.getLogger(RssPollService.class);
+        logs = new ch.qos.logback.core.read.ListAppender<>();
+        logs.start();
+        coverageLogger.addAppender(logs);
+        coverageLogger.setLevel(ch.qos.logback.classic.Level.DEBUG);
+    }
+
+    @org.junit.jupiter.api.AfterEach
+    void detachLogAppender() {
+        coverageLogger.detachAppender(logs);
+        logs.stop();
+    }
+
+    private long countLogContaining(String fragment) {
+        return logs.list.stream().filter(e -> e.getFormattedMessage().contains(fragment)).count();
+    }
+
     private RssPollService service() {
         // 零间隔限流器：本类验证轮询编排与退避账目，不测节流本身
         rateLimiter = new IndexerRateLimiter(0L, 5000L, 8);
@@ -259,6 +282,59 @@ class RssPollServiceTest {
 
             tg.verify(() -> TgHelper.sendMsg(anyString()), never());
         }
+    }
+
+    /**
+     * 「拉取窗口正常」原先是每索引器每轮无条件打的一句「一切正常」——7 个索引器按 11 分钟
+     * 一轮算就是 917 行/天，而生产实测余量是 4.2~23.6 小时、轮询周期只有 10 分钟，
+     * 25 倍以上的富余，那个数字不构成任何信息。现在只在余量收窄到 3 轮以内时才说。
+     */
+    @Test
+    void 余量充裕时不记日志() throws Exception {
+        PtIndexerPlus idx = indexer(1, 300, null, 0);   // 阈值 = 3 × 300 秒 = 15 分钟
+        idx.setLastSeenPubTime(minutesAgo(5));
+        // 下沿 30 分钟前、游标 5 分钟前 → 余量 25 分钟，远超阈值
+        when(torznabClient.fetch(any())).thenReturn(List.of(aged("新", 1), aged("老", 30)));
+
+        try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
+            service().pollOne(idx, new java.util.ArrayList<>());
+        }
+
+        assertEquals(0, countLogContaining("拉取窗口余量偏紧"));
+        assertEquals(0, countLogContaining("拉取窗口正常"), "这句「报平安」已经删掉，不要复活");
+    }
+
+    @Test
+    void 余量不足三轮时记一行() throws Exception {
+        PtIndexerPlus idx = indexer(1, 300, null, 0);   // 阈值 15 分钟
+        idx.setLastSeenPubTime(minutesAgo(5));
+        // 下沿 12 分钟前、游标 5 分钟前 → 余量 7 分钟，低于阈值
+        when(torznabClient.fetch(any())).thenReturn(List.of(aged("新", 1), aged("老", 12)));
+
+        try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
+            service().pollOne(idx, new java.util.ArrayList<>());
+            tg.verify(() -> TgHelper.sendMsg(anyString()), never());   // 还没到缺口，不发通知
+        }
+
+        assertEquals(1, countLogContaining("拉取窗口余量偏紧"));
+    }
+
+    /**
+     * 阈值必须跟着退避走：fail_count 把实际间隔放大 8 倍之后，原本充裕的余量就不再充裕了。
+     * 这条同时钉住 effectiveIntervalSeconds 确实被判据用上了——写死 300 秒的话它会红。
+     */
+    @Test
+    void 退避把实际间隔放大后_同样的余量变成偏紧() throws Exception {
+        PtIndexerPlus idx = indexer(1, 300, null, 3);   // 退避 8 倍 → 实际 2400 秒，阈值 2 小时
+        idx.setLastSeenPubTime(minutesAgo(5));
+        // 与「余量充裕」那条完全相同的数据：余量 25 分钟
+        when(torznabClient.fetch(any())).thenReturn(List.of(aged("新", 1), aged("老", 30)));
+
+        try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
+            service().pollOne(idx, new java.util.ArrayList<>());
+        }
+
+        assertEquals(1, countLogContaining("拉取窗口余量偏紧"));
     }
 
     @Test
