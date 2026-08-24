@@ -142,6 +142,15 @@ public class OpenlistConfig {
         return sysConfigService.selectConfigByKey("openlist.tmdb.apikey");
     }
 
+    /**
+     * 自建 RSSHub 实例地址（sys_config 的 'openlist.rsshub.base-url'）。
+     * 留空表示未配置——RSSHUB_DOUBAN 数据源会跳过并 warn，不去猜一个官方地址
+     * （官方实例常年限流/不可用，猜出来的地址只会把故障变成"看起来配好了但一条都拉不到"）。
+     */
+    public String getRsshubBaseUrl() {
+        return sysConfigService.selectConfigByKey("openlist.rsshub.base-url");
+    }
+
     // OpenAI API Key (stored in sys_config as 'openlist.openai.apikey')
     public String getOpenAiApiKey() {
         return sysConfigService.selectConfigByKey("openlist.openai.apikey");

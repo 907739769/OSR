@@ -79,6 +79,7 @@ export const CONFIG_META: Record<string, ConfigMeta> = {
   'openlist.wecom.proxy': { type: 'text', hint: '企微 API 中转地址。仅 2022-06-20 之后创建的自建应用、且服务器无固定公网 IP 时需要（企微要求登记可信 IP），填反代 qyapi.weixin.qq.com 的地址。不使用代理请保留默认值 https://qyapi.weixin.qq.com' },
   'openlist.notify.wecom.types': { type: 'text', hint: '逗号分隔的通知类型，留空=全部发送。可选：GENERAL,SUBSCRIPTION_HIT,DOWNLOAD_COMPLETE,DOWNLOAD_FAILED,EMBY_LIBRARY_SYNC' },
   // OpenAI
+  'openlist.rsshub.base-url': { type: 'text', hint: '自建 RSSHub 实例地址，如 http://192.168.1.10:1200。留空则「豆瓣热门(RSSHub)」数据源不工作。实例带访问码时可直接把 ?key=xxx 写在地址里' },
   'openlist.openai.apikey': { type: 'password', hint: 'OpenAI API Key' },
   'openlist.openai.endpoint': { type: 'text', hint: 'OpenAI 接口地址，默认 https://api.openai.com' },
   'openlist.openai.model': { type: 'text', hint: 'OpenAI 模型名称，例如 gpt-5-mini' },
@@ -123,6 +124,8 @@ export const SECTION_RULES: Array<{ key: string; title: string; icon: string; pr
     prefixes: ['openlist.tmdb.'] },
   { key: 'openai', title: 'OpenAI 配置', icon: 'bot',
     prefixes: ['openlist.openai.'] },
+  { key: 'rsshub', title: 'RSSHub 服务', icon: 'rss',
+    prefixes: ['openlist.rsshub.'] },
   { key: 'security', title: '登录与安全', icon: 'shield-check',
     prefixes: ['sys.login.', 'sys.account.'] },
   { key: 'other', title: '其他', icon: 'ellipsis', prefixes: [] }

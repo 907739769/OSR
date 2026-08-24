@@ -40,9 +40,16 @@ public class PtAutoAddRulePlus extends BaseEntity {
     @TableField("media_type")
     private String mediaType;
 
-    /** 数据源：TMDB_TRENDING_DAY / TMDB_TRENDING_WEEK / TMDB_DISCOVER */
+    /** 数据源：TMDB_TRENDING_DAY / TMDB_TRENDING_WEEK / TMDB_DISCOVER / RSSHUB_DOUBAN */
     @TableField("source")
     private String source;
+
+    /**
+     * RSS 地址，仅 RSSHUB_DOUBAN 生效。填路由路径（/douban/movie/weekly/xxx）时与全局
+     * openlist.rsshub.base-url 拼接，填完整 http(s) URL 时直接使用、忽略 base。
+     */
+    @TableField("source_url")
+    private String sourceUrl;
 
     /** 排除的 TMDb 类型 ID，逗号分隔，命中任意一个即跳过 */
     @TableField("genre_exclude")

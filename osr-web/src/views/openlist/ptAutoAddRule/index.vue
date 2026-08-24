@@ -117,13 +117,38 @@
             <v-select
               v-model="form.source"
               label="数据源"
-              :items="[
-                { title: 'TMDb 每日热门', value: 'TMDB_TRENDING_DAY' },
-                { title: 'TMDb 每周热门', value: 'TMDB_TRENDING_WEEK' },
-                { title: 'TMDb 条件发现（按评分/地区）', value: 'TMDB_DISCOVER' }
-              ]"
+              :items="SOURCE_OPTIONS"
+              item-title="title"
+              item-value="value"
               class="mb-3"
             />
+            <template v-if="isRssSource(form.source)">
+              <v-select
+                :model-value="null"
+                label="常用榜单"
+                :items="DOUBAN_ROUTE_PRESETS"
+                item-title="label"
+                item-value="path"
+                placeholder="选一个填入下方地址"
+                persistent-hint
+                hint="预设按 RSSHub 官方路由填写，你的实例版本不同的话直接改下方地址即可"
+                class="mb-3"
+                @update:model-value="applyRoutePreset"
+              />
+              <v-text-field
+                v-model="form.sourceUrl"
+                label="RSS 地址"
+                placeholder="/douban/movie/weekly/movie_real_time_hotest"
+                :rules="sourceUrlRules"
+                persistent-hint
+                hint="填路由路径则与「参数设置 → RSSHub 服务地址」拼接；填完整 http(s) 地址则直接使用"
+                class="mb-3"
+              />
+              <v-alert type="info" variant="tonal" density="compact" class="mb-3">
+                豆瓣条目要按标题搜 TMDb 才能建订阅，搜不到同名作品的会跳过并记进执行日志。
+                榜单里电影剧集常混在一起，只有与上方「媒体类型」一致的才会被订阅。
+              </v-alert>
+            </template>
             <v-select
               v-model="genreExcludeArr"
               label="排除类型"
@@ -145,6 +170,8 @@
               :max="10"
               step="0.5"
               placeholder="不限"
+              persistent-hint
+              :hint="isRssSource(form.source) ? '按 TMDb 评分过滤（不是豆瓣评分），与其它数据源口径一致' : undefined"
               class="mb-3"
             />
             <v-text-field
@@ -217,6 +244,16 @@
             <template #item.result="{ item }">
               <StatusChip :type="resultTagType(item.result)" :text="resultLabel(item.result)" />
             </template>
+            <template #item.title="{ item }">
+              <a
+                v-if="item.sourceItemUrl"
+                :href="item.sourceItemUrl"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="source-link"
+              >{{ item.title }}</a>
+              <span v-else>{{ item.title }}</span>
+            </template>
           </v-data-table>
           <v-empty-state v-if="!logLoading && logList.length === 0" icon="inbox" title="暂无日志" />
         </v-card-text>
@@ -229,7 +266,13 @@
 import StatusChip from '@/components/StatusChip.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import FormField from '@/components/FormField.vue'
-import { usePtAutoAddRule, REGION_OPTIONS } from '@/composables/usePtAutoAddRule'
+import {
+  usePtAutoAddRule,
+  REGION_OPTIONS,
+  SOURCE_OPTIONS,
+  DOUBAN_ROUTE_PRESETS,
+  isRssSource
+} from '@/composables/usePtAutoAddRule'
 import { useSearchPanel } from '@/composables/useSearchPanel'
 import SearchPanel from '@/components/SearchPanel.vue'
 import { useDataTable } from '@/composables/useDataTable'
@@ -243,7 +286,7 @@ const {
   runningIds, handleRun,
   logDialogVisible, logLoading, logList, handleShowLogs,
   genreOptions, genreExcludeArr, downloaderOptions,
-  filterText
+  filterText, sourceLabel, resultLabel, resultTagType
 } = usePtAutoAddRule()
 
 // 表单规则是 { required, message, trigger } 对象格式（composable 返回），
@@ -257,6 +300,17 @@ const toRuleFns = (ruleList: any[]) =>
   })
 
 const nameRules = toRuleFns(rules.name)
+
+// RSS 地址只在豆瓣源下必填：选了这个源却不填地址的话，规则能保存、执行时静静地一条都拉不到，
+// 而用户要翻到执行日志才看得见那句 warn
+const sourceUrlRules = [
+  (value: string) => (!isRssSource(form.value.source) || !!value) || 'RSS 地址不能为空'
+]
+
+/** 预设下拉只负责把路径填进地址框，本身不参与提交（所以 model-value 恒为 null） */
+const applyRoutePreset = (path: string | null) => {
+  if (path) form.value.sourceUrl = path
+}
 
 const handleSubmitClick = async () => {
   if (!formRef.value) return
@@ -290,39 +344,21 @@ const logHeaders = [
   { title: '说明', key: 'message', minWidth: '160' }
 ]
 
-const sourceLabel = (source: string) => {
-  const map: Record<string, string> = {
-    TMDB_TRENDING_DAY: 'TMDb 每日热门',
-    TMDB_TRENDING_WEEK: 'TMDb 每周热门',
-    TMDB_DISCOVER: 'TMDb 条件发现'
-  }
-  return map[source] || source
-}
-
-const resultLabel = (result: string) => {
-  const map: Record<string, string> = {
-    ADDED: '已新增',
-    SKIPPED_EXISTS: '已存在跳过',
-    SKIPPED_FILTER: '过滤跳过',
-    FAILED: '失败'
-  }
-  return map[result] || result
-}
-
-const resultTagType = (result: string): 'success' | 'info' | 'warning' | 'error' => {
-  const map: Record<string, 'success' | 'info' | 'warning' | 'error'> = {
-    ADDED: 'success',
-    SKIPPED_EXISTS: 'info',
-    SKIPPED_FILTER: 'warning',
-    FAILED: 'error'
-  }
-  return map[result] || 'info'
-}
 </script>
 
 <style scoped lang="scss">
 .text-muted {
   color: var(--osr-text-secondary);
+}
+
+/* 豆瓣源的日志条目挂原条目链接：匹配对不对，点开看一眼最快 */
+.source-link {
+  color: var(--osr-primary);
+  text-decoration: none;
+
+  &:hover {
+    text-decoration: underline;
+  }
 }
 
 </style>

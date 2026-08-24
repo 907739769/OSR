@@ -16,6 +16,7 @@ import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -219,5 +220,34 @@ class AdminOnlyWriteTest {
         assertNotEquals(403, result.getCode());
         assertEquals(200, result.getCode());
         assertEquals(null, result.getData().getApiKey());
+    }
+
+    // ---------- 覆盖面 ----------
+
+    /**
+     * 上面那组用例钉的是「这道门的机制有效」，这一条钉的是「该装门的地方都装了」。
+     * {@code adminOnlyWrite()} 是一行返回 true 的覆写，重构时删掉它不会有任何编译错误、
+     * 不会有告警，接口照常 200——只是权限没了，与当初不选 {@code @PreAuthorize} 要避开的
+     * 失效方式一模一样。
+     */
+    @Test
+    void 系统级配置的控制器都覆写了adminOnlyWrite() throws Exception {
+        List<Class<? extends BaseCrudRestController<?, ?>>> guarded = List.of(
+                PtIndexerRestController.class,
+                PtDownloaderRestController.class,
+                PtMediaServerRestController.class,
+                PtCleanRuleRestController.class,
+                PtTransferRuleRestController.class,
+                // 热门自动订阅：规则上的 source_url 是用户可填的任意 URL 而后端会去 GET 它，
+                // 不限权等于给出一个「让服务端往任意地址发请求」的入口
+                PtAutoAddRuleRestController.class);
+
+        Method hook = BaseCrudRestController.class.getDeclaredMethod("adminOnlyWrite");
+        hook.setAccessible(true);
+        for (Class<? extends BaseCrudRestController<?, ?>> type : guarded) {
+            Object instance = type.getDeclaredConstructor().newInstance();
+            assertEquals(Boolean.TRUE, hook.invoke(instance),
+                    type.getSimpleName() + " 的写操作必须限管理员");
+        }
     }
 }

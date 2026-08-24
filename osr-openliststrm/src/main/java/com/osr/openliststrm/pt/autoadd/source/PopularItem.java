@@ -7,8 +7,8 @@ import java.util.List;
 /**
  * 热门榜单候选条目的统一模型，屏蔽不同数据源（TMDb 榜单、未来的豆瓣榜单等）的字段差异。
  * <p>
- * tmdbId 为空时（如豆瓣源）需要额外的转换步骤补全后才能进入建订阅流程，
- * 本期只有 {@link TmdbPopularSource} 一个实现，tmdbId 恒不为空。
+ * tmdbId 为空时（豆瓣源）需要 {@code PopularItemResolver} 先按标题搜 TMDb 补全，
+ * 才能进入建订阅流程——整条链路（订阅表、集号对齐、索引器的外部 ID 检索）都是围绕 tmdbId 建的。
  * </p>
  *
  * @author Jack
@@ -19,8 +19,11 @@ public class PopularItem {
     /** TMDb ID，非 TMDb 源可能为空，需后续转换补全 */
     private String tmdbId;
 
-    /** 豆瓣 ID，供未来豆瓣数据源使用，TMDb 源恒为空 */
+    /** 豆瓣 ID，仅豆瓣数据源有值，TMDb 源恒为空 */
     private String doubanId;
+
+    /** 来源侧条目链接（豆瓣条目页），仅豆瓣数据源有值。匹配不上 TMDb 时靠它回查是哪个条目 */
+    private String sourceUrl;
 
     /** IMDb ID，供跨源转换用，取不到时为空 */
     private String imdbId;

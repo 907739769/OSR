@@ -19,6 +19,7 @@ com/osr/openliststrm/
 ├── openai/           # AI 相关功能 (OpenAIClient)
 ├── orphan/           # 重命名一致性检查 (孤儿扫描/清理/忽略)
 ├── pt/               # PT 订阅管理 (downloader/indexer/subscription/media server)
+│   ├── autoadd/      # 热门自动订阅 (TMDb 榜单 / RSSHub 豆瓣榜单 → 过滤 → 建订阅)
 │   ├── clean/        # 自动删种 (体积区间 + 做种时长分级，辅种整组同删)
 │   ├── health/       # 缺集体检 (逾期未入库的分档诊断 + 每日聚合提醒)
 │   └── transfer/     # 转移做种 (qB → TR 搬种，IYUU「转移」的自建实现)

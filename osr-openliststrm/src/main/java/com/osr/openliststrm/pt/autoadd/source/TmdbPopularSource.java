@@ -60,7 +60,7 @@ public class TmdbPopularSource implements PopularSource {
                 break;
             }
             for (int i = 0; i < results.size(); i++) {
-                result.add(toItem(results.getJSONObject(i), rule.getMediaType()));
+                result.add(TmdbItemMapper.toItem(results.getJSONObject(i), rule.getMediaType()));
             }
             Integer totalPages = json.getInteger("total_pages");
             if (totalPages != null && page >= totalPages) {
@@ -88,36 +88,6 @@ public class TmdbPopularSource implements PopularSource {
         }
         String timeWindow = SOURCE_TRENDING_WEEK.equals(rule.getSource()) ? "week" : "day";
         return tmDbApiService.getTrending(apiKey, type, timeWindow, page);
-    }
-
-    private PopularItem toItem(JSONObject json, String mediaType) {
-        boolean tv = !SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(mediaType);
-        PopularItem item = new PopularItem();
-        item.setTmdbId(json.getString("id"));
-        item.setMediaType(tv ? "TV" : "MOVIE");
-        item.setTitle(json.getString(tv ? "name" : "title"));
-        item.setOriginalTitle(json.getString(tv ? "original_name" : "original_title"));
-        item.setYear(extractYear(json.getString(tv ? "first_air_date" : "release_date")));
-        item.setVoteAverage(json.getDouble("vote_average"));
-        item.setVoteCount(json.getInteger("vote_count"));
-        item.setPosterPath(json.getString("poster_path"));
-        JSONArray genreIds = json.getJSONArray("genre_ids");
-        if (genreIds != null) {
-            List<Integer> genres = new ArrayList<>();
-            for (int i = 0; i < genreIds.size(); i++) {
-                genres.add(genreIds.getInteger(i));
-            }
-            item.setGenreIds(genres);
-        }
-        return item;
-    }
-
-    private String extractYear(String date) {
-        if (StringUtils.isBlank(date) || date.length() < 4) {
-            return null;
-        }
-        String year = date.substring(0, 4);
-        return year.chars().allMatch(Character::isDigit) ? year : null;
     }
 
     private JSONObject readObject(String raw) {

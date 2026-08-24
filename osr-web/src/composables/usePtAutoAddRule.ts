@@ -33,6 +33,37 @@ export const TV_GENRE_OPTIONS = [
   { id: 37, label: '西部' }
 ]
 
+/**
+ * 数据源选项。**PC 与移动端共用，新增数据源只改这一处**——两端此前各写了一份 label 映射，
+ * 并且已经漂移过（PC 带 "TMDb " 前缀、移动端不带）。short 供移动端卡片用，那里上下文已经够。
+ */
+export const SOURCE_OPTIONS = [
+  { value: 'TMDB_TRENDING_DAY', title: 'TMDb 每日热门', short: '每日热门' },
+  { value: 'TMDB_TRENDING_WEEK', title: 'TMDb 每周热门', short: '每周热门' },
+  { value: 'TMDB_DISCOVER', title: 'TMDb 条件发现（按评分/地区）', short: '条件发现' },
+  { value: 'RSSHUB_DOUBAN', title: '豆瓣热门（RSSHub）', short: '豆瓣热门' }
+]
+
+/** 该数据源是否需要填 RSS 地址 */
+export const isRssSource = (source?: string) => source === 'RSSHUB_DOUBAN'
+
+/**
+ * 豆瓣常用榜单的 RSSHub 路由预设，**只是省打字，不是白名单**——地址框照常可以手填。
+ * RSSHub 的路由路径在版本之间变过，这里写死会随对方升级而失效，
+ * 以自己那个实例的文档为准。
+ */
+export const DOUBAN_ROUTE_PRESETS = [
+  { label: '实时热门电影', path: '/douban/movie/weekly/movie_real_time_hotest' },
+  { label: '一周口碑电影榜', path: '/douban/movie/weekly/movie_weekly_best' },
+  { label: '正在上映', path: '/douban/movie/playing' },
+  { label: '即将上映', path: '/douban/movie/later' },
+  { label: '北美票房榜', path: '/douban/movie/ustop' },
+  { label: '华语口碑剧集榜', path: '/douban/movie/weekly/tv_chinese_best_weekly' },
+  { label: '全球口碑剧集榜', path: '/douban/movie/weekly/tv_global_best_weekly' },
+  { label: '国内口碑综艺榜', path: '/douban/movie/weekly/show_chinese_best_weekly' },
+  { label: '国外口碑综艺榜', path: '/douban/movie/weekly/show_global_best_weekly' }
+]
+
 /** 常用地区，ISO 3166-1 代码，供"地区"下拉使用（仅 TMDB_DISCOVER 生效） */
 export const REGION_OPTIONS = [
   { code: 'CN', label: '中国大陆' }, { code: 'HK', label: '中国香港' }, { code: 'TW', label: '中国台湾' },
@@ -60,6 +91,7 @@ export function usePtAutoAddRule() {
       enabled: '1',
       mediaType: 'MOVIE',
       source: 'TMDB_TRENDING_WEEK',
+      sourceUrl: undefined,
       genreExclude: undefined,
       minVoteAverage: undefined,
       minVoteCount: undefined,
@@ -164,6 +196,37 @@ export function usePtAutoAddRule() {
     }
   }
 
+  /** 数据源标签。short=true 时省掉 "TMDb " 前缀，供移动端卡片用 */
+  const sourceLabel = (source: string, short = false): string => {
+    const option = SOURCE_OPTIONS.find((o) => o.value === source)
+    if (!option) return source
+    return short ? option.short : option.title
+  }
+
+  /** 执行日志的结果标签与配色（两端逐字相同，收口在这里） */
+  const resultLabel = (result: string): string => {
+    const map: Record<string, string> = {
+      ADDED: '已新增',
+      SKIPPED_EXISTS: '已存在跳过',
+      SKIPPED_FILTER: '过滤跳过',
+      SKIPPED_NO_MATCH: '未匹配到 TMDb',
+      FAILED: '失败'
+    }
+    return map[result] || result
+  }
+
+  const resultTagType = (result: string): 'success' | 'info' | 'warning' | 'error' => {
+    const map: Record<string, 'success' | 'info' | 'warning' | 'error'> = {
+      ADDED: 'success',
+      SKIPPED_EXISTS: 'info',
+      SKIPPED_FILTER: 'warning',
+      // 未匹配到 TMDb 不是"过滤掉了"而是"没认出来"，用户多半要去看看是不是该手动订一条
+      SKIPPED_NO_MATCH: 'warning',
+      FAILED: 'error'
+    }
+    return map[result] || 'info'
+  }
+
   /** 规则的过滤条件摘要（PC 表格列与移动端卡片共用，避免两端文案漂移） */
   const filterText = (row: any): string => {
     const parts: string[] = []
@@ -180,6 +243,6 @@ export function usePtAutoAddRule() {
     runningIds, handleRun,
     logDialogVisible, logLoading, logList, handleShowLogs,
     genreOptions, genreExcludeArr, downloaderOptions,
-    filterText
+    filterText, sourceLabel, resultLabel, resultTagType
   }
 }

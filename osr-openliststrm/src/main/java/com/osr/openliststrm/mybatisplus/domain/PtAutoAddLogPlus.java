@@ -35,6 +35,14 @@ public class PtAutoAddLogPlus extends BaseEntity {
     @TableField("tmdb_id")
     private String tmdbId;
 
+    /** 来源侧条目标识（豆瓣 subject id），TMDb 源为空 */
+    @TableField("source_item_id")
+    private String sourceItemId;
+
+    /** 来源侧条目链接（豆瓣条目页），TMDb 源为空 */
+    @TableField("source_item_url")
+    private String sourceItemUrl;
+
     /** 媒体类型 TV/MOVIE */
     @TableField("media_type")
     private String mediaType;
@@ -47,7 +55,7 @@ public class PtAutoAddLogPlus extends BaseEntity {
     @TableField("season")
     private Integer season;
 
-    /** 处理结果 ADDED / SKIPPED_EXISTS / SKIPPED_FILTER / FAILED */
+    /** 处理结果 ADDED / SKIPPED_EXISTS / SKIPPED_FILTER / SKIPPED_NO_MATCH / FAILED */
     @TableField("result")
     private String result;
 

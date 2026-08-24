@@ -31,6 +31,19 @@ public class PtAutoAddRuleRestController extends BaseCrudRestController<IPtAutoA
     @Autowired
     private IPtAutoAddLogPlusService logService;
 
+    /**
+     * 写操作限管理员。
+     * <p>
+     * 规则上的 {@code source_url} 与全局 RSSHub 地址一样是<b>用户可填的任意 URL，而后端会去 GET 它</b>——
+     * 不限权等于给任何一个登录用户一个「让服务端往任意地址发请求」的入口（内网探测），
+     * 与索引器/下载器的 {@code /test} 端点是同一类风险。读操作不拦：列表页要给所有人渲染。
+     * </p>
+     */
+    @Override
+    protected boolean adminOnlyWrite() {
+        return true;
+    }
+
     @Override
     protected Wrapper<PtAutoAddRulePlus> buildQueryWrapper(PtAutoAddRulePlus entity) {
         LambdaQueryWrapper<PtAutoAddRulePlus> wrapper = new LambdaQueryWrapper<>();
@@ -52,6 +65,12 @@ public class PtAutoAddRuleRestController extends BaseCrudRestController<IPtAutoA
      */
     @PostMapping("/{id}/run")
     public Result<AutoAddRunResult> run(@PathVariable("id") Integer id) {
+        // 这个端点会按规则里的地址真的发出站请求、并真的建订阅推给下载器，
+        // 与改规则本身同级，一并限管理员（继承来的三个写端点靠 adminOnlyWrite 拦，这个不经过那条路径）
+        Result<AutoAddRunResult> denied = denyIfNotAdmin();
+        if (denied != null) {
+            return denied;
+        }
         PtAutoAddRulePlus rule = service.getById(id);
         if (rule == null) {
             return Result.error("规则不存在");
