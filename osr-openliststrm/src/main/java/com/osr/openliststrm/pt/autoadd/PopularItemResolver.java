@@ -14,9 +14,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Set;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -59,6 +59,12 @@ public class PopularItemResolver {
             "[\\p{IsHan}\\p{IsHiragana}\\p{IsKatakana}\\p{IsHangul}]"
                     + "[\\p{IsHan}\\p{IsHiragana}\\p{IsKatakana}\\p{IsHangul}0-9\u00B7\u30FB：:！!？?…、\\s]*");
 
+    /** 「片名 + 尾部裸数字」，如「问心2」「速度与激情 9」。数字与片名之间的空格可有可无 */
+    private static final Pattern BARE_SEASON = Pattern.compile("(.*?)\\s*([0-9０-９]{1,2})\\s*$");
+
+    /** 裸数字季号的上界，与 {@code SeasonSuffix} 保持一致 */
+    private static final int MAX_BARE_SEASON = 99;
+
     /** 最长的拉丁连续块，用于切出英文名 */
     private static final Pattern LATIN_SEGMENT = Pattern.compile("[A-Za-z][A-Za-z0-9'&:!?.,\\-\\s]*");
 
@@ -89,10 +95,15 @@ public class PopularItemResolver {
         boolean movie = SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(mediaType);
         String type = movie ? "movie" : "tv";
 
-        for (String query : queryVariants(item.getTitle())) {
-            PopularItem matched = searchAndMatch(apiKey, type, query, item.getYear(), mediaType);
+        for (QueryVariant variant : queryVariants(item.getTitle(), movie)) {
+            PopularItem matched = searchAndMatch(apiKey, type, variant.query(), item.getYear(), mediaType);
             if (matched != null) {
                 apply(item, matched);
+                // 靠「剥掉尾部裸数字」才命中的，那个数字就是季号。来源已经给出季号时不覆盖
+                // （DoubanRssParser 解析「第九季」得到的值更确定）
+                if (item.getSeasonNumber() == null && variant.season() != null) {
+                    item.setSeasonNumber(variant.season());
+                }
                 return null;
             }
         }
@@ -157,29 +168,91 @@ public class PopularItemResolver {
     }
 
     /**
-     * 查询词：整串优先，整串搜不到时再拿切出来的中文段/拉丁段各试一次。
+     * 一个查询词，以及采用它时隐含的季号（只有「剥掉尾部裸数字」那个变体有值）。
+     */
+    record QueryVariant(String query, Integer season) {
+    }
+
+    /**
+     * 查询词：整串优先，整串搜不到时再依次拿中文段/拉丁段、剥掉尾部裸数字的标题各试一次。
      * <p>
      * 豆瓣条目标题存在「中文名 English Name」拼接的写法，整串拿去搜 TMDb 必然一条都对不上。
-     * <b>早停是有意的</b>：整串命中就不再发后两个请求，常见情况下每个候选只打一次 TMDb。
+     * <b>早停是有意的</b>：整串命中就不再发后面的请求，常见情况下每个候选只打一次 TMDb。
      * </p>
      */
-    static List<String> queryVariants(String title) {
-        Set<String> variants = new LinkedHashSet<>();
-        variants.add(title.trim());
+    static List<QueryVariant> queryVariants(String title, boolean movie) {
+        Map<String, Integer> variants = new LinkedHashMap<>();
+        variants.put(title.trim(), null);
         String cjk = longestMatch(CJK_SEGMENT, title);
         String latin = longestMatch(LATIN_SEGMENT, title);
         // 只有两种文字并存时分段才有意义：纯中文标题切出来的 CJK 段就是它自己，白打一次请求
         if (cjk != null && latin != null) {
-            variants.add(cjk);
-            variants.add(latin);
+            variants.putIfAbsent(cjk, null);
+            variants.putIfAbsent(latin, null);
         }
-        List<String> result = new ArrayList<>();
-        for (String variant : variants) {
-            if (TitleNormalizer.normalizeForCompare(variant) != null) {
-                result.add(variant);
+        BareSeason bare = movie ? null : parseBareSeason(title.trim());
+        if (bare != null) {
+            variants.putIfAbsent(bare.title(), bare.season());
+        }
+        List<QueryVariant> result = new ArrayList<>();
+        for (Map.Entry<String, Integer> entry : variants.entrySet()) {
+            if (TitleNormalizer.normalizeForCompare(entry.getKey()) != null) {
+                result.add(new QueryVariant(entry.getKey(), entry.getValue()));
             }
         }
         return result;
+    }
+
+    /** {@link #parseBareSeason} 的结果：剥掉尾部数字的标题 + 那个数字 */
+    private record BareSeason(String title, Integer season) {
+    }
+
+    /**
+     * 「片名 + 裸数字」写法里的季号，如豆瓣的「问心2」「庆余年2」。
+     * <p>
+     * <b>为什么不能像「第九季」那样直接剥掉，而必须做成排在最后的回退查询</b>：
+     * 尾部裸数字究竟是季号还是<b>片名的一部分</b>，正则判不出来——「问心2」是《问心》第 2 季，
+     * 而「速度与激情9」的 9 是片名自带的（TMDb 上的条目名就长这样）。两者形态完全一致。
+     * 做成回退之后这个歧义就不需要判了：完整标题先搜，《速度与激情9》直接命中、根本走不到这里；
+     * 只有完整标题搜不到时才试剥数字，而那正是「问心2」的处境。剥完仍然要过标题全等判定。
+     * </p>
+     * <p>
+     * <b>为什么不放进 {@code SeasonSuffix}</b>：那个类是刮削链路与订阅链路共用的，
+     * 而刮削侧是拿解析出的标题直接查 TMDb、没有「先试完整再试剥掉」这一层回退。
+     * 把裸数字规则放进去，《速度与激情9》在刮削侧会被剥成《速度与激情》——一部不同的电影。
+     * 这条规则只在「有回退兜底」的前提下才成立，因此只属于本类。
+     * </p>
+     * <p>
+     * <b>电影不启用</b>（{@code movie} 为真时压根不调用）：电影续集在 TMDb 上的条目名通常就带
+     * 数字，完整标题本就能命中；而剥数字对电影的失败方向是<b>订到前作</b>——「问心2」剥成「问心」
+     * 若真匹配上一部同名电影，下的就是错的片子。剧集没有这个问题，季是作品下面的一层。
+     * </p>
+     *
+     * @return 尾部没有裸数字、或剥完不合格时返回 null
+     */
+    private static BareSeason parseBareSeason(String title) {
+        Matcher matcher = BARE_SEASON.matcher(title);
+        if (!matcher.matches()) {
+            return null;
+        }
+        String stripped = matcher.group(1).trim();
+        // 剥完仍以数字结尾说明这串数字本来就是一个整体（「1917」会被切成「19」+「17」），
+        // 长度不足 2 的残片同样不值得再打一次请求
+        if (stripped.length() < 2 || Character.isDigit(stripped.charAt(stripped.length() - 1))) {
+            return null;
+        }
+        int season = Integer.parseInt(toHalfWidthDigits(matcher.group(2)));
+        // 季号 1 不产生新查询词（「问心1」剥成「问心」是对的，但第 1 季本就是默认值），
+        // 上界与 SeasonSuffix 一致
+        return season >= 2 && season <= MAX_BARE_SEASON ? new BareSeason(stripped, season) : null;
+    }
+
+    private static String toHalfWidthDigits(String text) {
+        StringBuilder sb = new StringBuilder(text.length());
+        for (char c : text.toCharArray()) {
+            sb.append(c >= '０' && c <= '９' ? (char) (c - '０' + '0') : c);
+        }
+        return sb.toString();
     }
 
     /** 取最长的一段并 trim；长度不足 2 视为噪声（"Re:" 这类残片） */

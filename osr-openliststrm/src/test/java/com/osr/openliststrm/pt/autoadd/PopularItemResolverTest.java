@@ -288,22 +288,123 @@ class PopularItemResolverTest {
         assertNotNull(resolver.resolve(item, "TV"));
     }
 
+    // ---------- 「片名 + 裸数字」写法（问心2 / 庆余年2） ----------
+
+    @Test
+    void resolve_裸数字季号_整串搜不到时剥掉数字再搜() {
+        // 生产事故：「问心2」记成「未匹配到 TMDb」。TMDb 上的条目叫《问心》，
+        // 那个 2 是第 2 季——而季是作品下面的一层，条目名里不会有它
+        when(tmDbApiService.search(eq("key"), eq("tv"), eq("问心2"), isNull()))
+                .thenReturn("{\"results\":[]}");
+        when(tmDbApiService.search(eq("key"), eq("tv"), eq("问心"), isNull()))
+                .thenReturn(tvResults(tv(220281, "问心", "问心", "2023-10-25")));
+
+        PopularItem item = douban("问心2", null);
+        assertNull(resolver.resolve(item, "TV"));
+
+        assertEquals("220281", item.getTmdbId());
+        // 剥掉的那个数字就是季号
+        assertEquals(2, item.getSeasonNumber());
+    }
+
+    @Test
+    void resolve_裸数字与片名之间有空格也认() {
+        when(tmDbApiService.search(eq("key"), eq("tv"), eq("庆余年 2"), isNull()))
+                .thenReturn("{\"results\":[]}");
+        when(tmDbApiService.search(eq("key"), eq("tv"), eq("庆余年"), isNull()))
+                .thenReturn(tvResults(tv(95541, "庆余年", "庆余年", "2019-11-26")));
+
+        PopularItem item = douban("庆余年 2", null);
+        assertNull(resolver.resolve(item, "TV"));
+        assertEquals(2, item.getSeasonNumber());
+    }
+
+    @Test
+    void resolve_整串能命中时不剥数字也不猜季号() {
+        // 《速度与激情9》的 9 是片名自带的，TMDb 上的条目名就长这样。
+        // 回退排在最后正是为了让这种情况根本走不到剥数字那一步
+        when(tmDbApiService.search(eq("key"), eq("tv"), eq("某剧9"), isNull()))
+                .thenReturn(tvResults(tv(1, "某剧9", "某剧9", "2024-01-01")));
+
+        PopularItem item = douban("某剧9", null);
+        assertNull(resolver.resolve(item, "TV"));
+
+        assertEquals("1", item.getTmdbId());
+        assertNull(item.getSeasonNumber());
+        verify(tmDbApiService, never()).search(any(), any(), eq("某剧"), any());
+    }
+
+    @Test
+    void resolve_标题已解析出季号时不被裸数字覆盖() {
+        // DoubanRssParser 从「第九季」解析出的值更确定，回退猜的不能盖掉它
+        when(tmDbApiService.search(eq("key"), eq("tv"), eq("某剧2"), isNull()))
+                .thenReturn("{\"results\":[]}");
+        when(tmDbApiService.search(eq("key"), eq("tv"), eq("某剧"), isNull()))
+                .thenReturn(tvResults(tv(1, "某剧", "某剧", "2024-01-01")));
+
+        PopularItem item = douban("某剧2", null);
+        item.setSeasonNumber(9);
+        assertNull(resolver.resolve(item, "TV"));
+
+        assertEquals(9, item.getSeasonNumber());
+    }
+
+    @Test
+    void resolve_电影不启用裸数字回退() {
+        // 电影续集在 TMDb 上的条目名通常就带数字；而剥数字的失败方向是「订到前作」，
+        // 「问心2」剥成「问心」若真匹配上一部同名电影，下的就是错的片子
+        when(tmDbApiService.search(any(), any(), any(), any())).thenReturn("{\"results\":[]}");
+
+        resolver.resolve(douban("某片2", null), "MOVIE");
+
+        verify(tmDbApiService, never()).search(any(), any(), eq("某片"), any());
+    }
+
     @Test
     void queryVariants_纯中文只产出一个查询词() {
-        assertEquals(List.of("漫长的季节"), PopularItemResolver.queryVariants("漫长的季节"));
+        assertEquals(List.of("漫长的季节"), queries("漫长的季节"));
     }
 
     @Test
     void queryVariants_纯英文只产出一个查询词() {
-        assertEquals(List.of("The Long Season"), PopularItemResolver.queryVariants("The Long Season"));
+        assertEquals(List.of("The Long Season"), queries("The Long Season"));
     }
 
     @Test
     void queryVariants_中英混排产出三个且整串在最前() {
-        List<String> variants = PopularItemResolver.queryVariants("漫长的季节 The Long Season");
+        List<String> variants = queries("漫长的季节 The Long Season");
 
         assertEquals(3, variants.size());
         assertEquals("漫长的季节 The Long Season", variants.get(0));
         assertEquals(List.of("漫长的季节", "The Long Season"), variants.subList(1, 3));
+    }
+
+    @Test
+    void queryVariants_裸数字变体排在最后() {
+        // 它是最激进的一个猜测（引入了一个正则判不出来的语义），必须让确定性变体先试
+        assertEquals(List.of("问心2", "问心"), queries("问心2"));
+    }
+
+    @Test
+    void queryVariants_四位数片名不被切成两半() {
+        // 《1917》：剥完剩「19」仍以数字结尾，说明这串数字本来就是一个整体
+        assertEquals(List.of("1917"), queries("1917"));
+    }
+
+    @Test
+    void queryVariants_季号1不产生新查询词() {
+        assertEquals(List.of("某剧1"), queries("某剧1"));
+    }
+
+    @Test
+    void queryVariants_剥完过短不产生新查询词() {
+        assertEquals(List.of("A2"), queries("A2"));
+    }
+
+    /** 只取查询词本身，方便按顺序断言 */
+    private List<String> queries(String title) {
+        return PopularItemResolver.queryVariants(title, false).stream()
+                .map(PopularItemResolver.QueryVariant::query)
+                .toList();
     }
 }
