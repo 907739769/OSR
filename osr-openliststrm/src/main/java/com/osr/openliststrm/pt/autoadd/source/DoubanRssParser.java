@@ -2,6 +2,7 @@ package com.osr.openliststrm.pt.autoadd.source;
 
 import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.pt.indexer.SafeXmlDocuments;
+import com.osr.openliststrm.rename.SeasonSuffix;
 import lombok.extern.slf4j.Slf4j;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
@@ -109,7 +110,13 @@ public final class DoubanRssParser {
                 title = stripped;
             }
         }
-        result.setTitle(title);
+        // 季号后缀必须剥掉：TMDb 的条目名里从来不带季号（作品叫「瑞克和莫蒂」，季是它下面的一层），
+        // 不剥的话「瑞克和莫蒂 第九季」在标题全等判定上必然落空，而续季与长寿剧在榜单上相当常见。
+        // 判据复用 SeasonSuffix，与刮削链路共用一份——各写一份的漂移表现是「同一个标题在刮削侧
+        // 剥掉了、在订阅侧没剥」，从日志里根本看不出来。
+        // 顺带把季号<b>留下来</b>：它正好回答了「这条订阅该订第几季」，比下游按"最新季"兜底更准。
+        result.setSeasonNumber(SeasonSuffix.parse(title));
+        result.setTitle(SeasonSuffix.strip(title));
         return StringUtils.isBlank(result.getTitle()) ? null : result;
     }
 

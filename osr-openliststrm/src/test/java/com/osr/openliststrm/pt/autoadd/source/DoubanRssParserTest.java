@@ -110,6 +110,66 @@ class DoubanRssParserTest {
     }
 
     @Test
+    void parse_季号后缀被剥掉并留下季号() {
+        // 生产事故：榜单里的「瑞克和莫蒂 第九季」「百年孤独 第二季」整批记成「未匹配到 TMDb」。
+        // TMDb 的条目名里从来不带季号（作品叫「瑞克和莫蒂」，季是它下面的一层），
+        // 多出的三个字让标题全等判定必然落空，而续季与长寿剧在榜单上相当常见
+        List<PopularItem> items = DoubanRssParser.parse(
+                wrap(item("瑞克和莫蒂 第九季", "https://movie.douban.com/subject/1/")));
+
+        assertEquals("瑞克和莫蒂", items.get(0).getTitle());
+        assertEquals(9, items.get(0).getSeasonNumber());
+    }
+
+    @Test
+    void parse_季号与评分同时存在() {
+        List<PopularItem> items = DoubanRssParser.parse(
+                wrap(item("百年孤独 第二季 8.7", "https://movie.douban.com/subject/2/")));
+
+        assertEquals("百年孤独", items.get(0).getTitle());
+        assertEquals(2, items.get(0).getSeasonNumber());
+    }
+
+    @Test
+    void parse_季号与年份括号同时存在() {
+        List<PopularItem> items = DoubanRssParser.parse(
+                wrap(item("某剧 第三季 (2024) 8.1", "https://movie.douban.com/subject/3/")));
+
+        assertEquals("某剧", items.get(0).getTitle());
+        assertEquals("2024", items.get(0).getYear());
+        assertEquals(3, items.get(0).getSeasonNumber());
+    }
+
+    @Test
+    void parse_没有季号时seasonNumber为空() {
+        // 为空时下游退回「查 TMDb 的最新季」，与改造前行为一致
+        List<PopularItem> items = DoubanRssParser.parse(
+                wrap(item("漫长的季节 9.4", "https://movie.douban.com/subject/4/")));
+
+        assertEquals("漫长的季节", items.get(0).getTitle());
+        assertNull(items.get(0).getSeasonNumber());
+    }
+
+    @Test
+    void parse_片名含季字不被误剥() {
+        List<PopularItem> items = DoubanRssParser.parse(
+                wrap(item("四季物语", "https://movie.douban.com/subject/5/")));
+
+        assertEquals("四季物语", items.get(0).getTitle());
+        assertNull(items.get(0).getSeasonNumber());
+    }
+
+    @Test
+    void parse_片名本身就是季号时不剥也不解析() {
+        // 《第五季》是比利时片，整个标题就是这几个字
+        List<PopularItem> items = DoubanRssParser.parse(
+                wrap(item("第五季", "https://movie.douban.com/subject/6/")));
+
+        assertEquals("第五季", items.get(0).getTitle());
+        assertNull(items.get(0).getSeasonNumber());
+    }
+
+    @Test
     void parse_没有年份时year为空而不是0() {
         List<PopularItem> items = DoubanRssParser.parse(
                 wrap(item("漫长的季节", "https://movie.douban.com/subject/1/")));

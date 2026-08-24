@@ -40,6 +40,12 @@ public class PopularItem {
     /** 年份 */
     private String year;
 
+    /**
+     * 来源侧给出的季号，如豆瓣标题「瑞克和莫蒂 第九季」里的 9；给不出时为 null。
+     * 它比下游按「最新季」兜底更准——榜单上的续季条目说的就是那一季。
+     */
+    private Integer seasonNumber;
+
     /** 评分 */
     private Double voteAverage;
 

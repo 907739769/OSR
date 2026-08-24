@@ -117,7 +117,7 @@ public class AutoAddPopularService {
                 continue;
             }
 
-            Integer season = movie ? null : resolveSeason(item.getTmdbId());
+            Integer season = movie ? null : resolveSeason(item);
             if (alreadySubscribed(item.getTmdbId(), movie, season)) {
                 writeLog(rule, item, season, "SKIPPED_EXISTS", join("同作品同季已存在订阅", matchNote));
                 skipped++;
@@ -178,13 +178,21 @@ public class AutoAddPopularService {
     }
 
     /**
-     * 剧集查最新一季季号，取不到时兜底第 1 季；电影不涉及季，不调用本方法。
+     * 决定订哪一季；电影不涉及季，不调用本方法。
+     * <p>
+     * <b>来源侧给出的季号优先</b>：豆瓣榜单里的「瑞克和莫蒂 第九季」说的就是第 9 季，
+     * 而 TMDb 那时可能已经有第 10 季了——按「最新季」兜底会订到一个用户没在榜单上看到的季。
+     * 榜单条目本身是最直接的意图表达，只有它给不出时才退回查最新季。
+     * </p>
      */
-    private Integer resolveSeason(String tmdbId) {
+    private Integer resolveSeason(PopularItem item) {
+        if (item.getSeasonNumber() != null) {
+            return item.getSeasonNumber();
+        }
         try {
-            return tmdbSearchService.getLatestSeasonNumber(tmdbId);
+            return tmdbSearchService.getLatestSeasonNumber(item.getTmdbId());
         } catch (Exception e) {
-            log.warn("查询 tmdbId={} 最新季号失败，兜底订第1季：{}", tmdbId, e.getMessage());
+            log.warn("查询 tmdbId={} 最新季号失败，兜底订第1季：{}", item.getTmdbId(), e.getMessage());
             return 1;
         }
     }
