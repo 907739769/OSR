@@ -125,6 +125,14 @@ public class SubscriptionEngine {
      */
     private final LogOnce noTargetLogged = new LogOnce();
 
+    /**
+     * 「候选都有已有下载记录」在 RSS 路径上的去重键（{@code 订阅id:集号}），与
+     * {@link #noTargetLogged} 同形、同理由：推过的种子会一直留在 24 小时的 RSS 窗口里，
+     * 每轮重新判一次、每轮得到同一个答案。实测一条订阅在 17.5 小时里刷了 <b>106 行逐字
+     * 相同</b>的日志（119 行里只有 2 条不重复）。落库的 {@code recordSummary} 不受影响。
+     */
+    private final LogOnce alreadyRecordedLogged = new LogOnce();
+
     private final IPtSubscriptionPlusService subscriptionService;
     private final IPtSubscriptionEpisodePlusService episodeService;
     private final IPtDownloadRecordPlusService recordService;
@@ -366,7 +374,11 @@ public class SubscriptionEngine {
                 // 手动推送走不到这个分支：excludeAlreadyRecorded 对人工决定不做排除，
                 // 所以这句文案只会出现在自动路径上，可以放心地写成「本轮跳过」
                 reason = "候选种子都已推送过，本轮跳过";
-                log.debug("{} 的候选都有已有下载记录，跳过", PtLogText.subject(sub, match.getEpisode(), null));
+                // RSS 路径去重：见 alreadyRecordedLogged 的注释
+                if (!SearchLogService.SOURCE_RSS.equals(source)
+                        || alreadyRecordedLogged.firstTime(sub.getId() + ":" + match.getEpisode())) {
+                    log.debug("{} 的候选都有已有下载记录，跳过", PtLogText.subject(sub, match.getEpisode(), null));
+                }
             }
             searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, reason);
             return PushOutcome.fail(reason);

@@ -1,6 +1,8 @@
 package com.osr.openliststrm.pt.subscription;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.osr.common.utils.LogOnce;
+import com.osr.common.utils.ThreadTraceIdUtil;
 import com.osr.common.utils.Threads;
 import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.helper.TgHelper;
@@ -60,6 +62,23 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 public class SearchSupplementService {
+
+    /**
+     * 候选淘汰日志在<b>同一次搜索内</b>的去重键（{@code traceId + 消息里插值的全部字段}）。
+     * <p>
+     * 同一个发布在多个站点上是多条记录（{@code dedupeByIndexerGuid} 按 {@code (indexerId, guid)}
+     * 去重，站点不同就留不同的条目），而 ID 检索计划有 3 步、每步都要过一遍同样的候选。
+     * 于是同一行会被打 3×站点数 遍：实测一次补搜 240 行里只有 <b>50 条不重复</b>，
+     * 单条最多重复 12 遍。而那行文本里<b>既没有站点也没有步骤</b>，读的人根本分不出这 12 行
+     * 有什么不同——正是「键取打印出来的那个东西」要防的情形。
+     * </p>
+     * <p>
+     * <b>键里带 traceId 而不是做成跨次去重</b>：手动搜索的收尾 INFO 承诺过「开启 DEBUG 日志
+     * 可看到每个候选具体被哪一步、哪条规则淘汰」，那是用户刚按下按钮后等的回音。带上 traceId
+     * 之后，每一次搜索照常输出它自己那 50 行，折叠掉的只是同一次搜索里逐字相同的拷贝。
+     * </p>
+     */
+    private final LogOnce candidateRejectLogged = new LogOnce();
 
     private final IPtIndexerPlusService indexerService;
     private final TorznabClient torznabClient;
@@ -1297,6 +1316,30 @@ public class SearchSupplementService {
      * </p>
      * <p>电影、或目标本身就是具体集号时，行为与 {@link #filterByTarget} 完全一致。</p>
      */
+    /**
+     * 本次搜索里这条淘汰说明是否第一次出现。见 {@link #candidateRejectLogged}。
+     * <p>
+     * {@code parts} 必须是消息里插值的<b>全部</b>字段：键少一个字段，两行文本不同的日志会被
+     * 判成同一条而吞掉后者；多一个字段，两行逐字相同的日志又会各打一遍——两种错法都让去重
+     * 失去意义。加 {@code tag} 是为了区分四条文案（同一个标题可能先后被不同的规则淘汰）。
+     * </p>
+     */
+    boolean firstRejectionInSearch(String tag, Object... parts) {
+        String traceId = ThreadTraceIdUtil.getCurrentTraceId();
+        // 拿不到 traceId 就无从划定「这一次搜索」，宁可多打也不能跨次去重——那会让第二次
+        // 搜索一行不输出（同 LogOnce#firstTime 对 null 键的取向）。生产路径上 traceId 恒有值：
+        // 定时补搜经 Threads.wrap，手动搜索经 RequestLogFilter。
+        if (traceId == null || traceId.isEmpty()) {
+            return true;
+        }
+        StringBuilder key = new StringBuilder(traceId);
+        key.append('').append(tag);
+        for (Object p : parts) {
+            key.append('').append(p);
+        }
+        return candidateRejectLogged.firstTime(key.toString());
+    }
+
     private List<TorrentInfo> filterByTargetManual(PtSubscriptionPlus sub, int episode,
                                                      List<TorrentInfo> candidates, Set<Integer> missingEpisodes) {
         if (episode != SubscriptionMatcher.SEASON_PACK
@@ -1309,19 +1352,25 @@ public class SearchSupplementService {
         for (TorrentInfo candidate : candidates) {
             Integer parsedSeason = candidate.getParsedSeason();
             if (parsedSeason == null || !parsedSeason.equals(subSeason)) {
-                log.debug("候选被季号过滤：{} —— 解析季号={}，订阅季号={}",
-                        candidate.getTitle(), parsedSeason, subSeason);
+                if (firstRejectionInSearch("season", candidate.getTitle(), parsedSeason, subSeason)) {
+                    log.debug("候选被季号过滤：{} —— 解析季号={}，订阅季号={}",
+                            candidate.getTitle(), parsedSeason, subSeason);
+                }
                 continue;
             }
             if (!titleMatches(subTitles, candidate)) {
-                log.debug("候选被标题过滤：{} —— 与订阅《{}》标题不匹配", candidate.getTitle(), sub.getTitle());
+                if (firstRejectionInSearch("title", candidate.getTitle(), sub.getTitle())) {
+                    log.debug("候选被标题过滤：{} —— 与订阅《{}》标题不匹配", candidate.getTitle(), sub.getTitle());
+                }
                 continue;
             }
             Integer parsedEpisode = candidate.getParsedEpisode();
             if (parsedEpisode == null || rangeIntersectsMissing(parsedEpisode, candidate.getParsedEpisodeEnd(), missingEpisodes)) {
                 matched.add(candidate);
             } else {
-                log.debug("候选被集号过滤：{} —— 解析集号={} 不在缺失集合内", candidate.getTitle(), parsedEpisode);
+                if (firstRejectionInSearch("episode", candidate.getTitle(), parsedEpisode)) {
+                    log.debug("候选被集号过滤：{} —— 解析集号={} 不在缺失集合内", candidate.getTitle(), parsedEpisode);
+                }
             }
         }
         return matched;
@@ -1345,8 +1394,10 @@ public class SearchSupplementService {
         for (TorrentInfo candidate : candidates) {
             Integer parsedSeason = candidate.getParsedSeason();
             if (parsedSeason == null || !parsedSeason.equals(subSeason)) {
-                log.debug("ID搜索候选被季号过滤：{} —— 解析季号={}，订阅季号={}",
-                        candidate.getTitle(), parsedSeason, subSeason);
+                if (firstRejectionInSearch("idSeason", candidate.getTitle(), parsedSeason, subSeason)) {
+                    log.debug("ID搜索候选被季号过滤：{} —— 解析季号={}，订阅季号={}",
+                            candidate.getTitle(), parsedSeason, subSeason);
+                }
                 continue;
             }
             Integer parsedEpisode = candidate.getParsedEpisode();

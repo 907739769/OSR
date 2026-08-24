@@ -5,6 +5,7 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.osr.openliststrm.mybatisplus.domain.PtDownloadRecordPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloaderPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtFilterConfigPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
@@ -228,6 +229,58 @@ class SubscriptionEngineLogNoiseTest {
         // 压掉的只是日志：逐次明细照旧落 pt_search_log，否则这就不是降噪而是丢数据
         verify(searchLogService, times(20))
                 .recordSummary(any(), anyInt(), anyString(), anyString());
+    }
+
+    // ---------- 候选都有已有下载记录 ----------
+
+    @Test
+    void 候选都已推送过在RSS路径上跨轮只记一行() {
+        when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Some Show", 1, 3)));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(
+                episode(101, 1, "MISSING"), episode(102, 2, "MISSING"), episode(103, 3, "MISSING")));
+        // 推过的种子会一直留在 24 小时的 RSS 窗口里，每轮重新判一次、每轮得到同一个答案
+        PtDownloadRecordPlus done = new PtDownloadRecordPlus();
+        done.setState("COMPLETED");
+        done.setDownloaderId(1);   // loadDownloaderLoadCounts 也读这份列表，缺了会 NPE 在 ConcurrentHashMap
+        done.setGuidHash(GuidHasher.hash("g1"));
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(done));
+        List<TorrentInfo> batch = List.of(torrent("Some.Show.S01E02.1080p.WEB-DL", "g1"));
+
+        for (int round = 0; round < 30; round++) {
+            engine.process(batch);
+        }
+
+        assertEquals(1, countContaining("的候选都有已有下载记录"),
+                "实测一条订阅在 17.5 小时里刷了 106 行逐字相同的日志");
+        // 与「无可占位的缺失集」同理：压掉的只是叙述，逐次明细照旧落 pt_search_log
+        verify(searchLogService, times(30))
+                .recordSummary(any(), anyInt(), anyString(), anyString());
+    }
+
+    @Test
+    void 不同订阅的已推送过各记一行() {
+        when(subscriptionService.listActive()).thenReturn(List.of(
+                tvSub(10, "Some Show", 1, 3), tvSub(11, "Other Show", 1, 3)));
+        when(episodeService.listBySubscription(anyInt())).thenReturn(List.of(
+                episode(101, 1, "MISSING"), episode(102, 2, "MISSING"), episode(103, 3, "MISSING")));
+        PtDownloadRecordPlus a = new PtDownloadRecordPlus();
+        a.setState("COMPLETED");
+        a.setDownloaderId(1);
+        a.setGuidHash(GuidHasher.hash("g1"));
+        PtDownloadRecordPlus b = new PtDownloadRecordPlus();
+        b.setState("COMPLETED");
+        b.setDownloaderId(1);
+        b.setGuidHash(GuidHasher.hash("g2"));
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(a, b));
+
+        for (int round = 0; round < 5; round++) {
+            engine.process(List.of(
+                    torrent("Some.Show.S01E02.1080p.WEB-DL", "g1"),
+                    torrent("Other.Show.S01E02.1080p.WEB-DL", "g2")));
+        }
+
+        assertEquals(2, countContaining("的候选都有已有下载记录"),
+                "去重键是订阅+集号，两条订阅各该留一行");
     }
 
     // ---------- 候选全部被过滤规则淘汰 ----------
