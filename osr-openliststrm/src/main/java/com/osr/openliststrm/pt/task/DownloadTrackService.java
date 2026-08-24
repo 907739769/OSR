@@ -489,7 +489,11 @@ public class DownloadTrackService {
             // 通知抢先发出去的话下一轮会再发一条
             notifySeasonPackHit(record, sub, downloader, intersect(targetEpisodes, actualEpisodes));
         } catch (Exception e) {
-            log.warn("下载记录[{}] 按目标集数过滤文件失败，下一轮重试：{}", record.getId(), e.getMessage());
+            // 末参必须传 e：只传 e.getMessage() 时，遇上 message 为空的异常这行就退化成
+            // 「…下一轮重试：」加一个悬空的冒号，既没有堆栈也没有消息。生产日志里真发生过——
+            // 紧接着 30 分钟后这个整季包被判「未解析出文件列表」中止，而全程没有任何信息
+            // 说得出为什么。占位符仍保留 e.getMessage()：只有堆栈就没法按错误文本 grep。
+            log.warn("下载记录[{}] 按目标集数过滤文件失败，下一轮重试：{}", record.getId(), e.getMessage(), e);
         }
         return false;
     }
