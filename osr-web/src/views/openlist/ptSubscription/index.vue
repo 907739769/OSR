@@ -105,7 +105,13 @@
       </div>
       <div v-else class="card-grid card-grid--wide" ref="gridRef">
         <v-progress-linear v-if="loading" indeterminate color="primary" />
-        <SubscriptionCard v-for="item in taskList" :key="item.id" :item="item" />
+        <!-- `--osr-i` 驱动卡片上 .osr-enter 的错位延迟（motion.scss），一屏卡片依次落位 -->
+        <SubscriptionCard
+          v-for="(item, index) in taskList"
+          :key="item.id"
+          :item="item"
+          :style="{ '--osr-i': index }"
+        />
         <v-empty-state v-if="!loading && taskList.length === 0" icon="inbox" title="暂无订阅" />
       </div>
 

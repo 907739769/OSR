@@ -1,9 +1,18 @@
 <template>
   <div
-    class="item-card item-card--compact"
-    :class="{ 'item-card--selectable': selectionMode }"
+    class="item-card item-card--compact sub-card osr-enter"
+    :class="[statusClass, { 'item-card--selectable': selectionMode }]"
     @click="selectionMode && toggleSubSelect(item)"
   >
+    <!-- 海报再当一次配色源：同一张图铺满卡片、糊掉、压到很低的不透明度，
+         于是每张卡自带一套来自作品本身的底色。用的是已经加载过的那张图，
+         不额外发请求；海报缺失/加载失败时这层不渲染，卡片退回纯表面。 -->
+    <div
+      v-if="item.posterPath && !posterErrorIds.has(item.id)"
+      class="sub-backdrop"
+      :style="{ backgroundImage: `url(${posterUrl(item.posterPath)})` }"
+      aria-hidden="true"
+    />
     <v-checkbox-btn
       v-if="selectionMode"
       class="item-card-checkbox card-checkbox"
@@ -52,10 +61,14 @@
         </div>
         <!-- 入库进度：列表接口已带进度计数，不必逐条点开进度弹窗才知道还缺几集 -->
         <div v-if="item.inLibraryCount !== undefined && item.inLibraryCount !== null" class="sub-progress">
+          <!-- 有在途集时挂 .osr-progress--active（surface.scss 的流动高光）：
+               「卡在 12/26」与「正在下的 12/26」原先长得一模一样，而这个系统里
+               长耗时任务遍地，两者分不开是实打实的可用性问题 -->
           <v-progress-linear
+            :class="{ 'osr-progress--active': item.inFlightCount > 0 }"
             :model-value="progressPercent(item)"
             :color="progressColor(item)"
-            height="6"
+            height="8"
             rounded
           />
           <span class="sub-progress-text">
@@ -63,13 +76,11 @@
             <span v-if="item.inFlightCount" class="sub-progress-inflight">· 在途 {{ item.inFlightCount }}</span>
           </span>
         </div>
-        <div class="card-row">
-          <span class="label">上次命中</span>
-          <span class="value">{{ item.lastMatchTime || '-' }}</span>
-        </div>
-        <div class="card-row">
-          <span class="label">上次搜索</span>
-          <span class="value">{{ item.lastSearchTime || '-' }}</span>
+        <!-- 命中/搜索两个时间并作一行小字。各占一整行 label+value 时它们吃掉卡片近三分之一的
+             高度，而它们回答的只是「最近有没有动静」——完整时间戳挂 title -->
+        <div class="sub-times" :title="`上次命中 ${item.lastMatchTime || '-'}\n上次搜索 ${item.lastSearchTime || '-'}`">
+          <span class="sub-time"><span class="label">命中</span>{{ shortTime(item.lastMatchTime) }}</span>
+          <span class="sub-time"><span class="label">搜索</span>{{ shortTime(item.lastSearchTime) }}</span>
         </div>
         <!-- 两个开关并作一行：各占一行只为两个布尔值，能吃掉卡片近三分之一的高度 -->
         <div class="sub-switches" @click.stop>
@@ -125,14 +136,14 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, watch } from 'vue'
+import { computed, reactive, watch } from 'vue'
 import StatusChip from '@/components/StatusChip.vue'
 import { getRoutePathForComponent } from '@/router'
 import { useRouter } from 'vue-router'
 import { usePtSubscriptionContext } from '@/composables/ptSubscriptionContext'
 
 /** 订阅列表里的一张卡。状态全部来自页面 provide 的同一个实例（见 ptSubscriptionContext） */
-defineProps<{ item: any }>()
+const props = defineProps<{ item: any }>()
 
 const {
   handlePause,
@@ -179,6 +190,28 @@ const progressPercent = (row: any) => {
 /** 满了用成功色，其余用主色——进度条本身不是告警，缺集是常态 */
 const progressColor = (row: any) => (progressPercent(row) >= 100 ? 'success' : 'primary')
 
+/**
+ * 状态对应的卡片修饰类，驱动左侧那条 3px 标记条与暂停态的海报去色。
+ * 颜色与右上角 StatusChip 一一对应（订阅中=success / 已完成=info / 已暂停=warning），
+ * 两处对不上的话，一屏卡片扫过去会读成两套状态体系。
+ */
+const statusClass = computed(() => {
+  if (props.item.status === 'COMPLETED') return 'sub-card--completed'
+  if (props.item.status === 'PAUSED') return 'sub-card--paused'
+  return 'sub-card--active'
+})
+
+/**
+ * 「08-20 12:00」。卡片信息列只有 200 多像素，两个完整时间戳（各 19 字符）横排放不下；
+ * 而这两个值回答的是「最近有没有动静」，年份与秒都不参与这个判断。完整值挂在 title 上。
+ * 认不出格式时原样返回——宁可显示得长一点，也不要静默吃掉一个看不懂的值。
+ */
+const shortTime = (value?: string) => {
+  if (!value) return '-'
+  const m = /^\d{4}-(\d{2}-\d{2})[ T](\d{2}:\d{2})/.exec(value)
+  return m ? `${m[1]} ${m[2]}` : value
+}
+
 const goDownloadRecords = (row: any) => {
   const path = getRoutePathForComponent('openlist/ptDownloadRecord/index')
   if (path) router.push({ path, query: { subId: row.id } })
@@ -202,14 +235,77 @@ watch(taskList, () => posterErrorIds.clear())
 </script>
 
 <style scoped lang="scss">
-/* 卡片外壳（边框/圆角/hover/可点选/紧凑内距）全部来自 styles/list.scss 的 .item-card，
-   这里只写订阅卡特有的：海报横排、进度条、开关行。 */
+/* 卡片外壳（边框/圆角/深度/hover/可点选/紧凑内距）全部来自 styles/list.scss 的 .item-card，
+   这里只写订阅卡特有的：海报背景层、状态标记条、海报横排、进度条、开关行。 */
+
+/* 订阅卡私有外壳。刻意不写成 .item-card { … }——那是 list.scss 的共享类，
+   页面里重定义会被 styles/__tests__/design-system.spec.ts 挡住，也确实不该那么写。 */
+.sub-card {
+  /* 海报背景层要被裁进圆角内 */
+  overflow: hidden;
+
+  /* 左侧 3px 状态标记条。用伪元素而不是 border-left：border 会改盒模型，
+     把整张卡的内容推右 3px；也不能用 box-shadow inset——.item-card 的 box-shadow
+     承载着整套深度令牌，在这里覆写等于把卡片的立体感又抹平回去。 */
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 3px;
+    z-index: 1;
+    background: var(--osr-success);
+  }
+
+  &.sub-card--completed::before {
+    background: var(--osr-info);
+  }
+
+  &.sub-card--paused::before {
+    background: var(--osr-warning);
+  }
+
+  /* 暂停态整张卡降一档：海报去色 + 背景层压暗。暂停是「我主动停下的」，
+     不是故障，所以是退到背景里而不是标红 */
+  &.sub-card--paused {
+    .sub-poster img {
+      filter: grayscale(0.8);
+    }
+
+    .sub-backdrop {
+      opacity: calc(var(--osr-poster-veil) * 0.5);
+    }
+  }
+}
+
+/* 底层那张模糊海报。只动 filter/opacity/transform，不触发布局 */
+.sub-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-size: cover;
+  background-position: center 22%;
+  filter: blur(28px) saturate(1.5);
+  opacity: var(--osr-poster-veil);
+  pointer-events: none;
+  /* blur 会把图像边缘糊成半透明，放大一点让四条边仍被盖满 */
+  transform: scale(1.25);
+}
+
+/* 内容压在背景层之上。二者同为 z-index 层叠上下文里的定位元素，
+   靠 z-index 显式排序，不依赖 DOM 先后 */
+.sub-main,
+.card-footer {
+  position: relative;
+  z-index: 1;
+}
 
 .item-card-checkbox {
   position: absolute;
   top: 4px;
   left: 4px;
-  z-index: 1;
+  z-index: 2;
 }
 
 /* 海报 + 信息横排 */
@@ -221,17 +317,22 @@ watch(taskList, () => posterErrorIds.clear())
 
 .sub-poster {
   flex-shrink: 0;
-  width: 72px;
-  height: 108px;
-  border-radius: var(--osr-radius-sm);
+  /* 84×126（2:3）。原先 72×108 时，卡片里视觉分量最重的东西反而是最小的那块，
+     整张卡读起来是表格行而不是作品卡 */
+  width: 84px;
+  height: 126px;
+  border-radius: var(--osr-radius-base);
   overflow: hidden;
   background: var(--osr-bg-page);
+  /* 海报自己也要与卡片底色分开：它下面就是那张模糊的同图，不描一道边会糊在一起 */
+  box-shadow: var(--osr-shadow-base), var(--osr-ring);
 
   img {
     width: 100%;
     height: 100%;
     object-fit: cover;
     display: block;
+    transition: filter var(--osr-dur-2) var(--osr-ease-out);
   }
 
   .sub-poster-placeholder {
@@ -275,10 +376,25 @@ watch(taskList, () => posterErrorIds.clear())
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
 
-  /* 卡片窄，「上次命中」这类标签用不着 list.scss 里给表格卡准备的 72px */
-  .card-row .label {
-    width: 58px;
+/* 命中/搜索并作一行 */
+.sub-times {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--osr-text-secondary);
+}
+
+.sub-time {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+
+  .label {
+    color: var(--osr-text-placeholder);
   }
 }
 

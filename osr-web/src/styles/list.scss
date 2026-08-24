@@ -312,17 +312,36 @@
 }
 
 .item-card {
+  /* 绝对定位的角标勾选框（订阅卡 / 下载记录卡）与状态标记条都以卡片为定位上下文 */
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 10px;
   padding: 14px 16px;
   border: 1px solid var(--osr-border-light);
   border-radius: var(--osr-radius-md);
-  transition: box-shadow var(--osr-transition-fast), border-color var(--osr-transition-fast);
+
+  /* 静止态就要有深度。改造前这里只有一条 --osr-border-light 的边：浅色下它
+     (#f1f5f9) 与卡片所在的 .table-card 几乎同色，暗色下 (#232936 叠在 #141821 上)
+     基本看不见——于是整片网格读起来是一块平面，而不是一堆卡片。
+     三段叠加对应 tokens.scss 里记的**两套**分层手段：浅色靠带色相的投影
+     (--osr-shadow-base)，暗色靠 1px 亮环 + 顶部内高光 (--osr-ring / --osr-highlight)。
+     两组令牌各自在自己的主题里才有可见效果，一起写不会互相打架。 */
+  box-shadow: var(--osr-shadow-base), var(--osr-ring), var(--osr-highlight);
+  transition:
+    box-shadow var(--osr-dur-2) var(--osr-ease-out),
+    border-color var(--osr-dur-2) var(--osr-ease-out),
+    translate var(--osr-dur-2) var(--osr-ease-out);
 
   &:hover {
-    box-shadow: var(--osr-shadow-md);
+    box-shadow: var(--osr-shadow-md), var(--osr-ring), var(--osr-highlight);
     border-color: var(--osr-border-base);
+    /* 抬起 2px。**必须用 translate 长手而不是 transform**：入场工具类 .osr-enter
+       的 osr-fade-up 是 `animation: … both`，收在 `transform: none` 上，而动画产生的
+       值优先级高于普通声明——写成 transform 的话，凡是挂了 .osr-enter 的卡片
+       hover 位移会被永久压掉。它不报错、不告警，只是卡片不动，极难往动画上想。
+       translate 是独立的变换属性，与动画的 transform 叠加生效。 */
+    translate: 0 -2px;
   }
 
   .card-header {
@@ -379,10 +398,9 @@
     }
   }
 
-  /* 信息密度更高的变体（PT 下载记录）：内容行多，收紧间距，
-     并给绝对定位的角标勾选框做定位上下文 */
+  /* 信息密度更高的变体（PT 下载记录 / PT 订阅）：内容行多，收紧间距。
+     定位上下文已由基类的 position: relative 提供，这里不重复 */
   &.item-card--compact {
-    position: relative;
     gap: 8px;
     padding: 14px;
   }

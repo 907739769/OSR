@@ -1,9 +1,16 @@
 <template>
   <v-card
-    class="task-card"
-    :class="{ selected: selectionMode && isSubSelected(item.id) }"
+    class="task-card sub-card"
+    :class="[statusClass, { selected: selectionMode && isSubSelected(item.id) }]"
     @click="selectionMode && toggleSubSelect(item)"
   >
+    <!-- 与 PC 端同一处理：把已经加载过的那张海报糊掉铺在底层当配色源，不额外发请求 -->
+    <div
+      v-if="item.posterPath && !posterErrorIds.has(item.id)"
+      class="sub-backdrop"
+      :style="{ backgroundImage: `url(${posterUrl(item.posterPath)})` }"
+      aria-hidden="true"
+    />
     <div class="card-checkbox" v-if="selectionMode">
       <v-checkbox-btn
         :model-value="isSubSelected(item.id)"
@@ -54,10 +61,13 @@
       </div>
       <!-- 入库进度：列表接口已带进度计数，不必逐条点开进度弹窗才知道还缺几集 -->
       <div v-if="item.inLibraryCount !== undefined && item.inLibraryCount !== null" class="sub-progress">
+        <!-- 有在途集时挂 .osr-progress--active（surface.scss 的流动高光）：
+             「卡在 12/26」与「正在下的 12/26」原先长得一模一样 -->
         <v-progress-linear
+          :class="{ 'osr-progress--active': item.inFlightCount > 0 }"
           :model-value="progressPercent(item)"
           :color="progressColor(item)"
-          height="6"
+          height="8"
           rounded
         />
         <span class="sub-progress-text">
@@ -65,13 +75,10 @@
           <span v-if="item.inFlightCount" class="sub-progress-inflight">· 在途 {{ item.inFlightCount }}</span>
         </span>
       </div>
-      <div class="detail-row">
-        <span class="label">上次命中</span>
-        <span class="value">{{ item.lastMatchTime || '-' }}</span>
-      </div>
-      <div class="detail-row">
-        <span class="label">上次搜索</span>
-        <span class="value">{{ item.lastSearchTime || '-' }}</span>
+      <!-- 命中/搜索并作一行小字，理由同 PC 端：各占一整行时它们吃掉卡片近三分之一高度 -->
+      <div class="sub-times">
+        <span class="sub-time"><span class="label">命中</span>{{ shortTime(item.lastMatchTime) }}</span>
+        <span class="sub-time"><span class="label">搜索</span>{{ shortTime(item.lastSearchTime) }}</span>
       </div>
       <!-- 两个开关并作一行：各占一行只为两个布尔值，能吃掉卡片近三分之一的高度 -->
       <div class="sub-switches" @click.stop>
@@ -110,14 +117,14 @@
 </template>
 
 <script setup lang="ts">
-import { reactive } from 'vue'
+import { computed, reactive } from 'vue'
 import StatusChip from '@/components/StatusChip.vue'
 import { getRoutePathForComponent } from '@/router'
 import { useRouter } from 'vue-router'
 import { usePtSubscriptionContext } from '@/composables/ptSubscriptionContext'
 
 /** 订阅列表里的一张卡。状态全部来自页面 provide 的同一个实例（见 ptSubscriptionContext） */
-defineProps<{ item: any }>()
+const props = defineProps<{ item: any }>()
 
 /** 「更多」面板挂在页面上（同一时刻只有一个），卡片只负责说「点的是这条」 */
 const emit = defineEmits<{ more: [item: any] }>()
@@ -161,6 +168,27 @@ const progressPercent = (row: any) => {
 
 /** 满了用成功色，其余用主色——进度条本身不是告警，缺集是常态 */
 const progressColor = (row: any) => (progressPercent(row) >= 100 ? 'success' : 'primary')
+
+/**
+ * 状态对应的卡片修饰类，驱动左侧那条 3px 标记条与暂停态的海报去色。
+ * 颜色与右上角 StatusChip 一一对应（订阅中=success / 已完成=info / 已暂停=warning）。
+ */
+const statusClass = computed(() => {
+  if (props.item.status === 'COMPLETED') return 'sub-card--completed'
+  if (props.item.status === 'PAUSED') return 'sub-card--paused'
+  return 'sub-card--active'
+})
+
+/**
+ * 「08-20 12:00」。移动端卡片更窄，两个完整时间戳（各 19 字符）横排放不下；
+ * 这两个值回答的是「最近有没有动静」，年份与秒不参与这个判断。
+ * 认不出格式时原样返回，不静默吃掉看不懂的值。
+ */
+const shortTime = (value?: string) => {
+  if (!value) return '-'
+  const m = /^\d{4}-(\d{2}-\d{2})[ T](\d{2}:\d{2})/.exec(value)
+  return m ? `${m[1]} ${m[2]}` : value
+}
 </script>
 
 <style scoped lang="scss">
@@ -170,6 +198,65 @@ const progressColor = (row: any) => (progressPercent(row) >= 100 ? 'success' : '
   font-size: 12px;
 }
 
+/* 订阅卡私有外壳。刻意不写成 .task-card { … }——那是 mobile-list.scss 的共享类，
+   页面里重定义会被 styles/__tests__/design-system.spec.ts 挡住 */
+.sub-card {
+  overflow: hidden;
+
+  /* 左侧 3px 状态标记条。用伪元素而不是 border-left：后者会改盒模型把内容推右，
+     而 .task-card 本身已经用 2px 透明边框表达选中态，再动 border 会打架 */
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 3px;
+    z-index: 1;
+    background: var(--osr-success);
+  }
+
+  &.sub-card--completed::before {
+    background: var(--osr-info);
+  }
+
+  &.sub-card--paused::before {
+    background: var(--osr-warning);
+  }
+
+  &.sub-card--paused {
+    .sub-poster img {
+      filter: grayscale(0.8);
+    }
+
+    .sub-backdrop {
+      opacity: calc(var(--osr-poster-veil) * 0.5);
+    }
+  }
+
+  /* 内容压在背景层之上，靠 z-index 显式排序 */
+  .card-checkbox,
+  .sub-poster,
+  .card-content {
+    position: relative;
+    z-index: 1;
+  }
+}
+
+/* 底层那张模糊海报。只动 filter/opacity/transform，不触发布局 */
+.sub-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  background-size: cover;
+  background-position: center 22%;
+  filter: blur(24px) saturate(1.5);
+  opacity: var(--osr-poster-veil);
+  pointer-events: none;
+  /* blur 会把图像边缘糊成半透明，放大一点让四条边仍被盖满 */
+  transform: scale(1.25);
+}
+
 .sub-poster {
   flex-shrink: 0;
   width: 60px;
@@ -177,6 +264,8 @@ const progressColor = (row: any) => (progressPercent(row) >= 100 ? 'success' : '
   border-radius: var(--osr-radius-sm);
   overflow: hidden;
   background: var(--osr-bg-page);
+  /* 海报下面就是那张模糊的同图，不描一道边会糊在一起 */
+  box-shadow: var(--osr-shadow-base), var(--osr-ring);
 
   img {
     width: 100%;
@@ -248,6 +337,26 @@ const progressColor = (row: any) => (progressPercent(row) >= 100 ? 'success' : '
 
 .sub-progress-inflight {
   color: var(--osr-primary);
+}
+
+/* 命中/搜索并作一行 */
+.sub-times {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--osr-text-secondary);
+}
+
+.sub-time {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+
+  .label {
+    color: var(--osr-text-placeholder);
+  }
 }
 
 /* 两个开关并作一行 */

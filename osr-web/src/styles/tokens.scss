@@ -91,6 +91,11 @@
   /* 玻璃层：顶栏 / 侧边栏 / 弹窗这类「浮在内容之上」的 chrome 表面。
      saturate 是关键 —— 只做 blur 会让透上来的内容发灰，
      补一点饱和度才像玻璃而不是磨砂塑料。 */
+  /* 订阅卡底层那张模糊海报的强度。做成令牌而不是在页面里写死：同一个 opacity 在
+     两个主题里不是同一个观感——浅色下海报色叠在近白底上很快就发脏，暗色下反而要
+     更亮才透得出来。页面侧只写 var()，两套值在这里各调各的。 */
+  --osr-poster-veil: 0.13;
+
   --osr-glass-bg: rgba(var(--v-theme-surface), 0.72);
   --osr-glass-blur: blur(20px) saturate(1.6);
   --osr-glass-border: rgba(15, 23, 42, 0.07);
@@ -237,6 +242,8 @@
   --osr-glow-primary: 0 0 32px -4px rgba(var(--v-theme-primary), 0.4);
   --osr-glow-success: 0 0 32px -4px rgba(var(--v-theme-success), 0.4);
   --osr-glow-error: 0 0 32px -4px rgba(var(--v-theme-error), 0.4);
+
+  --osr-poster-veil: 0.22;
 
   --osr-glass-bg: rgba(var(--v-theme-surface), 0.62);
   --osr-glass-border: rgba(255, 255, 255, 0.08);
