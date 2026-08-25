@@ -95,131 +95,8 @@
         @size-change="handleSizeChange"
       />
 
-      <v-dialog v-model="open" width="92%">
-        <v-card :title="dialogTitle">
-          <v-card-text>
-            <v-form ref="formRef">
-              <v-text-field
-                v-model="form.name"
-                label="规则名称"
-                placeholder="如：每周热门电影"
-                :rules="nameRules"
-                class="mb-3"
-              />
-              <FormField label="是否启用">
-                <v-switch v-model="form.enabled" true-value="1" false-value="0" color="primary" hide-details />
-              </FormField>
-              <FormField label="媒体类型">
-                <v-radio-group v-model="form.mediaType" inline hide-details>
-                  <v-radio label="电影" value="MOVIE" />
-                  <v-radio label="剧集" value="TV" />
-                </v-radio-group>
-              </FormField>
-              <v-select
-                v-model="form.source"
-                label="数据源"
-                :items="SOURCE_OPTIONS"
-                item-title="title"
-                item-value="value"
-                class="mb-3"
-              />
-              <template v-if="isRssSource(form.source)">
-                <v-select
-                  :model-value="null"
-                  label="常用榜单"
-                  :items="DOUBAN_ROUTE_PRESETS"
-                  item-title="label"
-                  item-value="path"
-                  placeholder="选一个填入下方地址"
-                  class="mb-3"
-                  @update:model-value="applyRoutePreset"
-                />
-                <v-text-field
-                  v-model="form.sourceUrl"
-                  label="RSS 地址"
-                  placeholder="/douban/movie/weekly/movie_real_time_hotest"
-                  :rules="sourceUrlRules"
-                  persistent-hint
-                  hint="路由路径与「参数设置 → RSSHub 服务地址」拼接，完整地址则直接使用"
-                  class="mb-3"
-                />
-              </template>
-              <v-select
-                v-model="genreExcludeArr"
-                label="排除类型"
-                :items="genreOptions"
-                item-title="label"
-                item-value="id"
-                multiple
-                chips
-                closable-chips
-                clearable
-                placeholder="不排除任何类型"
-                class="mb-3"
-              />
-              <v-text-field
-                v-model.number="form.minVoteAverage"
-                type="number"
-                label="最低评分"
-                :min="0"
-                :max="10"
-                step="0.5"
-                persistent-hint
-                :hint="isRssSource(form.source) ? '按 TMDb 评分过滤，不是豆瓣评分' : undefined"
-                class="mb-3"
-              />
-              <v-text-field
-                v-model.number="form.minVoteCount"
-                type="number"
-                label="最低人数"
-                :min="0"
-                class="mb-3"
-              />
-              <v-select
-                v-if="form.source === 'TMDB_DISCOVER'"
-                v-model="form.region"
-                label="地区"
-                :items="REGION_OPTIONS"
-                item-title="label"
-                item-value="code"
-                clearable
-                placeholder="不限地区"
-                class="mb-3"
-              />
-              <v-text-field
-                v-model.number="form.maxAddPerRun"
-                type="number"
-                label="单轮上限"
-                :min="1"
-                :max="50"
-                class="mb-3"
-              />
-              <v-text-field
-                v-model.number="form.intervalHours"
-                type="number"
-                label="执行间隔"
-                :min="1"
-                :max="720"
-                class="mb-3"
-              />
-              <v-select
-                v-model="form.downloaderId"
-                label="下载器"
-                :items="downloaderOptions"
-                item-title="name"
-                item-value="id"
-                clearable
-                placeholder="空则用默认"
-              />
-            </v-form>
-          </v-card-text>
-          <v-card-actions>
-            <v-spacer />
-            <v-btn variant="outlined" @click="open = false">取消</v-btn>
-            <v-btn color="primary" variant="flat" :loading="submitLoading" @click="handleSubmitClick">确定</v-btn>
-          </v-card-actions>
-        </v-card>
-      </v-dialog>
+      <!-- 新增/编辑弹窗（两端共用） -->
+      <PtAutoAddRuleFormDialog />
 
       <v-dialog v-model="logDialogVisible" width="92%">
         <v-card title="执行日志">
@@ -245,65 +122,29 @@
 
 <script setup lang="ts">
 import StatusChip from '@/components/StatusChip.vue'
-import FormField from '@/components/FormField.vue'
 import MobileListPage from '@/components/mobile/MobileListPage.vue'
 import MobileActionSheet from '@/components/mobile/MobileActionSheet.vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
-import {
-  usePtAutoAddRule,
-  REGION_OPTIONS,
-  SOURCE_OPTIONS,
-  DOUBAN_ROUTE_PRESETS,
-  isRssSource
-} from '@/composables/usePtAutoAddRule'
+import { usePtAutoAddRule } from '@/composables/usePtAutoAddRule'
+import { usePageStateProvider } from '@/composables/pageStateContext'
 import { useActionSheet } from '@/composables/useActionSheet'
+import PtAutoAddRuleFormDialog from '@/components/dialogs/PtAutoAddRuleFormDialog.vue'
 
-/** 更多操作抽屉 */
 /** 卡片「更多」动作面板：开关状态与「执行完自动关闭」都在 useActionSheet 里 */
 const { sheetOpen, sheetTarget, openSheet, run } = useActionSheet()
 
+// 表单弹窗与 PC 端共用一份（components/dialogs/），它靠 usePageStateProvider 取同一份状态
 const {
   taskList, loading, total, queryParams, queryRef,
   handleQuery, resetQuery,
-  open, dialogTitle, submitLoading, formRef, form, rules,
-  handleAdd, handleUpdate, submitForm, handleDelete,
+  handleAdd, handleUpdate, handleDelete,
   totalPages, prevPage, nextPage, handleSizeChange,
   searchCollapsed,
   runningIds, handleRun,
   logDialogVisible, logLoading, logList, handleShowLogs,
-  genreOptions, genreExcludeArr, downloaderOptions,
   filterText, sourceLabel, resultLabel, resultTagType
-} = usePtAutoAddRule()
-
-// 表单规则是 { required, message, trigger } 对象格式（composable 返回），
-// Vuetify 的 v-text-field :rules 需要函数格式，这里就地转换，不改动 composable
-const toRuleFns = (ruleList: any[]) =>
-  (ruleList || []).map((rule: any) => (value: any) => {
-    if (rule.required && (value === null || value === undefined || value === '')) {
-      return rule.message || '不能为空'
-    }
-    return true
-  })
-
-const nameRules = toRuleFns(rules.name)
-
-// RSS 地址只在豆瓣源下必填：不填的话规则能保存、执行时静静地一条都拉不到
-const sourceUrlRules = [
-  (value: string) => (!isRssSource(form.value.source) || !!value) || 'RSS 地址不能为空'
-]
-
-/** 预设下拉只负责把路径填进地址框，本身不参与提交 */
-const applyRoutePreset = (path: string | null) => {
-  if (path) form.value.sourceUrl = path
-}
-
-const handleSubmitClick = async () => {
-  if (!formRef.value) return
-  const { valid } = await formRef.value.validate()
-  if (!valid) return
-  submitForm()
-}
+} = usePageStateProvider(usePtAutoAddRule())
 
 </script>
 

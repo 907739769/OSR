@@ -127,71 +127,30 @@
     </v-card>
 
     <!-- Add/Edit Dialog -->
-    <v-dialog v-model="open" max-width="600">
-      <v-card :title="dialogTitle">
-        <v-card-text>
-          <v-form ref="formRef">
-            <FormField label="源目录">
-              <DirectoryTreeSelect v-model="form.copyTaskSrc" type="openlist" placeholder="请选择源目录" />
-            </FormField>
-            <FormField label="目标目录">
-              <DirectoryTreeSelect v-model="form.copyTaskDst" type="openlist" placeholder="请选择目标目录" />
-            </FormField>
-            <FormField label="监控目录">
-              <DirectoryTreeSelect v-model="form.monitorDir" type="local" placeholder="请选择监控目录（可选）" />
-            </FormField>
-            <FormField label="状态">
-              <v-radio-group v-model="form.copyTaskStatus" inline hide-details>
-                <v-radio label="启用" value="1" />
-                <v-radio label="停用" value="0" />
-              </v-radio-group>
-            </FormField>
-          </v-form>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="outlined" @click="open = false">取消</v-btn>
-          <v-btn color="primary" variant="flat" :loading="submitLoading" @click="handleSubmitClick">确定</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <CopyTaskFormDialog />
   </div>
 </template>
 
 <script setup lang="ts">
 import StatusChip from '@/components/StatusChip.vue'
 import PageHeader from '@/components/PageHeader.vue'
-import FormField from '@/components/FormField.vue'
 import { useCopyTask } from '@/composables/useCopyTask'
-import { message } from '@/composables/useMessage'
-import DirectoryTreeSelect from '@/components/DirectoryTreeSelect/index.vue'
+import { usePageStateProvider } from '@/composables/pageStateContext'
 import { useSearchPanel } from '@/composables/useSearchPanel'
 import SearchPanel from '@/components/SearchPanel.vue'
 import { useDataTable } from '@/composables/useDataTable'
+import CopyTaskFormDialog from '@/components/dialogs/CopyTaskFormDialog.vue'
 
 const { showSearch } = useSearchPanel()
 
+// 表单弹窗与移动端共用一份（components/dialogs/），它靠 usePageStateProvider 取同一份状态
 const {
   taskList, loading, total, queryParams, queryRef,
   getList, handleQuery, resetQuery,
   selectedIds, notOneSelected, noneSelected, handleSelectionChange,
-  open, dialogTitle, submitLoading, formRef, form,
-  handleAdd, handleUpdate, submitForm,
+  handleAdd, handleUpdate,
   handleDelete, handleExecuteOne, handleExecute
-} = useCopyTask()
-
-// DirectoryTreeSelect 不支持 v-form 的 :rules 校验，改为提交前手动校验必填项
-const handleSubmitClick = () => {
-  if (!form.value.copyTaskSrc) {
-    message.warning('源目录不能为空')
-    return
-  }
-  if (!form.value.copyTaskDst) {
-    message.warning('目标目录不能为空')
-    return
-  }
-  submitForm()
-}
+} = usePageStateProvider(useCopyTask())
 
 const headers = [
   { title: '同步配置', key: 'config', minWidth: '300', sortable: false },

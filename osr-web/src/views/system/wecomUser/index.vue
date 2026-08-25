@@ -122,41 +122,7 @@
       </div>
     </v-card>
 
-    <v-dialog v-model="open" max-width="600">
-      <v-card :title="dialogTitle">
-        <v-card-text>
-          <v-form ref="formRef">
-            <v-text-field
-              v-model="form.wecomUserid"
-              label="企业微信 UserId"
-              placeholder="企微管理后台「通讯录」成员详情页可查"
-              :rules="wecomUserIdRules"
-              class="mb-3"
-            />
-            <v-select
-              v-model="form.sysUserId"
-              label="绑定到 OSR 用户"
-              :items="userOptions"
-              :rules="sysUserIdRules"
-              placeholder="请选择"
-              class="mb-3"
-            />
-            <v-select
-              v-model="form.status"
-              label="状态"
-              :items="[{ title: '正常', value: '0' }, { title: '停用（拒绝指令、不再定向推送）', value: '1' }]"
-              class="mb-3"
-            />
-            <v-textarea v-model="form.remark" label="备注" rows="2" placeholder="可选" />
-          </v-form>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="outlined" @click="open = false">取消</v-btn>
-          <v-btn color="primary" variant="flat" :loading="submitLoading" @click="handleSubmitClick">确定</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <WecomUserFormDialog />
   </div>
 </template>
 
@@ -164,18 +130,20 @@
 import PageHeader from '@/components/PageHeader.vue'
 import StatusChip from '@/components/StatusChip.vue'
 import { useWecomUser } from '@/composables/useWecomUser'
+import { usePageStateProvider } from '@/composables/pageStateContext'
 import { useGridPageSize } from '@/composables/useGridPageSize'
 import { useSearchPanel } from '@/composables/useSearchPanel'
 import SearchPanel from '@/components/SearchPanel.vue'
+import WecomUserFormDialog from '@/components/dialogs/WecomUserFormDialog.vue'
 
 const { showSearch } = useSearchPanel()
 
+// 表单弹窗与移动端共用一份（components/dialogs/），它靠 usePageStateProvider 取同一份状态
 const {
   taskList, loading, total, queryParams, getList, handleQuery, resetQuery, queryRef,
-  open, dialogTitle, submitLoading, formRef, form, rules, userOptions,
-  handleAdd, handleUpdate, submitForm, handleDelete,
+  handleAdd, handleUpdate, handleDelete,
   syncingMenu, handleSyncMenu
-} = useWecomUser({ autoLoad: false })
+} = usePageStateProvider(useWecomUser({ autoLoad: false }))
 
 // 每页条数按网格实际列数取整到整行，窗口宽度变了跟着重算
 const { gridRef, pageSizeOptions, setPageSize } = useGridPageSize((size) => {
@@ -183,25 +151,4 @@ const { gridRef, pageSizeOptions, setPageSize } = useGridPageSize((size) => {
   queryParams.pageNum = 1
   getList()
 })
-
-// 表单规则是 { required, message, trigger } 对象格式（composable 返回），
-// Vuetify 的 :rules 需要函数格式，这里就地转换，不改动 composable
-const toRuleFns = (ruleList: any[]) =>
-  (ruleList || []).map((rule: any) => (value: any) => {
-    if (rule.required && (value === null || value === undefined || value === '')) {
-      return rule.message || '不能为空'
-    }
-    return true
-  })
-
-// rules 是 { 字段名: 规则数组 } 的普通对象（不是 ref），按字段名取
-const wecomUserIdRules = toRuleFns(rules.wecomUserid)
-const sysUserIdRules = toRuleFns(rules.sysUserId)
-
-const handleSubmitClick = async () => {
-  if (!formRef.value) return
-  const { valid } = await formRef.value.validate()
-  if (!valid) return
-  submitForm()
-}
 </script>

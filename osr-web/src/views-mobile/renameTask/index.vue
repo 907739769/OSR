@@ -125,54 +125,15 @@
       <FullTextDialog ref="fullTextRef" />
 
       <!-- Add/Edit Dialog -->
-      <v-dialog v-model="open" width="92%">
-        <v-card :title="dialogTitle">
-          <v-card-text>
-            <v-form ref="formRef">
-              <FormField label="源目录">
-                <DirectoryTreeSelect v-model="form.sourceFolder" type="local" placeholder="请选择源目录" />
-              </FormField>
-              <FormField label="目标目录">
-                <DirectoryTreeSelect v-model="form.targetRoot" type="local" placeholder="请选择目标目录" />
-              </FormField>
-              <FormField label="状态">
-                <v-radio-group v-model="form.status" inline hide-details>
-                  <v-radio label="停用" value="0" />
-                  <v-radio label="启用" value="1" />
-                </v-radio-group>
-              </FormField>
-              <div class="section-label">刮削配置</div>
-              <v-divider class="mb-3" />
-              <FormField label="启用刮削" inline>
-                <v-switch v-model="form.scrapeEnabled" true-value="1" false-value="0" color="primary" hide-details density="compact" />
-              </FormField>
-              <FormField v-if="form.scrapeEnabled === '1'" label="生成NFO" inline>
-                <v-switch v-model="form.scrapeNfo" true-value="1" false-value="0" color="primary" hide-details density="compact" />
-              </FormField>
-              <FormField v-if="form.scrapeEnabled === '1'" label="下载图片" inline>
-                <v-switch v-model="form.scrapeImages" true-value="1" false-value="0" color="primary" hide-details density="compact" />
-              </FormField>
-              <FormField v-if="form.scrapeEnabled === '1'" label="强制覆盖" inline>
-                <v-switch v-model="form.scrapeForceOverwrite" true-value="1" false-value="0" color="primary" hide-details density="compact" />
-              </FormField>
-            </v-form>
-          </v-card-text>
-          <v-card-actions>
-            <v-spacer />
-            <v-btn variant="outlined" @click="open = false">取消</v-btn>
-            <v-btn color="primary" variant="flat" :loading="submitLoading" @click="submitForm">确定</v-btn>
-          </v-card-actions>
-        </v-card>
-      </v-dialog>
+      <!-- 新增/编辑弹窗（两端共用） -->
+      <RenameTaskFormDialog />
     </template>
   </MobileListPage>
 </template>
 
 <script setup lang="ts">
 import StatusChip from '@/components/StatusChip.vue'
-import FormField from '@/components/FormField.vue'
 import { ref } from 'vue'
-import DirectoryTreeSelect from '@/components/DirectoryTreeSelect/index.vue'
 import MobileListPage from '@/components/mobile/MobileListPage.vue'
 import MobileActionSheet from '@/components/mobile/MobileActionSheet.vue'
 import MobileBatchBar from '@/components/mobile/MobileBatchBar.vue'
@@ -180,32 +141,24 @@ import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import FullTextDialog from '@/components/mobile/FullTextDialog.vue'
 import { useRenameTask } from '@/composables/useRenameTask'
+import { usePageStateProvider } from '@/composables/pageStateContext'
 import { useActionSheet } from '@/composables/useActionSheet'
+import RenameTaskFormDialog from '@/components/dialogs/RenameTaskFormDialog.vue'
 
+// 表单弹窗与 PC 端共用一份（components/dialogs/），它靠 usePageStateProvider 取同一份状态
 const {
   taskList, loading, total, queryParams, totalPages,
   prevPage, nextPage, handleSizeChange,
   queryRef, handleQuery, resetQuery, searchCollapsed,
   selectedIds, toggleSelect, handleCardClick, clearSelection,
   isAllPageSelected, toggleSelectAllPage,
-  open, dialogTitle, submitLoading, formRef, form,
-  handleAdd, handleUpdate, submitForm, handleDelete,
+  handleAdd, handleUpdate, handleDelete,
   handleExecuteOne, handleBatchExecute, handleBatchDelete
-} = useRenameTask()
+} = usePageStateProvider(useRenameTask())
 
 const fullTextRef = ref<InstanceType<typeof FullTextDialog>>()
 const showFullText = (content: string, title: string) => fullTextRef.value?.show(content, title)
 
-/** 更多操作抽屉 */
 /** 卡片「更多」动作面板：开关状态与「执行完自动关闭」都在 useActionSheet 里 */
 const { sheetOpen, sheetTarget, openSheet, run } = useActionSheet()
 </script>
-
-<style scoped lang="scss">
-.section-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--osr-text-primary);
-  margin-bottom: 8px;
-}
-</style>

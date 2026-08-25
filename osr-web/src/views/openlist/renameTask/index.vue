@@ -116,45 +116,7 @@
     </v-card>
 
     <!-- Add/Edit Dialog -->
-    <v-dialog v-model="open" max-width="600">
-      <v-card :title="dialogTitle">
-        <v-card-text>
-          <v-form ref="formRef">
-            <FormField label="源目录">
-              <DirectoryTreeSelect v-model="form.sourceFolder" type="local" placeholder="请选择源目录" />
-            </FormField>
-            <FormField label="目标目录">
-              <DirectoryTreeSelect v-model="form.targetRoot" type="local" placeholder="请选择目标目录" />
-            </FormField>
-            <FormField label="状态">
-              <v-radio-group v-model="form.status" inline hide-details>
-                <v-radio label="停用" value="0" />
-                <v-radio label="启用" value="1" />
-              </v-radio-group>
-            </FormField>
-            <div class="section-label">刮削配置</div>
-            <v-divider class="mb-3" />
-            <FormField label="启用刮削" inline>
-              <v-switch v-model="form.scrapeEnabled" true-value="1" false-value="0" color="primary" hide-details density="compact" />
-            </FormField>
-            <FormField v-if="form.scrapeEnabled === '1'" label="生成NFO" inline>
-              <v-switch v-model="form.scrapeNfo" true-value="1" false-value="0" color="primary" hide-details density="compact" />
-            </FormField>
-            <FormField v-if="form.scrapeEnabled === '1'" label="下载图片" inline>
-              <v-switch v-model="form.scrapeImages" true-value="1" false-value="0" color="primary" hide-details density="compact" />
-            </FormField>
-            <FormField v-if="form.scrapeEnabled === '1'" label="强制覆盖" inline>
-              <v-switch v-model="form.scrapeForceOverwrite" true-value="1" false-value="0" color="primary" hide-details density="compact" />
-            </FormField>
-          </v-form>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer />
-          <v-btn variant="outlined" @click="open = false">取消</v-btn>
-          <v-btn color="primary" variant="flat" :loading="submitLoading" @click="submitForm">确定</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <RenameTaskFormDialog />
 
   </div>
 </template>
@@ -162,23 +124,23 @@
 <script setup lang="ts">
 import StatusChip from '@/components/StatusChip.vue'
 import PageHeader from '@/components/PageHeader.vue'
-import FormField from '@/components/FormField.vue'
-import DirectoryTreeSelect from '@/components/DirectoryTreeSelect/index.vue'
 import { useRenameTask } from '@/composables/useRenameTask'
+import { usePageStateProvider } from '@/composables/pageStateContext'
 import { useSearchPanel } from '@/composables/useSearchPanel'
 import SearchPanel from '@/components/SearchPanel.vue'
 import { useDataTable } from '@/composables/useDataTable'
+import RenameTaskFormDialog from '@/components/dialogs/RenameTaskFormDialog.vue'
 
 const { showSearch } = useSearchPanel()
 
+// 表单弹窗与移动端共用一份（components/dialogs/），它靠 usePageStateProvider 取同一份状态
 const {
   taskList, loading, total, queryParams,
   getList, queryRef, handleQuery, resetQuery,
   notOneSelected, noneSelected, handleSelectionChange,
-  open, dialogTitle, submitLoading, formRef, form,
-  handleAdd, handleUpdate, submitForm, handleDelete,
+  handleAdd, handleUpdate, handleDelete,
   handleExecuteOne, handleBatchExecute: handleExecute
-} = useRenameTask()
+} = usePageStateProvider(useRenameTask())
 
 const headers = [
   { title: '任务路径配置', key: 'config', minWidth: '300', sortable: false },
@@ -195,10 +157,5 @@ const { selectedRows, onSelectionChange, clearSelection, onPageChange, onSizeCha
 <style scoped lang="scss">
 /* 公共布局（.page-container/.search-card/.table-card 等）由全局 styles/list.scss 统一提供 */
 
-.section-label {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--osr-text-primary);
-  margin-bottom: 8px;
-}
+/* .section-label 已随表单弹窗搬进 components/dialogs/RenameTaskFormDialog.vue */
 </style>

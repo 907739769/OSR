@@ -116,70 +116,8 @@
       />
 
       <!-- 新增/编辑弹窗 -->
-      <v-dialog v-model="open" width="92%">
-        <v-card :title="dialogTitle">
-          <v-card-text>
-            <v-form ref="formRef">
-              <v-text-field v-model="form.name" label="规则名" placeholder="如「qB 下完搬到 TR 保种」" :rules="toRules(rules.name)" class="mb-2" />
-              <v-select
-                v-model="form.sourceDownloaderId"
-                :items="sourceOptions"
-                label="源下载器"
-                :rules="toRules(rules.sourceDownloaderId)"
-                hint="Transmission 无法导出种子文件，不能作为来源"
-                persistent-hint
-                class="mb-3"
-              />
-              <v-select
-                v-model="form.targetDownloaderId"
-                :items="downloaderOptions"
-                label="目标下载器"
-                :rules="toRules(rules.targetDownloaderId)"
-                class="mb-2"
-              />
-              <v-text-field v-model.number="form.minSeedHours" label="最短做种时长(小时)" type="number" hint="0 表示不限" persistent-hint class="mb-3" />
-              <div class="inline-fields mb-2">
-                <v-text-field v-model.number="form.minSizeGb" label="体积下限(GB)" type="number" />
-                <v-text-field v-model.number="form.maxSizeGb" label="体积上限(GB)" type="number" placeholder="不限" />
-              </div>
-              <v-text-field v-model="form.includeTags" label="仅转移带这些标签的种子" placeholder="逗号分隔，留空不限" class="mb-2" />
-              <v-text-field v-model="form.excludeTags" label="排除标签" placeholder="逗号分隔" class="mb-2" />
-              <v-text-field v-model="form.targetTag" label="目标端标签" class="mb-2" />
-              <v-textarea
-                v-model="form.pathMapping"
-                label="保存路径映射"
-                rows="2"
-                placeholder="挂载一致时留空；否则 [{&quot;from&quot;:&quot;/downloads&quot;,&quot;to&quot;:&quot;/data/downloads&quot;}]"
-                hint="目标下载器要能在映射后的路径下找到同一份文件"
-                persistent-hint
-                class="mb-3"
-              />
-              <div class="inline-fields mb-2">
-                <v-text-field v-model.number="form.maxPerRound" label="单轮上限" type="number" />
-                <v-text-field v-model.number="form.verifyTimeoutMinutes" label="校验超时(分钟)" type="number" />
-              </div>
-              <FormField label="转移成功后" tip="删除的只是源下载器里的种子任务，数据文件永远保留">
-                <v-radio-group v-model="form.deleteSource" inline hide-details>
-                  <v-radio label="删除源种子" value="1" />
-                  <v-radio label="保留源种子" value="0" />
-                </v-radio-group>
-              </FormField>
-              <FormField label="状态" tip="新建规则默认停用，确认预览结果符合预期后再启用">
-                <v-radio-group v-model="form.enabled" inline hide-details>
-                  <v-radio label="启用" value="1" />
-                  <v-radio label="停用" value="0" />
-                </v-radio-group>
-              </FormField>
-              <v-text-field v-model="form.remark" label="备注" class="mb-2" />
-            </v-form>
-          </v-card-text>
-          <v-card-actions>
-            <v-spacer />
-            <v-btn variant="outlined" @click="open = false">取消</v-btn>
-            <v-btn color="primary" variant="flat" :loading="submitLoading" @click="submitForm">确定</v-btn>
-          </v-card-actions>
-        </v-card>
-      </v-dialog>
+      <!-- 新增/编辑弹窗（两端共用） -->
+      <PtTransferRuleFormDialog />
 
       <!-- 预览弹窗 -->
       <v-dialog v-model="previewOpen" width="92%">
@@ -236,36 +174,29 @@
 
 <script setup lang="ts">
 import StatusChip from '@/components/StatusChip.vue'
-import FormField from '@/components/FormField.vue'
 import MobileListPage from '@/components/mobile/MobileListPage.vue'
 import MobileBatchBar from '@/components/mobile/MobileBatchBar.vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import { usePtTransferRule } from '@/composables/usePtTransferRule'
+import { usePageStateProvider } from '@/composables/pageStateContext'
+import PtTransferRuleFormDialog from '@/components/dialogs/PtTransferRuleFormDialog.vue'
 
+// 表单弹窗与 PC 端共用一份（components/dialogs/），它靠 usePageStateProvider 取同一份状态。
+// 预览与记录两个弹窗两端形态不同（PC 是数据表、移动端是卡片列表），各留一套
 const {
   taskList, loading, total, queryParams,
   handleQuery, resetQuery,
   selectedIds, toggleSelect, handleCardClick, clearSelection,
   isAllPageSelected, toggleSelectAllPage,
-  open, dialogTitle, submitLoading, formRef, form, rules,
-  handleAdd, handleUpdate, submitForm, handleDelete,
-  downloaderOptions, sourceOptions, downloaderName,
+  handleAdd, handleUpdate, handleDelete,
+  downloaderOptions, downloaderName,
   previewOpen, previewLoading, previewRows, previewRuleName, handlePreview,
   runLoading, handleRun,
   recordOpen, recordLoading, records, loadRecords, clearLoading, handleClearFailed,
   totalPages, prevPage, nextPage, handleSizeChange,
   searchCollapsed
-} = usePtTransferRule()
-
-// 将对象格式的校验规则（composable 返回）转换为 Vuetify 的规则函数数组
-const toRules = (fieldRules?: any[]) => {
-  return (fieldRules || []).map((r: any) => (value: any) => {
-    if (r.required && (value === undefined || value === null || value === '')) return r.message
-    if (r.pattern && value && !r.pattern.test(value)) return r.message
-    return true
-  })
-}
+} = usePageStateProvider(usePtTransferRule())
 
 const formatSize = (bytes?: number) => {
   if (!bytes) return '-'

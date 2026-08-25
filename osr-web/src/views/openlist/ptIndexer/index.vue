@@ -139,129 +139,19 @@
       </div>
     </v-card>
 
-    <!-- Add/Edit Dialog -->
-    <v-dialog v-model="open" max-width="600">
-      <v-card :title="dialogTitle">
-        <v-card-text>
-          <v-form ref="formRef">
-            <v-text-field
-              v-model="form.name"
-              label="名称"
-              placeholder="请输入名称"
-              density="comfortable"
-              variant="outlined"
-              :rules="nameRules"
-            />
-            <v-text-field
-              v-model="form.url"
-              label="接口地址"
-              placeholder="如 http://jackett:9117/api/v2.0/indexers/xxx/results/torznab/api"
-              density="comfortable"
-              variant="outlined"
-              :rules="urlRules"
-            />
-            <v-text-field
-              v-model="form.apiKey"
-              label="apikey"
-              type="password"
-              :placeholder="form.id ? '留空则不修改 apikey' : '请输入 Torznab apikey'"
-              density="comfortable"
-              variant="outlined"
-              :rules="apiKeyRules"
-            />
-            <FormField label="分类">
-              <v-select
-                v-model="categoriesSelected"
-                :items="categoryFlatOptions"
-                multiple
-                chips
-                closable-chips
-                density="comfortable"
-                variant="outlined"
-                hide-details
-                placeholder="点击右侧「获取分类」后选择，或直接输入分类 ID"
-              />
-              <v-btn :loading="categoriesLoading" variant="outlined" @click="fetchCategories">获取分类</v-btn>
-            </FormField>
-            <v-text-field
-              v-model.number="form.pollInterval"
-              label="轮询周期"
-              type="number"
-              min="60"
-              step="60"
-              density="comfortable"
-              variant="outlined"
-              :rules="pollIntervalRules"
-              suffix="秒"
-            />
-            <FormField label="状态">
-              <v-radio-group v-model="form.enabled" inline hide-details>
-                <v-radio label="启用" value="1" />
-                <v-radio label="停用" value="0" />
-              </v-radio-group>
-            </FormField>
-
-            <FormField label="H&R 考核">
-              <v-radio-group v-model="form.hrEnabled" inline hide-details density="comfortable">
-                <v-radio label="无" value="0" />
-                <v-radio label="有" value="1" />
-              </v-radio-group>
-              <template #tip>
-                该站点是否有 Hit&nbsp;and&nbsp;Run 考核。开启后，来自本站的种子下载完成会进入保种追踪：
-                达标前从下载器消失会立刻告警，达标后通知可安全删除；推送时还会把下面的要求写成种子的分享限额，
-                防止下载器的自动管理提前把种子清掉
-              </template>
-            </FormField>
-
-            <template v-if="form.hrEnabled === '1'">
-              <v-text-field
-                v-model.number="form.hrSeedHours"
-                label="最短做种时长"
-                type="number"
-                min="0"
-                density="comfortable"
-                variant="outlined"
-                suffix="小时"
-              />
-              <FormField>
-                <v-text-field
-                  v-model.number="form.hrRatio"
-                  label="最低分享率"
-                  type="number"
-                  min="0"
-                  step="0.1"
-                  density="comfortable"
-                  variant="outlined"
-                />
-                <template #tip>
-                  两项是<strong>或</strong>的关系，满足任一即视为达标（站点通行表述就是「做满 N 小时或分享率达到 R」）。
-                  不考核的那一项填 0。<strong>两项都填 0 等于没配</strong>，后端会按未开启 H&amp;R 处理。
-                  另外 Transmission 的 RPC 没有「最短做种时长」这个概念，该项对 Transmission 只能靠 OSR 侧追踪告警兜底
-                </template>
-              </FormField>
-            </template>
-          </v-form>
-        </v-card-text>
-        <v-card-actions>
-          <v-btn :loading="testLoading" variant="outlined" @click="handleTest">测试连接</v-btn>
-          <v-spacer />
-          <v-btn variant="outlined" @click="open = false">取消</v-btn>
-          <v-btn color="primary" variant="flat" :loading="submitLoading" @click="handleSubmitClick">确定</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <PtIndexerFormDialog />
   </div>
 </template>
 
 <script setup lang="ts">
 import StatusChip from '@/components/StatusChip.vue'
 import PageHeader from '@/components/PageHeader.vue'
-import { computed } from 'vue'
-import FormField from '@/components/FormField.vue'
 import { usePtIndexer } from '@/composables/usePtIndexer'
+import { usePageStateProvider } from '@/composables/pageStateContext'
 import { useGridPageSize } from '@/composables/useGridPageSize'
 import { useSearchPanel } from '@/composables/useSearchPanel'
 import SearchPanel from '@/components/SearchPanel.vue'
+import PtIndexerFormDialog from '@/components/dialogs/PtIndexerFormDialog.vue'
 
 const { showSearch } = useSearchPanel()
 
@@ -273,64 +163,19 @@ const hrLabel = (item: any) => {
   return parts.length ? parts.join(' 或 ') : '未配置阈值'
 }
 
+// 表单弹窗与移动端共用一份（components/dialogs/），它靠 usePageStateProvider 取同一份状态
 const {
   taskList, loading, total, queryParams, getList, handleQuery, resetQuery, queryRef,
   selectedIds, notOneSelected, noneSelected, toggleSelect,
   isAllPageSelected, toggleSelectAllPage,
-  open, dialogTitle, submitLoading, formRef, form, rules,
-  handleAdd, handleUpdate, submitForm, handleDelete,
-  testLoading, handleTest,
-  categoriesLoading, categoryOptions, fetchCategories, categoriesSelected
-} = usePtIndexer({ autoLoad: false })
+  handleAdd, handleUpdate, handleDelete
+} = usePageStateProvider(usePtIndexer({ autoLoad: false }))
 
 // 每页条数按网格实际列数取整到整行，窗口宽度变了跟着重算
 const { gridRef, pageSizeOptions, setPageSize } = useGridPageSize((size) => {
   queryParams.pageSize = size
   queryParams.pageNum = 1
   getList()
-})
-
-// 表单规则是 { required, message, trigger }/{ pattern, type, min } 对象格式（composable 返回），
-// Vuetify 的 v-text-field :rules 需要函数格式，这里就地转换，不改动 composable
-const toRuleFns = (ruleList: any[]) =>
-  (ruleList || []).map((rule: any) => (value: any) => {
-    if (rule.required && (value === null || value === undefined || value === '')) {
-      return rule.message || '不能为空'
-    }
-    if (rule.pattern && value && !rule.pattern.test(value)) {
-      return rule.message || '格式不正确'
-    }
-    if (rule.type === 'number' && rule.min !== undefined && value !== null && value !== undefined && Number(value) < rule.min) {
-      return rule.message || `不得小于 ${rule.min}`
-    }
-    return true
-  })
-
-const nameRules = toRuleFns(rules.name)
-const urlRules = toRuleFns(rules.url)
-// 编辑时后端出于安全考虑会把 apikey 脱敏为空（留空提交 = 沿用已保存值），
-// 只有新增时才要求必填，否则编辑弹窗永远校验不过
-const apiKeyRules = computed(() => (form.value.id ? [] : toRuleFns(rules.apiKey)))
-const pollIntervalRules = toRuleFns(rules.pollInterval)
-
-const handleSubmitClick = async () => {
-  if (!formRef.value) return
-  const { valid } = await formRef.value.validate()
-  if (!valid) return
-  submitForm()
-}
-
-// 原来的父子分类分组结构在 Vuetify v-select 中拍平为一层，父分类照常可选，
-// 子分类前缀全角空格保留原有的缩进视觉效果
-const categoryFlatOptions = computed(() => {
-  const list: { title: string; value: string }[] = []
-  categoryOptions.value.forEach(parent => {
-    list.push({ title: `${parent.name} (${parent.id})`, value: String(parent.id) })
-    parent.children.forEach(child => {
-      list.push({ title: `\u3000${child.name} (${child.id})`, value: String(child.id) })
-    })
-  })
-  return list
 })
 </script>
 

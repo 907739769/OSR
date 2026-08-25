@@ -16,6 +16,7 @@ src/
 │   └── system/             # 系统管理 API
 ├── components/             # 公共组件 (SearchPanel, PageHeader, DirectoryTreeSelect, ChangePasswordDialog,
 │                           #           StatusChip, ThemeSwitch, MiniTrend, AnimatedNumber, mobile/*)
+│   └── dialogs/            # ★ PC 与移动端<共用>的表单弹窗 (FormDialogShell + 各页 XxxFormDialog)
 ├── composables/            # 组合式函数 (useTaskList, useRecordList, useDataTable, useSearchPanel, useSidebarGroups, useBreadcrumb, useCurrentUser, useThemeMode, usePageTransition, useMenuLinks, useActionSheet, useMobileTabs 等)
 ├── layouts/                # 布局组件 (DesktopLayout, MobileLayout)
 ├── router/                 # 路由配置 (动态路由)
@@ -45,6 +46,7 @@ src/
 | 路由 | `src/router/index.ts` | 动态路由加载 |
 | 状态管理 | `src/stores/` | Pinia store (app/permission/user) |
 | 布局 | `src/layouts/` | DesktopLayout / MobileLayout |
+| 两端共用的表单弹窗 | `src/components/dialogs/` | `FormDialogShell` + 10 个 `XxxFormDialog`，见下方「表单弹窗两端共用」 |
 | 移动端组件 | `src/components/mobile/` | MobileListPage(外壳), MobileSearchPanel, MobileBatchBar, MobileActionSheet, MobilePager, FullTextDialog, MobileTabSettingsDialog |
 | 移动端外壳/导航 | `src/layouts/MobileLayout.vue` + `composables/useMobileTabs.ts` | 顶栏 / 抽屉 / 底部 tab，见下方「移动端外壳」 |
 | PWA 配置 | `vite.config.ts` | VitePWA 插件配置 |
@@ -314,6 +316,10 @@ ptTorrentBlacklist / wecomUser（即全部 `.card-grid` 页面）。新增卡片
 - PC 三档：`max-width="480"`（确认类）/ `600`（表单类）/ `900`（数据表类）
 - 移动端统一 `width="92%"`
 - 次要按钮（取消/关闭/测试连接）统一 `variant="outlined"`，主按钮 `variant="flat"`
+- **上面两条不要在页面里手写，套 `components/dialogs/FormDialogShell.vue`**：它按
+  `stores/app.ts` 的 device 自己选宽度档位，并把标题、取消/确定、左侧次要动作插槽
+  （`#extra`）一并收进去。宽度**不做成 prop**——判据与 `createDeviceView` 选哪一端实现
+  是同一个（`MOBILE_MEDIA_QUERY`），交给调用方传就多出一个可以传错、且传错了也不报错的地方。
 
 ### 大页面的拆法
 
@@ -477,8 +483,39 @@ RuoYi 遗留）。`:disabled="multiple"` 字面读作「多选时禁用」、实
 浏览器/手势返回时恢复，其余导航回到顶部）。列表页本来就带 keep-alive，筛选条件和页码都还在，
 唯独滚动位置每次归零。恢复要延一帧：页面组件是异步加载的，立即滚会因为文档还没那么高而被截断。
 
+### 表单弹窗两端共用（`components/dialogs/`）
+
+**新增/编辑表单弹窗只有一份，PC 与移动端共用**，两端页面各自 `<XxxFormDialog />` 一行带过。
+已覆盖 10 个页面：strmTask / copyTask / renameTask / ptIndexer / ptDownloader / ptMediaServer /
+ptTorrentBlacklist / ptAutoAddRule / ptTransferRule / wecomUser。
+
+**为什么只合弹窗、不合整页**：两端真正不同的是**列表外壳**（PC 是 `v-data-table` 表头排序/
+表头全选/`v-pagination` 或卡片网格 + 工具栏，移动端是单列卡片 + FAB + 吸底批量条 +
+`MobileActionSheet` + `MobilePager`），把它塞进一份模板就是插满 `v-if="isMobile"`——那不是
+一套页面，是两套页面写在同一个文件里。而弹窗**本来就逐字相同**，两端唯一的真实差异只有宽度。
+实测收口前 20 对页面平均有 53% 的行在对侧逐字重复，其中弹窗是重复得最彻底的一块。
+
+**子组件怎么拿状态：`composables/pageStateContext.ts`**（`ptSubscriptionContext` 的通用版）。
+页面写 `const { … } = usePageStateProvider(useXxx(…))`，弹窗写
+`usePageState<ReturnType<typeof useXxx>>()` 取**同一个实例**。不走 props 是因为表单弹窗要
+`v-model="form.xxx"`，`form` 一旦是 prop 就会被 `vue/no-mutating-props` 拦下，绕过它等于把
+十几个字段的双向绑定手写一遍。**子组件绝不能自己再调一次业务 composable**——那会拿到另一份
+互不相通的状态，现象是「点修改，弹窗里是空的 / 填完提交没反应」。provider 的名字必须以 `use`
+开头，理由见下条。
+
+**两条守护用例的扫描范围跟着扩过，改之前先看一眼**（同「大页面的拆法」第 2 条那个坑）：
+- `device-parity.spec.ts` 的 `readPage` 现在**跟随 import** 读到共用弹窗；不跟随的话
+  `submitForm` / `handleTest` 这些动作在两端都读不到，覆盖面悄悄缩水且没有任何报错。
+  共用件被两端同时读到，它贡献的动作在两侧互相抵消，不会误报。
+- `template-class-coverage.spec.ts` 已把 `components/dialogs/**` 纳入扫描：**样式必须跟着
+  模板搬**，留在原页面 `<style scoped>` 里对弹窗根本不生效，而那正是这条用例专治的事故。
+
+**弹窗内部的窄屏适配用 `@media`，不要读 device**（`StrmTaskFormDialog` 的 `.override-row`）：
+判据是弹窗的可用宽度，而手机横屏（926px）算 mobile 却有 850px 可用，按设备类型切会把它
+一起压成竖排。
+
 ### PC / 移动端对齐
-- 新增功能必须同时改 `views/` 和 `views-mobile/`。
+- 新增功能必须同时改 `views/` 和 `views-mobile/`；**表单字段写进共用弹窗，一次就是两端**。
 - **但「一份响应式实现」是这几个页面的正规做法，不是漏做**：`ptFilterConfig` /
   `ptUpgradeConfig` / `system/config` / `monitor/job` / `monitor/log` 只有 `views/` 一份，
   在移动端靠 `@media (max-width: 768px)` 适配（`monitor/job` 走 `.mobile-card*` 表格降级）。
@@ -490,6 +527,15 @@ RuoYi 遗留）。`:disabled="multiple"` 字面读作「多选时禁用」、实
   改这几个页面前后跑一下：`npx playwright test e2e/mobile.spec.ts --project="Mobile Chrome"`。
 - 两端功能差异由 `device-parity.spec.ts` 比对 composable 解构出的动作集合；
   确有差异要在该 spec 的 `ALLOWED_GAPS` 里登记原因（登记本身就是一次评审）。
+- **同一个 spec 还比对两端模板里的表单字段**（`v-model="xxxForm.字段"`，差异登记在
+  `ALLOWED_FIELD_GAPS`）。动作那条看不见模板里的字段，而字段缺一个是**完全静默**的：
+  实测 `views-mobile/ptIndexer` 少了 `hrEnabled`/`hrSeedHours`/`hrRatio` 三个字段，移动端
+  **新建**索引器配不了 H&R；编辑已有记录时值靠 `form = { ...task }` 整体回填，连数据都不会
+  被抹掉，接口与日志一切正常，只有把两端模板并排摆着逐字段数才发现得了。
+  **表单对象名一并参与比较**——同一页常有 form / retryForm / batchForm 并存，只比字段名会让
+  「PC 的 batchForm.a」与「移动端的 form.a」互相抵消。
+- **`PAIRS` 清单要与 `router/index.ts` 里 `createDeviceView` 的清单一致**。漏登记的页面
+  整个不参与对齐检查，且不会有任何报错——`ptTransferRule` 就这么漏了一段时间。
 - 选择/分页这层交互外壳按设备不同是正常的，已在 spec 的 `SHELL_ONLY` 里排除。
 
 ## ANTI-PATTERNS
@@ -506,6 +552,16 @@ RuoYi 遗留）。`:disabled="multiple"` 字面读作「多选时禁用」、实
   而 0 在过滤规则里的语义是「不限」——用户一保存，阈值不是变粗了，是静默失效了。
   step 的粒度（`0.01`）与 `bytesToGb` 的小数位必须一致，否则回填的值不满足 step 约束，
   浏览器会把一个刚刚存进去的合法值标成非法。提交侧必须 `Math.round` 到整数字节：后端字段是 Long。
+- **规则对象 → Vuetify `:rules` 函数的转换只有一份：`composables/formRules.ts` 的 `toRuleFns`**。
+  收口前它在 14 个页面里各写一份，还分化成 4 种实现：只判 required（ptAutoAddRule /
+  ptTorrentBlacklist / wecomUser 六份）、required + pattern（ptMediaServer / ptTransferRule
+  四份）、required + pattern + 数字下限（ptIndexer 两份）、required + 数字上下限但**不判
+  pattern**（ptDownloader 两份）——每份恰好只覆盖「自己那个 composable 当前用到的规则种类」。
+  于是往 `usePtMediaServer` 的规则里加一条 `min`、或往 `usePtDownloader` 里加一条 `pattern`，
+  那条校验会**静默失效**：不报错、不告警，表单照常提交，只是校验没了。
+  实现里有一条容易改坏：**非必填字段留空必须早于数字判定放行**——`Number('') === 0`，
+  不挡的话一个 `min: 1` 的选填字段在留空时报「不得小于 1」，用户没法把它清空。
+  `composables/__tests__/formRules.spec.ts` 逐种规则各钉一条。
 - **勾选逻辑只有一份：`composables/usePageSelection.ts`**，`useTaskList` / `useRecordList` 都内置了它，
   业务 composable 不要再自己写 `toggleSelect` / `handleCardClick` / `clearSelection` / 全选本页。
   曾经这四个函数在 7 个业务 composable 里各抄一份，其中三份还顺手手动同步 `single`/`multiple`

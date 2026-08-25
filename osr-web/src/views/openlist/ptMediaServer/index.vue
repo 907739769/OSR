@@ -114,81 +114,29 @@
       </div>
     </v-card>
 
-    <!-- Add/Edit Dialog -->
-    <v-dialog v-model="open" max-width="600">
-      <v-card :title="dialogTitle">
-        <v-card-text>
-          <v-form ref="formRef">
-            <v-text-field
-              v-model="form.name"
-              label="名称"
-              placeholder="请输入名称"
-              :rules="toRules(rules.name)"
-              class="mb-2"
-            />
-            <v-select
-              v-model="form.type"
-              label="类型"
-              :items="[{ title: 'Emby', value: 'EMBY' }, { title: 'Jellyfin', value: 'JELLYFIN' }]"
-              class="mb-2"
-            />
-            <v-text-field
-              v-model="form.url"
-              label="服务器地址"
-              placeholder="如 http://192.168.1.10:8096"
-              :rules="toRules(rules.url)"
-              class="mb-2"
-            />
-            <v-text-field
-              v-model="form.apiKey"
-              label="API Key"
-              type="password"
-              :placeholder="form.id ? '留空则不修改 API Key' : '请输入 API Key'"
-              :rules="apiKeyRules"
-              class="mb-2"
-            />
-            <v-text-field
-              v-model="form.userId"
-              label="用户ID"
-              placeholder="留空则按服务器全库查询"
-              class="mb-2"
-            />
-            <v-radio-group v-model="form.enabled" inline label="状态" hide-details>
-              <v-radio label="启用" value="1" />
-              <v-radio label="停用" value="0" />
-            </v-radio-group>
-          </v-form>
-        </v-card-text>
-        <v-card-actions>
-          <v-btn :loading="testLoading" @click="handleTest">测试连接</v-btn>
-          <v-spacer />
-          <v-btn variant="outlined" @click="open = false">取消</v-btn>
-          <v-btn color="primary" variant="flat" :loading="submitLoading" @click="submitForm">确定</v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
+    <PtMediaServerFormDialog />
   </div>
 </template>
 
 <script setup lang="ts">
 import StatusChip from '@/components/StatusChip.vue'
 import PageHeader from '@/components/PageHeader.vue'
-import { computed } from 'vue'
 import { usePtMediaServer } from '@/composables/usePtMediaServer'
+import { usePageStateProvider } from '@/composables/pageStateContext'
 import { useGridPageSize } from '@/composables/useGridPageSize'
 import { useSearchPanel } from '@/composables/useSearchPanel'
 import SearchPanel from '@/components/SearchPanel.vue'
+import PtMediaServerFormDialog from '@/components/dialogs/PtMediaServerFormDialog.vue'
 
 const { showSearch } = useSearchPanel()
 
+// 表单弹窗与移动端共用一份（components/dialogs/），它靠 usePageStateProvider 取同一份状态
 const {
   taskList, loading, total, queryParams, getList, handleQuery, resetQuery,
   selectedIds, notOneSelected, noneSelected, toggleSelect,
   isAllPageSelected, toggleSelectAllPage,
-  open, dialogTitle, submitLoading, formRef, form, rules,
-  handleAdd, handleUpdate, submitForm, handleDelete,
-  testLoading, handleTest
-} = usePtMediaServer({ autoLoad: false })
+  handleAdd, handleUpdate, handleDelete
+} = usePageStateProvider(usePtMediaServer({ autoLoad: false }))
 
 // 每页条数按网格实际列数取整到整行，窗口宽度变了跟着重算
 const { gridRef, pageSizeOptions, setPageSize } = useGridPageSize((size) => {
@@ -196,17 +144,4 @@ const { gridRef, pageSizeOptions, setPageSize } = useGridPageSize((size) => {
   queryParams.pageNum = 1
   getList()
 })
-
-// 将对象格式的校验规则（composable 返回）转换为 Vuetify 的规则函数数组
-const toRules = (fieldRules?: any[]) => {
-  return (fieldRules || []).map((r: any) => (value: any) => {
-    if (r.required && (value === undefined || value === null || value === '')) return r.message
-    if (r.pattern && value && !r.pattern.test(value)) return r.message
-    return true
-  })
-}
-
-// 编辑时后端出于安全考虑会把 apiKey 脱敏为空（留空提交 = 沿用已保存值），
-// 只有新增时才要求必填，否则编辑弹窗永远校验不过
-const apiKeyRules = computed(() => (form.value.id ? [] : toRules(rules.apiKey)))
 </script>

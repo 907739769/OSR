@@ -141,43 +141,15 @@
       <FullTextDialog ref="fullTextRef" />
 
       <!-- Add/Edit Dialog -->
-      <v-dialog v-model="open" width="92%">
-        <v-card :title="dialogTitle">
-          <v-card-text>
-            <v-form ref="formRef">
-              <FormField label="源目录">
-                <DirectoryTreeSelect v-model="form.copyTaskSrc" type="openlist" placeholder="请选择源目录" />
-              </FormField>
-              <FormField label="目标目录">
-                <DirectoryTreeSelect v-model="form.copyTaskDst" type="openlist" placeholder="请选择目标目录" />
-              </FormField>
-              <FormField label="监控目录">
-                <DirectoryTreeSelect v-model="form.monitorDir" type="local" placeholder="请选择监控目录（可选）" />
-              </FormField>
-              <FormField label="状态">
-                <v-radio-group v-model="form.copyTaskStatus" inline hide-details>
-                  <v-radio label="启用" value="1" />
-                  <v-radio label="停用" value="0" />
-                </v-radio-group>
-              </FormField>
-            </v-form>
-          </v-card-text>
-          <v-card-actions>
-            <v-spacer />
-            <v-btn variant="outlined" @click="open = false">取消</v-btn>
-            <v-btn color="primary" variant="flat" :loading="submitLoading" @click="handleSubmitClick">确定</v-btn>
-          </v-card-actions>
-        </v-card>
-      </v-dialog>
+      <!-- 新增/编辑弹窗（两端共用） -->
+      <CopyTaskFormDialog />
     </template>
   </MobileListPage>
 </template>
 
 <script setup lang="ts">
 import StatusChip from '@/components/StatusChip.vue'
-import FormField from '@/components/FormField.vue'
 import { ref, watch } from 'vue'
-import DirectoryTreeSelect from '@/components/DirectoryTreeSelect/index.vue'
 import MobileListPage from '@/components/mobile/MobileListPage.vue'
 import MobileActionSheet from '@/components/mobile/MobileActionSheet.vue'
 import MobileBatchBar from '@/components/mobile/MobileBatchBar.vue'
@@ -185,42 +157,29 @@ import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import FullTextDialog from '@/components/mobile/FullTextDialog.vue'
 import { useCopyTask } from '@/composables/useCopyTask'
+import { usePageStateProvider } from '@/composables/pageStateContext'
 import { useDebounce } from '@/composables/useDebounce'
-import { message } from '@/composables/useMessage'
 import { useActionSheet } from '@/composables/useActionSheet'
+import CopyTaskFormDialog from '@/components/dialogs/CopyTaskFormDialog.vue'
 
+// 表单弹窗与 PC 端共用一份（components/dialogs/），它靠 usePageStateProvider 取同一份状态
 const {
   taskList, loading, total, queryParams,
   getList, handleQuery, resetQuery,
   selectedIds,
-  open, dialogTitle, submitLoading, formRef, form,
-  handleAdd, handleUpdate, submitForm,
+  handleAdd, handleUpdate,
   handleDelete, handleExecuteOne,
   toggleSelect, handleCardClick, clearSelection,
   isAllPageSelected, toggleSelectAllPage,
   totalPages, prevPage, nextPage, handleSizeChange,
   searchCollapsed, handleBatchExecute
-} = useCopyTask()
+} = usePageStateProvider(useCopyTask())
 
 const fullTextRef = ref<InstanceType<typeof FullTextDialog>>()
 const showFullText = (content: string, title: string) => fullTextRef.value?.show(content, title)
 
-/** 更多操作抽屉 */
 /** 卡片「更多」动作面板：开关状态与「执行完自动关闭」都在 useActionSheet 里 */
 const { sheetOpen, sheetTarget, openSheet, run } = useActionSheet()
-
-// DirectoryTreeSelect 不支持 v-form 的 :rules 校验，改为提交前手动校验必填项
-const handleSubmitClick = () => {
-  if (!form.value.copyTaskSrc) {
-    message.warning('源目录不能为空')
-    return
-  }
-  if (!form.value.copyTaskDst) {
-    message.warning('目标目录不能为空')
-    return
-  }
-  submitForm()
-}
 
 // 搜索输入防抖：输入停止 300ms 后自动触发搜索
 const debouncedSearch = useDebounce(() => {

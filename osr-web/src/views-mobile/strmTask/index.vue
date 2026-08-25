@@ -111,82 +111,15 @@
       <!-- 全文查看 -->
       <FullTextDialog ref="fullTextRef" />
 
-      <!-- Add/Edit Dialog -->
-      <v-dialog v-model="open" width="92%">
-        <v-card :title="dialogTitle">
-          <v-card-text>
-            <v-form ref="formRef">
-              <FormField label="STRM目录">
-                <DirectoryTreeSelect v-model="form.strmTaskPath" type="openlist" placeholder="请选择STRM目录" />
-              </FormField>
-              <FormField label="状态">
-                <v-radio-group v-model="form.strmTaskStatus" inline hide-details>
-                  <v-radio label="停用" value="0" />
-                  <v-radio label="启用" value="1" />
-                </v-radio-group>
-              </FormField>
-
-              <div class="section-divider"><span>任务级覆盖</span></div>
-              <p class="override-tip">只勾选需要覆盖的项，不勾选的沿用全局配置。</p>
-
-              <div class="override-row">
-                <v-checkbox-btn v-model="overrideForm.outputDir.enabled" label="输出根目录" />
-                <v-text-field
-                  v-model="overrideForm.outputDir.value"
-                  placeholder="如 /data/strm-anime"
-                  density="compact"
-                  variant="outlined"
-                  hide-details
-                  :disabled="!overrideForm.outputDir.enabled"
-                />
-              </div>
-
-              <div class="override-row">
-                <v-checkbox-btn v-model="overrideForm.downloadSub.enabled" label="下载字幕" />
-                <v-radio-group
-                  v-model="overrideForm.downloadSub.value"
-                  inline
-                  hide-details
-                  density="compact"
-                  :disabled="!overrideForm.downloadSub.enabled"
-                >
-                  <v-radio label="否" value="0" />
-                  <v-radio label="是" value="1" />
-                </v-radio-group>
-              </div>
-
-              <div class="override-row">
-                <v-checkbox-btn v-model="overrideForm.minFileSize.enabled" label="最小文件体积" />
-                <v-text-field
-                  v-model.number="overrideForm.minFileSize.value"
-                  type="number"
-                  min="0"
-                  suffix="MB"
-                  density="compact"
-                  variant="outlined"
-                  hide-details
-                  :disabled="!overrideForm.minFileSize.enabled"
-                />
-              </div>
-              <p class="override-tip">填 0 表示不限。小于该体积的视频不生成 STRM，常用来滤掉花絮和预告。</p>
-            </v-form>
-          </v-card-text>
-          <v-card-actions>
-            <v-spacer />
-            <v-btn variant="outlined" @click="open = false">取消</v-btn>
-            <v-btn color="primary" variant="flat" :loading="submitLoading" @click="handleSubmitClick">确定</v-btn>
-          </v-card-actions>
-        </v-card>
-      </v-dialog>
+      <!-- 新增/编辑弹窗（两端共用） -->
+      <StrmTaskFormDialog />
     </template>
   </MobileListPage>
 </template>
 
 <script setup lang="ts">
 import StatusChip from '@/components/StatusChip.vue'
-import FormField from '@/components/FormField.vue'
 import { ref, watch } from 'vue'
-import DirectoryTreeSelect from '@/components/DirectoryTreeSelect/index.vue'
 import MobileListPage from '@/components/mobile/MobileListPage.vue'
 import MobileActionSheet from '@/components/mobile/MobileActionSheet.vue'
 import MobileBatchBar from '@/components/mobile/MobileBatchBar.vue'
@@ -194,39 +127,30 @@ import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import FullTextDialog from '@/components/mobile/FullTextDialog.vue'
 import { useStrmTask } from '@/composables/useStrmTask'
+import { usePageStateProvider } from '@/composables/pageStateContext'
 import { useDebounce } from '@/composables/useDebounce'
-import { message } from '@/composables/useMessage'
 import { useActionSheet } from '@/composables/useActionSheet'
+import StrmTaskFormDialog from '@/components/dialogs/StrmTaskFormDialog.vue'
 
+// 表单弹窗与 PC 端共用一份（components/dialogs/），它靠 usePageStateProvider 取同一份状态
 const {
   taskList, loading, total, queryParams, queryRef,
   getList, handleQuery, resetQuery,
   selectedIds,
-  open, dialogTitle, submitLoading, formRef, form,
   handleAdd, handleUpdate,
   handleDelete, handleExecuteOne,
-  overrideForm, hasOverride, submitFormWithOverride,
+  hasOverride,
   toggleSelect, handleCardClick, clearSelection,
   isAllPageSelected, toggleSelectAllPage,
   totalPages, prevPage, nextPage, handleSizeChange,
   searchCollapsed, handleBatchExecute
-} = useStrmTask()
+} = usePageStateProvider(useStrmTask())
 
 const fullTextRef = ref<InstanceType<typeof FullTextDialog>>()
 const showFullText = (content: string, title: string) => fullTextRef.value?.show(content, title)
 
-/** 更多操作抽屉 */
 /** 卡片「更多」动作面板：开关状态与「执行完自动关闭」都在 useActionSheet 里 */
 const { sheetOpen, sheetTarget, openSheet, run } = useActionSheet()
-
-// DirectoryTreeSelect 不支持 v-form 的 :rules 校验，改为提交前手动校验必填项
-const handleSubmitClick = () => {
-  if (!form.value.strmTaskPath) {
-    message.warning('STRM目录不能为空')
-    return
-  }
-  submitFormWithOverride()
-}
 
 // 搜索输入防抖：输入停止 300ms 后自动触发搜索
 const debouncedSearch = useDebounce(() => {
@@ -239,41 +163,3 @@ watch(
   () => debouncedSearch()
 )
 </script>
-
-<style scoped>
-.section-divider {
-  display: flex;
-  align-items: center;
-  margin: 18px 0 8px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--osr-text-primary);
-
-  span {
-    padding-right: 12px;
-  }
-
-  &::after {
-    content: '';
-    flex: 1;
-    height: 1px;
-    background: var(--osr-border-light);
-  }
-}
-
-.override-tip {
-  margin: 0 0 12px;
-  font-size: 12px;
-  color: var(--osr-text-secondary);
-  line-height: 1.5;
-}
-
-/* 移动端一行放不下「勾选框 + 控件」，改成纵向堆叠 */
-.override-row {
-  display: flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 4px;
-  margin-bottom: 12px;
-}
-</style>

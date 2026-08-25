@@ -18,6 +18,40 @@ interface PtDownloaderQuery extends SearchParams {
 }
 
 /**
+ * 下拉选项与它们的回显文案。
+ *
+ * 放在 composable 里而不是页面里：卡片上要回显（`smartClassifyLabel` / `roleLabel`），
+ * 表单弹窗里要当下拉项，而弹窗现在是 PC 与移动端共用的一份——三处引用同一份定义。
+ * 收口前这三组常量在两个页面里各抄了一遍，选项文案改一处就会两端对不上。
+ */
+const DOWNLOADER_TYPE_LABELS: Record<string, string> = {
+  QBITTORRENT: 'qBittorrent',
+  TRANSMISSION: 'Transmission'
+}
+export const downloaderTypeLabel = (type: string) => DOWNLOADER_TYPE_LABELS[type] || type
+
+export const DOWNLOADER_TYPE_OPTIONS = [
+  { title: 'qBittorrent', value: 'QBITTORRENT' },
+  { title: 'Transmission', value: 'TRANSMISSION' }
+]
+
+export const SMART_CLASSIFY_LEVEL_OPTIONS = [
+  { title: '不分类', value: 'NONE' },
+  { title: '按类型分类（电影/剧集）', value: 'CATEGORY' },
+  { title: '按类型+首播年份分类', value: 'CATEGORY_YEAR' }
+]
+export const smartClassifyLabel = (value: string) =>
+  SMART_CLASSIFY_LEVEL_OPTIONS.find(o => o.value === value)?.title || '不分类'
+
+export const ROLE_OPTIONS = [
+  { title: '订阅下载', value: 'DOWNLOAD' },
+  { title: '仅做种（不接订阅）', value: 'SEED_ONLY' }
+]
+// role 是后加的列，存量下载器为空，按「订阅下载」显示——与后端的退化口径一致
+export const roleLabel = (value: string) =>
+  ROLE_OPTIONS.find(o => o.value === value)?.title || '订阅下载'
+
+/**
  * PT 下载器配置 composable
  */
 export function usePtDownloader(options: ListLoadOptions = {}) {

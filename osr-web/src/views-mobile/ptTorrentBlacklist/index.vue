@@ -80,33 +80,8 @@
         @size-change="handleSizeChange"
       />
 
-      <!-- 新增弹窗 -->
-      <v-dialog v-model="open" width="92%">
-        <v-card :title="dialogTitle">
-          <v-card-text>
-            <v-form ref="formRef">
-              <v-text-field
-                v-model="form.value"
-                label="发布组名"
-                placeholder="如 CHDWEB，大小写不敏感"
-                :rules="valueRules"
-                class="mb-3"
-              />
-              <v-textarea
-                v-model="form.reason"
-                label="原因"
-                rows="2"
-                placeholder="可选，如“转码质量差”"
-              />
-            </v-form>
-          </v-card-text>
-          <v-card-actions>
-            <v-spacer />
-            <v-btn variant="outlined" @click="open = false">取消</v-btn>
-            <v-btn color="primary" variant="flat" :loading="submitLoading" @click="handleSubmitClick">确定</v-btn>
-          </v-card-actions>
-        </v-card>
-      </v-dialog>
+      <!-- 新增弹窗（两端共用） -->
+      <PtTorrentBlacklistFormDialog />
     </template>
   </MobileListPage>
 </template>
@@ -117,34 +92,17 @@ import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import StatusChip from '@/components/StatusChip.vue'
 import { usePtTorrentBlacklist } from '@/composables/usePtTorrentBlacklist'
+import { usePageStateProvider } from '@/composables/pageStateContext'
+import PtTorrentBlacklistFormDialog from '@/components/dialogs/PtTorrentBlacklistFormDialog.vue'
 
+// 表单弹窗与 PC 端共用一份（components/dialogs/），它靠 usePageStateProvider 取同一份状态
 const {
   taskList, loading, total, queryParams, queryRef,
   handleQuery, resetQuery,
-  open, dialogTitle, submitLoading, formRef, form, rules,
-  handleAdd, submitForm, handleDelete,
+  handleAdd, handleDelete,
   totalPages, prevPage, nextPage, handleSizeChange,
   searchCollapsed
-} = usePtTorrentBlacklist()
-
-// 表单规则是 { required, message, trigger } 对象格式（composable 返回），
-// Vuetify 的 v-text-field :rules 需要函数格式，这里就地转换，不改动 composable
-const toRuleFns = (ruleList: any[]) =>
-  (ruleList || []).map((rule: any) => (value: any) => {
-    if (rule.required && (value === null || value === undefined || value === '')) {
-      return rule.message || '不能为空'
-    }
-    return true
-  })
-
-const valueRules = toRuleFns(rules.value)
-
-const handleSubmitClick = async () => {
-  if (!formRef.value) return
-  const { valid } = await formRef.value.validate()
-  if (!valid) return
-  submitForm()
-}
+} = usePageStateProvider(usePtTorrentBlacklist())
 
 const shortHash = (value: string) => {
   if (!value) return '-'

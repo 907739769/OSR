@@ -109,42 +109,8 @@
         @size-change="handleSizeChange"
       />
 
-      <!-- 新增/编辑弹窗 -->
-      <v-dialog v-model="open" width="92%">
-        <v-card :title="dialogTitle">
-          <v-card-text>
-            <v-form ref="formRef">
-              <v-text-field
-                v-model="form.wecomUserid"
-                label="企业微信 UserId"
-                placeholder="企微后台通讯录成员详情页可查"
-                :rules="wecomUserIdRules"
-                class="mb-3"
-              />
-              <v-select
-                v-model="form.sysUserId"
-                label="绑定到 OSR 用户"
-                :items="userOptions"
-                :rules="sysUserIdRules"
-                placeholder="请选择"
-                class="mb-3"
-              />
-              <v-select
-                v-model="form.status"
-                label="状态"
-                :items="[{ title: '正常', value: '0' }, { title: '停用', value: '1' }]"
-                class="mb-3"
-              />
-              <v-textarea v-model="form.remark" label="备注" rows="2" placeholder="可选" />
-            </v-form>
-          </v-card-text>
-          <v-card-actions>
-            <v-spacer />
-            <v-btn variant="outlined" @click="open = false">取消</v-btn>
-            <v-btn color="primary" variant="flat" :loading="submitLoading" @click="handleSubmitClick">确定</v-btn>
-          </v-card-actions>
-        </v-card>
-      </v-dialog>
+      <!-- 新增/编辑弹窗（两端共用） -->
+      <WecomUserFormDialog />
     </template>
   </MobileListPage>
 </template>
@@ -155,34 +121,16 @@ import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import StatusChip from '@/components/StatusChip.vue'
 import { useWecomUser } from '@/composables/useWecomUser'
+import { usePageStateProvider } from '@/composables/pageStateContext'
+import WecomUserFormDialog from '@/components/dialogs/WecomUserFormDialog.vue'
 
+// 表单弹窗与 PC 端共用一份（components/dialogs/），它靠 usePageStateProvider 取同一份状态
 const {
   taskList, loading, total, queryParams, queryRef,
   handleQuery, resetQuery,
-  open, dialogTitle, submitLoading, formRef, form, rules, userOptions,
-  handleAdd, handleUpdate, submitForm, handleDelete,
+  handleAdd, handleUpdate, handleDelete,
   syncingMenu, handleSyncMenu,
   totalPages, prevPage, nextPage, handleSizeChange,
   searchCollapsed
-} = useWecomUser()
-
-// 表单规则是 { 字段名: [{ required, message, trigger }] } 的普通对象（composable 返回），
-// Vuetify 的 :rules 需要函数格式，这里就地转换，不改动 composable
-const toRuleFns = (ruleList: any[]) =>
-  (ruleList || []).map((rule: any) => (value: any) => {
-    if (rule.required && (value === null || value === undefined || value === '')) {
-      return rule.message || '不能为空'
-    }
-    return true
-  })
-
-const wecomUserIdRules = toRuleFns(rules.wecomUserid)
-const sysUserIdRules = toRuleFns(rules.sysUserId)
-
-const handleSubmitClick = async () => {
-  if (!formRef.value) return
-  const { valid } = await formRef.value.validate()
-  if (!valid) return
-  submitForm()
-}
+} = usePageStateProvider(useWecomUser())
 </script>

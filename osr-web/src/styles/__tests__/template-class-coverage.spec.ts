@@ -24,6 +24,13 @@ const mobilePages = import.meta.glob('../../views-mobile/**/*.vue', {
   query: '?raw', import: 'default', eager: true
 }) as Record<string, string>
 
+// 两端共用的表单弹窗：模板从页面里搬出来了，样式必须跟着搬——
+// 不把这里纳入扫描的话，「样式落在原页面 <style scoped> 里、对弹窗根本不生效」
+// 这个本用例专治的事故，恰好会发生在刚刚搬过的那批文件上
+const sharedDialogs = import.meta.glob('../../components/dialogs/**/*.vue', {
+  query: '?raw', import: 'default', eager: true
+}) as Record<string, string>
+
 const sharedStyles = import.meta.glob('../*.scss', {
   query: '?raw', import: 'default', eager: true
 }) as Record<string, string>
@@ -109,7 +116,7 @@ function isDefined(name: string, css: string): boolean {
   return false
 }
 
-const allPages = { ...pages, ...mobilePages }
+const allPages = { ...pages, ...mobilePages, ...sharedDialogs }
 
 describe('模板用到的 class 都有定义', () => {
   const cases = Object.entries(allPages).map(([path, src]) => {
