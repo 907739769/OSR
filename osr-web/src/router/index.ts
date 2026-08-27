@@ -6,8 +6,8 @@ import Cookies from 'js-cookie'
 import { message } from '@/composables/useMessage'
 import type { MenuRoute } from '@/stores/user'
 import { useUserStore } from '@/stores/user'
-import { useAppStore } from '@/stores/app'
 import { createDeviceView } from './deviceView'
+import { isChunkLoadError } from './chunkError'
 
 NProgress.configure({ showSpinner: false })
 
@@ -311,13 +311,11 @@ router.beforeEach(async (to, _from, next) => {
       document.title = `${title} - OSR`
   }
 
-  const appStore = useAppStore()
-  const isMobile = window.innerWidth < 768
-  const newDevice = isMobile ? 'mobile' : 'desktop'
-
-  if (appStore.device !== newDevice) {
-    appStore.toggleDevice(newDevice)
-  }
+  // 设备判定**只在 App.vue** 一处做（matchMedia(MOBILE_MEDIA_QUERY) + change/resize 监听）。
+  // 这里曾经另写一份 `window.innerWidth < 768`，两套判据对手机横屏（如 926×428）结论相反：
+  // App.vue 判 mobile，用户一导航守卫就翻成 desktop，而 App.vue 此时不会收到
+  // change/resize，布局就此卡在 desktop 直到用户转一次屏——不是闪一下，是持续判错。
+  // 修法不是让守卫也用 MOBILE_MEDIA_QUERY（两处早晚漂移），是让守卫彻底不碰这件事。
 
   const hasToken = Cookies.get('token')
 
@@ -371,6 +369,25 @@ function readChunkReloadMark(): ChunkReloadMark | null {
   }
 }
 
+/**
+ * 记下这次硬刷新，**写不进去就返回 false，调用方必须因此放弃刷新**。
+ *
+ * 标记是防打转的唯一凭据（它得活过一次 location 跳转，所以只能落在 sessionStorage 上，
+ * 模块级变量会随刷新一起归零）。写不进去时照样刷新的话，刷回来仍旧读不到标记、仍旧判定
+ * "还没试过"、于是再刷一次——**一个停不下来的刷新循环，外加对服务端的请求风暴**，
+ * 而 PWA standalone 下连地址栏都没有，用户只能杀掉应用。
+ * 隐私模式的 Safari 会让 setItem 抛 QuotaExceededError，这不是假想情况。
+ * 降级成"提示用户手动刷新"只是少了一次自动补救，代价小得多。
+ */
+function writeChunkReloadMark(path: string): boolean {
+  try {
+    sessionStorage.setItem(CHUNK_RELOAD_KEY, JSON.stringify({ path, at: Date.now() }))
+    return true
+  } catch {
+    return false
+  }
+}
+
 router.afterEach((to) => {
   NProgress.done()
 
@@ -383,12 +400,12 @@ router.afterEach((to) => {
 
 // 兜底拦截：旧版 JS Chunk 已失效时强制硬刷新，避免登录页卡死
 router.onError((error, to) => {
-  const isChunkError =
-    error.message.includes('Failed to fetch dynamically imported module') ||
-    error.message.includes('Importing a module script failed') ||
-    error.name === 'ChunkLoadError'
+  // 导航被 onError 中止时 afterEach 不会执行，进度条会停在 80% 一直转。
+  // 这条对下面两个分支都要成立——包括"放弃重试"那条：用户此时留在旧页面上，
+  // 一个永远转下去的进度条会让他以为还在加载，而实际上什么都不会再发生了。
+  NProgress.done()
 
-  if (!isChunkError) return
+  if (!isChunkLoadError(error)) return
 
   // 刚为同一个路由刷新过却又失败，多半不是版本问题（断网 / 缓存损坏）。
   // PWA standalone 下没有地址栏可以中止循环，这里必须主动停手。
@@ -400,12 +417,13 @@ router.onError((error, to) => {
     return
   }
 
-  console.warn('[router] 检测到旧资源失效，强制刷新页面...')
-  try {
-    sessionStorage.setItem(CHUNK_RELOAD_KEY, JSON.stringify({ path: to.fullPath, at: Date.now() }))
-  } catch {
-    // sessionStorage 不可用（隐私模式等）时仍然刷新，只是失去防循环能力
+  if (!writeChunkReloadMark(to.fullPath)) {
+    console.error('[router] 检测到旧资源失效，但无法记录刷新标记，改为提示用户手动刷新', error)
+    message.error('页面资源已更新，请手动刷新页面')
+    return
   }
+
+  console.warn('[router] 检测到旧资源失效，强制刷新页面...')
   window.location.href = to.fullPath
 })
 
