@@ -12,6 +12,7 @@ declare module 'vue' {
     ChangePasswordDialog: typeof import('./components/ChangePasswordDialog.vue')['default']
     CopyTaskFormDialog: typeof import('./components/dialogs/CopyTaskFormDialog.vue')['default']
     DirectoryTreeSelect: typeof import('./components/DirectoryTreeSelect/index.vue')['default']
+    ErrorBoundary: typeof import('./components/ErrorBoundary.vue')['default']
     FormDialogShell: typeof import('./components/dialogs/FormDialogShell.vue')['default']
     FormField: typeof import('./components/FormField.vue')['default']
     FullTextDialog: typeof import('./components/mobile/FullTextDialog.vue')['default']

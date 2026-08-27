@@ -42,12 +42,16 @@
     <div ref="contentRef" class="mobile-content">
       <!-- 同 DesktopLayout：原先的 <transition name="fade"> 既没有配套 CSS，
            又会让旧页面残留在新页面下方，这里一并去掉，原因见 DesktopLayout 的注释 -->
-      <router-view v-slot="{ Component, route: currentRoute }">
-        <keep-alive v-if="currentRoute.meta?.keepAlive" :max="6">
-          <component :is="Component" :key="currentRoute.path" />
-        </keep-alive>
-        <component v-else :is="Component" :key="currentRoute.path" />
-      </router-view>
+      <!-- 错误边界包在 router-view 外面、外壳里面，理由同 DesktopLayout：
+           页面炸了顶栏与底部 tab 还在，用户走得掉。 -->
+      <ErrorBoundary>
+        <router-view v-slot="{ Component, route: currentRoute }">
+          <keep-alive v-if="currentRoute.meta?.keepAlive" :max="6">
+            <component :is="Component" :key="currentRoute.path" />
+          </keep-alive>
+          <component v-else :is="Component" :key="currentRoute.path" />
+        </router-view>
+      </ErrorBoundary>
     </div>
 
     <!-- height 必须与 tokens.scss 的 --osr-mobile-tabbar-height 一致：

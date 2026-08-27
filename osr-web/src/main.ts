@@ -7,6 +7,18 @@ import './styles/index.scss'
 
 const app = createApp(App)
 
+/**
+ * 组件错误的最后一道兜底。日常的页面异常由 `components/ErrorBoundary.vue` 就地接住
+ * （它返回 false 阻止冒泡，所以不会在这里重复报一遍），走到这里的只剩两类：
+ * 边界自身渲染时抛的错，以及边界还没挂上去（布局外壳本身出错）。
+ *
+ * 只记不吞：这里没有可展示的位置，硬弹一个 toast 会在错误连发时刷屏；而没有这个
+ * handler 时 Vue 只会往控制台打一行没有上下文的 warn，连出错的组件是哪个都不说。
+ */
+app.config.errorHandler = (err, _instance, info) => {
+  console.error('[app]', info, err)
+}
+
 app.use(createPinia())
 app.use(router)
 app.use(vuetify)

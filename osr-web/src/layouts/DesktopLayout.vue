@@ -58,12 +58,16 @@
            加 mode="out-in" / :duration 都压不住（离场卡住后新页面根本进不来），
            所以直接去掉这层过渡。要重做页面切换动画得先解决异步组件的过渡时机，
            属于单独一件事。 -->
-      <router-view v-slot="{ Component, route: currentRoute }">
-        <keep-alive v-if="currentRoute.meta?.keepAlive" :max="6">
-          <component :is="Component" :key="currentRoute.path" />
-        </keep-alive>
-        <component v-else :is="Component" :key="currentRoute.path" />
-      </router-view>
+      <!-- 错误边界包在 router-view 外面、外壳里面：页面炸了顶栏和侧边栏还在，
+           用户能自己走到别的页面去，而不是对着一整块白屏只能刷新。 -->
+      <ErrorBoundary>
+        <router-view v-slot="{ Component, route: currentRoute }">
+          <keep-alive v-if="currentRoute.meta?.keepAlive" :max="6">
+            <component :is="Component" :key="currentRoute.path" />
+          </keep-alive>
+          <component v-else :is="Component" :key="currentRoute.path" />
+        </router-view>
+      </ErrorBoundary>
     </div>
   </v-main>
 
