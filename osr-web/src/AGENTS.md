@@ -23,7 +23,6 @@ src/
 │   └── index.ts
 ├── stores/                 # Pinia 状态管理
 │   ├── app.ts              # 应用全局状态 (设备检测、侧边栏)
-│   ├── permission.ts       # 权限/菜单
 │   └── user.ts             # 用户状态
 ├── styles/                 # 全局样式 (tokens.scss 设计令牌, motion.scss 动画库, surface.scss 深度/玻璃层,
 │                           #           list.scss PC 列表公共, mobile-list.scss 移动端列表公共, menu.scss 侧边菜单)
@@ -44,7 +43,7 @@ src/
 | API 调用 | `src/api/openlist/` | 17 个业务 API 模块 |
 | 列表逻辑 | `src/composables/` | useTaskList, useRecordList 等通用逻辑 |
 | 路由 | `src/router/index.ts` | 动态路由加载 |
-| 状态管理 | `src/stores/` | Pinia store (app/permission/user) |
+| 状态管理 | `src/stores/` | Pinia store (app/user) |
 | 布局 | `src/layouts/` | DesktopLayout / MobileLayout |
 | 两端共用的表单弹窗 | `src/components/dialogs/` | `FormDialogShell` + 10 个 `XxxFormDialog`，见下方「表单弹窗两端共用」 |
 | 移动端组件 | `src/components/mobile/` | MobileListPage(外壳), MobileSearchPanel, MobileBatchBar, MobileActionSheet, MobilePager, FullTextDialog, MobileTabSettingsDialog |
@@ -479,6 +478,13 @@ RuoYi 遗留）。`:disabled="multiple"` 字面读作「多选时禁用」、实
 `addEventListener('change')`，只挂 change 在那些设备上等于旋转屏幕不换布局。兜底不贵——
 回调只读一个布尔量再写回 store，值没变 Vue 不会重渲染。
 
+**这件事只有 `App.vue` 一处做，路由守卫不许碰。** `router.beforeEach` 里曾另写一份
+`window.innerWidth < 768`，两套判据对手机横屏（926×428）结论相反：App.vue 判 mobile，
+用户一导航守卫就翻成 desktop，**而 App.vue 此时收不到 change/resize**，布局就此卡在
+desktop 直到用户转一次屏——不是闪一下，是持续判错，且没有任何报错。修法不是让守卫也用
+`MOBILE_MEDIA_QUERY`（两处判据早晚漂移，而漂移的表现正是这个 bug 本身），是让守卫
+彻底不碰设备判定：那 5 行连同 `useAppStore` 的 import 一起已删除。
+
 **返回时恢复滚动位置**由 `router` 的 `scrollBehavior` 负责（只在有 `savedPosition`，也就是
 浏览器/手势返回时恢复，其余导航回到顶部）。列表页本来就带 keep-alive，筛选条件和页码都还在，
 唯独滚动位置每次归零。恢复要延一帧：页面组件是异步加载的，立即滚会因为文档还没那么高而被截断。
@@ -538,13 +544,80 @@ ptTorrentBlacklist / ptAutoAddRule / ptTransferRule / wecomUser。
   整个不参与对齐检查，且不会有任何报错——`ptTransferRule` 就这么漏了一段时间。
 - 选择/分页这层交互外壳按设备不同是正常的，已在 spec 的 `SHELL_ONLY` 里排除。
 
+### 错误边界
+
+**`components/ErrorBoundary.vue` 包在两个 Layout 的 `router-view` 外面、外壳里面。**
+在它之前应用里一个 `onErrorCaptured` / `app.config.errorHandler` 都没有：任意一个页面组件
+在渲染或事件处理里抛出未捕获异常，Vue 会把**整棵组件树卸载**，用户看到一整块白屏，
+控制台那行报错他既看不到也读不懂，唯一的自救手段是刷新——而刷新回到同一个页面、同一个错误。
+四条不要改坏的：
+
+1. **包在外壳里面，不是包整个 App**。顶栏、侧边栏、底部 tab 必须活着，用户才走得掉；
+   把整页换掉的话除了刷新还是没有出路。
+2. **路由一变自动复位**（`watch(() => route.fullPath, reset)`）。错误态属于「某个页面的
+   这一次渲染」，跟着边界挂到下次刷新的话，用户点到别的菜单会继续看到上一页的错误。
+3. **「重试」靠换 key 重建插槽，不是只把 error 置空**。后者出错的组件实例还在，Vue 复用它
+   继续渲染，多半立刻再抛同一个错，按钮看起来像是坏的。包裹层是 `display: contents`，
+   存在的唯一理由就是给插槽一个可换的 key，不参与布局。
+4. **吞掉错误的同时要往控制台补一条堆栈**。`onErrorCaptured` 返回 false 阻止冒泡
+   （否则 `main.ts` 的全局 handler 会把同一个错再报一遍），代价是控制台从此什么都没有，
+   而堆栈正是排查时唯一有用的东西。
+
+`main.ts` 的 `app.config.errorHandler` 是最后一道兜底，**只记不吞**：那里没有可展示的位置，
+硬弹 toast 会在错误连发时刷屏。走到它的只剩边界自身出错、以及边界还没挂上去（外壳本身出错）。
+
+**边界捕不到路由懒加载 chunk 拉取失败**——那发生在组件解析阶段，组件树里还没有这个边界。
+那一类归 `router.onError` 管，见下一节。
+
+### 旧 chunk 失效（`router.onError` + `router/chunkError.ts`）
+
+重新部署后，开着的标签页手里还攥着旧 index.html 里那串带 hash 的文件名，而 Nginx 给
+index.html 与静态资源都打了 `no-store`、镜像里的旧 chunk 文件已经没了。用户点一个还没访问过的
+菜单，那次动态 import 404、vue-router 中止导航——**页面上什么都不发生**，只有控制台一行红字。
+处理是「识别 → 硬刷新到目标路径 → 用 sessionStorage 标记防打转」。五条不要改坏的：
+
+1. **判据是纯字符串匹配，各家浏览器措辞完全不同，漏一种就等于那种浏览器上整个不生效**，
+   且表现与没写这段代码一模一样。Chromium `Failed to fetch dynamically imported module`、
+   Firefox `error loading dynamically imported module`、Safari `Importing a module script failed`、
+   Vite 的 CSS 预加载助手 `Unable to preload CSS for`——中间两条最初就是漏的。一律小写后比对
+   （同一句话在不同版本里首字母大小写变过）。`router/__tests__/chunkError.spec.ts` 逐条钉住。
+2. **判据要能吃非 Error 输入**。`error.message.includes(...)` 遇到 throw 字符串或
+   `message` 不是字符串的对象时，会在**错误处理器内部**再抛一个 TypeError，把「这一次导航
+   失败」升级成整个 `onError` 失效——此后任何 chunk 失效都不再有人兜底。
+3. **写不进 sessionStorage 就必须放弃刷新，改为提示手动刷新**。标记是防打转的唯一凭据，
+   而它得活过一次 location 跳转、只能落在 sessionStorage 上（模块级变量随刷新归零）。
+   写不进去还照样刷的话，刷回来仍读不到标记、仍判「还没试过」、于是再刷一次——**停不下来的
+   刷新循环加请求风暴**，PWA standalone 下连地址栏都没有，用户只能杀应用。隐私模式的 Safari
+   会让 `setItem` 抛 `QuotaExceededError`，不是假想情况。
+4. **`onError` 里要 `NProgress.done()`**。导航被中止时 `afterEach` 不执行，进度条会停在 80%
+   一直转。「放弃重试」那条分支尤其要有：用户此时留在旧页面上，一个永远转下去的进度条会让他
+   以为还在加载，而实际上什么都不会再发生了。
+5. **硬刷新对「SW 正在控制」的场景可能无效**，但这不是缺陷：`registerType: 'prompt'` +
+   `globPatterns` 覆盖全部 js，旧 chunk 本来就在旧 SW 的 precache 里、根本不会 404。
+   真正会撞上这件事的是**没有 SW 的那批用户**——本项目多为局域网 `http://` 自部署，
+   浏览器压根不注册 Service Worker，等同一个普通 SPA，而硬刷新对他们是有效的。
+
 ## ANTI-PATTERNS
 - 不要在组件中直接调用 `axios`，统一用 `src/api/` 中的封装
-- 不要绕过路由守卫，权限校验在 store 中统一处理
+- **没有前端权限 store，别再造一个**。菜单与路由由后端 `getRouters` 按角色过滤后下发，前端
+  只负责渲染；能不能调某个接口由后端各 Controller 自己判（见根目录 AGENTS.md「后端的接口鉴权」
+  那条）。曾经有个 `stores/permission.ts`：`hasPermission()` 恒返回 `true`、`generateRoutes()`
+  基本是空操作，而且**全项目零引用**——它唯一的作用是让人以为前端有一套权限系统，
+  照着它加校验会得到一个恒真的判断。已删除。真要做前端级的按钮粒度控制，先想清楚它挡的是
+  误操作还是攻击者：挡后者的话唯一有效的位置在后端。
 - 不要在组件中写大量业务逻辑，抽到 composables/
 - 移动端页面不要使用 PC 端组件 (Vuetify PC 组件)
 - 每个页面都要考虑H5端的适配
 - 列表页不要各自实现分页/搜索逻辑，复用 `useTaskList`/`useRecordList`
+- **打开编辑弹窗的数据按「行内 → 当前页 → 回查列表」三级取，不要一上来就查接口**
+  （`useTaskList#handleUpdate`）。绝大多数调用方是卡片/表格行上的「修改」按钮
+  （`handleUpdate(item, '修改索引器')`），**整行数据本来就在手里**。旧实现在这里仍去查一次
+  `pageNum: 1, pageSize: 100` 的列表再 `.find()`，除了白发一个请求，用户在第 2 页、或数据
+  超过 100 条时 `find` 必然落空、弹一句「任务不存在」——而那条数据明明就在屏幕上。工具栏的
+  「修改」按钮传的是 `undefined`（id 取自 `selectedIds`），先在当前页数据里找即可；只有
+  勾选之后又翻了页（`usePageSelection` 的选择集跨页累加）才会走到回查那一级。
+  `form.value = { ...task }` 的浅拷贝**不能省**：直接把 row 赋给 form，用户在弹窗里改一半
+  不提交也会顺手改掉列表里那一行。
 - **允许小数的 `type="number"` 必须写 `step`，体积字段的 GB↔字节换算只有 `composables/sizeUnits.ts` 一份**。
   不写 step 时浏览器默认 step=1，输入 1.5 会被判成非法值、整个表单提交不了——PT 过滤规则的
   体积下限/上限/偏好体积踩过一次，而报错只是输入框下方一句「请输入有效值」，很容易读成前端坏了。
