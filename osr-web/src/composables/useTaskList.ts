@@ -132,6 +132,19 @@ export function useTaskList<TQuery extends SearchParams = SearchParams>(config: 
     open.value = true
   }
 
+  /**
+   * 打开编辑弹窗。取数据的顺序是「行内 → 当前页 → 回查列表」，三级都不发多余请求：
+   *
+   * 1. **`row` 有值时直接用它**。绝大多数调用方是卡片/表格行上的「修改」按钮
+   *    （`handleUpdate(item, '修改索引器')`），整行数据本来就在手里。旧实现在这里
+   *    仍然去查一次列表，既白发一个请求，又会真的打不开——它查的是
+   *    `pageNum: 1, pageSize: 100`，用户在第 2 页、或数据超过 100 条时 `find` 必然
+   *    落空，弹一句「任务不存在」，而那条数据明明就在屏幕上。
+   * 2. **工具栏的「修改」按钮传的是 `undefined`**（id 来自 `selectedIds`），
+   *    此时先在当前页数据里找——正常操作路径下勾选和编辑发生在同一页，同样不用发请求。
+   * 3. 只有勾选之后翻了页（`usePageSelection` 的选择集是跨页累加的）才会走到回查，
+   *    保留旧行为兜底。
+   */
   const handleUpdate = (row?: any, title?: string) => {
     const id = row?.[idField] || selectedIds.value[0]
     if (!id) {
@@ -139,11 +152,27 @@ export function useTaskList<TQuery extends SearchParams = SearchParams>(config: 
       return
     }
     if (title) dialogTitle.value = title
+
+    const openWith = (task: any) => {
+      form.value = { ...task }
+      open.value = true
+    }
+
+    if (row && row[idField] !== undefined) {
+      openWith(row)
+      return
+    }
+
+    const onPage = taskList.value.find((t: any) => t[idField] === id)
+    if (onPage) {
+      openWith(onPage)
+      return
+    }
+
     listApi({ ...queryParams, pageNum: 1, pageSize: 100 }).then((res: PageResult) => {
       const task = res.records.find((t: any) => t[idField] === id)
       if (task) {
-        form.value = { ...task }
-        open.value = true
+        openWith(task)
       } else {
         message.error('任务不存在')
       }

@@ -83,6 +83,66 @@ describe('useTaskList 的 executeApi 可选性', () => {
   })
 })
 
+describe('useTaskList 的 handleUpdate 取数路径', () => {
+  afterEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('传了行数据时直接用它，不回查列表', async () => {
+    // 卡片/表格行上的「修改」按钮传的就是整行。旧实现在这里仍去查一次
+    // pageNum:1 / pageSize:100 的列表，白发一个请求；用户在第 2 页或数据超过 100 条时
+    // find 还必然落空，弹「任务不存在」——而那条数据就在屏幕上。
+    const listSpy = vi.fn().mockResolvedValue({ records: [], total: 0 })
+    const base = build({ listApi: listSpy })
+    listSpy.mockClear()
+
+    base.handleUpdate({ id: 7, name: '索引器 A' }, '修改索引器')
+
+    expect(listSpy).not.toHaveBeenCalled()
+    expect(base.open.value).toBe(true)
+    expect(base.form.value).toEqual({ id: 7, name: '索引器 A' })
+    expect(base.dialogTitle.value).toBe('修改索引器')
+  })
+
+  it('工具栏路径（不传行数据）先在当前页数据里找，同样不回查', async () => {
+    const listSpy = vi.fn().mockResolvedValue({ records: [], total: 0 })
+    const base = build({ listApi: listSpy })
+    base.taskList.value = [{ id: 7, name: '索引器 A' }, { id: 8, name: '索引器 B' }]
+    base.toggleSelect(8)
+    listSpy.mockClear()
+
+    base.handleUpdate(undefined, '修改索引器')
+
+    expect(listSpy).not.toHaveBeenCalled()
+    expect(base.form.value).toEqual({ id: 8, name: '索引器 B' })
+  })
+
+  it('选中项已翻页离开当前页时才回查列表', async () => {
+    // usePageSelection 的选择集跨页累加，勾选后翻页确实会走到这条兜底
+    const listSpy = vi.fn().mockResolvedValue({ records: [{ id: 99, name: '旧页那条' }], total: 1 })
+    const base = build({ listApi: listSpy })
+    base.taskList.value = [{ id: 7 }]
+    base.toggleSelect(99)
+    listSpy.mockClear()
+
+    base.handleUpdate(undefined, '修改索引器')
+    await new Promise((resolve) => setTimeout(resolve, 0))
+
+    expect(listSpy).toHaveBeenCalledTimes(1)
+    expect(base.form.value).toEqual({ id: 99, name: '旧页那条' })
+  })
+
+  it('表单是行数据的副本，改弹窗不会顺手改掉列表里那一行', async () => {
+    const base = build()
+    const row: any = { id: 7, name: '索引器 A' }
+
+    base.handleUpdate(row, '修改索引器')
+    base.form.value.name = '改了一半没提交'
+
+    expect(row.name).toBe('索引器 A')
+  })
+})
+
 describe('useTaskList 的 resetQuery', () => {
   it('把查询条件还原成 defaultQuery 而不是一律清空', () => {
     // status 有非空默认值（订阅页 'ACTIVE'、孤儿页 '0' 都是这种），
