@@ -177,18 +177,37 @@ public class TmdbSearchService {
 
     /**
      * 按 {@link #CHINESE_REGIONS} 的地区优先级挑中文别名。
-     * <p>
-     * 必须逐条校验"确实含中文"：alternative_titles 是众包数据，CN 条目里登记罗马音、
-     * 拼音、纯英文副标题的不在少数，只按地区取会把英文换成另一串英文。
-     * </p>
      */
     private String fetchChineseAlias(String mediaType, String tmdbId) {
+        List<String> aliases = listChineseAliases(mediaType, tmdbId);
+        return aliases.isEmpty() ? null : aliases.get(0);
+    }
+
+    /**
+     * 列出该作品<b>全部</b>中文别名，按 {@link #CHINESE_REGIONS} 的地区优先级排序。
+     * <p>
+     * 必须逐条校验"确实含中文"：alternative_titles 是众包数据，CN 条目里登记罗马音、
+     * 拼音、纯英文副标题的不在少数，只按地区取会把英文换成另一串英文。同理不在
+     * {@link #CHINESE_REGIONS} 里的地区一律跳过——日文汉字标题落在同一个 Unicode 区段内，
+     * 只按"含中文"筛会把 JP 条目当成中文名。
+     * </p>
+     * <p>
+     * <b>为什么要"全部"而不只是最优的那一个</b>：挑显示名只需要第一个，但
+     * {@code PopularItemResolver} 拿它回答的是另一个问题——「用户在豆瓣榜单上看到的这个名字，
+     * 是不是这部作品」。同一部作品在 CN/TW/HK 常登记着不同的译名（《Ted Lasso》在 CN 是
+     * 「泰德·拉索」、在别处是「足球教练」），只比对优先级最高的那一个会把其余译名判成不匹配。
+     * </p>
+     *
+     * @return 中文别名列表；无别名、请求失败或无 key 时返回<b>空列表</b>（别名查询是可选增强，
+     *         失败只降级不报错）
+     */
+    public List<String> listChineseAliases(String mediaType, String tmdbId) {
         JSONArray titles = fetchAlternativeTitles(mediaType, tmdbId);
         if (titles == null) {
-            return null;
+            return List.of();
         }
-        String best = null;
-        int bestRank = Integer.MAX_VALUE;
+        // TreeMap 的 key 是地区优先级，value 是该地区下按 TMDb 返回顺序排列的别名
+        Map<Integer, List<String>> byRank = new TreeMap<>();
         for (int i = 0; i < titles.size(); i++) {
             JSONObject t = titles.getJSONObject(i);
             String title = aliasTitle(t);
@@ -196,17 +215,20 @@ public class TmdbSearchService {
                 continue;
             }
             int rank = CHINESE_REGIONS.indexOf(t.getString("iso_3166_1"));
-            if (rank < 0 || rank >= bestRank) {
+            if (rank < 0) {
                 continue;
             }
-            best = title;
-            bestRank = rank;
-            if (rank == 0) {
-                // CN 已是最高优先级，无需再看后面的条目
-                break;
+            byRank.computeIfAbsent(rank, k -> new ArrayList<>()).add(title);
+        }
+        List<String> result = new ArrayList<>();
+        for (List<String> group : byRank.values()) {
+            for (String title : group) {
+                if (!result.contains(title)) {
+                    result.add(title);
+                }
             }
         }
-        return best;
+        return result;
     }
 
     /**

@@ -306,4 +306,51 @@ class TmdbSearchServiceTest {
 
         assertNull(service.getDetail("TV", "1396").getImdbId());
     }
+
+    // ---------- 中文别名列表（挑显示名 + PopularItemResolver 的标题匹配共用） ----------
+
+    /** Ted Lasso 的真实形态：条目名是英文，中文名只在 alternative_titles 里，且各地区译名不同 */
+    private void stubTedLassoAliases() {
+        when(tmDbApiService.getAlternativeTitles(anyString(), eq("tv"), eq(97546)))
+                .thenReturn("""
+                        {"results":[
+                          {"iso_3166_1":"TW","title":"足球教练"},
+                          {"iso_3166_1":"US","title":"Ted Lasso"},
+                          {"iso_3166_1":"CN","title":"泰德·拉索"},
+                          {"iso_3166_1":"JP","title":"恋する心"},
+                          {"iso_3166_1":"CN","title":"Ted Lasso S1"}
+                        ]}
+                        """);
+    }
+
+    @Test
+    void listChineseAliases_按地区优先级排序_并滤掉非中文与非中文地区的条目() {
+        // 「全部」而不是「最优的那一个」：豆瓣榜单上写的可能是任一地区的译名，
+        // 只比对 CN 那个会把《足球教练》判成不匹配
+        stubTedLassoAliases();
+
+        assertEquals(List.of("泰德·拉索", "足球教练"), service.listChineseAliases("TV", "97546"));
+    }
+
+    @Test
+    void listChineseAliases_别名接口失败_返回空列表而不是null() {
+        when(tmDbApiService.getAlternativeTitles(anyString(), anyString(), anyInt())).thenReturn(null);
+
+        assertTrue(service.listChineseAliases("TV", "97546").isEmpty());
+    }
+
+    @Test
+    void resolveChineseTitle_取地区优先级最高的那一个() {
+        // 显示名侧的语义不能因为上面那个方法改成返回全部而漂移
+        stubTedLassoAliases();
+
+        assertEquals("泰德·拉索", service.resolveChineseTitle("TV", "97546", "Ted Lasso"));
+    }
+
+    @Test
+    void resolveChineseTitle_入参已含中文_不查别名() {
+        assertEquals("绝命毒师", service.resolveChineseTitle("TV", "1396", "绝命毒师"));
+
+        verify(tmDbApiService, never()).getAlternativeTitles(anyString(), anyString(), anyInt());
+    }
 }

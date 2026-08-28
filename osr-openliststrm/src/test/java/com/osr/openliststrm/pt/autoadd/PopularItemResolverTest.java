@@ -2,6 +2,7 @@ package com.osr.openliststrm.pt.autoadd;
 
 import com.osr.openliststrm.config.OpenlistConfig;
 import com.osr.openliststrm.pt.autoadd.source.PopularItem;
+import com.osr.openliststrm.pt.subscription.TmdbSearchService;
 import com.osr.openliststrm.tmdb.TMDbApiService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -38,6 +39,9 @@ class PopularItemResolverTest {
 
     @Mock
     private OpenlistConfig openlistConfig;
+
+    @Mock
+    private TmdbSearchService tmdbSearchService;
 
     @InjectMocks
     private PopularItemResolver resolver;
@@ -358,6 +362,106 @@ class PopularItemResolverTest {
         resolver.resolve(douban("某片2", null), "MOVIE");
 
         verify(tmDbApiService, never()).search(any(), any(), eq("某片"), any());
+    }
+
+    // ---------- 中文别名兜底（足球教练 / Ted Lasso） ----------
+
+    @Test
+    void resolve_条目名是英文而中文名只在别名里_靠别名命中() {
+        // 生产事故：豆瓣榜单里的「足球教练」被记成「TMDb 未搜到标题一致的剧集」。
+        // TMDb 缺 zh-CN 翻译时 name 会直接退回英文，Ted Lasso 的 name 与 original_name
+        // 都是 "Ted Lasso"，而「足球教练」这个名字只存在于 alternative_titles 里
+        when(tmDbApiService.search(any(), any(), eq("足球教练"), any()))
+                .thenReturn(tvResults(tv(97546, "Ted Lasso", "Ted Lasso", "2020-08-14")));
+        when(tmdbSearchService.listChineseAliases("TV", "97546"))
+                .thenReturn(List.of("泰德·拉索", "足球教练"));
+
+        PopularItem item = douban("足球教练", null);
+        assertNull(resolver.resolve(item, "TV"));
+
+        assertEquals("97546", item.getTmdbId());
+    }
+
+    @Test
+    void resolve_条目名直接命中时不查别名() {
+        // 早停：TMDb 有中文 name 是常态，那种情况一次额外请求都不该多打
+        when(tmDbApiService.search(any(), any(), any(), any()))
+                .thenReturn(tvResults(tv(1, "漫长的季节", "漫长的季节", "2023-04-22")));
+
+        resolver.resolve(douban("漫长的季节", null), "TV");
+
+        verify(tmdbSearchService, never()).listChineseAliases(any(), any());
+    }
+
+    @Test
+    void resolve_别名只是包含关系_拒绝() {
+        // 别名这一轮的判据仍是全等。alternative_titles 是众包数据，噪音比条目名大得多，
+        // 在这里放宽等于给误匹配开一扇更大的门
+        when(tmDbApiService.search(any(), any(), any(), any()))
+                .thenReturn(tvResults(tv(1, "Three Body", "Three Body", "2022-12-10")));
+        when(tmdbSearchService.listChineseAliases(any(), any()))
+                .thenReturn(List.of("三体动画版"));
+
+        PopularItem item = douban("三体", null);
+        assertNotNull(resolver.resolve(item, "TV"));
+        assertNull(item.getTmdbId());
+    }
+
+    @Test
+    void resolve_查询词不含中文_不查中文别名() {
+        // 中文别名与纯英文查询词逐字全等是不可能的，这一轮不会有任何收益
+        when(tmDbApiService.search(any(), any(), any(), any()))
+                .thenReturn(tvResults(tv(1, "Some Other Show", "Some Other Show", "2020-01-01")));
+
+        resolver.resolve(douban("The Long Season", null), "TV");
+
+        verify(tmdbSearchService, never()).listChineseAliases(any(), any());
+    }
+
+    @Test
+    void resolve_别名只查前三个候选() {
+        // 每个候选一次 /alternative_titles，而正确答案排在 3 名之外还得靠众包别名才认得出的情形，
+        // 收益抵不上给长尾同名作品增加的撞上机会
+        when(tmDbApiService.search(any(), any(), any(), any())).thenReturn(tvResults(
+                tv(1, "A", "A", "2020-01-01"),
+                tv(2, "B", "B", "2020-01-01"),
+                tv(3, "C", "C", "2020-01-01"),
+                tv(4, "D", "D", "2020-01-01")));
+        when(tmdbSearchService.listChineseAliases(any(), any())).thenReturn(List.of());
+
+        assertNotNull(resolver.resolve(douban("某剧", null), "TV"));
+
+        verify(tmdbSearchService).listChineseAliases("TV", "1");
+        verify(tmdbSearchService).listChineseAliases("TV", "3");
+        verify(tmdbSearchService, never()).listChineseAliases("TV", "4");
+    }
+
+    @Test
+    void resolve_年份对不上的候选不进别名轮() {
+        // 年份检验在第一轮就把它挡掉了，别名再全等也不该采纳——那正是同名重拍版的形态
+        when(tmDbApiService.search(any(), any(), any(), any()))
+                .thenReturn(tvResults(tv(1, "Some Show", "Some Show", "2015-01-01")));
+
+        PopularItem item = douban("某剧", "2023");
+        assertNotNull(resolver.resolve(item, "TV"));
+
+        verify(tmdbSearchService, never()).listChineseAliases(any(), any());
+    }
+
+    @Test
+    void resolve_别名命中后过滤所需字段照常补上() {
+        // 与条目名命中走的是同一个 apply，规则上的三个过滤器不能因为命中方式不同而落空
+        when(tmDbApiService.search(any(), any(), any(), any()))
+                .thenReturn(tvResults(tv(97546, "Ted Lasso", "Ted Lasso", "2020-08-14")));
+        when(tmdbSearchService.listChineseAliases(any(), any())).thenReturn(List.of("足球教练"));
+
+        PopularItem item = douban("足球教练", null);
+        assertNull(resolver.resolve(item, "TV"));
+
+        assertEquals(8.1, item.getVoteAverage());
+        assertEquals(420, item.getVoteCount());
+        assertEquals(List.of(18, 80), item.getGenreIds());
+        assertEquals("2020", item.getYear());
     }
 
     @Test

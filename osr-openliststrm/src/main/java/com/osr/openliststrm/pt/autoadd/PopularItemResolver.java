@@ -7,6 +7,7 @@ import com.osr.openliststrm.config.OpenlistConfig;
 import com.osr.openliststrm.pt.autoadd.source.PopularItem;
 import com.osr.openliststrm.pt.autoadd.source.TmdbItemMapper;
 import com.osr.openliststrm.pt.subscription.SubscriptionService;
+import com.osr.openliststrm.pt.subscription.TmdbSearchService;
 import com.osr.openliststrm.rename.TitleNormalizer;
 import com.osr.openliststrm.tmdb.TMDbApiService;
 import lombok.extern.slf4j.Slf4j;
@@ -49,6 +50,16 @@ public class PopularItemResolver {
     private static final int MAX_CANDIDATES_EXAMINED = 10;
 
     /**
+     * 需要查中文别名才可能命中时，最多检验前几个候选。
+     * <p>
+     * 每个候选要多打一次 {@code /alternative_titles}（有 L1/L2 缓存，但仍占限流额度）。
+     * TMDb search 按 popularity 倒序，而"正确答案排在 3 名之外、还得靠众包别名才认得出"
+     * 这种情形，收益已经抵不上给长尾里的同名作品增加的撞上机会。
+     * </p>
+     */
+    private static final int MAX_ALIAS_LOOKUPS = 3;
+
+    /**
      * 年份允许的偏差。豆瓣与 TMDb 都记首播年，但跨年播出的剧两边可能各记一年，差 1 是常态；
      * 放到 2 就会开始吃进相邻年份的同名重拍版。
      */
@@ -73,6 +84,9 @@ public class PopularItemResolver {
 
     @Autowired
     private OpenlistConfig openlistConfig;
+
+    @Autowired
+    private TmdbSearchService tmdbSearchService;
 
     /**
      * 原地补全 item 的 tmdbId 与过滤所需字段。
@@ -134,19 +148,73 @@ public class PopularItemResolver {
             return null;
         }
         int examined = Math.min(results.size(), MAX_CANDIDATES_EXAMINED);
+        List<PopularItem> unmatched = new ArrayList<>(examined);
         for (int i = 0; i < examined; i++) {
             PopularItem candidate = TmdbItemMapper.toItem(results.getJSONObject(i), mediaType);
-            if (titleEquals(candidate, normalizedQuery) && yearAcceptable(expectYear, candidate.getYear())) {
+            if (!yearAcceptable(expectYear, candidate.getYear())) {
+                continue;
+            }
+            if (titleEquals(candidate, normalizedQuery)) {
                 return candidate;
             }
+            unmatched.add(candidate);
         }
-        return null;
+        return matchByChineseAlias(unmatched, query, normalizedQuery, mediaType);
     }
 
     /** 候选的中文名与原始语言名任一与查询词归一化后全等即可——中文作品的 name 是中文、original_name 也是中文，日番则一中一日 */
     private boolean titleEquals(PopularItem candidate, String normalizedQuery) {
         return normalizedQuery.equals(TitleNormalizer.normalizeForCompare(candidate.getTitle()))
                 || normalizedQuery.equals(TitleNormalizer.normalizeForCompare(candidate.getOriginalTitle()));
+    }
+
+    /**
+     * 第二轮：拿候选的<b>中文别名</b>再比一次全等。
+     * <p>
+     * <b>为什么必须有这一轮</b>：TMDb 的 name/original_name 在缺 zh-CN 翻译时会<b>直接退回英文</b>
+     * （Apple TV+ / Netflix 的新剧、冷门纪录片、动画常见），中文名只存在于 alternative_titles 里
+     * ——而豆瓣榜单给的恰恰只有中文名。生产事故：《足球教练》(Ted Lasso) 的 name 与 original_name
+     * 都是 "Ted Lasso"，两两比对必然落空，被记成「TMDb 未搜到标题一致的剧集」，而 TMDb 上
+     * 「足球教练」这个名字是有的、搜索也确实返回了这个条目。这与 NFO 里作品标题要走中文别名回退
+     * （{@code NfoXmlBuilder#preferredTitle}）是同一个坑的两面，判据也共用同一份
+     * （{@code TmdbSearchService#listChineseAliases}）。
+     * </p>
+     * <p>
+     * <b>只在第一轮全部落空后才发这些请求。</b>TMDb 有中文 name 是常态，那种情况一次额外请求都不多打——
+     * 与查询词分段、裸数字回退同一条早停取向。
+     * </p>
+     * <p>
+     * <b>判据仍是全等，一点没放宽。</b>alternative_titles 是众包数据，噪音比 name 大得多，
+     * 所以只对前 {@link #MAX_ALIAS_LOOKUPS} 个候选（popularity 最高的那几个）查别名；
+     * 年份检验在上一轮已经过滤过，这里拿到的候选年份本就是可接受的。
+     * </p>
+     *
+     * @param unmatched 年份可接受、但标题没对上的候选，按 TMDb 的 popularity 顺序
+     */
+    private PopularItem matchByChineseAlias(List<PopularItem> unmatched, String query,
+                                            String normalizedQuery, String mediaType) {
+        // 查询词不含中文时这一轮不可能有收益：中文别名与它逐字全等是不可能的
+        if (unmatched.isEmpty() || !containsChinese(query)) {
+            return null;
+        }
+        int lookups = Math.min(unmatched.size(), MAX_ALIAS_LOOKUPS);
+        for (int i = 0; i < lookups; i++) {
+            PopularItem candidate = unmatched.get(i);
+            for (String alias : tmdbSearchService.listChineseAliases(mediaType, candidate.getTmdbId())) {
+                if (normalizedQuery.equals(TitleNormalizer.normalizeForCompare(alias))) {
+                    // 这次命中靠的是众包别名而不是条目名，用户核对"订的到底是不是那部"时需要看到这一步
+                    log.info("查询词[{}]与 TMDb 条目《{}》(tmdbId={}) 的名称不同，靠中文别名《{}》命中",
+                            query, candidate.getTitle(), candidate.getTmdbId(), alias);
+                    return candidate;
+                }
+            }
+        }
+        return null;
+    }
+
+    /** 是否含 CJK 汉字（简繁都在该区段内） */
+    private static boolean containsChinese(String text) {
+        return text != null && text.codePoints().anyMatch(c -> c >= 0x4E00 && c <= 0x9FFF);
     }
 
     /**
