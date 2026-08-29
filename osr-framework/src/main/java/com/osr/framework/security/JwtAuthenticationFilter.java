@@ -17,6 +17,12 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 
+/**
+ * JWT 认证过滤器。<b>只应该在 Spring Security 的过滤链里跑一次</b>——它的 servlet 层
+ * 自动注册（Boot 会给容器里每个 {@code Filter} bean 自动加一份）已由
+ * {@code SecurityConfig#jwtAuthenticationFilterRegistration} 关掉，那里写了为什么。
+ * 本类上的 {@code @Component} 因此是安全的；去掉那个 bean 才不安全。
+ */
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
     @Autowired

@@ -8,6 +8,7 @@ import com.osr.framework.security.ModuleAuthenticationFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Lazy;
@@ -86,6 +87,53 @@ public class SecurityConfig {
     @Value("${ACTUATOR_ANONYMOUS:false}")
     private boolean actuatorAnonymous;
 
+    /**
+     * 关掉 {@link JwtAuthenticationFilter} 的 <b>servlet 层自动注册</b>，只保留它在 Security
+     * 过滤链里的那一次（见下面 {@code filterChain} 的 {@code addFilterBefore}）。
+     * <p>
+     * 起因是 Spring Boot 有一条默认行为：<b>容器里每一个 {@code Filter} 类型的 bean 都会被
+     * 自动包一层 {@code FilterRegistrationBean} 注册进 servlet 过滤器链</b>
+     * （{@code ServletContextInitializerBeans#addAdaptableBeans}）。而
+     * {@code JwtAuthenticationFilter} 标了 {@code @Component}，于是它同时挂在两条链上，
+     * <b>每个带 {@code Authorization: Bearer} 头的请求都会把它整个跑两遍</b>：
+     * </p>
+     * <ul>
+     *   <li>多一次 {@code parseToken} 和一次 {@code loadUserByUsername}，而后者是
+     *       {@code select * from sys_user} 再加角色、菜单两次查询——这是<b>每个业务请求</b>
+     *       都要白付的数据库往返，不是某个接口的个别开销。</li>
+     *   <li>而且那一遍<b>纯属白做</b>：会话策略是 {@code STATELESS}，servlet 链（外层）那次写进
+     *       {@code SecurityContextHolder} 的认证结果，紧接着就会被 Security 链最前面的
+     *       {@code SecurityContextHolderFilter} 用一个空上下文覆盖掉。真正生效的自始至终
+     *       只有 Security 链里那一次。</li>
+     * </ul>
+     * <p>
+     * 这个 bug 的隐蔽之处在于<b>它没有任何错误现象</b>：认证行为完全正确，接口照常 200，
+     * 只是每个请求悄悄多打了一轮库。所以这个 bean <b>删掉不会有任何测试或功能变红</b>——
+     * {@code JwtAuthenticationFilterRegistrationTest} 就是为了让删掉它这件事立刻失败而写的。
+     * </p>
+     * <p>
+     * 两条不要改坏的：
+     * </p>
+     * <ol>
+     *   <li><b>必须持有与 Security 链里同一个实例</b>。Spring Boot 是拿
+     *       {@code registration.getFilter()} 返回的对象去和容器里的 {@code Filter} bean
+     *       逐个比对（{@code Seen#contains}，走的是 equals/hashCode）来决定跳过谁的，比不上
+     *       就照样自动注册。所以这里刻意用<b>方法参数</b>注入真实 bean，而不是复用上面那个
+     *       {@code @Lazy} 字段——那是个 CGLIB 代理，与真实 bean 不相等，写进来等于这个 bean
+     *       完全不起作用，而表面上一切正常。</li>
+     *   <li><b>是 {@code setEnabled(false)} 而不是把它从容器里摘掉</b>。注册项本身仍要存在，
+     *       它的作用就是向 Boot 声明「这个 Filter 已经有人管了」；enabled=false 只是让它自己
+     *       不往 servlet 链上挂。</li>
+     * </ol>
+     */
+    @Bean
+    public FilterRegistrationBean<JwtAuthenticationFilter> jwtAuthenticationFilterRegistration(
+            JwtAuthenticationFilter filter) {
+        FilterRegistrationBean<JwtAuthenticationFilter> registration = new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false);
+        return registration;
+    }
+
     @Bean
     public PasswordEncoder passwordEncoder() {
         return new BCryptPasswordEncoder();
@@ -124,6 +172,8 @@ public class SecurityConfig {
                 auth.anyRequest().authenticated();
             })
             .exceptionHandling(ex -> ex.authenticationEntryPoint(jsonAuthenticationEntryPoint()))
+            // 这是 JwtAuthenticationFilter 唯一真正生效的注册点；它的 servlet 层自动注册
+            // 由 jwtAuthenticationFilterRegistration() 关掉，理由见那个方法的注释。
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         for (ModuleAuthenticationFilter filter : moduleAuthenticationFilters) {
             http.addFilterBefore(filter, UsernamePasswordAuthenticationFilter.class);
