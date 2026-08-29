@@ -48,6 +48,7 @@ src/
 | 两端共用的表单弹窗 | `src/components/dialogs/` | `FormDialogShell` + 10 个 `XxxFormDialog`，见下方「表单弹窗两端共用」 |
 | 移动端组件 | `src/components/mobile/` | MobileListPage(外壳), MobileSearchPanel, MobileBatchBar, MobileActionSheet, MobilePager, FullTextDialog, MobileTabSettingsDialog |
 | 移动端外壳/导航 | `src/layouts/MobileLayout.vue` + `composables/useMobileTabs.ts` | 顶栏 / 抽屉 / 底部 tab，见下方「移动端外壳」 |
+| MCP 令牌管理 | `views/system/mcpToken/index.vue` + `api/system/mcpToken.ts` | 只有 PC 一套（同参数设置）；明文令牌只在签发响应里出现一次，页面必须让用户当场复制 |
 | PWA 配置 | `vite.config.ts` | VitePWA 插件配置 |
 | 动效 / 深度 / 排版令牌 | `src/styles/tokens.scss` + `motion.scss` + `surface.scss` | 见下方「动效系统」「深度系统」「排版」 |
 | 图表配色 | `src/plugins/echartsTheme.ts` | `chartBase()` / `lineSeries()` / `barSeries()` / `chartEmptyOption()` |

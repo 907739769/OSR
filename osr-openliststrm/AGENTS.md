@@ -13,6 +13,8 @@ com/osr/openliststrm/
 ├── dashboard/        # 首页概览统计
 ├── enums/            # 业务枚举 (任务状态、类型等)
 ├── helper/           # 辅助工具 (文件操作、路径处理)
+├── mcp/              # MCP 服务端 (端点 /mcp，令牌鉴权 + 工具集，供本地 AI 助理连接)
+│   └── tool/         # 五组工具：订阅 / 追剧 / 下载 / 任务 / 运维
 ├── monitor/          # 任务监控与状态追踪 (MediaRenameProcessor 等)
 ├── mybatisplus/      # ★ MP 风格数据层 (domain/mapper/service)
 ├── notify/           # 通知渠道抽象 (INotifier + TG/Webhook/企微实现)
@@ -54,6 +56,7 @@ com/osr/openliststrm/
 | 文件刮削 | `scrape/` | ScrapeService, TMDb 刮削/文件删除 |
 | 任务监控 | `monitor/` | MediaRenameProcessor 等处理器 |
 | 任务配置 | `mybatisplus/domain/` + `controller/` | 所有 *Plus 实体 |
+| MCP 服务端 | `mcp/` | McpServerConfig（装配）/ McpAuthFilter（令牌）/ McpCallContext（身份绑定）/ McpToolRegistry（横切）/ tool/（工具声明） |
 | 第三方回调 | `controller/api/` | QB 下载完成通知等开放 API |
 | MP Mapper | `mybatisplus/mapper/` | BaseMapper 接口 |
 | MP Service | `mybatisplus/service/` | IService 接口 + Impl |
@@ -140,6 +143,7 @@ com/osr/openliststrm/
 - **订阅相关通知必须带 `NotifyTarget`**：`TgHelper.sendMsg(type, msg)` 是广播，只适用于系统级告警（索引器失败、复制任务超时）。凡是「某条订阅」的动态（命中/完成/失败/入库/补搜落空），一律走 `TgHelper.sendMsg(type, msg, NotifyTarget.owner(sub.getOwnerUserId()))`，否则 A 的下载动态会推到 B 的企微上。各 Service 里的 `notifySafely` 私有方法已统一改成带归属参数的签名，新增通知点照抄相邻写法即可。`ownerUserId` 为 null 表示无归属（历史订阅），自动退化为广播
 - **通知类型是路由的一维，归错类等于用户关不掉或误关**。`NotificationType` 现有 8 个取值，几条容易踩的归属：H&R 达标/违规走 `HR_STATE` 而**不是** DOWNLOAD_COMPLETE/DOWNLOAD_FAILED（挂着的话，关掉「下载完成」的用户就再也收不到「可以安全删种了」——那一条直接对应一块能腾出来的磁盘和一份能卸下的保种义务）；补搜落空走 `SUBSCRIPTION_SEARCH` 而不是 GENERAL（后者是索引器故障、复制超时那类系统告警，处置方向完全不同）；`StuckEpisodeSweepService` 的全部通知走 `LIBRARY_STUCK` 而不是 SUBSCRIPTION_HIT（内容是「卡住了/退回缺失/已熔断」，挂在「订阅命中」下语义正好相反），也不并进 DOWNLOAD_FAILED——下载本身成功了，卡的是上传网盘或 STRM/刮削那一段，重下解决不了。`NotificationType#urgent()` 决定 Gotify priority 与 Bark level，只有 GENERAL/DOWNLOAD_FAILED/LIBRARY_STUCK 为真：全抬高等于逼用户整渠道静音，连真告警一起丢。
 - **`pt_subscription.owner_user_id` 允许为 NULL 且必须继续允许**：该列是后加的，历史订阅全为 NULL。NULL 语义是「无归属的公共订阅，所有人可见」；改成非空或把 NULL 当作「归属于某个不存在的人」，会让升级后所有老订阅从非管理员的列表里整批消失。可见性判定统一为「管理员看全部；其余人看 `owner_user_id = 自己 OR IS NULL`」，Web 端在 `PtSubscriptionRestController`、企微端在 `WeComCommandService#requireAccessible`，两处口径必须一致
+- **MCP 工具的实现一律直接调用现有 Controller bean 的方法，不许绕到 Service 层自己拼一份判断**（`mcp/tool/`）。归属隔离、`adminOnlyWrite`、敏感字段脱敏、列表进度计数全长在 Controller 上，绕过它就是在 MCP 侧复制一份，而漂移的表现是「网页上看不到的订阅，助理能看到」——没有任何一层会报错。工具处理函数**不在 servlet 线程上执行**，所以身份要靠 `McpCallContext.bind()` 显式绑定并成对恢复，分页要靠 `PageContext`。完整的八条约束与「哪些操作压根没有对应工具」见根目录 `AGENTS.md`
 - **企微回调是 `@Anonymous` 端点**：请求来自企微服务器，不可能带 JWT。安全性靠签名校验 + AES 解密 + receiveid 比对三重保证，三者都依赖只有配置方知道的 Token/AESKey/corpid。回调<b>不做被动回复</b>而是立即返回空串、异步处理完再主动推送——企微要求 5 秒内响应，而建订阅要串行调 TMDb 搜索+详情+媒体库对账，被动回复必然超时并触发企微重试（同一条指令被执行多次）
 
 ## ANTI-PATTERNS

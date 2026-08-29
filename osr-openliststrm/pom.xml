@@ -68,6 +68,12 @@
             <artifactId>pebble</artifactId>
         </dependency>
 
+        <!-- MCP 服务端（工具全是业务，故落在本模块而非 osr-framework） -->
+        <dependency>
+            <groupId>io.modelcontextprotocol.sdk</groupId>
+            <artifactId>mcp-json-jackson2</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>

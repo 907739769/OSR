@@ -43,6 +43,9 @@ export const constantRoutes: RouteRecordRaw[] = [
 const componentMap: Record<string, Component | (() => Promise<any>)> = {
   'Layout': () => import('@/layouts/DesktopLayout.vue'),
   'system/config/index': () => import('@/views/system/config/index.vue'),
+  // 与参数设置一样只有 PC 一套：签发令牌要复制一长串明文和一条命令行，
+  // 那是坐在电脑前才做得了的事，为它单做一套移动端界面没有意义
+  'system/mcpToken/index': () => import('@/views/system/mcpToken/index.vue'),
   'system/notifyRoute/index': createDeviceView(
     () => import('@/views/system/notifyRoute/index.vue'),
     () => import('@/views-mobile/notifyRoute/index.vue')

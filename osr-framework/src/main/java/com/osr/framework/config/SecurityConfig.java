@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.osr.common.core.domain.Result;
 import com.osr.framework.config.properties.PermitAllUrlProperties;
 import com.osr.framework.security.JwtAuthenticationFilter;
+import com.osr.framework.security.ModuleAuthenticationFilter;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -53,6 +54,20 @@ public class SecurityConfig {
     private JwtAuthenticationFilter jwtAuthenticationFilter;
     @Autowired
     private PermitAllUrlProperties permitAllUrlProperties;
+
+    /**
+     * 业务模块自带的认证过滤器（如 MCP 令牌），见 {@link ModuleAuthenticationFilter}。
+     * 一个都没有时注入空列表，行为与引入这个扩展点之前完全一致。
+     * <p>
+     * <b>{@code @Lazy} 不能去掉</b>，理由与上面的 {@code jwtAuthenticationFilter} 完全相同：
+     * 这类过滤器都要注入 {@code UserDetailsService}，而它那条依赖链最终会回到本配置类里的
+     * {@code passwordEncoder}，构成循环依赖。表现是启动直接失败（{@code APPLICATION FAILED TO START}），
+     * 而单元测试因为直接 new 过滤器、绕开 Spring 装配，一条都拦不住。
+     * </p>
+     */
+    @Autowired(required = false)
+    @Lazy
+    private List<ModuleAuthenticationFilter> moduleAuthenticationFilters = new ArrayList<>();
 
     /**
      * 是否允许匿名访问 {@code /actuator/**}。<b>默认 false</b>。
@@ -110,6 +125,9 @@ public class SecurityConfig {
             })
             .exceptionHandling(ex -> ex.authenticationEntryPoint(jsonAuthenticationEntryPoint()))
             .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+        for (ModuleAuthenticationFilter filter : moduleAuthenticationFilters) {
+            http.addFilterBefore(filter, UsernamePasswordAuthenticationFilter.class);
+        }
         return http.build();
     }
 

@@ -26,6 +26,7 @@
         <pebble.version>3.2.2</pebble.version>
         <jjwt.version>0.12.6</jjwt.version>
         <okhttp.version>4.12.0</okhttp.version>
+        <mcp.version>2.0.1</mcp.version>
     </properties>
 
     <!-- 依赖声明 -->
@@ -61,6 +62,22 @@
                 <groupId>com.squareup.okhttp3</groupId>
                 <artifactId>okhttp</artifactId>
                 <version>${okhttp.version}</version>
+            </dependency>
+
+            <!--
+                MCP (Model Context Protocol) 服务端。取的是官方 Java SDK 的<核心包>，
+                它自带 Jakarta Servlet 传输实现（HttpServletStreamableServerTransportProvider），
+                因此<不引入 Spring AI>。这不是图省事：Spring 专用传输
+                （mcp-spring-webmvc / mcp-spring-webflux）自 2.0 起已移交给 Spring AI
+                （groupId 变成 org.springframework.ai），把 Spring AI 拖进来等于给本项目的
+                Spring Boot 4.0.6 装配再引一条独立的版本约束链。核心包只要 servlet API
+                （provided，starter-web 已提供）与 Jackson，两者都已在。
+                mcp-json-jackson2 会传递带上 mcp-core，因此只声明这一个即可。
+            -->
+            <dependency>
+                <groupId>io.modelcontextprotocol.sdk</groupId>
+                <artifactId>mcp-json-jackson2</artifactId>
+                <version>${mcp.version}</version>
             </dependency>
 
             <!-- io常用工具类 -->
