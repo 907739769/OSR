@@ -59,8 +59,14 @@ jobs:
           fi
           
           # 检测前端变更
+          #
+          # nginx.conf 必须列进来：它在仓库根目录，但 Dockerfile.frontend 会把它 COPY 进
+          # 前端镜像，所以它是<前端产物的一部分>。漏掉的话，只改 nginx.conf 的版本不会重新
+          # 构建前端，发出去的镜像里装的仍是上一版的 nginx 配置，而且不报任何错——与上面
+          # 后端那段注释里说的漏法完全同型。v3.3.31 给 MCP 加 /mcp 那条 location 时正好
+          # 撞上这个盲区（那次因为 osr-web/ 也改了才没暴露）。
           FRONTEND_FILES=$(git diff --name-only "$PREV_TAG" "$CURRENT_TAG" -- \
-            "osr-web/**" "Dockerfile.frontend" \
+            "osr-web/**" "Dockerfile.frontend" "nginx.conf" \
             ".github/workflows/docker-publish-tag.yml" 2>/dev/null || true)
           
           if [ -n "$FRONTEND_FILES" ]; then
