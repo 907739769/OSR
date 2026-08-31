@@ -54,7 +54,8 @@ import {
   batchPauseSubscriptionApi,
   batchResumeSubscriptionApi,
   searchSupplementApi,
-  getSubscriptionProgressApi
+  getSubscriptionProgressApi,
+  resetEpisodeApi
 } from '@/api/openlist/ptSubscription'
 import { usePtStatusSocket } from '../usePtStatusSocket'
 
@@ -333,3 +334,45 @@ describe('usePtSubscription 季号与播出日期', () => {
   })
 })
 
+
+describe('usePtSubscription 电影的重置入口', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(getPtSubscriptionListApi as any).mockResolvedValue({ records: [], total: 0 })
+    ;(confirm as any).mockResolvedValue(undefined)
+    ;(resetEpisodeApi as any).mockResolvedValue(undefined)
+  })
+
+  it('重置电影打到哨兵集号 0', async () => {
+    const composable = usePtSubscription()
+    await composable.handleResetMovie({ id: 7, title: '沙丘', mediaType: 'MOVIE' })
+    // 电影在集表里只有集号 0 那一行。传别的集号会「重置成功」但什么都没改到，
+    // 而页面上仍显示已入库——与这个入口要修的现象一模一样
+    expect(resetEpisodeApi).toHaveBeenCalledWith(7, 0)
+  })
+
+  it('用户在确认框点取消时不发请求', async () => {
+    ;(confirm as any).mockRejectedValue('cancel')
+    const composable = usePtSubscription()
+    await composable.handleResetMovie({ id: 7, title: '沙丘', mediaType: 'MOVIE' })
+    expect(resetEpisodeApi).not.toHaveBeenCalled()
+  })
+
+  it('弹窗开着的是另一条订阅时不去刷它的进度', async () => {
+    const composable = usePtSubscription()
+    composable.currentSubscription.value = { id: 99, mediaType: 'MOVIE' }
+    await composable.handleResetMovie({ id: 7, title: '沙丘', mediaType: 'MOVIE' })
+    // 弹窗点遮罩就能关，跑批期间用户完全可能已经换看另一条订阅——
+    // 不判 id 的话会把他眼前那条的进度换成刚重置的这条
+    expect(getSubscriptionProgressApi).not.toHaveBeenCalled()
+  })
+
+  it('currentIsMovie 只认 mediaType，不看季号', () => {
+    const composable = usePtSubscription()
+    composable.currentSubscription.value = { mediaType: 'MOVIE', season: 0 }
+    expect(composable.currentIsMovie.value).toBe(true)
+    // 剧集的特别篇也是第 0 季，用 season === 0 判会把它一起当成电影
+    composable.currentSubscription.value = { mediaType: 'TV', season: 0 }
+    expect(composable.currentIsMovie.value).toBe(false)
+  })
+})

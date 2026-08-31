@@ -92,6 +92,14 @@
         <v-btn v-else color="success" block @click="run(() => handleResume(sheetTarget))">恢复</v-btn>
         <v-btn color="primary" block @click="run(() => openSeasonSearch(sheetTarget))">搜索补齐</v-btn>
         <v-btn block @click="run(() => handleRefresh(sheetTarget))">对账</v-btn>
+        <!-- 只给已入库的电影：对账只升不降，把影片从媒体库删掉后再点上面那条「对账」
+             不会有任何变化，重下得从这里把它退回缺失。剧集逐集重置在进度弹窗里 -->
+        <v-btn
+          v-if="sheetTarget.mediaType === 'MOVIE' && sheetTarget.inLibraryCount"
+          color="warning"
+          block
+          @click="run(() => handleResetMovie(sheetTarget))"
+        >重置为未入库</v-btn>
         <v-btn block @click="run(() => showSearchLogs(sheetTarget))">匹配日志</v-btn>
         <v-btn block @click="run(() => openFilterOverride(sheetTarget))">过滤规则</v-btn>
         <v-btn color="error" block @click="run(() => handleRemove(sheetTarget))">删除</v-btn>
@@ -152,7 +160,7 @@ const {
   handleQuery, resetQuery, openSubscribeDialog, showProgressById, showSearchLogs,
   openFilterOverride,
   openSeasonSearch,
-  handleRefresh, handlePause, handleResume, handleRemove,
+  handleRefresh, handlePause, handleResume, handleRemove, handleResetMovie,
   totalPages, prevPage, nextPage, handleSizeChange,
   searchCollapsed,
   selectionMode, toggleSelectionMode, isAllPageSelected, toggleSelectAllPage,

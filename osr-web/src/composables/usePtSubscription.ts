@@ -283,6 +283,53 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
     }
   }
 
+  /**
+   * 电影在集表里的哨兵集号。电影只有这一行记录，判断是不是电影一律看 mediaType，
+   * 绝不能反过来用 season === 0 推断（剧集的特别篇也是第 0 季，后端同一条约定）。
+   */
+  const MOVIE_EPISODE = 0
+
+  /** 当前进度弹窗里这条订阅是不是电影 */
+  const currentIsMovie = computed(() => currentSubscription.value?.mediaType === 'MOVIE')
+
+  /**
+   * 把电影重置为「未入库」。
+   *
+   * 底层就是 resetEpisode(id, 0)——电影在集表里只有那一行哨兵记录。单独给一个入口是因为
+   * 这条路用户很难自己找到：对账是**只升不降**的（后端 SubscriptionService#refresh，
+   * IN_LIBRARY 不会退回 MISSING，避免一次误删触发几十 GB 的重下），所以把影片从 Emby 删掉
+   * 之后再点「对账」，状态纹丝不动、日志里也一切正常；而在此之前唯一的出口藏在
+   * 进度弹窗 →「查看全部集」→ 一行写着「第0集」的重置按钮后面，两层深，名字还对不上。
+   *
+   * 接受 row 而不是读 currentSubscription：卡片「更多」菜单里也有这个入口，那时进度弹窗根本没开。
+   */
+  const handleResetMovie = async (row: any) => {
+    if (!row?.id) return
+    try {
+      await confirm({
+        message: `确认将《${row.title}》重置为未入库？重置后需要重新匹配/下载。`,
+        title: '提示',
+        type: 'warning'
+      })
+      resettingEpisode.value = MOVIE_EPISODE
+      await resetEpisodeApi(row.id, MOVIE_EPISODE)
+      message.success('已重置为未入库')
+      // 弹窗正开着同一条订阅时，那份进度也要跟着变——否则用户刚点完重置，
+      // 眼前还写着「已入库」。判 id 是因为弹窗点遮罩就能关，中途可能已经换了一条订阅
+      if (currentSubscription.value?.id === row.id) {
+        progress.value = await getSubscriptionProgressApi(row.id)
+        if (episodeDetailOpen.value) {
+          episodeDetail.value = (await getSubscriptionEpisodesApi(row.id)) || []
+        }
+      }
+      base.getList()
+    } catch (e) {
+      if (e !== 'cancel') console.error(e)
+    } finally {
+      resettingEpisode.value = null
+    }
+  }
+
   /** 重置某一集为缺失：只对 IN_LIBRARY/BLOCKED 这类"卡住"的状态开放，需二次确认 */
   const handleResetEpisode = async (ep: any) => {
     if (!currentSubscription.value) return
@@ -903,6 +950,8 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
     episodeDetailOpen, episodeDetailLoading, episodeDetail, resettingEpisode,
     loadEpisodeDetail, handleResetEpisode, episodeStateLabel, episodeStateColor,
     qualityLabel, upgradeStateHint, seasonLabel, episodeAirDate, episodeUnaired,
+    // 电影：单独的状态渲染与重置入口（集表里只有集号 0 那一行）
+    currentIsMovie, handleResetMovie,
     // 匹配日志
     searchLogOpen, searchLogLoading, searchLogs, showSearchLogs,
     searchLogRejectedOnly, visibleSearchLogs,

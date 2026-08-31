@@ -14,75 +14,101 @@
               {{ seasonLabel(currentSubscription) }}
             </span>
           </p>
-          <v-progress-linear
-            :model-value="progress.totalEpisodes ? Math.round((progress.inLibraryCount / progress.totalEpisodes) * 100) : 0"
-            color="primary"
-            height="8"
-            rounded
-            class="mb-2"
-          />
-          <p>已入库 <strong>{{ progress.inLibraryCount }}</strong> / {{ progress.totalEpisodes }} 集</p>
-          <p v-if="progress.inFlightCount">在途 {{ progress.inFlightCount }} 集（已推送下载器，尚未入库）</p>
-          <div v-if="progress.missingEpisodes && progress.missingEpisodes.length" class="missing-list">
-            <span class="missing-lead">
-              仍缺 {{ progress.missingEpisodes.length }} 集<span
-                v-if="unairedMissingEpisodes.length"
-                class="missing-unaired"
-                title="未播出的集站上不可能有资源，「一键补齐全部」会跳过它们"
-              >（{{ unairedMissingEpisodes.length }} 集未播出）</span>：
-            </span>
-            <!-- 集号本身就是搜索入口。原先每个集号后面挂一个「搜」按钮，一季上百集时
+          <!-- 电影在集表里只有一行哨兵记录（集号 0），照剧集那套渲染出来是「已入库 1 / 1 集」
+               加一个不可点的集号「0」，重置按钮还要展开「查看全部集」才露出来、写着「第0集」。
+               这里单独走一条：一行状态 + 就地重置，不铺集列表也不显示进度条（1/1 说明不了什么）。
+               入口必须显眼，因为对账是只升不降的——影片从 Emby 删掉后再点「对账」不会有任何变化 -->
+          <div v-if="currentIsMovie" class="movie-state">
+            <v-chip
+              size="small"
+              :color="progress.inLibraryCount ? 'success' : (progress.inFlightCount ? 'info' : 'warning')"
+              variant="tonal"
+            >
+              {{ progress.inLibraryCount ? '已入库' : (progress.inFlightCount ? '在途' : '未入库') }}
+            </v-chip>
+            <span v-if="progress.inFlightCount" class="movie-hint">已推送下载器，尚未入库</span>
+            <v-spacer />
+            <v-btn
+              v-if="progress.inLibraryCount"
+              variant="text"
+              color="warning"
+              size="small"
+              :loading="resettingEpisode === 0"
+              title="从媒体库删掉影片后，对账不会把状态退回缺失（只升不降），要重下得从这里重置"
+              @click="handleResetMovie(currentSubscription)"
+            >重置为未入库</v-btn>
+          </div>
+          <template v-else>
+            <v-progress-linear
+              :model-value="progress.totalEpisodes ? Math.round((progress.inLibraryCount / progress.totalEpisodes) * 100) : 0"
+              color="primary"
+              height="8"
+              rounded
+              class="mb-2"
+            />
+            <p>已入库 <strong>{{ progress.inLibraryCount }}</strong> / {{ progress.totalEpisodes }} 集</p>
+            <p v-if="progress.inFlightCount">在途 {{ progress.inFlightCount }} 集（已推送下载器，尚未入库）</p>
+            <div v-if="progress.missingEpisodes && progress.missingEpisodes.length" class="missing-list">
+              <span class="missing-lead">
+                仍缺 {{ progress.missingEpisodes.length }} 集<span
+                  v-if="unairedMissingEpisodes.length"
+                  class="missing-unaired"
+                  title="未播出的集站上不可能有资源，「一键补齐全部」会跳过它们"
+                >（{{ unairedMissingEpisodes.length }} 集未播出）</span>：
+              </span>
+              <!-- 集号本身就是搜索入口。原先每个集号后面挂一个「搜」按钮，一季上百集时
                  等于在弹窗里铺上百个按钮组件 -->
-            <button
-              v-for="ep in visibleMissingEpisodes"
-              :key="ep"
-              type="button"
-              class="missing-item"
-              :class="{ 'missing-item--clickable': currentSubscription && currentSubscription.mediaType !== 'MOVIE' }"
-              :title="currentSubscription && currentSubscription.mediaType !== 'MOVIE' ? `搜索第 ${ep} 集` : ''"
-              :disabled="!currentSubscription || currentSubscription.mediaType === 'MOVIE'"
-              @click="openEpisodeSearch(currentSubscription, ep)"
-            >{{ ep }}</button>
-            <button v-if="missingHiddenCount > 0" type="button" class="missing-more" @click="expandMissing">
-              还有 {{ missingHiddenCount }} 集，全部展开
-            </button>
-          </div>
-          <p v-else class="all-done">全部集已入库</p>
-
-          <div class="episode-detail-toggle" @click="loadEpisodeDetail">
-            {{ episodeDetailOpen ? '收起全部集' : '查看全部集' }}
-            <v-icon icon="chevron-down" :class="{ 'is-open': episodeDetailOpen }" size="16" />
-          </div>
-          <div v-if="episodeDetailOpen" class="episode-detail-list">
-            <v-progress-linear v-if="episodeDetailLoading" indeterminate color="primary" />
-            <div v-for="ep in episodeDetail" :key="ep.episode" class="episode-detail-row">
-              <span class="ep-num">第{{ ep.episode }}集</span>
-              <v-chip
-                size="small"
-                :color="episodeStateColor(ep.state)"
-                variant="tonal"
-              >
-                {{ episodeStateLabel(ep.state) }}
-              </v-chip>
-              <!-- 未播出的集恒为「缺失」，标出来能省掉一整轮「为什么搜不到」的排查 -->
-              <span v-if="episodeAirDate(ep)" class="ep-date">
-                {{ episodeAirDate(ep) }}
-                <span v-if="episodeUnaired(ep)" class="ep-unaired">未播出</span>
-              </span>
-              <span v-if="qualityLabel(ep)" class="ep-quality" :title="upgradeStateHint(ep)">
-                {{ qualityLabel(ep) }}
-              </span>
-              <v-btn
-                v-if="ep.state === 'IN_LIBRARY' || ep.state === 'BLOCKED'"
-                variant="text"
-                color="warning"
-                size="small"
-                :loading="resettingEpisode === ep.episode"
-                @click="handleResetEpisode(ep)"
-              >重置</v-btn>
+              <button
+                v-for="ep in visibleMissingEpisodes"
+                :key="ep"
+                type="button"
+                class="missing-item"
+                :class="{ 'missing-item--clickable': currentSubscription && currentSubscription.mediaType !== 'MOVIE' }"
+                :title="currentSubscription && currentSubscription.mediaType !== 'MOVIE' ? `搜索第 ${ep} 集` : ''"
+                :disabled="!currentSubscription || currentSubscription.mediaType === 'MOVIE'"
+                @click="openEpisodeSearch(currentSubscription, ep)"
+              >{{ ep }}</button>
+              <button v-if="missingHiddenCount > 0" type="button" class="missing-more" @click="expandMissing">
+                还有 {{ missingHiddenCount }} 集，全部展开
+              </button>
             </div>
-            <v-empty-state v-if="!episodeDetailLoading && episodeDetail.length === 0" icon="inbox" title="暂无数据" />
-          </div>
+            <p v-else class="all-done">全部集已入库</p>
+
+            <div class="episode-detail-toggle" @click="loadEpisodeDetail">
+              {{ episodeDetailOpen ? '收起全部集' : '查看全部集' }}
+              <v-icon icon="chevron-down" :class="{ 'is-open': episodeDetailOpen }" size="16" />
+            </div>
+            <div v-if="episodeDetailOpen" class="episode-detail-list">
+              <v-progress-linear v-if="episodeDetailLoading" indeterminate color="primary" />
+              <div v-for="ep in episodeDetail" :key="ep.episode" class="episode-detail-row">
+                <span class="ep-num">第{{ ep.episode }}集</span>
+                <v-chip
+                  size="small"
+                  :color="episodeStateColor(ep.state)"
+                  variant="tonal"
+                >
+                  {{ episodeStateLabel(ep.state) }}
+                </v-chip>
+                <!-- 未播出的集恒为「缺失」，标出来能省掉一整轮「为什么搜不到」的排查 -->
+                <span v-if="episodeAirDate(ep)" class="ep-date">
+                  {{ episodeAirDate(ep) }}
+                  <span v-if="episodeUnaired(ep)" class="ep-unaired">未播出</span>
+                </span>
+                <span v-if="qualityLabel(ep)" class="ep-quality" :title="upgradeStateHint(ep)">
+                  {{ qualityLabel(ep) }}
+                </span>
+                <v-btn
+                  v-if="ep.state === 'IN_LIBRARY' || ep.state === 'BLOCKED'"
+                  variant="text"
+                  color="warning"
+                  size="small"
+                  :loading="resettingEpisode === ep.episode"
+                  @click="handleResetEpisode(ep)"
+                >重置</v-btn>
+              </div>
+              <v-empty-state v-if="!episodeDetailLoading && episodeDetail.length === 0" icon="inbox" title="暂无数据" />
+            </div>
+          </template>
         </template>
       </v-card-text>
       <v-card-actions>
@@ -128,6 +154,7 @@ import { usePtSubscriptionContext } from '@/composables/ptSubscriptionContext'
 
 const {
   abortSearchAllMissing,
+  currentIsMovie,
   currentSubscription,
   episodeAirDate,
   episodeDetail,
@@ -139,6 +166,7 @@ const {
   expandMissing,
   fillableMissingEpisodes,
   handleResetEpisode,
+  handleResetMovie,
   handleSearchAllMissing,
   loadEpisodeDetail,
   missingHiddenCount,
@@ -174,6 +202,17 @@ const {
 }
 .all-done {
   color: var(--osr-success);
+}
+/* 电影：一行状态 + 重置，替代整套「进度条 + 缺集串 + 展开全部集」 */
+.movie-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+}
+.movie-hint {
+  font-size: 13px;
+  color: var(--osr-text-secondary);
 }
 /* 缺集串：集号本身就是搜索入口，不再每个集号后面挂一个按钮组件 */
 .missing-list {

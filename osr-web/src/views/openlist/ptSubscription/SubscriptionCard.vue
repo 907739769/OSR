@@ -124,6 +124,12 @@
           <v-list-item v-else @click="handleMoreCommand('resume', item)">恢复</v-list-item>
           <v-list-item @click="handleMoreCommand('search', item)">搜索补齐</v-list-item>
           <v-list-item @click="handleMoreCommand('refresh', item)">对账</v-list-item>
+          <!-- 只给已入库的电影：对账只升不降，把影片从媒体库删掉后再点上面那条「对账」
+               不会有任何变化，重下得从这里把它退回缺失。剧集逐集重置在进度弹窗里 -->
+          <v-list-item
+            v-if="item.mediaType === 'MOVIE' && item.inLibraryCount"
+            @click="handleMoreCommand('resetMovie', item)"
+          >重置为未入库</v-list-item>
           <v-list-item @click="handleMoreCommand('logs', item)">匹配日志</v-list-item>
           <v-list-item @click="handleMoreCommand('filter', item)">过滤规则</v-list-item>
           <v-divider class="my-1" />
@@ -149,6 +155,7 @@ const {
   handlePause,
   handleRefresh,
   handleRemove,
+  handleResetMovie,
   handleResume,
   isSubSelected,
   openFilterOverride,
@@ -221,6 +228,7 @@ const goDownloadRecords = (row: any) => {
 const handleMoreCommand = (cmd: string, row: any) => {
   switch (cmd) {
     case 'refresh': handleRefresh(row); break
+    case 'resetMovie': handleResetMovie(row); break
     case 'logs': showSearchLogs(row); break
     case 'filter': openFilterOverride(row); break
     case 'search': openSeasonSearch(row); break
