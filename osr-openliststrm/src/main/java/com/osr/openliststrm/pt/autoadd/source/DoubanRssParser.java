@@ -3,6 +3,7 @@ package com.osr.openliststrm.pt.autoadd.source;
 import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.pt.indexer.SafeXmlDocuments;
 import com.osr.openliststrm.rename.SeasonSuffix;
+import com.osr.openliststrm.rename.TrailingYear;
 import lombok.extern.slf4j.Slf4j;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
@@ -33,9 +34,6 @@ public final class DoubanRssParser {
      * 那类标题在榜单里相当常见，剥错了后面标题全等判定必然落空，且不会有任何报错。
      */
     private static final Pattern TRAILING_RATING = Pattern.compile("\\s+\\d{1,2}\\.\\d\\s*$");
-
-    /** 尾部年份括号（半角/全角都收），命中即剥掉并把年份带出来 */
-    private static final Pattern TRAILING_YEAR = Pattern.compile("[(（]\\s*((?:19|20)\\d{2})\\s*[)）]\\s*$");
 
     /** 豆瓣条目链接里的 subject id */
     private static final Pattern SUBJECT_ID = Pattern.compile("/subject/(\\d+)");
@@ -100,15 +98,12 @@ public final class DoubanRssParser {
 
         String title = rawTitle.trim();
         title = stripTrailing(title, TRAILING_RATING);
-        Matcher year = TRAILING_YEAR.matcher(title);
-        if (year.find()) {
-            String stripped = title.substring(0, year.start()).trim();
-            // 剥空则不剥：整个标题就是一个年份（豆列里有《1917》这类片名）时，
-            // 剥掉之后什么都不剩，拿空串去搜 TMDb 只会白打一次请求
-            if (!stripped.isEmpty()) {
-                result.setYear(year.group(1));
-                title = stripped;
-            }
+        // 尾部年份括号：判据复用 TrailingYear，与 PT 的 RSS 别名匹配侧共用一份（含「剥空则不剥」，
+        // 豆列里有《1917》这类以年份为名的片子）。各写一份的漂移从日志里根本看不出来
+        String year = TrailingYear.parse(title);
+        if (year != null) {
+            result.setYear(year);
+            title = TrailingYear.strip(title);
         }
         // 季号后缀必须剥掉：TMDb 的条目名里从来不带季号（作品叫「瑞克和莫蒂」，季是它下面的一层），
         // 不剥的话「瑞克和莫蒂 第九季」在标题全等判定上必然落空，而续季与长寿剧在榜单上相当常见。

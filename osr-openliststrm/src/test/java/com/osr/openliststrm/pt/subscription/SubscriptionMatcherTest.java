@@ -365,6 +365,21 @@ class SubscriptionMatcherTest {
     }
 
     @Test
+    void 拼音命名的电影_靠description别名匹配_尾部年份不许挡路() {
+        // M-Team 的真实条目：Gei a ma de qing shu 2026 1080p WEB-DL H.265 AAC-lijiang-tv
+        // 标题解析出的是罗马音拼音，订阅的三个标题里没有这一种，第一轮必然落空；
+        // 第二轮的别名 "给阿嬷的情书 (2026)" 曾因归一化后多出一个 2026 而与订阅标题不相等
+        TorrentInfo t = torrent("Gei a ma de qing shu", "2026", null, null);
+        t.setDescription("给阿嬷的情书 (2026)");
+
+        MatchResult result = matcher.match(t, List.of(movieSub(30, "给阿嬷的情书", "2026")));
+
+        assertNotNull(result, "别名剥掉年份后与订阅标题归一化相等，应当匹配");
+        assertEquals(30, result.getSubscription().getId());
+        assertEquals(SubscriptionMatcher.MOVIE_EPISODE, result.getEpisode());
+    }
+
+    @Test
     void 别名命中后仍要过季集判定_季号对不上照样不匹配() {
         TorrentInfo t = torrent("Re Zero kara Hajimeru Isekai Seikatsu", null, 3, 5);
         t.setDescription(RE_ZERO_DESCRIPTION);

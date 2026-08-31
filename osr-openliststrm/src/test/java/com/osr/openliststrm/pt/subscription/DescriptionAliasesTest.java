@@ -79,6 +79,22 @@ class DescriptionAliasesTest {
     }
 
     @Test
+    void 尾部年份括号被剥掉_否则调用方的标题全等判定必然落空() {
+        // M-Team 的真实条目：标题是罗马音拼音（Gei a ma de qing shu 2026 …），三个订阅标题
+        // 里没有罗马音这一种，全靠这条别名兜底；不剥年份则归一化后多出一个 2026，白抽一场
+        assertEquals(List.of("给阿嬷的情书"), DescriptionAliases.parse("给阿嬷的情书 (2026)"));
+        assertEquals(List.of("给阿嬷的情书", "A Letter to A-ma"),
+                DescriptionAliases.parse("给阿嬷的情书 (2026) / A Letter to A-ma (2026) | 1080p"));
+    }
+
+    @Test
+    void 尾部裸数字不是年份_序号一概保留() {
+        // 剥错序号同样让标题全等判定落空，而且完全静默
+        assertEquals(List.of("速度与激情 9", "老九门2"),
+                DescriptionAliases.parse("速度与激情 9 / 老九门2 | 1080p"));
+    }
+
+    @Test
     void 全角分隔符同样支持() {
         assertEquals(List.of("九门", "老九门2"), DescriptionAliases.parse("九门／老九门2｜第21集"));
     }

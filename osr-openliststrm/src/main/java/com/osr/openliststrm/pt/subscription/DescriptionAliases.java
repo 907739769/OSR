@@ -1,6 +1,7 @@
 package com.osr.openliststrm.pt.subscription;
 
 import com.osr.common.utils.StringUtils;
+import com.osr.openliststrm.rename.TrailingYear;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -105,7 +106,10 @@ public final class DescriptionAliases {
         }
         List<String> aliases = new ArrayList<>(parts.length);
         for (String part : parts) {
-            String alias = part.trim();
+            // 尾部年份括号必须剥掉：调用方（SubscriptionMatcher）做的是标题<b>全等</b>比较，
+            // 而订阅标题里从来不带年份，多出一个 (2026) 就等于这条别名白抽了。判据与豆瓣源共用
+            // 同一份（TrailingYear），各写一份的漂移表现是「同一个名字在豆瓣侧剥了、这里没剥」
+            String alias = TrailingYear.strip(part.trim());
             if (isAlias(alias)) {
                 aliases.add(alias);
             }
