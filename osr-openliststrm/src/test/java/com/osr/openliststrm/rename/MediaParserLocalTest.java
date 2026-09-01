@@ -307,4 +307,50 @@ class MediaParserLocalTest {
         assertEquals("1999", info.getYear());
         assertEquals("Fight Club", info.getOriginalTitle());
     }
+
+    // ---------- 发布组名自带连字符 ----------
+
+    @Test
+    void parseLocal_发布组名自带连字符_取整段而不是最后一节() {
+        // 真实种子标题。旧实现从左找第一个连字符当引导符，而 "WEB-DL" 在上一步已被 SOURCE 摘走，
+        // 剩下的第一个连字符正好是组名内部那个，于是发布组被解析成 "tv"：
+        // 发布组黑名单按全等匹配，用户拉黑 "lijiang-tv" 永远命不中；重命名产出的尾巴是 "-tv"，
+        // 而被截掉的 "lijiang" 还留在标题里。两条链路都没有任何错误现象。
+        MediaInfo info = parser.parseLocal("Gei a ma de qing shu 2026 1080p WEB-DL H.265 AAC lijiang-tv");
+
+        assertEquals("lijiang-tv", info.getReleaseGroup());
+        assertEquals("2026", info.getYear());
+        assertEquals("Gei a ma de qing shu", info.getOriginalTitle());
+    }
+
+    @Test
+    void parseLocal_点分隔的同一标题_发布组结果一致() {
+        // 点分隔与空格分隔在 MediaParser#normalize 之后是同一个串，两条入口（种子标题 / 文件名）
+        // 必须给出同一个发布组，否则 PT 侧拉黑了、重命名侧仍按另一个名字产出文件
+        MediaInfo info = parser.parseLocal("Gei.a.ma.de.qing.shu.2026.1080p.WEB-DL.H.265.AAC.lijiang-tv");
+
+        assertEquals("lijiang-tv", info.getReleaseGroup());
+    }
+
+    @Test
+    void parseLocal_连字符引导的发布组_行为不变() {
+        MediaInfo info = parser.parseLocal("Some.Show.S01E05.1080p.WEB-DL.H264-CHDWEB");
+
+        assertEquals("CHDWEB", info.getReleaseGroup());
+        assertEquals("Some Show", info.getOriginalTitle());
+    }
+
+    @Test
+    void parseLocal_结尾是不带连字符的普通词_不当发布组() {
+        // 保守取向：没有任何证据表明它是发布组时宁可不认，认错会把作品名的一部分截掉
+        MediaInfo info = parser.parseLocal("Some.Show.S01E05.1080p.WEB-DL.2Audio");
+
+        assertNull(info.getReleaseGroup());
+    }
+
+    @Test
+    void parseLocal_at引导的发布组_带空格与不带空格都能识别() {
+        assertEquals("Group", parser.parseLocal("Some.Show.S01E05.1080p.WEB-DL @ Group").getReleaseGroup());
+        assertEquals("Group", parser.parseLocal("Some.Show.S01E05.1080p.WEB-DL@Group").getReleaseGroup());
+    }
 }

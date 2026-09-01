@@ -104,8 +104,8 @@ class PtTorrentBlacklistPlusServiceImplTest {
         // 种子标题不带扩展名，就是 PT 站上的原样。此前这里补过一个占位的 ".mkv"，理由写的是
         // "MediaParser.extractBase 会把最后一段当扩展名剥离"——那是 parse() 的行为，
         // blockRecordReleaseGroup 走的 parseLocal() 传的是 stripExtension=false，本来就不剥扩展名。
-        // 补上 ".mkv" 反而让标题以 " mkv" 结尾，SourceAndGroupExtractor 的 GROUP_END
-        // （要求结尾是 "-xxx"）匹配不到发布组，服务方法直接抛"无法从标题解析出发布组"，
+        // 补上 ".mkv" 反而让标题以 " mkv" 结尾，SourceAndGroupExtractor 的结尾段判定
+        // （要求那一段由 - / @ 引导或自带连字符）匹配不到发布组，服务方法直接抛"无法从标题解析出发布组"，
         // 本用例因此长期报错。SubscriptionEngineTest 里有同源的一处，已一并修正。
         when(recordService.getById(1)).thenReturn(
                 record(1, "Show.Name.S01E01.1080p.WEB-DL.H264-chdweb", "hash1"));
