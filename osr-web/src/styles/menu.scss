@@ -1,9 +1,12 @@
 /* ============================================
-   侧边菜单公共样式（DesktopLayout / MobileLayout / SidebarMenuItem 共用）
+   侧边菜单公共样式（DesktopLayout / SidebarMenuItem 共用）
 
-   这三处以前各写了一份一模一样的 .menu-item 激活态：两个 Layout 因为自己直接渲染
+   这几处以前各写了一份一模一样的 .menu-item 激活态：两个 Layout 因为自己直接渲染
    了「首页」那一条 v-list-item，各写一个 :deep(.menu-item)，递归组件里再写一份。
-   同一套视觉三处维护，改一处颜色必漏两处，所以提到全局单源。
+   同一套视觉多处维护，改一处颜色必漏一处，所以提到全局单源。
+
+   移动端已经不再用这套：抽屉整个换成了「更多」底部面板（图标格，见 mobile-chrome.scss），
+   原先那两条 .mobile-menu 的 44px 热区规则随之删除。
    ============================================ */
 
 /* 分组标题：一行灰色小字，子项平铺在它下面（不是可点开的折叠面板）。
@@ -51,12 +54,3 @@
   }
 }
 
-/* 移动端抽屉里的点击热区要更大：手指不是鼠标指针 */
-.mobile-menu .menu-item,
-.mobile-menu .menu-group-label {
-  min-height: 44px;
-}
-
-.mobile-menu .menu-group-label {
-  min-height: 0;
-}

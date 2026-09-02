@@ -15,8 +15,11 @@ const links = ref([
   { path: '/openlist/ptSubscription', title: '订阅管理', icon: 'bell' }
 ])
 
+// HOME_LINK 也要一并 mock：useMobileTabs 在**模块作用域**（DEFAULT_TABS）就读它的字段，
+// 只 mock useMenuLinks 的话这里会在 import 阶段就 TypeError，且报错位置指向被测文件而不是这份 mock
 vi.mock('@/composables/useMenuLinks', () => ({
-  useMenuLinks: () => computed(() => links.value)
+  useMenuLinks: () => computed(() => links.value),
+  HOME_LINK: { path: '/dashboard', title: '首页', icon: 'layout-dashboard' }
 }))
 
 vi.mock('vue-router', () => ({

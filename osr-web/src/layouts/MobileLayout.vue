@@ -1,26 +1,13 @@
 <template>
-  <v-navigation-drawer v-model="menuOpen" temporary width="280">
-    <div class="drawer-header">
-      <img src="/icons/android-chrome-192x192.png" alt="Logo" class="drawer-logo" />
-      <span class="drawer-title">OSR</span>
-    </div>
-    <v-list nav density="compact" class="mobile-menu" style="--v-list-prepend-gap: 12px" @click:select="menuOpen = false">
-      <v-list-item to="/dashboard" prepend-icon="layout-dashboard" title="首页" rounded="lg" class="menu-item" @click="menuOpen = false" />
-      <SidebarMenuItem v-for="menu in sidebarMenus" :key="menu.path" :menu="menu" />
-      <v-divider class="my-2" />
-      <v-list-item
-        prepend-icon="sliders-horizontal"
-        title="自定义底栏"
-        rounded="lg"
-        class="menu-item"
-        @click="openTabSettings"
-      />
-    </v-list>
-  </v-navigation-drawer>
+  <!-- 顶栏。玻璃底由 styles/surface.scss 统一给，这里只管两件随滚动变化的事：
+       小标题淡入、底部分隔线浮现（都由 .mobile-appbar--scrolled 驱动，
+       样式在 styles/mobile-chrome.scss）。
 
-  <v-app-bar flat density="compact" height="50">
-    <v-app-bar-nav-icon @click="menuOpen = !menuOpen" />
-    <v-app-bar-title>{{ pageTitle }}</v-app-bar-title>
+       原先左上角那个汉堡键已经删掉——抽屉整个换成了从底部升起的「更多」面板，
+       它唯一的入口在底栏最右格，那也是单手持机最容易够到的位置。 -->
+  <v-app-bar flat density="compact" height="50" class="mobile-appbar" :class="{ 'mobile-appbar--scrolled': scrolled }">
+    <span class="appbar-title" :class="{ 'appbar-title--visible': scrolled }">{{ pageTitle }}</span>
+    <v-spacer />
     <ThemeSwitch />
     <!-- 退出登录收进头像菜单，与 DesktopLayout 一致。
          原先它是紧挨 28px 头像的一个裸 log-out 图标 —— 破坏性动作平铺在顶栏、
@@ -40,6 +27,10 @@
 
   <v-main>
     <div ref="contentRef" class="mobile-content">
+      <!-- 大标题：随内容一起滚走，滚过之后顶栏里那个小标题才淡入（iOS 的做法）。
+           刻意不做「高度收缩」动画，理由见 mobile-chrome.scss 的 .mobile-bigtitle -->
+      <h1 class="mobile-bigtitle">{{ pageTitle }}</h1>
+
       <!-- 同 DesktopLayout：原先的 <transition name="fade"> 既没有配套 CSS，
            又会让旧页面残留在新页面下方，这里一并去掉，原因见 DesktopLayout 的注释 -->
       <!-- 错误边界包在 router-view 外面、外壳里面，理由同 DesktopLayout：
@@ -54,83 +45,56 @@
       </ErrorBoundary>
     </div>
 
-    <!-- height 必须与 tokens.scss 的 --osr-mobile-tabbar-height 一致：
-         内容区的 padding-bottom 与 .fab-add 的 bottom 都按那个令牌算 -->
-    <v-bottom-navigation :model-value="activeTab" grow height="56" class="mobile-tabbar">
-      <v-btn
-        v-for="tab in mainTabs"
-        :key="tab.path"
-        :value="tab.path"
-        class="tabbar-item"
-        @click="router.push(tab.path)"
-      >
-        <v-icon :icon="tab.icon" />
-        <span>{{ tab.title }}</span>
-      </v-btn>
-      <!-- 「更多」= 打开侧边抽屉。抽屉原先只有左上角汉堡键一个入口，那是单手持机时
-           最难够到的位置，而 tab 上这四个页面之外（PT 的 4 组 12 页全在此列）都得走它。 -->
-      <v-btn :value="MORE_TAB" class="tabbar-item" @click="menuOpen = true">
-        <v-icon icon="ellipsis" />
-        <span>更多</span>
-      </v-btn>
-    </v-bottom-navigation>
+    <MobileTabBar :compact="compact" :more-open="moreOpen" @open-more="moreOpen = true" />
   </v-main>
 
+  <MobileMorePanel v-model="moreOpen" />
   <ChangePasswordDialog v-model:visible="showPasswordDialog" />
-  <MobileTabSettingsDialog v-model="showTabSettings" />
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { confirm } from '@/composables/useConfirm'
 import { useUserStore } from '@/stores/user'
 import { useCurrentUser } from '@/composables/useCurrentUser'
 import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
-import SidebarMenuItem from '@/components/SidebarMenuItem.vue'
-import MobileTabSettingsDialog from '@/components/mobile/MobileTabSettingsDialog.vue'
-import { useMobileTabs } from '@/composables/useMobileTabs'
+import MobileTabBar from '@/components/mobile/MobileTabBar.vue'
+import MobileMorePanel from '@/components/mobile/MobileMorePanel.vue'
 import ThemeSwitch from '@/components/ThemeSwitch.vue'
 import { usePageTransition } from '@/composables/usePageTransition'
+import { useMobileChrome } from '@/composables/useMobileChrome'
+import { useRecentPages } from '@/composables/useRecentPages'
 
 const route = useRoute()
 const router = useRouter()
 const userStore = useUserStore()
-const menuOpen = ref(false)
 const showPasswordDialog = ref(false)
+const moreOpen = ref(false)
 const { avatarText } = useCurrentUser()
-
-const sidebarMenus = computed(() => userStore.routes.filter((r: any) => r.hidden !== true))
-
-// 抽屉里的菜单已改成「分组标题 + 子项平铺」（与 PC 同一个 SidebarMenuItem），
-// 因此不再需要维护折叠面板的展开态。原先那份 openedGroups 是 computed 绑到
-// v-list 的 :opened 上 —— 那是受控属性，用户手动展开的其它分组会在下一次路由
-// 变化时被重算强制收起，本身也是个 bug。
 
 // 页面切换的入场动画。与 PC 端共用同一个 composable，两端节奏一致
 const { contentRef } = usePageTransition()
 
+// 顶栏小标题与底栏收缩的滚动状态。两个布尔量判据不同（一个看绝对位置、
+// 一个看滚动方向），见 useMobileChrome 的注释
+const { scrolled, compact, reset } = useMobileChrome()
+
+// 「更多」面板顶部那行「常用」的数据来源
+const { record } = useRecentPages()
+
 const pageTitle = computed(() => (route.meta?.title as string) || 'OSR')
 
-// 底部主 tab 由 useMobileTabs 提供：默认那四个仍然写在 composable 里，
-// 用户可以在「更多 → 自定义底栏」换成自己常用的（存 localStorage）。
-const { tabs: mainTabs } = useMobileTabs()
-
-/** 「更多」按钮的 model 值。它不是路由，只是打开抽屉，取一个不会与 path 撞车的常量 */
-const MORE_TAB = '__more__'
-
-const showTabSettings = ref(false)
-const openTabSettings = () => {
-  menuOpen.value = false
-  showTabSettings.value = true
-}
-
-const activeTab = computed(() => {
-  const match = mainTabs.value.find(
-    (tab) => route.path === tab.path || route.path.startsWith(`${tab.path}/`)
-  )
-  return match?.path ?? MORE_TAB
-})
+watch(
+  () => route.path,
+  (path) => {
+    // 新页面从顶部开始，而滚动位置恰好没变时不会再有 scroll 事件——不重置的话
+    // 顶栏会带着上一页留下的小标题与分隔线
+    reset()
+    record(path)
+  },
+  { immediate: true }
+)
 
 const handleLogout = async () => {
   try {
@@ -144,56 +108,16 @@ const handleLogout = async () => {
 </script>
 
 <style scoped lang="scss">
-.drawer-header {
-  display: flex;
-  align-items: center;
-  padding: 16px;
-
-  .drawer-logo {
-    width: 32px;
-    height: 32px;
-    margin-right: 10px;
-  }
-
-  .drawer-title {
-    font-size: 18px;
-    font-weight: 700;
-    letter-spacing: 0.5px;
-  }
-}
-
 .mobile-content {
   /* 左右内距取 tokens.scss 的 --osr-mobile-gutter：各页做「常驻顶部」时要用负边距
      把底色铺满整宽，两处必须是同一个值。顶栏高度同理，见该文件的 --osr-mobile-appbar-height
      （改上面 <v-app-bar height="50"> 时那个令牌要一起改） */
   padding: var(--osr-mobile-gutter);
-  padding-bottom: calc(var(--osr-mobile-tabbar-height) + env(safe-area-inset-bottom, 8px) + 8px);
+  /* **必须用 --osr-mobile-tabbar-occupied 而不是 -height**：底栏是悬浮的，
+     它在底部占掉的高度还含离底间距与安全区。用错的表现是最后一张卡片被压在栏下面，
+     而页面不报任何错。同一条约定在 mobile-list.scss 的 .fab-add / .batch-bar 也成立 */
+  padding-bottom: calc(var(--osr-mobile-tabbar-occupied) + 8px);
   -webkit-overflow-scrolling: touch;
-}
-
-.mobile-tabbar {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  padding-bottom: env(safe-area-inset-bottom, 0);
-}
-
-/* Vuetify 给底栏按钮的 min-width 是 80px，五个按钮 400px 放不进 375 的屏幕：
-   v-bottom-navigation 是 overflow:hidden，于是首尾两个各被裁掉一截（实测 -12 / +13），
-   页面上不报错、也不出横向滚动条，只是「首页」和「更多」的边缘缺了一块。
-   选择器要写到 .v-btn.tabbar-item：只写 .tabbar-item 的话与 Vuetify 的
-   `.v-bottom-navigation .v-btn` 同特异性，谁后加载谁赢——实测输了。 */
-:deep(.v-btn.tabbar-item) {
-  min-width: 0;
-
-  span {
-    font-size: 11px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 100%;
-  }
 }
 
 .user-avatar {

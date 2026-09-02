@@ -1,0 +1,361 @@
+/* ============================================
+   移动端外壳：悬浮底栏 + 「更多」底部面板 + 大标题
+
+   与 mobile-list.scss 的分工：那边是**页面内容**的公共样式（列表骨架、卡片、FAB、
+   批量条），这边是**外壳**（chrome）——浮在所有内容之上、由 MobileLayout 渲染、
+   与具体是哪一页无关的那几层。
+
+   为什么样式不写在组件的 <style scoped> 里：
+   - `.more-panel` 挂在 v-bottom-sheet 里，会被 Teleport 搬到 .v-overlay-container，
+     scoped 属性选择器够不着它（这是 Vuetify 浮层最常见的样式失灵，表现为「弹出来
+     一片没样式的白板」）。
+   - `.mobile-tabbar` / `.tabbar-item` 是 e2e 用例的定位锚点，与 `.batch-bar` 的
+     位置关系也要放在一起才看得出来（批量条盖住底栏，两者几何必须对齐）。
+   ============================================ */
+
+/* ============================================
+   顶栏：滚动前后的两个状态
+
+   iOS 的做法是「大标题在内容里，滚过它之后顶栏里的小标题才淡入」——两个标题同时
+   出现是错态，读起来像重复了一遍。分隔线同理：内容还没滚到顶栏下方时画一条线，
+   那条线什么也没分隔。
+
+   **这两条必须写在全局样式表里，不能放进 MobileLayout 的 <style scoped>。**
+   surface.scss 里的 `.v-application .v-app-bar.v-toolbar` 是 (0,3,0)，而 scoped
+   会把属性选择器加在最后一段上、算下来只有 (0,2,0)，压不过它；症状是「分隔线一直在」，
+   不报错也不告警。写在这里则同为 (0,3,0) 且本文件在 index.scss 里排在 surface 之后。
+   ============================================ */
+.v-application .mobile-appbar.v-toolbar {
+  border-bottom-color: transparent;
+  transition: border-color var(--osr-dur-2) var(--osr-ease-out);
+}
+
+.v-application .mobile-appbar--scrolled.v-toolbar {
+  border-bottom-color: var(--osr-glass-border);
+}
+
+.appbar-title {
+  margin-left: 16px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--osr-fs-md);
+  font-weight: 600;
+  color: var(--osr-text-primary);
+  opacity: 0;
+  transform: translateY(6px);
+  transition:
+    opacity var(--osr-dur-2) var(--osr-ease-out),
+    transform var(--osr-dur-2) var(--osr-ease-out);
+}
+
+.appbar-title--visible {
+  opacity: 1;
+  transform: none;
+}
+
+/* ============================================
+   悬浮底栏
+
+   从贴边全宽的 v-bottom-navigation 换成离边悬浮的玻璃胶囊。三条不要改坏的：
+
+   1. **类名 `.mobile-tabbar` / `.tabbar-item` 不能改。** e2e/mobile.spec.ts 靠它们
+      判断「页面确实渲染在 MobileLayout 里」并做 tab 间导航，改名的话那批用例会
+      整片失败，而失败信息只会说找不到元素。
+   2. **玻璃是「模糊 + 提饱和 + 顶亮底暗的一对 inset 高光」三件套。** 只写
+      backdrop-filter 得到的是磨砂塑料：透上来的颜色掉一档饱和度、边缘没有厚度。
+      高光那两条 inset 删掉之后整块会塌回一张贴纸，这一点在暗色下尤其明显。
+   3. **圆角写 999px，不要写 calc(高度/2)。** 收缩态会改高度，用 calc 的话圆角要跟着
+      过渡，而 border-radius 与 height 的过渡节奏对不齐时胶囊两端会先方后圆地抖一下。
+   ============================================ */
+.mobile-tabbar {
+  position: fixed;
+  left: var(--osr-mobile-gutter);
+  right: var(--osr-mobile-gutter);
+  bottom: calc(var(--osr-mobile-tabbar-inset) + env(safe-area-inset-bottom, 0px));
+  /* 与 Vuetify 给 v-bottom-navigation 的层级保持一致：`.batch-bar` 的 1010
+     仍然压在它上面（选择模式接管底栏），浮层（2400+）仍然压在两者之上 */
+  z-index: 1004;
+
+  height: var(--osr-mobile-tabbar-height);
+  display: flex;
+  align-items: center;
+  padding: 6px;
+  border-radius: 999px;
+
+  background: var(--osr-glass-bg);
+  backdrop-filter: var(--osr-glass-blur);
+  -webkit-backdrop-filter: var(--osr-glass-blur);
+  box-shadow:
+    inset 0 1px 0 var(--osr-glass-spec-top),
+    inset 0 -1px 0 var(--osr-glass-spec-bottom),
+    0 0 0 1px var(--osr-glass-border),
+    var(--osr-glass-shadow);
+
+  transition:
+    height var(--osr-dur-3) var(--osr-ease-out),
+    left var(--osr-dur-3) var(--osr-ease-out),
+    right var(--osr-dur-3) var(--osr-ease-out);
+}
+
+/**
+ * 收缩态：向下滚动时把栏收窄、藏掉文字标签，把屏幕还给内容；向上滚或回到顶部即还原。
+ *
+ * **判据是滚动方向而不是「是否已经滚动过」**（见 composables/useMobileChrome.ts）。
+ * 按后者做的话，任何一个滚过一次的列表页此后永远是图标态——等于把标签删了，
+ * 而标签正是新用户分得清这五格的唯一依据。
+ */
+.mobile-tabbar--compact {
+  height: 50px;
+  left: calc(var(--osr-mobile-gutter) + 28px);
+  right: calc(var(--osr-mobile-gutter) + 28px);
+
+  .tabbar-label {
+    opacity: 0;
+    max-height: 0;
+    transform: translateY(4px);
+  }
+}
+
+/**
+ * 选中胶囊。用一个绝对定位的块横向滑动，而不是给选中项加背景：
+ * 后者只能瞬间跳变，而「滑过去」是这套交互里唯一承担「你从哪来、到哪去」的动效。
+ *
+ * 填充刻意用主色的低透明度而不是实心：实心会把底下的玻璃整个盖死，
+ * 读起来是「胶囊上贴了一块塑料」；透明填充才是「玻璃里嵌了一块玻璃」。
+ */
+.tabbar-pill {
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  left: 6px;
+  width: calc((100% - 12px) / var(--osr-tabbar-slots));
+  border-radius: 999px;
+  background: rgba(var(--v-theme-primary), 0.16);
+  box-shadow: inset 0 1px 0 var(--osr-glass-spec-top);
+  transform: translateX(calc(var(--osr-tabbar-active) * 100%));
+  transition: transform var(--osr-dur-3) var(--osr-ease-spring);
+  pointer-events: none;
+}
+
+.tabbar-item {
+  position: relative;
+  flex: 1;
+  /* Vuetify 时代这里要专门放开 min-width（它给底栏按钮 80px，五格在 375px 上放不下、
+     首尾各被裁掉一截）。现在是原生 button，默认就没有那个下限，但仍显式写出来，
+     免得以后有人换回 v-btn 时又踩一遍 */
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--osr-text-secondary);
+  font: inherit;
+  -webkit-tap-highlight-color: transparent;
+  transition: color var(--osr-dur-2) var(--osr-ease-out);
+
+  .v-icon {
+    transition: transform var(--osr-dur-3) var(--osr-ease-spring);
+  }
+
+  &:active {
+    transform: scale(0.94);
+  }
+
+  &.tabbar-item--active {
+    color: var(--osr-primary);
+
+    .v-icon {
+      transform: translateY(-1px) scale(1.06);
+    }
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--osr-primary);
+    outline-offset: -2px;
+    border-radius: 999px;
+  }
+}
+
+.tabbar-label {
+  font-size: var(--osr-fs-xs);
+  line-height: 1.2;
+  max-height: 14px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition:
+    opacity var(--osr-dur-2) var(--osr-ease-out),
+    max-height var(--osr-dur-2) var(--osr-ease-out),
+    transform var(--osr-dur-2) var(--osr-ease-out);
+}
+
+/* ============================================
+   「更多」底部面板
+
+   取代原先从左侧滑入的抽屉。两条理由写在这里免得以后有人「顺手改回去」：
+   - **手势方向**：入口在底栏最右格，面板从下方升起——手指按下的地方就是内容长出来
+     的地方。抽屉的问题是从底部按一下、东西却从左边飞进来；而它另一个入口（左上角
+     汉堡键）恰好是单手持机最难够到的一角。
+   - **密度**：25 个叶子平铺成列表要滚两屏，四列图标格一屏半到底，而且顶部能放下
+     搜索框——列表形态没有地方放它，除非再占掉一整行。
+   ============================================ */
+/* v-bottom-sheet 的 content 容器（contentClass）。Vuetify 会给它一层自己的
+   max-height / 圆角 / 阴影，这里把它压平成一个纯粹的定位容器，视觉全交给 .more-panel。
+   overflow:hidden 是为了让内部那对上圆角真的裁得住。 */
+.more-panel-shell {
+  width: 100%;
+  max-height: 100%;
+  margin: 0;
+  overflow: hidden;
+  border-radius: var(--osr-radius-xl) var(--osr-radius-xl) 0 0;
+  box-shadow: var(--osr-glass-shadow);
+}
+
+.more-panel {
+  /* dvh 让面板不被移动端浏览器那条会伸缩的地址栏挤掉一块；不支持时退回 vh */
+  height: 82vh;
+  height: 82dvh;
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--osr-radius-xl) var(--osr-radius-xl) 0 0;
+
+  background: var(--osr-glass-bg);
+  backdrop-filter: var(--osr-glass-blur);
+  -webkit-backdrop-filter: var(--osr-glass-blur);
+  box-shadow:
+    inset 0 1px 0 var(--osr-glass-spec-top),
+    0 0 0 1px var(--osr-glass-border);
+}
+
+.more-grabber {
+  width: 36px;
+  height: 5px;
+  flex-shrink: 0;
+  margin: 8px auto 2px;
+  border-radius: 999px;
+  background: var(--osr-text-disabled);
+}
+
+.more-search {
+  flex-shrink: 0;
+  padding: 6px 14px 4px;
+}
+
+.more-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 14px 16px;
+}
+
+.more-group-label {
+  margin: 14px 0 8px 2px;
+  font-size: var(--osr-fs-sm);
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--osr-text-secondary);
+}
+
+.more-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px 4px;
+}
+
+.more-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 2px 8px;
+  border: 0;
+  background: transparent;
+  border-radius: var(--osr-radius-lg);
+  cursor: pointer;
+  font: inherit;
+  color: var(--osr-text-primary);
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--osr-dur-1) var(--osr-ease-out);
+
+  &:active {
+    background: var(--osr-surface-hover);
+    transform: scale(0.97);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--osr-primary);
+    outline-offset: 2px;
+  }
+
+  /* 当前所在的那一页。面板是从任意页面打开的，不标出来的话用户失去「我在哪」 */
+  &.more-tile--current .more-tile-glyph {
+    background: var(--osr-primary);
+    color: var(--osr-on-primary);
+  }
+}
+
+.more-tile-glyph {
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--osr-radius-lg);
+  background: var(--osr-primary-subtle);
+  color: var(--osr-primary);
+  box-shadow: inset 0 1px 0 var(--osr-glass-spec-top);
+}
+
+.more-tile-label {
+  /* 图标格一行四个，在 320px 机型上每格约 72px。标题最长的是「热门自动订阅」六个字，
+     所以允许折两行并居中——单行截断会把「统计仪表盘」和「统计仪表板」变得没法区分 */
+  font-size: var(--osr-fs-xs);
+  line-height: 1.25;
+  text-align: center;
+  color: var(--osr-text-secondary);
+  max-width: 100%;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.more-empty {
+  padding: 30px 0;
+  text-align: center;
+  font-size: var(--osr-fs-base);
+  color: var(--osr-text-placeholder);
+}
+
+.more-foot {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: center;
+  padding: 6px 14px calc(10px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--osr-border-light);
+}
+
+/* ============================================
+   大标题
+
+   顶栏下方的一行大字，随内容一起滚走；滚过它之后顶栏里那个小标题才淡入
+   （见 MobileLayout 的 .appbar-title）。**刻意不做「高度收缩」动画** ——
+   那要在滚动回调里改一个参与布局的属性，每帧触发重排，而它换来的效果与
+   「让它自然滚走」几乎无异。
+   ============================================ */
+.mobile-bigtitle {
+  padding: 2px 2px 8px;
+  font-size: var(--osr-fs-3xl);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--osr-text-primary);
+}

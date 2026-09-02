@@ -27,7 +27,9 @@ const tokensCss = Object.values(
   import.meta.glob('../tokens.scss', { query: '?raw', import: 'default', eager: true })
 )[0] as string
 
-const styleSheets = import.meta.glob('../{list,mobile-list,menu,index}.scss', {
+// 整个目录一起扫，不再逐个列文件名：新增一张样式表（mobile-chrome.scss 就是这么来的）
+// 如果不在清单里，它用到的未定义令牌不会被任何一条用例发现，而症状是那条样式静默失效
+const styleSheets = import.meta.glob('../*.scss', {
   query: '?raw',
   import: 'default',
   eager: true

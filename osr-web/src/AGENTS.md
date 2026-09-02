@@ -17,7 +17,7 @@ src/
 ├── components/             # 公共组件 (SearchPanel, PageHeader, DirectoryTreeSelect, ChangePasswordDialog,
 │                           #           StatusChip, ThemeSwitch, MiniTrend, AnimatedNumber, mobile/*)
 │   └── dialogs/            # ★ PC 与移动端<共用>的表单弹窗 (FormDialogShell + 各页 XxxFormDialog)
-├── composables/            # 组合式函数 (useTaskList, useRecordList, useDataTable, useSearchPanel, useSidebarGroups, useBreadcrumb, useCurrentUser, useThemeMode, usePageTransition, useMenuLinks, useActionSheet, useMobileTabs 等)
+├── composables/            # 组合式函数 (useTaskList, useRecordList, useDataTable, useSearchPanel, useSidebarGroups, useBreadcrumb, useCurrentUser, useThemeMode, usePageTransition, useMenuLinks, useActionSheet, useMobileTabs, useMobileChrome, useRecentPages 等)
 ├── layouts/                # 布局组件 (DesktopLayout, MobileLayout)
 ├── router/                 # 路由配置 (动态路由)
 │   └── index.ts
@@ -25,7 +25,8 @@ src/
 │   ├── app.ts              # 应用全局状态 (设备检测、侧边栏)
 │   └── user.ts             # 用户状态
 ├── styles/                 # 全局样式 (tokens.scss 设计令牌, motion.scss 动画库, surface.scss 深度/玻璃层,
-│                           #           list.scss PC 列表公共, mobile-list.scss 移动端列表公共, menu.scss 侧边菜单)
+│                           #           list.scss PC 列表公共, mobile-list.scss 移动端列表公共,
+│                           #           mobile-chrome.scss 移动端外壳（悬浮底栏/更多面板）, menu.scss 侧边菜单)
 ├── types/                  # TypeScript 类型定义 (SearchParams, PageResult)
 ├── views/                  # PC 端页面 (openlist/, system/, monitor/, dashboard/)
 ├── views-mobile/           # 移动端页面 (对应 PC 端)
@@ -46,8 +47,8 @@ src/
 | 状态管理 | `src/stores/` | Pinia store (app/user) |
 | 布局 | `src/layouts/` | DesktopLayout / MobileLayout |
 | 两端共用的表单弹窗 | `src/components/dialogs/` | `FormDialogShell` + 10 个 `XxxFormDialog`，见下方「表单弹窗两端共用」 |
-| 移动端组件 | `src/components/mobile/` | MobileListPage(外壳), MobileSearchPanel, MobileBatchBar, MobileActionSheet, MobilePager, FullTextDialog, MobileTabSettingsDialog |
-| 移动端外壳/导航 | `src/layouts/MobileLayout.vue` + `composables/useMobileTabs.ts` | 顶栏 / 抽屉 / 底部 tab，见下方「移动端外壳」 |
+| 移动端组件 | `src/components/mobile/` | MobileListPage(外壳), MobileSearchPanel, MobileBatchBar, MobileActionSheet, MobilePager, FullTextDialog, MobileTabBar, MobileMorePanel, MobileTabSettingsDialog |
+| 移动端外壳/导航 | `src/layouts/MobileLayout.vue` + `components/mobile/MobileTabBar.vue` + `MobileMorePanel.vue` | 顶栏 / 悬浮底栏 / 「更多」面板，见下方「移动端外壳」 |
 | MCP 令牌管理 | `views/system/mcpToken/index.vue` + `api/system/mcpToken.ts` | 只有 PC 一套（同参数设置）；明文令牌只在签发响应里出现一次，页面必须让用户当场复制 |
 | PWA 配置 | `vite.config.ts` | VitePWA 插件配置 |
 | 动效 / 深度 / 排版令牌 | `src/styles/tokens.scss` + `motion.scss` + `surface.scss` | 见下方「动效系统」「深度系统」「排版」 |
@@ -144,10 +145,22 @@ await 过异步组件的 import，此时 chunk 已到位。
 **1px 亮环（`--osr-ring`）+ 顶部内高光（`--osr-highlight`）**，投影只作环境遮蔽。
 
 其余令牌：`--osr-glow-*`（辉光，**只给活跃/被强调的元素**，日常表面不挂）、
-`--osr-glass-bg` / `--osr-glass-blur`（顶栏/侧边栏/菜单/弹窗的玻璃层，
-`saturate` 不能省——只做 blur 会让透上来的内容发灰）、`--osr-ambient`
+`--osr-glass-*`（顶栏/菜单/弹窗/移动端悬浮底栏与「更多」面板的玻璃层）、`--osr-ambient`
 （铺在 `.v-application::before` 上的环境光，用伪元素是因为 Vuetify 会重写
 `.v-application` 的 background、写在上面会被盖掉）。
+
+**玻璃是三件套：`blur` + `saturate` + 顶亮底暗的一对 inset 高光**
+（`--osr-glass-bg` / `--osr-glass-blur` / `--osr-glass-spec-top` / `--osr-glass-spec-bottom`）。
+`saturate` 不能省——只做 blur 会让透上来的内容掉一档饱和度、整块发灰，那是磨砂塑料不是玻璃；
+而那对 inset 高光是**「厚度」的唯一来源**，删掉之后悬浮底栏会塌回一张糊了的贴纸，暗色下尤其
+明显。悬浮 chrome 的投影用 `--osr-glass-shadow`，与 `--osr-shadow-*` 是两回事：那三档给的是
+「贴在页面里的卡片」，这一档要把整块抬离内容，扩散更大、更靠下。
+
+**`prefers-reduced-transparency` 的兜底也做在令牌层**（`tokens.scss` 末尾）：玻璃退回不透明
+表面，所有走 `--osr-glass-*` 的地方一次全覆盖，新增玻璃表面自动受管。**那条 media 里的
+选择器必须把 `:root[data-theme='dark']` 一起写上**——暗色覆盖块是 (0,2,0)，只写 `:root`
+（0,1,0）的话本块在暗色主题下整个失效，而暗色恰恰是玻璃最透的一档。iOS 的「降低透明度」
+是个真有人开的开关，不是假想情况。
 
 `surface.scss` 全是**对 Vuetify 内部节点的覆盖**，与 `list.scss` 那种「本项目自己的类」
 不是一回事，所以单独一个文件。特异性靠 `.v-application` 前缀 + 后加载顺序，
@@ -233,7 +246,8 @@ await 过异步组件的 import，此时 chunk 已到位。
 | `.path-box/.path-row/.path-label--src\|dst\|mon/.path-text/.path-name` | `styles/list.scss` | 表格里的「源/目标/监控」路径对照 |
 | `.card-grid` `.item-card`（`--failed/--selectable/--compact`）+ `.card-header/body/row/footer` | `styles/list.scss` | PC 卡片网格（PT 配置类页面） |
 | `.mobile-page` `.task-list` `.task-card` `.fab-add` `.batch-bar` `.card-actions` `.drawer-actions` `.date-range-fields` | `styles/mobile-list.scss` | 移动端页面骨架与卡片（骨架三件套已被 `MobileListPage` 包起来，页面不再直接写） |
-| `.menu-item` `.menu-group-label` | `styles/menu.scss` | 两端侧边菜单项（两个 Layout 自己渲染的「首页」那条也用它） |
+| `.mobile-tabbar` `.tabbar-item` `.tabbar-pill` `.tabbar-label` `.more-panel*` `.more-tile*` `.more-group-label` `.mobile-bigtitle` `.appbar-title` | `styles/mobile-chrome.scss` | 移动端外壳：悬浮底栏 + 「更多」底部面板 + 大标题（**面板会被 Teleport 走，样式不能写进组件的 scoped 块**） |
+| `.menu-item` `.menu-group-label` | `styles/menu.scss` | PC 侧边菜单项（DesktopLayout 自己渲染的「首页」那条也用它；移动端已改用「更多」面板，不再用这套） |
 | `.mobile-card*` | `styles/mobile-list.scss` | PC 页在 <768px 时的表格降级卡片（monitor/job） |
 
 **PC 卡片同理**：`ptSubscription` 的订阅卡曾自造过一整套 `.sub-card / .sub-header / .sub-row / .sub-actions`，把 `.item-card` 的边框、圆角、hover 阴影、可点选态逐条重写了一遍，已退回 `.item-card item-card--compact` + `.card-header/.card-row/.card-footer`，只留海报横排（`.sub-main/.sub-poster`）、进度条（`.sub-progress`）、开关行（`.sub-switches`）这些真正特有的私有类。**网格里的加载条与空态已由 `list.scss` 统一横跨整行**（`.card-grid > .v-empty-state / > .v-progress-linear` 挂 `grid-column: 1 / -1`），页面里不要再各写一份。它们是网格的直接子元素，没有这条就只占一条轨道（≈300px），而 `v-empty-state` 会在自己的盒子里居中，于是整块空态挤在左上角那一格里——屏幕越宽越离谱（2560 的屏上只占 14% 宽度，看着像内容渲染错位而不是「这里没有数据」）。这条漏掉不报错、只是位置不对，实际 6 个卡片网格页全都漏了，其中 `ptDownloadRecord` 还只给加载条补了、没想到空态是同一个问题。
@@ -442,31 +456,79 @@ RuoYi 遗留）。`:disabled="multiple"` 字面读作「多选时禁用」、实
 
 **批量条是 `MobileBatchBar`，并且吸在屏幕底部、盖住 tab 栏**。原先它跟着内容滚、排在搜索
 面板下方，滚到第 20 张卡片再勾选时操作按钮已经在屏幕外了；「选择模式接管底栏」也是唯一
-不用额外补内距的方案——内容区本来就为 tab 栏留了 `--osr-mobile-tabbar-height`。组件把
+不用额外补内距的方案——内容区本来就为 tab 栏留了 `--osr-mobile-tabbar-occupied`。组件把
 「已选 N 项」「全选」「取消」三件固定的东西收进去（**「全选」紧挨「取消」前面**这条约定
-从此不靠人记），页面只用默认插槽给自己的动作按钮。背景必须不透明，否则透出下面的 tab 栏。
+从此不靠人记），页面只用默认插槽给自己的动作按钮。样式（含它与悬浮底栏的几何对齐）在
+`styles/mobile-list.scss` 的 `.batch-bar` 单源，几条硬约定见下方「移动端外壳」。
 
 **卡片「更多」面板是 `MobileActionSheet` + `useActionSheet()`**。后者提供
 `sheetOpen / sheetTarget / openSheet / run`，`run(() => handleX(sheetTarget))` 负责执行完
 自动关面板——原先每个按钮都要手写一句 `xxxOpen = false`，漏写就是点完不关。
 
-**底部 tab：4 个可跳转 + 第 5 格固定「更多」**。「更多」打开侧边抽屉——抽屉原先只有左上角
-汉堡键一个入口，那是单手持机最难够到的位置，而 PT 那 12 个页面全都只能从它进。哪四个页面
-上底栏由用户定（`useMobileTabs`，存 localStorage `osr-mobile-tabs`，入口在抽屉底部的
-「自定义底栏」）：默认仍是首页/同步记录/STRM记录/重命名，但「最常用的四个」本就因人而异。
-三条别改坏的：**tab 的 path 一律按 `meta.componentKey` 反查**（后端菜单 path 有
-`/openlist/xxx` 与 `/openliststrm/xxx` 两种前缀，写死会跳 404）；**配置里指向已不存在的
-菜单要丢掉而不是渲染出来**（改权限/删菜单后会留死链）；**上限 4 个不能放宽**——Vuetify 给
-底栏按钮的 min-width 是 80px，六个按钮在 320px 机型上会把整页撑出横向滚动条（`.tabbar-item`
-已经放开 min-width 并把标签压到 11px，这是留给第 5 格「更多」的余量）。
-不在 tab 上的页面把「更多」点亮，底栏四个全灰会让用户失去「我在哪」的定位。
+**底部 tab：4 个可跳转 + 第 5 格固定「更多」，组件是 `MobileTabBar`，样式在
+`styles/mobile-chrome.scss`。** 哪四个页面上底栏由用户定（`useMobileTabs`，存 localStorage
+`osr-mobile-tabs`，入口在「更多」面板底部的「自定义底栏」）：默认仍是首页/同步记录/
+STRM记录/重命名，但「最常用的四个」本就因人而异。四条别改坏的：**tab 的 path 一律按
+`meta.componentKey` 反查**（后端菜单 path 有 `/openlist/xxx` 与 `/openliststrm/xxx` 两种
+前缀，写死会跳 404）；**配置里指向已不存在的菜单要丢掉而不是渲染出来**（改权限/删菜单后
+会留死链）；**上限 4 个不能放宽**（第 5 格留给「更多」，320px 机型上五格已经到顶）；
+**不在 tab 上的页面要把「更多」点亮**——PT 那四组 12 个页面全都不在底栏上，五格全灰会让
+用户失去「我在哪」的定位。**类名 `.mobile-tabbar` / `.tabbar-item` 是 `e2e/mobile.spec.ts`
+的定位锚点，改名那批用例会整片失败，而失败信息只会说找不到元素。**
 
-**抽屉里的菜单与 PC 共用 `SidebarMenuItem`**：分组渲染成一行灰色标题 + 子项平铺，不是
-折叠面板。移动端曾用 `v-list-group` 手风琴，但全库 9 个分组 25 个叶子平铺后也就 30 多行，
-换来的是「开抽屉 → 找分组 → 展开 → 点项」三次点击加一次动画等待；那份绑在 `:opened` 上的
-展开态还是 computed（受控属性），用户手动展开的其它分组会在下次路由变化时被强制收起。
+**底栏是离边悬浮的玻璃胶囊，不是贴边全宽的 `v-bottom-navigation`。** 换掉那个组件是因为
+它是 Vuetify 的**布局**组件：全宽 fixed、参与 `v-main` 的偏移计算，要改成悬浮就得一路和
+它的布局系统对抗；它给按钮的 `min-width: 80px` 也曾把五格挤出 375px 的屏幕（首尾各被裁掉
+一截，不报错、不出横向滚动条，只是边缘缺了一块）。现在是原生 `<button>` 实现。
+两条关于**几何**的硬约定：
+- **「给底栏让位」一律用 `--osr-mobile-tabbar-occupied`，不要用 `-height`。** 悬浮之后
+  「栏高」不再等于「底部占掉多少」，后者还含离底间距与安全区。内容区的 `padding-bottom`、
+  `.fab-add` 的上移、`.batch-bar` 的定位三处都按它算，用错的表现是按钮或最后一张卡片被压
+  在栏下面点不到，而页面不报任何错。
+- **`.batch-bar` 的几何必须与 `.mobile-tabbar` 逐项对齐**（同一批令牌算左右内距、离底距离、
+  最小高度）。选择模式一开就是「一个浮着一个贴边」的话，读起来像两个不相干的控件叠在一起，
+  而它本该是同一根栏换了个状态。它**背景不透明**（用玻璃会把下面的 tab 图标糊着透出来）、
+  **圆角用 `--osr-radius-xl` 而不是 999px**（按钮多时会 wrap 成两行，胶囊圆角会把第二行
+  首尾的按钮切进圆弧里）。
+
+**底栏随滚动方向收缩**（`useMobileChrome`）：向下滚收窄成图标态，向上滚或回到顶部附近还原。
+**判据必须是方向，不是「滚过没有」**——按后者做的话，任何一个滚过一次的列表页此后永远是
+图标态，等于把文字标签删了，而标签正是新用户分得清这五格的唯一依据，且这个退化完全静默。
+同一个 composable 还给出 `scrolled`（判据是**绝对位置**：大标题滚出视口没有），驱动顶栏
+小标题的淡入与那条分隔线——两个布尔量判据不同，不要合并。
+
+**左侧抽屉已删除，换成从底部升起的「更多」面板（`MobileMorePanel`，`v-bottom-sheet`）。**
+抽屉的问题不是长得丑，是两件事：**手势方向**（入口在底栏最右格，按一下东西却从左边飞进来；
+它另一个入口——左上角汉堡键——恰好是单手持机最难够到的一角）与**密度**（9 个分组 25 个叶子
+平铺成 30 多行，要滚两屏，每行只有一个图标加两到六个汉字，没有任何可供快速定位的形状差异）。
+面板是四列图标格，一屏半到底，顶部还放得下搜索框——列表形态没有地方放它，除非再占掉一整行。
+四条别改坏的：
+- **样式必须在 `styles/mobile-chrome.scss` 里，不能写进组件的 `<style scoped>`。**
+  `v-bottom-sheet` 会把内容 Teleport 到 `.v-overlay-container`，scoped 的属性选择器够不着它，
+  症状是「掀开来一片没样式的白板」。
+- **数据走 `useMenuGroups()`（`useMenuLinks.ts`），它保留一层分组**；`useMenuLinks` 那份
+  拍平的给底栏配置与快捷入口用。两者共用 `resolvePath`，各写一遍的漂移表现是「同一个菜单
+  在底栏能跳、在更多面板里 404」。
+- **首页必须由 `HOME_LINK` 补进来**：它是常量路由、不在后端 `getRouters` 下发的菜单树里。
+  旧抽屉是把「首页」硬编码成第一条 `v-list-item` 的，换实现时最容易连着那行一起丢掉，
+  症状是把首页从底栏移除后再也回不去。这个常量此前在 `useMobileTabs` 里就写了两遍，现已收口。
+- **搜索同时匹配菜单名与分组名**：打「pt」要能一次筛出 PT 那四组，而它们的子菜单名
+  （订阅管理、过滤规则、索引器…）里一个 PT 字样都没有——20260785 分组时特意去掉了那个前缀。
+
+**面板顶部的「常用」是最近访问过、且不在底栏上的页面**（`useRecentPages`，存 localStorage
+`osr-mobile-recent`）。**剔掉底栏那几个是关键**：它们本来就一触即达，摆进这一行只会把真正
+需要走这个入口的页面挤出去——而这个面板存在的全部理由，就是底栏放不下的那 21 个。
+分块顺序是**无标题的首块（首页）→ 常用 → 各菜单分组**：无标题那块夹在两个带标题的分块中间时，
+读起来像是上一块漏了几个格子。
+
+**顶栏没有汉堡键了**，左上角空出来的位置留给页面级动作比留给全局菜单合理。顶栏下方多了一行
+**大标题**（`.mobile-bigtitle`），随内容一起滚走，滚过之后顶栏里的小标题才淡入（iOS 的做法；
+两个标题同时出现是错态）。**刻意不做「高度收缩」动画**——那要在滚动回调里改一个参与布局的
+属性、每帧触发重排，而效果与让它自然滚走几乎无异。
+
+**`SidebarMenuItem` 现在只有 PC 在用**（分组渲染成一行灰色标题 + 子项平铺，不是折叠面板）。
 分组标题的显隐由调用方传 `showGroupLabel`（PC 收成 rail 时藏起来），**组件自己不读 store**
-——`App.vue` 在移动端会调 `closeSidebar()`，读 store 的话移动端标题会跟着一起消失。
+——历史上它读过，而 `App.vue` 在移动端会调 `closeSidebar()`，于是移动端标题会跟着一起消失。
 
 **退出登录收在头像菜单里**，与 PC 一致。它原先是紧挨 28px 头像的一个裸 `log-out` 图标，
 两个热区间距只有 8px；破坏性动作进菜单这条约定（见下方表格操作列那段）在这里同样成立。

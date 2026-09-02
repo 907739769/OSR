@@ -100,6 +100,16 @@
   --osr-glass-blur: blur(20px) saturate(1.6);
   --osr-glass-border: rgba(15, 23, 42, 0.07);
 
+  /* 玻璃边缘的高光：顶亮 + 底暗的一对 inset。**这是「厚度」的唯一来源** ——
+     只有模糊没有高光的话，悬浮底栏会塌回一张糊了的贴纸，读不出它浮在内容之上。
+     浅色下顶部那道要接近纯白才看得见；暗色下反而要收着，因为暗底本身对比就够。 */
+  --osr-glass-spec-top: rgba(255, 255, 255, 0.85);
+  --osr-glass-spec-bottom: rgba(15, 23, 42, 0.05);
+
+  /* 悬浮 chrome（底栏、底部面板）的投影，与上面三档 --osr-shadow-* 是两回事：
+     那三档给的是「贴在页面里的卡片」，这一档要把整块抬离内容，扩散更大、更靠下。 */
+  --osr-glass-shadow: 0 10px 34px -10px rgba(20, 16, 10, 0.35);
+
   /* 环境光：铺在整个 app 背景上的极淡径向渐变，给界面一个光源方向。
      纯色底 + 纯色卡片是「后台模板」最大的特征，有方向的环境光才有空间感。 */
   --osr-ambient:
@@ -126,12 +136,23 @@
   --osr-mobile-gutter: 12px;
 
   /**
-   * 移动端底部 tab 栏高度。**必须与 layouts/MobileLayout.vue 的 <v-bottom-navigation height> 一致。**
-   * tab 栏是 fixed 的，内容区要按它的高度留出底部内距，悬浮按钮（.fab-add）也要按它上移，
-   * 否则会被压在栏下面点不到。以前这个 56 在三处各写了一遍（MobileLayout 的 padding-bottom
-   * 与 mobile-list.scss 的 .fab-add 两处），改栏高必然漏一处。
+   * 移动端底部 tab 栏：栏本身的高度、它离屏幕底边的距离、以及它在底部实际占掉的高度。
+   *
+   * **三个值不是一回事，用错那个是这一带最容易犯的错。** 底栏从贴边全宽改成悬浮胶囊之后，
+   * 「栏高」不再等于「底部要留多少」——后者还要算上离底间距与安全区。凡是「给底栏让位」
+   * 的地方（内容区 padding-bottom、`.fab-add` 上移、`.batch-bar` 定位）一律用
+   * `--osr-mobile-tabbar-occupied`；只有画栏本身时才用 `-height` 与 `-inset`。
+   * 用错的表现是按钮或最后一张卡片被压在栏底下点不到，而页面不报任何错。
+   *
+   * `-height` 必须与 `components/mobile/MobileTabBar.vue` 里 `.mobile-tabbar` 的实际高度一致
+   * （它由本令牌驱动，所以改这里就够了）。
    */
-  --osr-mobile-tabbar-height: 56px;
+  --osr-mobile-tabbar-height: 60px;
+  --osr-mobile-tabbar-inset: 14px;
+  --osr-mobile-tabbar-occupied: calc(
+    var(--osr-mobile-tabbar-height) + var(--osr-mobile-tabbar-inset) +
+      env(safe-area-inset-bottom, 0px)
+  );
 
   /* ============================================
      排版
@@ -201,6 +222,28 @@
    * 全站用到的 var(--osr-*) 都在本文件里有定义，这条契约不该靠在测试里开白名单绕过。
    */
   --osr-i: 0;
+
+  /**
+   * SVG 折线描边动画（motion.scss 的 `osr-draw-line`）的起始 dashoffset，
+   * 由调用方按自己的路径长度覆盖（`MiniTrend.vue` 用的是 pathLength=1 的归一化写法）。
+   *
+   * 登记在这里的理由同上一条：它此前只靠 `var(--osr-dash, 1000)` 里那个内联兜底值活着，
+   * 在令牌表里查不到这个名字——而这正是「扫描范围一放开就现形」的那类缺口。
+   */
+  --osr-dash: 1000;
+
+  /**
+   * 悬浮底栏选中胶囊的两个参数，由 `MobileTabBar.vue` 在栏根节点上覆盖：
+   * `-slots` 是格子总数（可跳转的 tab + 固定的「更多」），`-active` 是当前选中的下标。
+   * 胶囊靠 `width: calc(100% / slots)` 与 `translateX(active * 100%)` 定位。
+   *
+   * 在这里给默认值的理由与上面 `--osr-i` 完全相同：**槽数落到 0 会让 width 变成
+   * 除零、整条胶囊消失**，而那时页面不报任何错；同时也让它们成为登记在册的名字，
+   * design-system.spec.ts 校验「全站用到的 var(--osr-*) 都有定义」这条契约不该
+   * 靠在测试里开白名单绕过。默认 5 是「4 个 tab + 更多」这个常态。
+   */
+  --osr-tabbar-slots: 5;
+  --osr-tabbar-active: 0;
 }
 
 /* ============================================
@@ -247,6 +290,9 @@
 
   --osr-glass-bg: rgba(var(--v-theme-surface), 0.62);
   --osr-glass-border: rgba(255, 255, 255, 0.08);
+  --osr-glass-spec-top: rgba(255, 255, 255, 0.18);
+  --osr-glass-spec-bottom: rgba(0, 0, 0, 0.28);
+  --osr-glass-shadow: 0 12px 40px -12px rgba(0, 0, 0, 0.75);
 
   /* 暗色下环境光要更明显才看得出来：底色本身几乎没有信息量，
      这层渐变是唯一让大面积深色不显得「死」的东西 */
@@ -270,5 +316,24 @@
     --osr-dur-2: 0.01ms;
     --osr-dur-3: 0.01ms;
     --osr-dur-4: 0.01ms;
+  }
+}
+
+/* ============================================
+   降低透明度偏好
+
+   iOS 的「设置 → 辅助功能 → 显示与文字大小 → 降低透明度」是个真有人开的开关
+   （半透明 + 模糊会让部分用户读不清叠在内容上的文字）。在令牌层退回不透明表面，
+   所有走 --osr-glass-* 的地方（顶栏、抽屉、下拉菜单、悬浮底栏、底部面板）一次全覆盖，
+   新增玻璃表面自动受管。
+
+   **选择器必须把 `:root[data-theme='dark']` 一起写上**：那条暗色覆盖是 (0,2,0)，
+   只写 `:root`（0,1,0）的话本块在暗色主题下整个失效——而暗色恰恰是玻璃最透的一档。
+   ============================================ */
+@media (prefers-reduced-transparency: reduce) {
+  :root,
+  :root[data-theme='dark'] {
+    --osr-glass-bg: rgb(var(--v-theme-surface));
+    --osr-glass-blur: none;
   }
 }

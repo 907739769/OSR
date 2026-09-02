@@ -1,6 +1,6 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useMenuLinks, type MenuLink } from '@/composables/useMenuLinks'
+import { useMenuLinks, HOME_LINK, type MenuLink } from '@/composables/useMenuLinks'
 
 /** 底栏最多放几个可跳转的 tab（第 5 个格子固定是「更多」） */
 export const MAX_TABS = 4
@@ -15,7 +15,7 @@ const STORAGE_KEY = 'osr-mobile-tabs'
  * 写死会让 tab 跳到 404。首页是常量路由，直接给 path。
  */
 const DEFAULT_TABS: { component?: string; path?: string; label: string; icon: string }[] = [
-  { path: '/dashboard', label: '首页', icon: 'layout-dashboard' },
+  { path: HOME_LINK.path, label: HOME_LINK.title, icon: HOME_LINK.icon },
   { component: 'openlist/copyRecord/index', label: '同步记录', icon: 'files' },
   { component: 'openlist/strmRecord/index', label: 'STRM记录', icon: 'clapperboard' },
   { component: 'openlist/renameDetail/index', label: '重命名', icon: 'square-pen' }
@@ -48,11 +48,9 @@ export function useMobileTabs() {
   const route = useRoute()
   const menuLinks = useMenuLinks()
 
-  /** 首页 + 当前用户有权限的全部菜单叶子，设置弹窗与底栏共用这一份 */
-  const allLinks = computed<MenuLink[]>(() => [
-    { path: '/dashboard', title: '首页', icon: 'layout-dashboard' },
-    ...menuLinks.value
-  ])
+  /** 首页 + 当前用户有权限的全部菜单叶子，设置弹窗与底栏共用这一份。
+      首页是常量路由、不在后端菜单树里，所以要单独补——定义收口在 HOME_LINK */
+  const allLinks = computed<MenuLink[]>(() => [HOME_LINK, ...menuLinks.value])
 
   /**
    * 未注册 / 未授权的 tab 直接隐藏，而不是留一个点了报 404 的死链。

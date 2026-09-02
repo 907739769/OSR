@@ -300,15 +300,16 @@
   }
 }
 
-/* 底部 tab 栏是 fixed 的，悬浮按钮要按栏高上移，否则被压在栏下面点不到。
-   栏高走 --osr-mobile-tabbar-height 令牌，不要再写死 56 —— 这个数字原先在
-   MobileLayout 的 padding-bottom 与这里各写一遍，改栏高必漏一处。
+/* 底部 tab 栏是 fixed 的，悬浮按钮要按它让位，否则被压在栏下面点不到。
+   **走 --osr-mobile-tabbar-occupied 而不是 -height**：底栏改成悬浮胶囊之后，
+   「栏高」不再等于「底部占掉多少」，后者还含离底间距与安全区（见 tokens.scss 那三个
+   令牌的注释）。用错的表现是按钮正好压在栏上，而页面不报任何错。
    （原先这里还有一条 @media (min-width: 768px) 的偏移，是死代码：.fab-add 只出现在
      views-mobile 的页面里，而那些页面 768px 以上根本不渲染，已删。） */
 .fab-add {
   position: fixed;
   right: 20px;
-  bottom: calc(var(--osr-mobile-tabbar-height) + 16px + env(safe-area-inset-bottom, 0px));
+  bottom: calc(var(--osr-mobile-tabbar-occupied) + 12px);
   z-index: 1000;
   box-shadow: var(--osr-shadow-lg);
   transition: all var(--osr-transition-fast);
@@ -341,25 +342,35 @@
 
 /* 批量操作条（组件 components/mobile/MobileBatchBar.vue）。
    吸在屏幕底部、盖住 tab 栏 —— 「选择模式接管底栏」是移动端的常见做法，也是这里
-   唯一不用额外补内距的方案：内容区本来就为 tab 栏留了 --osr-mobile-tabbar-height。
+   唯一不用额外补内距的方案：内容区本来就为 tab 栏留了 --osr-mobile-tabbar-occupied。
    原先它跟着内容滚，排在搜索面板下方，滚到第 20 张卡片再勾选时操作按钮已经在屏幕外了。
-   背景必须不透明（不能再用 --osr-primary-subtle 那个 10% 的底），否则会透出下面的 tab 栏。 */
+
+   **几何必须与 .mobile-tabbar 逐项对齐**（左右内距、离底距离、最小高度都取同一批令牌）：
+   底栏改成悬浮胶囊之后，批量条若还贴边全宽，选择模式一开就是「一个浮着一个贴边」，
+   读起来像两个不相干的控件叠在一起，而它本该是同一根栏换了个状态。
+
+   两处刻意不同：**背景不透明**（不能用 --osr-glass-bg，否则会把下面的 tab 图标糊着透出来，
+   那正是「玻璃叠玻璃」最难看的一种）；**圆角用 --osr-radius-xl 而不是 999px**——按钮多时
+   这条会 flex-wrap 成两行，胶囊圆角在两行高度下的圆弧有 50px，会把第二行首尾的按钮切进
+   圆角里。主色的那圈描边继承自原先的 border-top，是「你在选择模式」的信号，别去掉。 */
 .batch-bar {
   position: fixed;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  /* v-bottom-navigation 由 Vuetify 布局给到 1004，这里要压在它上面 */
+  left: var(--osr-mobile-gutter);
+  right: var(--osr-mobile-gutter);
+  bottom: calc(var(--osr-mobile-tabbar-inset) + env(safe-area-inset-bottom, 0px));
+  /* .mobile-tabbar 在 1004，这里要压在它上面 */
   z-index: 1010;
   display: flex;
   align-items: center;
   gap: 6px;
   min-height: var(--osr-mobile-tabbar-height);
-  padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
+  padding: 8px 12px;
+  border-radius: var(--osr-radius-xl);
   background: var(--osr-surface);
-  border-top: 2px solid var(--osr-primary-accent);
-  box-shadow: var(--osr-shadow-lg);
-  font-size: 13px;
+  box-shadow:
+    0 0 0 1.5px var(--osr-primary-accent),
+    var(--osr-glass-shadow);
+  font-size: var(--osr-fs-base);
   flex-wrap: wrap;
 
   .selected-count {
