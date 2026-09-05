@@ -54,6 +54,15 @@ public class MediaParser {
         if (StringUtils.isNotEmpty(title)) info.setTitle(title);
         if (StringUtils.isNotEmpty(year)) info.setYear(year);
 
+        // 富化<b>之前</b>先记一次本地解析结果。末尾那行 info 打的是 TMDb（乃至 AI）改写过的最终值，
+        // 只有它的话，「本地正则解析错了」与「TMDb 匹配错了」在日志上完全一样——
+        // 而 TMDb 采纳候选时会连年份一起改写，最容易把人引向错误的方向：
+        // Fights.Break.Sphere.S05E208.2017 被刮成一条 first_air_date 为空的脏条目后年份变成空串，
+        // 现象读起来就是"年份没解析出来"，实际本地解析得好好的。
+        log.debug("本地解析结果: {} -> 标题[{}] 原始标题[{}] 英文标题[{}] 年份[{}] 季[{}] 集[{}]",
+                filename, info.getTitle(), info.getOriginalTitle(), info.getEnglishTitle(),
+                info.getYear(), info.getSeason(), info.getEpisode());
+
         if (tmdbClient != null) {
             tmdbClient.enrich(info);
         }

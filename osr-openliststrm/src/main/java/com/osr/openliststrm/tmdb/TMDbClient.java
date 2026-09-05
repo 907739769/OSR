@@ -55,6 +55,18 @@ public class TMDbClient {
      */
     private static final int EPISODE_OVERFLOW_FACTOR = 2;
 
+    /**
+     * 排序阶段最多为几个候选补拉英文规范名（{@link #needsEnglishProbe} 判定为「标题分注定为 0」的那些）。
+     * <p>
+     * 这是一道<b>请求数闸门</b>：给每个候选都补拉的话，一次搜索最坏要多发 20 次详情请求，
+     * 代价与收益不成比例。取 5 是因为按 TMDb 相关度扫过去，正确答案很少排在第 5 个
+     * <b>符合该结构</b>的候选之后——注意计数只统计真正发出探测的候选，
+     * 而不是「相关度前 5 名」：{@code Fights Break Sphere} 那次事故里，正确答案
+     * {@code 斗破苍穹(79481)} 在原始结果中排第 6，按名次截断的话正好被挡在门外。
+     * </p>
+     */
+    private static final int MAX_ENGLISH_TITLE_PROBES = 5;
+
     private final String apiKey;
     private final ObjectMapper mapper;
 
@@ -106,7 +118,7 @@ public class TMDbClient {
 
             JsonNode d = mapper.readTree(api.getDetails(apiKey, resolvedType, id));
             if (d != null) {
-                info.setYear(getYearSafe(d, resolvedType));
+                applyYear(info, getYearSafe(d, resolvedType));
                 String best = getBestTitle(resolvedType, d, id, api);
                 if (StringUtils.isNotEmpty(best)) {
                     info.setTitle(best);
@@ -176,6 +188,7 @@ public class TMDbClient {
             }
         }
 
+        boolean matched = false;
         for (JsonNode ep : episodes) {
             int epNum = ep.path("episode_number").asInt(0);
             if (epNum != currentEpNum) continue;
@@ -251,7 +264,24 @@ public class TMDbClient {
                 info.setEpisodeStillPath(stillPath);
             }
 
+            matched = true;
             break; // 找到当前集后退出
+        }
+
+        // 季里没有这个集号：集标题/剧情/播出日期/剧照全部留空，而上面每个字段都是"有才写"，
+        // 不说一声的话这是一次完全静默的空转——单集 NFO 生成出来只有骨架，
+        // 表现为"刮削成功但这一集什么信息都没有"，从日志里看不出任何异常。
+        // 最常见的成因是集号编制不一致（见 AGENTS.md「集号有三套」）：发布组按绝对集号命名、
+        // 而 TMDb 这一季按季内相对号编制时，E1173 在只有 61 集的第 1 季里必然找不到。
+        // 这里只报告、不换算——换算需要 tmdb_episode_number 那样的可靠判据（PT 侧的
+        // AbsoluteEpisodeMap 有，刮削侧没有），在这一层猜只会多一个说不清的转换。
+        if (!matched) {
+            log.warn("TMDb 第 {} 季里没有第 {} 集，分集信息留空：tvId={}，该季集号区间 {}~{}（共 {} 集）。"
+                            + "若发布组按绝对集号命名而 TMDb 按季内相对号编制，两者对不上是预期的",
+                    seasonNum, currentEpNum, tvId,
+                    episodes.get(0).path("episode_number").asInt(),
+                    episodes.get(episodes.size() - 1).path("episode_number").asInt(),
+                    episodes.size());
         }
     }
 
@@ -350,7 +380,11 @@ public class TMDbClient {
             return null;
         }
 
-        List<JsonNode> ranked = rankCandidates(type, info, results);
+        // 英文规范名在「排序」与「采纳门槛」两处都要用，同一个 id 只发一次请求。
+        // getDetails 本身有 L1+DB 两层缓存，这层 map 省的是缓存查找与 JSON 解析，
+        // 更要紧的是让"补拉了几次"这件事在一次搜索内是可数的（MAX_ENGLISH_TITLE_PROBES 的闸门靠它才准）。
+        java.util.Map<Integer, java.util.Optional<String>> englishTitles = new java.util.HashMap<>();
+        List<JsonNode> ranked = rankCandidates(type, info, results, api, englishTitles);
         // 只打候选的名字/年份/id，不打整个 results 数组：那是完整响应体（实测平均 1.2KB 一条），
         // 而下面两道检验的日志引用候选靠的正是「第 N 名」+ 名字，数组里其余字段一个都用不上。
         // 放在排序之后：这里的名次与 doSearchOnce 后续日志里的「第 N 名」是同一套编号，
@@ -371,7 +405,7 @@ public class TMDbClient {
                 continue;
             }
 
-            if (!hasEnoughEvidence(type, info, picked, id, api)) {
+            if (!hasEnoughEvidence(type, info, picked, id, api, englishTitles)) {
                 // 降 DEBUG 并写明「还有后手」：这是三级回退链的<b>中间步骤</b>，不是终态。
                 // 罗马音命名的文件必然走到这里（TMDb 的三个标题里没有罗马音这一种），
                 // 随后由下一个候选标题或 AI 兜底接住，实测 8 集全部刮削成功。
@@ -392,7 +426,7 @@ public class TMDbClient {
                 continue;
             }
 
-            info.setYear(getYearSafe(picked, type));
+            applyYear(info, getYearSafe(picked, type));
             info.setTmdbId(picked.path("id").asText());
 
             String best = getBestTitle(type, picked, id, api);
@@ -473,11 +507,12 @@ public class TMDbClient {
      * 会把非中文内容成片拒掉。所以门槛必须落在<b>信号</b>上，不是落在分数上。
      * </p>
      */
-    private boolean hasEnoughEvidence(String type, MediaInfo info, JsonNode node, int id, TMDbApiService api) {
+    private boolean hasEnoughEvidence(String type, MediaInfo info, JsonNode node, int id, TMDbApiService api,
+                                      java.util.Map<Integer, java.util.Optional<String>> englishTitles) {
         if (titleMatchLevel(type, info, node) > 0 || yearClose(type, info, node)) {
             return true;
         }
-        return englishTitleMatches(type, info, id, api);
+        return englishTitleMatches(type, info, id, api, englishTitles);
     }
 
     /**
@@ -501,12 +536,20 @@ public class TMDbClient {
      * <p>
      * <b>只在前两条证据都不成立时才发这次请求</b>，正常命中的路径请求数不变；且
      * {@code TMDbApiService} 对 getDetails 有 L1+DB 两层缓存，同一部剧的几十集只会真正请求一次。
-     * 打分（{@link #scoreCandidate}）刻意不引入英文名——那需要给<b>每个</b>候选各发一次请求，
-     * 代价与收益不成比例；冠军选错时的兜底仍是「拒绝 → 降级到下一个候选标题 → AI」。
+     * </p>
+     * <p>
+     * <b>排序阶段现在也会用英文规范名</b>（{@link #needsEnglishProbe}），但仅限「标题分注定为 0」
+     * 的那种结构、且整次搜索最多探 {@value #MAX_ENGLISH_TITLE_PROBES} 次。早先这里写的是
+     * 「打分刻意不引入英文名，那需要给每个候选各发一次请求」——代价的判断没错，
+     * 错在把它当成了"因此完全不做"：门槛只作用于<b>已经进入前
+     * {@value #MAX_CANDIDATES_EXAMINED} 名</b>的候选，而正确答案压根挤不进前三时，
+     * 这条最强的证据一次都不会被求值（{@code Fights Break Sphere} 事故）。
+     * 两处共用 {@code englishTitles} 这份按 id 记忆的结果，因此门槛这次调用通常不再产生新请求。
      * </p>
      */
-    private boolean englishTitleMatches(String type, MediaInfo info, int id, TMDbApiService api) {
-        String english = fetchEnglishCanonicalTitle(type, id, api);
+    private boolean englishTitleMatches(String type, MediaInfo info, int id, TMDbApiService api,
+                                        java.util.Map<Integer, java.util.Optional<String>> englishTitles) {
+        String english = englishTitleOf(type, id, api, englishTitles);
         if (StringUtils.isBlank(english)) {
             return false;
         }
@@ -523,6 +566,72 @@ public class TMDbClient {
      * （同 {@link #fetchChineseAlias} 的教训：{@code TMDbApiService} HTTP 失败时返回 null，
      * 而 {@code mapper.readTree(null)} 会抛 {@code IllegalArgumentException}）。
      */
+    /**
+     * 取英文规范名，同一次搜索内按 id 记忆（含"查了但没有"这个结果）。
+     * <p>
+     * 用 {@link java.util.Optional} 装是因为 {@code computeIfAbsent} 不缓存 null 值——
+     * 直接存 null 的话，一个确实没有英文名的候选会在排序与门槛两处各发一次请求，
+     * 而那正是这层记忆要省掉的东西。
+     * </p>
+     */
+    private String englishTitleOf(String type, int id, TMDbApiService api,
+                                  java.util.Map<Integer, java.util.Optional<String>> cache) {
+        if (id <= 0) {
+            return null;
+        }
+        return cache.computeIfAbsent(id,
+                k -> java.util.Optional.ofNullable(fetchEnglishCanonicalTitle(type, k, api))).orElse(null);
+    }
+
+    /**
+     * 这个候选是否属于「标题分注定为 0」的结构：解析出的标题里有纯拉丁的一个，
+     * 而候选的 name/original_name <b>全部</b>含 CJK/假名/谚文。
+     * <p>
+     * 满足这个结构时，{@link #titleMatchLevel} 拿拉丁标题去比两个 CJK 字段，结果<b>只可能是 0</b>——
+     * 不是"这两部作品不同"，而是"这一维根本没参与比较"。真实事故
+     * {@code Fights.Break.Sphere.S05E208.2017}：TMDb 上正确答案《斗破苍穹》(79481) 的
+     * name 与 original_name 都是中文，一分标题分都拿不到，只靠年份吻合的 +40 与热度撑着；
+     * 而三条 TMDb 自建的垃圾条目（{@code Fights Break Sphere: Origin (2022)} 一类，
+     * {@code number_of_episodes} 为 0、无播出日期、{@code origin_country} 标成 US）
+     * 靠"包含"各拿 +60 稳占前三，正确答案排在第 4、被 {@link #MAX_CANDIDATES_EXAMINED} 挡在门外，
+     * 连被检验的机会都没有。冠军又恰好能过采纳门槛（标题包含命中），
+     * 于是整部国漫被刮成一部"美剧"，年份还被空的 {@code first_air_date} 抹掉。
+     * 而 TMDb 上<b>本来就有</b>一击命中的证据：79481 的 en-US 规范名逐字就是 {@code Fights Break Sphere}。
+     * </p>
+     * <p>
+     * <b>为什么要求候选侧「全部」字段含 CJK</b>：只要有一个拉丁字段，拉丁 × 拉丁的比较就<b>已经</b>做过了，
+     * 结果 0 是一个真实结论而不是结构性缺失，再补一次请求既改不了判断又要花配额。
+     * 这也让改动对既有行为的影响面尽可能小——{@code Something Else Entirely} 那类候选一次请求都不多发。
+     * </p>
+     * <p>
+     * <b>为什么只在 {@code level == 0} 时探测</b>（判断在调用处）：已经有标题信号的候选，
+     * 补一个英文名最多把 CONTAINS 抬成 EXACT，而那恰恰是本次要压住的那种"靠包含蒙混"的候选。
+     * </p>
+     */
+    private boolean needsEnglishProbe(String type, MediaInfo info, JsonNode node) {
+        boolean latinQuery = false;
+        for (String mine : new String[]{info.getTitle(), info.getOriginalTitle(), info.getEnglishTitle()}) {
+            if (StringUtils.isNotBlank(mine) && !containsCjk(mine)) {
+                latinQuery = true;
+                break;
+            }
+        }
+        if (!latinQuery) {
+            return false;
+        }
+        boolean anyTitle = false;
+        for (String theirs : candidateTitleFields(type, node)) {
+            if (StringUtils.isBlank(theirs)) {
+                continue;
+            }
+            anyTitle = true;
+            if (!containsCjk(theirs)) {
+                return false;
+            }
+        }
+        return anyTitle;
+    }
+
     private String fetchEnglishCanonicalTitle(String type, int id, TMDbApiService api) {
         try {
             String raw = api.getDetails(apiKey, type, id, "en-US");
@@ -686,16 +795,39 @@ public class TMDbClient {
      * 相互排序、也仍在列表里——全等候选被集号反证否决时（{@code Perfect World} 那类事故）
      * 它们还要接着被检验，直接剔掉等于把那条修复路径一并剔掉。
      * </p>
+     * <p>
+     * <b>「标题分注定为 0」的候选会补拉一次英文规范名再参与分档</b>（{@link #needsEnglishProbe}，
+     * 整次搜索最多 {@value #MAX_ENGLISH_TITLE_PROBES} 次）。中文/日文/韩文作品拿英文文件名去搜时，
+     * 候选的 name 与 original_name 全是 CJK，标题这一维<b>在构造上</b>就无法参与比较——
+     * 于是它只能靠年份与热度和一堆"名字里恰好含某个英文单词"的条目竞争，而后者稳拿包含命中的 +60。
+     * {@code Fights.Break.Sphere.S05E208.2017} 正是这么被三条 TMDb 垃圾条目挤到第 4 名、
+     * 连 {@link #doSearchOnce} 的检验都没走到的（详见 {@link #needsEnglishProbe}）。
+     * 补拉后 79481 的英文规范名与解析标题逐字相等，直接进全等档，一举翻盘。
+     * </p>
      */
-    private List<JsonNode> rankCandidates(String type, MediaInfo info, JsonNode results) {
+    private List<JsonNode> rankCandidates(String type, MediaInfo info, JsonNode results,
+                                          TMDbApiService api,
+                                          java.util.Map<Integer, java.util.Optional<String>> englishTitles) {
         List<JsonNode> nodes = new ArrayList<>();
         java.util.Map<JsonNode, Double> scores = new java.util.IdentityHashMap<>();
         java.util.Map<JsonNode, Integer> tiers = new java.util.IdentityHashMap<>();
+        int probes = 0;
         for (int i = 0; i < results.size(); i++) {
             JsonNode node = results.get(i);
             nodes.add(node);
             // titleMatchLevel 算一次就好：分档与打分共用同一个值，不可能分叉
             int level = titleMatchLevel(type, info, node);
+            if (level == 0 && probes < MAX_ENGLISH_TITLE_PROBES && needsEnglishProbe(type, info, node)) {
+                probes++;
+                String english = englishTitleOf(type, node.path("id").asInt(-1), api, englishTitles);
+                if (StringUtils.isNotBlank(english)) {
+                    level = titleMatchLevel(info, english);
+                    if (level > 0) {
+                        log.debug("TMDb 候选靠英文规范名「{}」进入排序（等级 {}）：{} —— 候选「{}」",
+                                english, level, info.getOriginalName(), describeCandidate(type, node));
+                    }
+                }
+            }
             tiers.put(node, level == TITLE_MATCH_EXACT ? 1 : 0);
             scores.put(node, scoreCandidate(type, info, node, level) - i * 0.5); // TMDb 原始相关度名次作为兜底权重
         }
@@ -957,6 +1089,28 @@ public class TMDbClient {
     private String fallbackTitle(JsonNode result, String type) {
         return type.equals("movie") ? result.path("title").asText()
                 : result.path("name").asText();
+    }
+
+    /**
+     * 把 TMDb 的首播/上映年写回 info，<b>但候选没有日期时保留本地解析出的年份</b>。
+     * <p>
+     * {@link #getYearSafe} 在候选缺 {@code first_air_date}/{@code release_date} 时返回<b>空串</b>，
+     * 而采纳分支原先是无条件 {@code setYear}，于是一条没有播出日期的脏条目会把文件名里解析对了的
+     * 年份直接抹掉。真实事故 {@code Fights.Break.Sphere.S05E208.2017}：采纳到 TMDb 上那条
+     * {@code Fights Break Sphere: Origin (2022)}（{@code first_air_date} 为空、{@code number_of_episodes} 为 0），
+     * 解析出的 2017 被覆盖成空串，用户看到的现象是"年份没解析出来"，
+     * 而真正出问题的是标题匹配——排查方向被这个空年份带偏了一整轮。
+     * </p>
+     * <p>
+     * 覆盖本身是有意的（见 {@code TMDbClientSearchTest#剧集_命中后年份被改写成剧集首播年}）：
+     * 产出的年份恒为首播年，媒体库不会因为某季种子写了别的年份而分裂成两个条目。
+     * 这里只是把"用空值覆盖"这一种情况排除掉——空值不是一个更权威的答案，只是没有答案。
+     * </p>
+     */
+    private void applyYear(MediaInfo info, String tmdbYear) {
+        if (StringUtils.isNotEmpty(tmdbYear)) {
+            info.setYear(tmdbYear);
+        }
     }
 
     private String getYearSafe(JsonNode result, String type) {
