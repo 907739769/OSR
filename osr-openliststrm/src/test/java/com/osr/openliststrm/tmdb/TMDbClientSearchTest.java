@@ -14,6 +14,7 @@ import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -524,5 +525,174 @@ class TMDbClientSearchTest {
         assertEquals("搏击俱乐部", client.search("movie", info, api));
         // 电影没有集号这一维，不该为它多发详情请求（fetchDetails 那次是采纳后的，不算）
         verify(api, never()).getDetails(anyString(), eq("tv"), anyInt());
+    }
+
+    // ---------- 英文规范名参与排序：中文条目拿英文文件名去搜时，标题分在构造上恒为 0 ----------
+
+    /**
+     * 真实事故：{@code Fights.Break.Sphere.S05E208.2017.2160p.TX.WEB-DL.H.265.DDP2.0-HHWEB}
+     * （国漫《斗破苍穹》，TMDb {@code tv/79481}）被刮成一部"美剧"，年份还变成了空。
+     * <p>
+     * 下面这份候选是 {@code /search/tv?language=zh-CN&query=Fights Break Sphere} 的<b>真实响应</b>
+     * （只保留参与判定的字段，顺序即 TMDb 相关度顺序）。三条 TMDb 自建的垃圾条目排在最前：
+     * 名字里含 {@code Fights Break Sphere} 拿包含命中 +60，而
+     * {@code number_of_episodes} 为 0、{@code first_air_date} 为空、{@code origin_country} 标着 US。
+     * 正确答案 79481 的 name 与 original_name 都是「斗破苍穹」，一分标题分都拿不到，
+     * 只有年份吻合的 +40 和热度，排到第 4——{@code MAX_CANDIDATES_EXAMINED} 是 3，
+     * 它连被检验的机会都没有。
+     * </p>
+     * <p>
+     * 三层后果一次到齐：集数反证因为 {@code number_of_episodes} 为 0 走了「拿不到总集数就不判断」
+     * 那条分支（反证不触发）；采纳门槛靠"包含"通过；采纳后 {@code getYearSafe} 返回空串，
+     * 把解析对了的 2017 抹掉——用户看到的现象是"年份没解析出来"，方向完全被带偏。
+     * </p>
+     */
+    private static final String FIGHTS_BREAK_SPHERE = "{\"results\":["
+            + "{\"id\":280828,\"name\":\"Fights Break Sphere: Origin (2022)\","
+            + "\"original_name\":\"Fights Break Sphere: Origin (2022)\",\"popularity\":0.461},"
+            + "{\"id\":280834,\"name\":\"Fights Break Sphere SP3 Three-Year Agreement\","
+            + "\"original_name\":\"Fights Break Sphere SP3 Three-Year Agreement\",\"popularity\":0.4556},"
+            + "{\"id\":280859,\"name\":\"Fights Break Sphere SP2: Song of Desert 2019\","
+            + "\"original_name\":\"Fights Break Sphere SP2: Song of Desert 2019\",\"popularity\":0.4335},"
+            + "{\"id\":81500,\"name\":\"斗破苍穹\",\"original_name\":\"斗破苍穹\","
+            + "\"first_air_date\":\"2018-09-02\",\"popularity\":12.7838},"
+            + "{\"id\":206080,\"name\":\"斗破苍穹-动态漫画\",\"original_name\":\"斗破苍穹-动态漫画\","
+            + "\"first_air_date\":\"2020-07-04\",\"popularity\":8.94},"
+            + "{\"id\":79481,\"name\":\"斗破苍穹\",\"original_name\":\"斗破苍穹\","
+            + "\"first_air_date\":\"2017-01-07\",\"popularity\":49.8817}]}";
+
+    private MediaInfo fightsBreakSphereInfo() {
+        MediaInfo info = new MediaInfo(
+                "Fights.Break.Sphere.S05E208.2017.2160p.TX.WEB-DL.H.265.DDP2.0-HHWEB.strm");
+        info.setOriginalTitle("Fights Break Sphere");
+        info.setYear("2017");
+        info.setSeason("05");
+        info.setEpisode("208");
+        return info;
+    }
+
+    /** 按真实数据打桩：两部《斗破苍穹》的 en-US 规范名都是 Fights Break Sphere，动态漫画那条没有英文名 */
+    private void stubFightsBreakSphere(TMDbApiService api) {
+        when(api.search(anyString(), anyString(), anyString(), any())).thenReturn(FIGHTS_BREAK_SPHERE);
+        when(api.getDetails(anyString(), eq("tv"), eq(81500), eq("en-US")))
+                .thenReturn("{\"id\":81500,\"name\":\"Fights Break Sphere\"}");
+        when(api.getDetails(anyString(), eq("tv"), eq(206080), eq("en-US")))
+                .thenReturn("{\"id\":206080,\"name\":\"斗破苍穹-动态漫画\"}");
+        when(api.getDetails(anyString(), eq("tv"), eq(79481), eq("en-US")))
+                .thenReturn("{\"id\":79481,\"name\":\"Fights Break Sphere\"}");
+        when(api.getDetails(anyString(), eq("tv"), eq(81500)))
+                .thenReturn("{\"id\":81500,\"number_of_episodes\":45}");
+        when(api.getDetails(anyString(), eq("tv"), eq(79481)))
+                .thenReturn("{\"id\":79481,\"number_of_episodes\":279}");
+    }
+
+    @Test
+    void 排序_中文条目靠英文规范名翻盘_不再被同名垃圾条目挤出受检名次() throws Exception {
+        TMDbApiService api = mock(TMDbApiService.class);
+        stubFightsBreakSphere(api);
+
+        MediaInfo info = fightsBreakSphereInfo();
+
+        assertEquals("斗破苍穹", client.search("tv", info, api));
+        assertEquals("79481", info.getTmdbId());
+    }
+
+    @Test
+    void 排序_英文规范名全等时_胜过同样靠英文名全等但年份差一年的另一部() throws Exception {
+        // 81500 是 2018 年的真人版，en-US 名同样是 Fights Break Sphere，同进全等档；
+        // 分出胜负的是年份（2017 差 0 得 +40，2018 差 1 得 +20）与热度，不能让它抢走
+        TMDbApiService api = mock(TMDbApiService.class);
+        stubFightsBreakSphere(api);
+
+        MediaInfo info = fightsBreakSphereInfo();
+        client.search("tv", info, api);
+
+        assertEquals("79481", info.getTmdbId());
+    }
+
+    @Test
+    void 年份_采纳后改写成首播年_而不是被空的播出日期抹掉() throws Exception {
+        TMDbApiService api = mock(TMDbApiService.class);
+        stubFightsBreakSphere(api);
+
+        MediaInfo info = fightsBreakSphereInfo();
+        client.search("tv", info, api);
+
+        assertEquals("2017", info.getYear());
+    }
+
+    @Test
+    void 年份_候选没有播出日期时_保留本地解析出的年份() throws Exception {
+        // getYearSafe 缺日期时返回空串，旧实现无条件 setYear 会把解析对了的年份抹成空。
+        // 这里让那条脏条目成为唯一候选并被采纳（它靠"包含"过门槛、集数为 0 使反证不触发），
+        // 采纳本身不是这条用例要管的事，年份不许被空值覆盖才是。
+        String noAirDate = "{\"results\":[{\"id\":280828,\"name\":\"Fights Break Sphere: Origin (2022)\","
+                + "\"original_name\":\"Fights Break Sphere: Origin (2022)\",\"popularity\":0.461}]}";
+        TMDbApiService api = mock(TMDbApiService.class);
+        when(api.search(anyString(), anyString(), anyString(), any())).thenReturn(noAirDate);
+        when(api.getDetails(anyString(), eq("tv"), eq(280828)))
+                .thenReturn("{\"id\":280828,\"number_of_episodes\":0}");
+
+        MediaInfo info = fightsBreakSphereInfo();
+        client.search("tv", info, api);
+
+        assertEquals("280828", info.getTmdbId());
+        assertEquals("2017", info.getYear());
+    }
+
+    @Test
+    void 排序_候选自带拉丁标题时_不为它补拉英文规范名() throws Exception {
+        // 拉丁 × 拉丁的比较已经做过了，结果 0 是真实结论而不是结构性缺失，再补一次请求既改不了判断又花配额
+        TMDbApiService api = mock(TMDbApiService.class);
+        stubFightsBreakSphere(api);
+
+        client.search("tv", fightsBreakSphereInfo(), api);
+
+        verify(api, never()).getDetails(anyString(), eq("tv"), eq(280828), eq("en-US"));
+        verify(api, never()).getDetails(anyString(), eq("tv"), eq(280834), eq("en-US"));
+        verify(api, never()).getDetails(anyString(), eq("tv"), eq(280859), eq("en-US"));
+    }
+
+    @Test
+    void 排序_解析标题是中文时_一次英文规范名都不补拉() throws Exception {
+        // 中文 × 中文本来就比得了，标题分为 0 是"确实不是同一部作品"，不存在结构性缺失
+        TMDbApiService api = mock(TMDbApiService.class);
+        when(api.search(anyString(), anyString(), anyString(), any())).thenReturn(EMPTY);
+        when(api.search(anyString(), eq("tv"), eq("斗破苍穹"), isNull())).thenReturn(FIGHTS_BREAK_SPHERE);
+
+        MediaInfo info = new MediaInfo("斗破苍穹.S05E208.2017.2160p.strm");
+        info.setOriginalTitle("斗破苍穹");
+        info.setYear("2017");
+        info.setSeason("05");
+        info.setEpisode("208");
+
+        client.search("tv", info, api);
+
+        verify(api, never()).getDetails(anyString(), anyString(), anyInt(), eq("en-US"));
+    }
+
+    @Test
+    void 排序_英文规范名补拉次数有上限_不会给每个候选各发一次() throws Exception {
+        // 请求数必须有界：8 个全 CJK 的候选，排序阶段最多探 MAX_ENGLISH_TITLE_PROBES(5) 次。
+        // 随后被检验的前 3 名都已在这 5 个里、走同一次搜索内的记忆，不再产生新请求。
+        StringBuilder sb = new StringBuilder("{\"results\":[");
+        for (int i = 0; i < 8; i++) {
+            if (i > 0) sb.append(',');
+            sb.append("{\"id\":").append(9000 + i).append(",\"name\":\"某部中文剧")
+              .append(i).append("\",\"original_name\":\"某部中文剧").append(i)
+              .append("\",\"popularity\":1}");
+        }
+        sb.append("]}");
+
+        TMDbApiService api = mock(TMDbApiService.class);
+        when(api.search(anyString(), anyString(), anyString(), any())).thenReturn(sb.toString());
+        when(api.getDetails(anyString(), anyString(), anyInt(), eq("en-US")))
+                .thenReturn("{\"name\":\"Something Unrelated\"}");
+
+        MediaInfo info = fightsBreakSphereInfo();
+
+        // 一个都对不上，仍然不采纳
+        assertNull(client.search("tv", info, api));
+        verify(api, times(5)).getDetails(anyString(), anyString(), anyInt(), eq("en-US"));
     }
 }
