@@ -302,7 +302,7 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
     }
 
     /**
-     * 搜索补集：关键词并发搜索所有索引器。
+     * 搜索补集：关键词并发搜索所有启用索引器（request.indexerIds 非空时只搜所选站点）。
      * <p>
      * 当 request.manualSelect=true 时，不自动推送最优结果，返回候选种子列表供用户挑选；
      * 否则自动推送最优结果（原逻辑保持不变）。
@@ -319,7 +319,8 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
             return Result.error("没有启用中的索引器，无法搜索。请到「PT索引器」页面添加或启用至少一个索引器");
         }
         try {
-            return Result.success(searchSupplementService.supplement(id, request.getEpisode(), request.getKeyword(), request.isManualSelect()));
+            return Result.success(searchSupplementService.supplement(id, request.getEpisode(), request.getKeyword(),
+                    request.isManualSelect(), request.getIndexerIds()));
         } catch (IllegalArgumentException e) {
             return Result.error(e.getMessage());
         }

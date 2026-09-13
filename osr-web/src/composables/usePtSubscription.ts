@@ -27,6 +27,7 @@ import {
   getPtSubscriptionByIdApi
 } from '@/api/openlist/ptSubscription'
 import { getPtFilterConfigApi } from '@/api/openlist/ptFilterConfig'
+import { getPtIndexerListApi } from '@/api/openlist/ptIndexer'
 import type { SearchParams } from '@/types'
 import type { ListLoadOptions } from './useGridPageSize'
 
@@ -551,6 +552,31 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
   const searchManualSelect = ref(false)
   const searchDialogTarget = ref<{ subId: number; episode: number } | null>(null)
 
+  /**
+   * 搜索限定的站点（索引器 id）。空数组 = 全部启用中的站点，与引入前行为一致。
+   * 刻意不在每次打开弹窗时清空：限定站点通常是一段时间内的固定偏好（避开某个 H&R 严的站），
+   * 逐集搜索时每开一次弹窗都要重选一遍会很烦。
+   */
+  const searchIndexerIds = ref<number[]>([])
+  /** 可选站点：只列启用中的，停用的站点后端本来也不会去搜 */
+  const searchIndexerOptions = ref<{ id: number; name: string }[]>([])
+
+  /**
+   * 每次打开搜索弹窗都重拉一次站点列表：索引器页刚停用/新增的站点要立刻反映出来。
+   * 拉回来后把已选里不再启用的剔掉——留着的话下拉框里会出现一个只显示 id 的孤儿 chip，
+   * 而它被后端静默忽略，用户以为在搜的站点实际没搜。
+   */
+  const loadSearchIndexerOptions = async () => {
+    try {
+      const res = await getPtIndexerListApi({ pageNum: 1, pageSize: 200, enabled: '1' })
+      searchIndexerOptions.value = (res.records || []).map((r: any) => ({ id: r.id, name: r.name }))
+      const alive = new Set(searchIndexerOptions.value.map(o => o.id))
+      searchIndexerIds.value = searchIndexerIds.value.filter(id => alive.has(id))
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
   /** 手动选择候选弹窗 */
   const candidateDialogOpen = ref(false)
   const candidates = ref<any[]>([])
@@ -565,6 +591,7 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
     searchDialogKeyword.value = isMovie ? row.title : `${row.title} S${pad2(row.season)}`
     searchManualSelect.value = false
     searchDialogOpen.value = true
+    loadSearchIndexerOptions()
   }
 
   /** 打开单集搜索确认框，episode 为具体集号（剧集缺集列表专用） */
@@ -573,6 +600,7 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
     searchDialogKeyword.value = `${row.title} S${pad2(row.season)}E${pad2(episode)}`
     searchManualSelect.value = false
     searchDialogOpen.value = true
+    loadSearchIndexerOptions()
   }
 
   const confirmSearch = async () => {
@@ -588,7 +616,8 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
       const result = await searchSupplementApi(target.subId, {
         episode: target.episode,
         keyword: searchDialogKeyword.value.trim(),
-        manualSelect
+        manualSelect,
+        indexerIds: searchIndexerIds.value.length ? [...searchIndexerIds.value] : undefined
       })
 
       if (manualSelect && result.candidates && result.candidates.length > 0) {
@@ -986,6 +1015,7 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
     globalFilterHint, clearFilterOverride, filterOverrideCount,
     // 搜索补集
     searchDialogOpen, searchDialogLoading, searchDialogKeyword, searchManualSelect,
+    searchIndexerIds, searchIndexerOptions,
     openSeasonSearch, openEpisodeSearch, confirmSearch,
     // 手动选择候选
     candidateDialogOpen, candidates, pushingSelected, pushSelectedCandidate, formatSize, posterUrl,
