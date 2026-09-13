@@ -4,6 +4,23 @@
     <v-card title="搜索补集">
       <v-card-text>
         <v-text-field v-model="searchDialogKeyword" label="关键词" placeholder="搜索关键词，可编辑后再搜" class="mb-2" />
+        <v-select
+          v-model="searchIndexerIds"
+          :items="searchIndexerOptions"
+          item-title="name"
+          item-value="id"
+          label="站点"
+          placeholder="全部启用站点"
+          persistent-placeholder
+          multiple
+          chips
+          closable-chips
+          clearable
+          hint="不选即搜索全部启用中的站点"
+          persistent-hint
+          no-data-text="没有启用中的站点"
+          class="mb-2"
+        />
         <v-checkbox-btn v-model="searchManualSelect" label="手动选择结果" />
         <p class="field-hint">
           {{ searchManualSelect
@@ -28,6 +45,8 @@ const {
   searchDialogKeyword,
   searchDialogLoading,
   searchDialogOpen,
+  searchIndexerIds,
+  searchIndexerOptions,
   searchManualSelect
 } = usePtSubscriptionContext()
 </script>

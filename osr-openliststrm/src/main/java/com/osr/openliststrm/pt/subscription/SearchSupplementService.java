@@ -38,6 +38,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.Date;
@@ -209,6 +210,11 @@ public class SearchSupplementService {
         return supplement(subId, episode, keyword, false);
     }
 
+    /** 搜全部启用中的索引器，等价于 {@link #supplement(Integer, int, String, boolean, Collection)} 传 null */
+    public SupplementResult supplement(Integer subId, int episode, String keyword, boolean manualSelect) {
+        return supplement(subId, episode, keyword, manualSelect, null);
+    }
+
     /**
      * 对指定订阅的指定目标（集号，或季包/电影的哨兵值）发起一次搜索补集。
      * <p>
@@ -219,12 +225,17 @@ public class SearchSupplementService {
      * 当 {@code manualSelect} 为 true 时，不会自动推送最优结果，而是将所有候选种子
      * 以 DTO 形式返回，供前端展示让用户手动选择后再推送。
      * </p>
+     * <p>
+     * {@code indexerIds} 非空时只向这几个索引器发请求（两种模式都生效），见 {@link #resolveIndexerScope}。
+     * </p>
      *
-     * @throws IllegalArgumentException 订阅不存在、订阅未在订阅中(ACTIVE)，或 episode 不合法
+     * @throws IllegalArgumentException 订阅不存在、订阅未在订阅中(ACTIVE)、episode 不合法，或所选站点全部不可用
      */
-    public SupplementResult supplement(Integer subId, int episode, String keyword, boolean manualSelect) {
+    public SupplementResult supplement(Integer subId, int episode, String keyword, boolean manualSelect,
+                                       Collection<Integer> indexerIds) {
         PtSubscriptionPlus sub = requireSearchable(subId);
         validateEpisode(sub, episode);
+        IndexerScope scope = resolveIndexerScope(indexerIds);
 
         int totalCandidates = 0;
 
@@ -241,7 +252,7 @@ public class SearchSupplementService {
             if (altKeyword != null) {
                 plan.add(keywordStep(altKeyword));
             }
-            Map<StepKind, List<TorrentInfo>> grouped = executePlanByKind(plan);
+            Map<StepKind, List<TorrentInfo>> grouped = executePlanByKind(plan, scope.ids());
             List<TorrentInfo> idCandidates = dedupeByIndexerGuid(grouped.get(StepKind.EXTERNAL_ID));
             List<TorrentInfo> kwCandidates = dedupeByIndexerGuid(grouped.get(StepKind.KEYWORD));
             fillParsedAll(idCandidates);
@@ -297,9 +308,9 @@ public class SearchSupplementService {
 
             subscriptionService.updateLastSearchTime(sub.getId(), new Date());
 
-            log.info("{} 关键词[{}]手动搜索补集：原始{}个，季集匹配后{}个，规则过滤后{}个"
+            log.info("{} 关键词[{}]{}手动搜索补集：原始{}个，季集匹配后{}个，规则过滤后{}个"
                     + "（开启 DEBUG 日志可看到每个候选具体被哪一步、哪条规则淘汰）",
-                    PtLogText.subject(sub), keyword, totalCandidates, allMatched.size(), survivors.size());
+                    PtLogText.subject(sub), keyword, scope.label(), totalCandidates, allMatched.size(), survivors.size());
             return new SupplementResult(false, totalCandidates, toCandidateDtos(survivors));
         }
 
@@ -307,7 +318,7 @@ public class SearchSupplementService {
         // 下一级的请求，命中率高的订阅一次只打 1~2 级。正因为有早停，这里不能像手动模式那样把
         // 各级拼成一份计划一次发出——那等于每次都把所有级别打满，请求量翻几倍
         boolean pushed = false;
-        List<TorrentInfo> idCandidates = dedupeByIndexerGuid(executePlan(idPlan(sub, episode)));
+        List<TorrentInfo> idCandidates = dedupeByIndexerGuid(executePlan(idPlan(sub, episode), scope.ids()));
         fillParsedAll(idCandidates);
         totalCandidates += idCandidates.size();
 
@@ -331,7 +342,7 @@ public class SearchSupplementService {
             for (String variant : absoluteKeywords(sub, episode)) {
                 plan.add(keywordStep(variant));
             }
-            List<TorrentInfo> candidates = dedupeByIndexerGuid(executePlan(plan));
+            List<TorrentInfo> candidates = dedupeByIndexerGuid(executePlan(plan, scope.ids()));
             fillParsedAll(candidates);
             totalCandidates += candidates.size();
             matched = filterByTarget(sub, episode, candidates);
@@ -344,7 +355,7 @@ public class SearchSupplementService {
         if (!pushed) {
             String altKeyword = buildAltKeyword(sub, episode);
             if (altKeyword != null) {
-                List<TorrentInfo> altCandidates = executePlan(List.of(keywordStep(altKeyword)));
+                List<TorrentInfo> altCandidates = executePlan(List.of(keywordStep(altKeyword)), scope.ids());
                 fillParsedAll(altCandidates);
                 totalCandidates += altCandidates.size();
                 matched = filterByTarget(sub, episode, altCandidates);
@@ -366,8 +377,8 @@ public class SearchSupplementService {
         // last_match_time，整实体写回会把它覆盖回旧值（见 IPtSubscriptionPlusService#updateLastSearchTime）
         subscriptionService.updateLastSearchTime(sub.getId(), new Date());
 
-        log.info("{} 关键词[{}]搜索补集：候选{}个，{}",
-                PtLogText.subject(sub), keyword, totalCandidates, pushed ? "已推送" : "未推送");
+        log.info("{} 关键词[{}]{}搜索补集：候选{}个，{}",
+                PtLogText.subject(sub), keyword, scope.label(), totalCandidates, pushed ? "已推送" : "未推送");
         return new SupplementResult(pushed, totalCandidates);
     }
 
@@ -1025,7 +1036,12 @@ public class SearchSupplementService {
      * </p>
      */
     private List<TorrentInfo> executePlan(List<SearchStep> plan) {
-        Map<StepKind, List<TorrentInfo>> grouped = executePlanByKind(plan);
+        return executePlan(plan, null);
+    }
+
+    /** 同 {@link #executePlan(List)}，{@code indexerIds} 非 null 时只在这几个启用索引器上执行 */
+    private List<TorrentInfo> executePlan(List<SearchStep> plan, Set<Integer> indexerIds) {
+        Map<StepKind, List<TorrentInfo>> grouped = executePlanByKind(plan, indexerIds);
         List<TorrentInfo> merged = new ArrayList<>();
         // EnumMap 的迭代序是 EXTERNAL_ID → KEYWORD，恰好与所有计划里两类步的先后一致
         for (List<TorrentInfo> part : grouped.values()) {
@@ -1039,7 +1055,7 @@ public class SearchSupplementService {
      * 「ID 检索结果」与「关键词检索结果」的调用方使用（两者过滤路径不同）。
      * 两个键恒存在，无对应步时为空表。
      */
-    private Map<StepKind, List<TorrentInfo>> executePlanByKind(List<SearchStep> plan) {
+    private Map<StepKind, List<TorrentInfo>> executePlanByKind(List<SearchStep> plan, Set<Integer> indexerIds) {
         Map<StepKind, List<TorrentInfo>> grouped = new EnumMap<>(StepKind.class);
         for (StepKind kind : StepKind.values()) {
             grouped.put(kind, new ArrayList<>());
@@ -1048,6 +1064,9 @@ public class SearchSupplementService {
             return grouped;
         }
         List<PtIndexerPlus> indexers = indexerService.listEnabled();
+        if (indexerIds != null) {
+            indexers = indexers.stream().filter(i -> indexerIds.contains(i.getId())).toList();
+        }
         if (indexers.isEmpty()) {
             return grouped;
         }
@@ -1070,6 +1089,39 @@ public class SearchSupplementService {
             grouped.get(plan.get(i).kind()).addAll(perStep.get(i));
         }
         return grouped;
+    }
+
+    /**
+     * 一次搜索限定的索引器范围。{@code ids} 为 null 表示全部启用中的索引器；
+     * {@code label} 只用于日志，限定时是「站点[A、B]」，不限定时为空串（日志与引入前逐字相同）。
+     */
+    private record IndexerScope(Set<Integer> ids, String label) {
+        static final IndexerScope ALL = new IndexerScope(null, "");
+    }
+
+    /**
+     * 把前端勾选的站点解析成本次搜索的范围：只保留<b>当前仍启用</b>的索引器。
+     * <p>
+     * 勾选的全部不可用（在弹窗打开期间被停用/删除）时直接报错，<b>绝不退回搜全部</b>：
+     * 用户勾选站点往往正是为了避开某个站（H&R 严、下载量计费重），悄悄扩大范围会让一个被他
+     * 刻意排除的站点的种子出现在候选里，自动推送模式下更是直接推给下载器。部分失效则静默忽略失效的那几个——
+     * 剩下的仍是用户选的，照常搜。
+     * </p>
+     */
+    private IndexerScope resolveIndexerScope(Collection<Integer> indexerIds) {
+        if (indexerIds == null || indexerIds.isEmpty()) {
+            return IndexerScope.ALL;
+        }
+        Set<Integer> wanted = new HashSet<>(indexerIds);
+        List<PtIndexerPlus> chosen = indexerService.listEnabled().stream()
+                .filter(i -> wanted.contains(i.getId()))
+                .toList();
+        if (chosen.isEmpty()) {
+            throw new IllegalArgumentException("所选站点均已停用或删除，请重新选择站点后再搜索");
+        }
+        Set<Integer> ids = chosen.stream().map(PtIndexerPlus::getId).collect(Collectors.toUnmodifiableSet());
+        String names = chosen.stream().map(PtIndexerPlus::getName).collect(Collectors.joining("、"));
+        return new IndexerScope(ids, "站点[" + names + "]");
     }
 
     /**

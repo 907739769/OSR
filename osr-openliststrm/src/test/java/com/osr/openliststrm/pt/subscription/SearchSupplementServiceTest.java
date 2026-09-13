@@ -395,6 +395,59 @@ class SearchSupplementServiceTest {
         assertEquals(2, result.getCandidates().get(0).getParsedEpisodeEnd());
     }
 
+    // ---------- 限定站点 ----------
+
+    @Test
+    void supplement_限定站点_只向所选索引器发请求_两种模式都生效() throws Exception {
+        PtSubscriptionPlus sub = tvSub(10, 1, 4);
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        PtIndexerPlus idx1 = indexer(1);
+        PtIndexerPlus idx2 = indexer(2);
+        PtIndexerPlus idx3 = indexer(3);
+        when(indexerService.listEnabled()).thenReturn(List.of(idx1, idx2, idx3));
+        when(torznabClient.search(any(), anyString())).thenReturn(List.of());
+        when(filterConfigService.getConfig()).thenReturn(null);
+        when(filterEngine.evaluate(anyList(), any(), any(), org.mockito.ArgumentMatchers.nullable(String.class)))
+                .thenReturn(List.of());
+
+        service.supplement(10, 1, "Some Show S01E01", true, List.of(1, 3));
+        service.supplement(10, 1, "Some Show S01E01", false, List.of(1, 3));
+
+        // PtIndexerPlus 的 equals 不按 id 比较（见上方「单个索引器搜索失败」的注释），必须按引用区分
+        verify(torznabClient, never()).search(same(idx2), anyString());
+        verify(torznabClient, org.mockito.Mockito.atLeast(2)).search(same(idx1), anyString());
+        verify(torznabClient, org.mockito.Mockito.atLeast(2)).search(same(idx3), anyString());
+    }
+
+    @Test
+    void supplement_所选站点全部已停用_报错而不是退回搜全部() throws Exception {
+        // 用户勾选站点多半是为了避开某个站，悄悄扩大范围会让被排除的站点的种子被推给下载器
+        PtSubscriptionPlus sub = tvSub(10, 1, 4);
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
+                () -> service.supplement(10, 1, "Some Show S01E01", false, List.of(9)));
+
+        assertTrue(ex.getMessage().contains("所选站点"));
+        verify(torznabClient, never()).search(any(), anyString());
+    }
+
+    @Test
+    void supplement_站点列表为空_等同搜全部启用索引器() throws Exception {
+        PtSubscriptionPlus sub = tvSub(10, 1, 4);
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        PtIndexerPlus idx1 = indexer(1);
+        PtIndexerPlus idx2 = indexer(2);
+        when(indexerService.listEnabled()).thenReturn(List.of(idx1, idx2));
+        when(torznabClient.search(any(), anyString())).thenReturn(List.of());
+
+        service.supplement(10, 1, "Some Show S01E01", false, List.of());
+
+        verify(torznabClient, org.mockito.Mockito.atLeastOnce()).search(same(idx1), anyString());
+        verify(torznabClient, org.mockito.Mockito.atLeastOnce()).search(same(idx2), anyString());
+    }
+
     @Test
     void supplement_订阅不存在_抛异常() {
         when(subscriptionService.getById(99)).thenReturn(null);

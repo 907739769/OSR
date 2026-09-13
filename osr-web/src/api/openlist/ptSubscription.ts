@@ -71,8 +71,13 @@ export function resumeSubscriptionApi(id: number) {
   return request.post(`/openliststrm/pt-subscriptions/${id}/resume`)
 }
 
-/** 搜索补集：关键词搜索所有索引器并推送最优结果 */
-export function searchSupplementApi(id: number, data: { episode: number; keyword: string; manualSelect?: boolean }) {
+/** 搜索补集：关键词搜索索引器并推送最优结果。indexerIds 省略或为空时搜全部启用中的索引器 */
+export function searchSupplementApi(id: number, data: {
+  episode: number
+  keyword: string
+  manualSelect?: boolean
+  indexerIds?: number[]
+}) {
   return request.post<any, { pushed: boolean; candidateCount: number; candidates?: any[] }>(
     `/openliststrm/pt-subscriptions/${id}/search`,
     data,

@@ -129,6 +129,8 @@ function baseComposable(overrides: Record<string, any> = {}) {
     episodeAirDate: vi.fn(() => ''),
     episodeUnaired: vi.fn(() => false),
     searchManualSelect: ref(false),
+    searchIndexerIds: ref([]),
+    searchIndexerOptions: ref([]),
     isAllPageSelected: ref(false),
     toggleSelectAllPage: vi.fn(),
     searchAllMissingLoading: ref(false),

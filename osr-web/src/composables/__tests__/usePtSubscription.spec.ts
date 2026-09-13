@@ -48,6 +48,11 @@ vi.mock('@/api/openlist/ptFilterConfig', () => ({
   getPtFilterConfigApi: vi.fn().mockResolvedValue({})
 }))
 
+// 打开搜索弹窗时会拉一次启用中的站点列表供限定检索范围
+vi.mock('@/api/openlist/ptIndexer', () => ({
+  getPtIndexerListApi: vi.fn().mockResolvedValue({ records: [], total: 0 })
+}))
+
 import { usePtSubscription } from '../usePtSubscription'
 import {
   getPtSubscriptionListApi,
@@ -59,6 +64,7 @@ import {
   resetEpisodeApi
 } from '@/api/openlist/ptSubscription'
 import { usePtStatusSocket } from '../usePtStatusSocket'
+import { getPtIndexerListApi } from '@/api/openlist/ptIndexer'
 
 describe('usePtSubscription 的批量暂停/恢复', () => {
   let confirmSpy: any
@@ -353,7 +359,7 @@ describe('usePtSubscription 电影的重置入口', () => {
   })
 
   it('用户在确认框点取消时不发请求', async () => {
-    ;(confirm as any).mockRejectedValue('cancel')
+    (confirm as any).mockRejectedValue('cancel')
     const composable = usePtSubscription()
     await composable.handleResetMovie({ id: 7, title: '沙丘', mediaType: 'MOVIE' })
     expect(resetEpisodeApi).not.toHaveBeenCalled()
@@ -414,5 +420,45 @@ describe('usePtSubscription 在途集的重置出口', () => {
     await composable.handleResetMovie({ id: 7, title: '沙丘', mediaType: 'MOVIE', inFlightCount: 1 })
     expect((confirm as any).mock.calls[0][0].message).toContain('不会删下载器里的种子')
     expect(resetEpisodeApi).toHaveBeenCalledWith(7, 0)
+  })
+})
+
+describe('usePtSubscription 搜索限定站点', () => {
+  const flush = () => new Promise(resolve => setTimeout(resolve, 0))
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(getPtSubscriptionListApi as any).mockResolvedValue({ records: [], total: 0 })
+  })
+
+  it('打开搜索弹窗时只拉启用中的站点，并剔除已选里不再启用的', async () => {
+    (getPtIndexerListApi as any).mockResolvedValue({ records: [{ id: 1, name: 'A站' }, { id: 3, name: 'C站' }] })
+    const composable = usePtSubscription()
+    composable.searchIndexerIds.value = [1, 2]
+
+    composable.openEpisodeSearch({ id: 7, title: '三体', season: 1 }, 5)
+    await flush()
+
+    expect((getPtIndexerListApi as any).mock.calls[0][0]).toMatchObject({ enabled: '1' })
+    expect(composable.searchIndexerOptions.value.map(o => o.id)).toEqual([1, 3])
+    // 停用的 2 被剔掉：留着的话下拉里是个只显示 id 的孤儿 chip，而后端会静默忽略它
+    expect(composable.searchIndexerIds.value).toEqual([1])
+  })
+
+  it('选了站点时带上 indexerIds，没选时不传（后端按全部启用站点搜）', async () => {
+    (getPtIndexerListApi as any).mockResolvedValue({ records: [{ id: 1, name: 'A站' }] })
+    ;(searchSupplementApi as any).mockResolvedValue({ pushed: false, candidateCount: 0 })
+    const composable = usePtSubscription()
+
+    composable.openEpisodeSearch({ id: 7, title: '三体', season: 1 }, 5)
+    await flush()
+    await composable.confirmSearch()
+    expect((searchSupplementApi as any).mock.calls[0][1].indexerIds).toBeUndefined()
+
+    composable.openEpisodeSearch({ id: 7, title: '三体', season: 1 }, 5)
+    await flush()
+    composable.searchIndexerIds.value = [1]
+    await composable.confirmSearch()
+    expect((searchSupplementApi as any).mock.calls[1][1].indexerIds).toEqual([1])
   })
 })
