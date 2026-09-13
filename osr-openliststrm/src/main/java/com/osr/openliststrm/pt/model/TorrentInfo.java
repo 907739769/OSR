@@ -73,6 +73,24 @@ public class TorrentInfo {
      */
     private Integer files;
 
+    /**
+     * 索引器给出的 IMDb ID（Torznab {@code imdbid}/{@code imdb} 属性），已归一化为 {@code tt0944947}；
+     * 未提供时为 null。归一化规则见 {@link ExternalIds#normalizeImdb}。
+     */
+    private String imdbId;
+
+    /**
+     * 索引器给出的 TMDb ID（Torznab {@code tmdbid} 属性），未提供时为 null。
+     * <p>
+     * <b>单独拿它不能判定作品</b>：TMDb 的电影与剧集是两套独立编号，要结合 {@link #categories}
+     * 判出这是电影还是剧集才可比较，见 {@code SubscriptionMatcher#identityOf}。
+     * </p>
+     */
+    private String tmdbId;
+
+    /** 种子的 Torznab 分类号（{@code <category>} 与 {@code category} 属性去重合并），恒不为 null */
+    private List<Integer> categories = new ArrayList<>();
+
     /** 来源索引器 ID */
     private Integer indexerId;
 

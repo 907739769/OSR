@@ -45,6 +45,7 @@ import java.util.Date;
 import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -237,6 +238,14 @@ public class SearchSupplementService {
         validateEpisode(sub, episode);
         IndexerScope scope = resolveIndexerScope(indexerIds);
 
+        // 剧集的整季目标 + 自动推送：与缺集体检「立即补搜」走同一套 searchAndPushMissing。
+        // 原先这条路径严格收窄到「没有集号的纯季包」，单集与区间包一律淘汰——连载中的剧通常还没有
+        // 季包，于是这个按钮几乎永远「未搜索到」，而同一批种子勾上手动选择就能看见、RSS 也会认领
+        if (!manualSelect && episode == SubscriptionMatcher.SEASON_PACK
+                && !SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType())) {
+            return seasonSupplement(sub, keyword, scope);
+        }
+
         int totalCandidates = 0;
 
         if (manualSelect) {
@@ -289,6 +298,9 @@ public class SearchSupplementService {
             // 季包会被体积上限成片淘汰，用户看到的候选列表与实际可选资源对不上
             EpisodeCountResolver.apply(allMatched, sub.getTotalEpisodes(),
                     SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType()));
+            // 与推送链路（SubscriptionEngine#push）同样先打 H&R 标记：漏了的话「规避 H&R」在列表里不生效、
+            // 按 H&R 排序也失效，H&R 站的种子照样列出来，用户点推送时才被那一侧拒掉
+            subscriptionEngine.markHitAndRun(allMatched);
             List<TorrentFilterEngine.Verdict> verdicts =
                     filterEngine.evaluate(allMatched, criteria, blacklist, originalLanguage);
             List<TorrentInfo> survivors = verdicts.stream()
@@ -318,6 +330,9 @@ public class SearchSupplementService {
         // 下一级的请求，命中率高的订阅一次只打 1~2 级。正因为有早停，这里不能像手动模式那样把
         // 各级拼成一份计划一次发出——那等于每次都把所有级别打满，请求量翻几倍
         boolean pushed = false;
+        // 这一次搜索的起点：没推成时从这之后的匹配日志里取原因回给用户，见 describeMiss
+        long watermark = searchLogService.watermark(subId);
+        boolean anyMatched = false;
         List<TorrentInfo> idCandidates = dedupeByIndexerGuid(executePlan(idPlan(sub, episode), scope.ids()));
         fillParsedAll(idCandidates);
         totalCandidates += idCandidates.size();
@@ -326,6 +341,7 @@ public class SearchSupplementService {
         // 真正的季包，不放行单集——自动推送要保证准确，不像手动模式有人工兜底）
         List<TorrentInfo> idMatched = filterIdCandidates(sub, episode, idCandidates, null);
         if (!idMatched.isEmpty()) {
+            anyMatched = true;
             pushed = subscriptionEngine.pushBest(sub, episode, idMatched);
         }
 
@@ -347,6 +363,7 @@ public class SearchSupplementService {
             totalCandidates += candidates.size();
             matched = filterByTarget(sub, episode, candidates);
             if (!matched.isEmpty()) {
+                anyMatched = true;
                 pushed = subscriptionEngine.pushBest(sub, episode, matched);
             }
         }
@@ -360,6 +377,7 @@ public class SearchSupplementService {
                 totalCandidates += altCandidates.size();
                 matched = filterByTarget(sub, episode, altCandidates);
                 if (!matched.isEmpty()) {
+                    anyMatched = true;
                     pushed = subscriptionEngine.pushBest(sub, episode, matched);
                 }
             }
@@ -369,8 +387,17 @@ public class SearchSupplementService {
         // 供排查（recordSummary 写的行不带 reason_code，不会进 rejectSummary 聚合）。
         // 空表进 handleGroup 必然在 fresh.isEmpty() 处返回 false，赋值只是不丢弃调用结果。
         // matched 非空说明上面已经推过且失败，失败原因已经落库，不必再记一次
-        if (!pushed && matched.isEmpty()) {
-            pushed = subscriptionEngine.pushBest(sub, episode, List.of());
+        // 判据是 anyMatched 而不是 matched.isEmpty()：matched 在第三级会被重新赋值，第二级匹配上、
+        // 推送失败、第三级没匹配上时，旧写法会在准确原因之后再补一条「搜索未返回任何候选种子」，
+        // 而回给用户时取的恰恰是「最新一条摘要」
+        if (!pushed && !anyMatched) {
+            if (totalCandidates > 0) {
+                // 搜到了、只是一条都对不上本集：不能记成「搜索未返回任何候选」，那会把人引去查索引器
+                searchLogService.recordSummary(sub.getId(), episode, SearchLogService.SOURCE_SUPPLEMENT,
+                        unmatchedReason(totalCandidates));
+            } else {
+                pushed = subscriptionEngine.pushBest(sub, episode, List.of());
+            }
         }
 
         // 定向更新这一列，不要 updateById(sub)：推送链路可能在另一份订阅实例上写过
@@ -379,7 +406,57 @@ public class SearchSupplementService {
 
         log.info("{} 关键词[{}]{}搜索补集：候选{}个，{}",
                 PtLogText.subject(sub), keyword, scope.label(), totalCandidates, pushed ? "已推送" : "未推送");
-        return new SupplementResult(pushed, totalCandidates);
+        return pushed ? new SupplementResult(true, totalCandidates)
+                : SupplementResult.miss(totalCandidates,
+                        describeMiss(sub.getId(), watermark, totalCandidates, anyMatched));
+    }
+
+    /**
+     * 整季目标的自动推送：委托 {@link #searchAndPushMissing}，把它的摘要翻译成接口结果。
+     * <p>
+     * 用户在弹窗里改过的关键词作为<b>额外</b>一步检索加进季搜索计划（与生成的关键词相同时不加），
+     * 限定的站点也一路带下去——包括单集补发那几次。
+     * </p>
+     */
+    private SupplementResult seasonSupplement(PtSubscriptionPlus sub, String keyword, IndexerScope scope) {
+        long watermark = searchLogService.watermark(sub.getId());
+        SearchAndPushSummary summary = searchAndPushMissing(sub.getId(), scope.ids(), keyword);
+        SupplementResult result;
+        if (summary.isSkipped()) {
+            result = SupplementResult.miss(0, "当前没有已播出的缺失集，无需搜索（未播出的集不参与搜索）");
+        } else if (summary.anyPushed()) {
+            int pushedCount = summary.getEpisodesPushed() + (summary.isSeasonPushed() ? 1 : 0);
+            result = new SupplementResult(true, summary.getCandidateCount(), null, null, pushedCount);
+        } else if (StringUtils.isNotBlank(summary.getRejectSummary())) {
+            result = SupplementResult.miss(summary.getCandidateCount(), "未推送任何资源：" + summary.getRejectSummary());
+        } else {
+            result = SupplementResult.miss(summary.getCandidateCount(),
+                    describeMiss(sub.getId(), watermark, summary.getCandidateCount(), true));
+        }
+        log.info("{} 关键词[{}]{}整季搜索补集：季搜索候选{}个，{}",
+                PtLogText.subject(sub), keyword, scope.label(), summary.getCandidateCount(),
+                result.isPushed() ? "已推送 " + result.getPushedCount() + " 个资源" : "未推送（" + result.getReason() + "）");
+        return result;
+    }
+
+    private static String unmatchedReason(int totalCandidates) {
+        return "搜到 " + totalCandidates + " 个候选，但标题、季号或集号都对不上本集";
+    }
+
+    /**
+     * 没推成的原因。优先取本次搜索落进匹配日志的最新摘要——那是 {@code SubscriptionEngine#handleGroup}
+     * 在失败那一刻算出的准确原因，与匹配日志里显示的是同一句话。
+     */
+    private String describeMiss(Integer subId, long watermark, int totalCandidates, boolean anyMatched) {
+        if (totalCandidates == 0) {
+            return "搜索未返回任何候选种子，可换个关键词或检查索引器与站点选择";
+        }
+        if (!anyMatched) {
+            return unmatchedReason(totalCandidates);
+        }
+        String latest = searchLogService.latestSummarySince(subId, watermark, SearchLogService.SOURCE_SUPPLEMENT);
+        return StringUtils.isNotBlank(latest) ? latest
+                : "搜到 " + totalCandidates + " 个候选，但都没能推送，详见该订阅的匹配日志";
     }
 
     /**
@@ -413,6 +490,7 @@ public class SearchSupplementService {
         torrent.setInfoHash(request.getInfoHash());
         torrent.setDescription(request.getDescription());
         torrent.setPubDate(request.getPubDate());
+        torrent.setFiles(request.getFiles());
 
         subscriptionEngine.fillParsed(torrent);
         PushTarget target = resolvePushTarget(sub, targetEpisode, torrent, absolutes);
@@ -544,6 +622,7 @@ public class SearchSupplementService {
                         .pubDate(t.getPubDate())
                         // 不展示，供前端推送时原样回传：集号可能只写在这里面（见该字段注释）
                         .description(t.getDescription())
+                        .files(t.getFiles())
                         .parsedEpisode(t.getParsedEpisode())
                         .parsedEpisodeEnd(t.getParsedEpisodeEnd())
                         .build())
@@ -598,6 +677,14 @@ public class SearchSupplementService {
      * </p>
      */
     public SearchAndPushSummary searchAndPushMissing(Integer subId) {
+        return searchAndPushMissing(subId, null, null);
+    }
+
+    /**
+     * @param indexerIds   限定的索引器，null 表示全部启用中的
+     * @param extraKeyword 额外加进季搜索计划的一步关键词（用户在弹窗里编辑过的），null/空白不加
+     */
+    SearchAndPushSummary searchAndPushMissing(Integer subId, Set<Integer> indexerIds, String extraKeyword) {
         PtSubscriptionPlus sub = subscriptionService.getById(subId);
         if (sub == null || !SubscriptionService.STATUS_ACTIVE.equals(sub.getStatus())) {
             return SearchAndPushSummary.skip();
@@ -620,7 +707,7 @@ public class SearchSupplementService {
         if (movie) {
             boolean pushed = false;
             try {
-                pushed = supplement(subId, 0, sub.getTitle()).isPushed();
+                pushed = supplement(subId, 0, sub.getTitle(), false, indexerIds).isPushed();
             } catch (Exception e) {
                 log.warn("{} 补搜失败：{}", PtLogText.subject(sub), e.getMessage());
             }
@@ -631,7 +718,7 @@ public class SearchSupplementService {
         }
 
         // 单次全季节搜索（三级回退：ID → 中文 → 英文/原语言）
-        List<TorrentInfo> candidates = searchSeasonCandidates(sub);
+        List<TorrentInfo> candidates = searchSeasonCandidates(sub, indexerIds, extraKeyword);
 
         // 季包优先还是单集优先，只看这一轮要补几集（判据与理由见 seasonPackMinMissing）。
         // 缺得少时把季包推到后面当兜底，否则「季包占位 → 对账发现不含这一集 → 退回 →
@@ -690,7 +777,7 @@ public class SearchSupplementService {
         }
 
         // 候选池里一集都没匹配上的，补发真正的单集检索
-        episodesPushed += fallbackPerEpisode(sub, unmatched);
+        episodesPushed += fallbackPerEpisode(sub, unmatched, indexerIds);
 
         // 单集优先模式下的兜底：逐集与补发都没能覆盖的集，仍然交给季包。
         // 「候选池里没有精确的单集资源」时，一个整季包仍然远比什么都不下强——
@@ -713,8 +800,10 @@ public class SearchSupplementService {
         SearchLogService.RejectionDigest digest = anyPushed
                 ? SearchLogService.RejectionDigest.EMPTY
                 : searchLogService.digestRejectionsSince(subId, watermark);
-        return new SearchAndPushSummary(false, seasonPushed, episodesPushed,
+        SearchAndPushSummary summary = new SearchAndPushSummary(false, seasonPushed, episodesPushed,
                 digest.summary(), digest.signature());
+        summary.setCandidateCount(candidates.size());
+        return summary;
     }
 
     /**
@@ -786,7 +875,8 @@ public class SearchSupplementService {
      *
      * @return 补发阶段成功推送的集数
      */
-    private int fallbackPerEpisode(PtSubscriptionPlus sub, List<PtSubscriptionEpisodePlus> unmatched) {
+    private int fallbackPerEpisode(PtSubscriptionPlus sub, List<PtSubscriptionEpisodePlus> unmatched,
+                                   Set<Integer> indexerIds) {
         if (perEpisodeFallbackLimit <= 0 || unmatched.isEmpty()) {
             return 0;
         }
@@ -812,7 +902,7 @@ public class SearchSupplementService {
             }
             String keyword = sub.getTitle() + " S" + pad(sub.getSeason()) + "E" + pad(ep.getEpisode());
             try {
-                if (supplement(sub.getId(), ep.getEpisode(), keyword).isPushed()) {
+                if (supplement(sub.getId(), ep.getEpisode(), keyword, false, indexerIds).isPushed()) {
                     pushed++;
                 }
             } catch (Exception e) {
@@ -836,8 +926,9 @@ public class SearchSupplementService {
      *
      * @return 搜索到的全部候选种子（已去重）；全为空返回空列表
      */
-    private List<TorrentInfo> searchSeasonCandidates(PtSubscriptionPlus sub) {
-        List<TorrentInfo> merged = dedupeByIndexerGuid(executePlan(seasonPlan(sub)));
+    private List<TorrentInfo> searchSeasonCandidates(PtSubscriptionPlus sub, Set<Integer> indexerIds,
+                                                     String extraKeyword) {
+        List<TorrentInfo> merged = dedupeByIndexerGuid(executePlan(seasonPlan(sub, extraKeyword), indexerIds));
         fillParsedAll(merged);
         return merged;
     }
@@ -849,8 +940,10 @@ public class SearchSupplementService {
      * {@link #executePlan}，由每个索引器自己串行跑完，而不是逐步 join 等齐所有索引器。
      * </p>
      */
-    private List<SearchStep> seasonPlan(PtSubscriptionPlus sub) {
+    private List<SearchStep> seasonPlan(PtSubscriptionPlus sub, String extraKeyword) {
         List<SearchStep> plan = new ArrayList<>();
+        // 已经排进计划的关键词（小写），用来判断用户那一步是不是重复
+        Set<String> keywords = new HashSet<>();
         plan.add(idStepOf(sub, SubscriptionMatcher.SEASON_PACK, false));
 
         // 绝对编号的剧要再搜一次「不带季号」：上面那步把 season=23 传给了索引器，
@@ -860,7 +953,9 @@ public class SearchSupplementService {
             plan.add(idStepOf(sub, SubscriptionMatcher.SEASON_PACK, true));
         }
 
-        plan.add(keywordStep(sub.getTitle() + " S" + pad(sub.getSeason())));
+        String primary = sub.getTitle() + " S" + pad(sub.getSeason());
+        plan.add(keywordStep(primary));
+        keywords.add(primary.toLowerCase(Locale.ROOT));
 
         // 英文标题 + 原语言标题都搜一遍（去重）：日韩剧的 originalTitle 是日文/韩文本身搜不到种子，
         // 必须靠 englishTitle 才能命中英文种子标题；两者归一化后相同（或与主标题相同）时跳过重复搜索。
@@ -873,7 +968,12 @@ public class SearchSupplementService {
             if (!searchedNorms.add(matcher.normalizeAll(alt))) {
                 continue;
             }
-            plan.add(keywordStep(alt + " S" + pad(sub.getSeason())));
+            String altKeyword = alt + " S" + pad(sub.getSeason());
+            plan.add(keywordStep(altKeyword));
+            keywords.add(altKeyword.toLowerCase(Locale.ROOT));
+        }
+        if (StringUtils.isNotBlank(extraKeyword) && keywords.add(extraKeyword.trim().toLowerCase(Locale.ROOT))) {
+            plan.add(keywordStep(extraKeyword.trim()));
         }
         return plan;
     }
@@ -1307,12 +1407,11 @@ public class SearchSupplementService {
         if (SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType())) {
             return filterMovieCandidates(sub, candidates);
         }
-        Integer subSeason = sub.getSeason();
         Set<String> subTitles = matcher.normalizeAll(sub.getTitle(), sub.getOriginalTitle(), sub.getEnglishTitle());
         AbsoluteEpisodeMap absolutes = absoluteMapOf(sub);
         List<TorrentInfo> matched = new ArrayList<>();
         for (TorrentInfo candidate : candidates) {
-            if (!titleMatches(subTitles, candidate)) {
+            if (!sameWork(sub, subTitles, candidate)) {
                 continue;
             }
             // 同名剧的串台防线，判据与 RSS 链路共用（《人生复本》2024 与《暗物质》2016 英文名
@@ -1324,28 +1423,86 @@ public class SearchSupplementService {
                 }
                 continue;
             }
-            Integer parsedSeason = candidate.getParsedSeason();
-            if (parsedSeason == null || !parsedSeason.equals(subSeason)) {
-                // 季号对不上时再看绝对编号：One Piece S01E1173 其实是第 23 季第 18 集。
-                // 判据与 RSS 链路共用 AbsoluteEpisodeMap#toLocalRange，绝不在这里另写一份
-                AbsoluteEpisodeMap.LocalRange localRange = absolutes.toLocalRange(
-                        parsedSeason, candidate.getParsedEpisode(), candidate.getParsedEpisodeEnd());
-                if (localRange != null && episode != SubscriptionMatcher.SEASON_PACK
-                        && episodeInRange(episode, localRange.start(), localRange.end())) {
-                    matched.add(candidate);
-                }
+            Coverage coverage = coverageOf(sub, candidate, absolutes);
+            if (coverage == null) {
                 continue;
             }
-            Integer parsedEpisode = candidate.getParsedEpisode();
-            if (episode == SubscriptionMatcher.SEASON_PACK) {
-                if (parsedEpisode == null) {
-                    matched.add(candidate);
-                }
-            } else if (episodeInRange(episode, parsedEpisode, candidate.getParsedEpisodeEnd())) {
+            // 自动推送的整季目标只认纯季包：绝对编号的单集/区间在这里也不放行，与 RSS 的季包判定一致
+            if (episode == SubscriptionMatcher.SEASON_PACK ? coverage.seasonPack() : coverage.contains(episode)) {
                 matched.add(candidate);
             }
         }
         return matched;
+    }
+
+    /**
+     * 候选在本订阅里覆盖的范围：整季包，或一段<b>本地</b>集号区间（单集时两端相等）。
+     * <p>
+     * 三个过滤器（{@link #filterByTarget} / {@link #filterByTargetManual} / {@link #filterIdCandidates}）
+     * 共用这一份。此前只有第一个会在季号对不上时再按绝对编号解释一次（{@code One Piece S01E1174}
+     * 其实是第 23 季第 19 集），另外两个一见季号不等就淘汰——于是长篇动画用「整季 + 手动选择」时
+     * 这批种子根本不出现在列表里，ID 检索带回来的也一样被丢掉，而 RSS 与单集关键词搜索都认得它们。
+     * 判据本身仍收口在 {@link AbsoluteEpisodeMap#toLocalRange}。
+     * </p>
+     *
+     * @return 不属于本季（季号对不上、按绝对编号也解释不通）时返回 null
+     */
+    private Coverage coverageOf(PtSubscriptionPlus sub, TorrentInfo candidate, AbsoluteEpisodeMap absolutes) {
+        Integer parsedSeason = candidate.getParsedSeason();
+        Integer parsedEpisode = candidate.getParsedEpisode();
+        if (parsedSeason != null && parsedSeason.equals(sub.getSeason())) {
+            if (parsedEpisode == null) {
+                return Coverage.SEASON_PACK;
+            }
+            Integer end = candidate.getParsedEpisodeEnd();
+            return new Coverage(false, parsedEpisode, (end != null && end > parsedEpisode) ? end : parsedEpisode);
+        }
+        AbsoluteEpisodeMap.LocalRange local = absolutes.toLocalRange(
+                parsedSeason, parsedEpisode, candidate.getParsedEpisodeEnd());
+        return local == null ? null : new Coverage(false, local.start(), local.end());
+    }
+
+    /** 见 {@link #coverageOf} */
+    private record Coverage(boolean seasonPack, int start, int end) {
+
+        static final Coverage SEASON_PACK = new Coverage(true, 0, 0);
+
+        boolean contains(int episode) {
+            return !seasonPack && episode >= start && episode <= end;
+        }
+
+        boolean intersects(Set<Integer> episodes) {
+            if (seasonPack || episodes == null) {
+                return false;
+            }
+            for (int e = start; e <= end; e++) {
+                if (episodes.contains(e)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+
+    /**
+     * 候选是不是这条订阅的作品：外部 ID 能下结论就听 ID 的，说不出结论才比标题。
+     * 判据与 RSS 匹配共用 {@link SubscriptionMatcher#identityOf}，理由见那里。
+     */
+    private boolean sameWork(PtSubscriptionPlus sub, Set<String> subTitles, TorrentInfo candidate) {
+        SubscriptionMatcher.Identity identity = matcher.identityOf(candidate, sub);
+        if (identity == SubscriptionMatcher.Identity.DIFFERENT) {
+            logIdConflict(sub, candidate);
+            return false;
+        }
+        return identity == SubscriptionMatcher.Identity.SAME || titleMatches(subTitles, candidate);
+    }
+
+    private void logIdConflict(PtSubscriptionPlus sub, TorrentInfo candidate) {
+        if (firstRejectionInSearch("id", candidate.getTitle(), candidate.getImdbId(), candidate.getTmdbId())) {
+            log.debug("候选被外部 ID 过滤：{} —— 种子 imdb={} tmdb={}，订阅《{}》imdb={} tmdb={}",
+                    candidate.getTitle(), candidate.getImdbId(), candidate.getTmdbId(),
+                    sub.getTitle(), sub.getImdbId(), sub.getTmdbId());
+        }
     }
 
     /** 该订阅的绝对编号映射，非绝对编号的剧返回空对象 */
@@ -1414,19 +1571,19 @@ public class SearchSupplementService {
                 || SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType())) {
             return filterByTarget(sub, episode, candidates);
         }
-        Integer subSeason = sub.getSeason();
         Set<String> subTitles = matcher.normalizeAll(sub.getTitle(), sub.getOriginalTitle(), sub.getEnglishTitle());
+        AbsoluteEpisodeMap absolutes = absoluteMapOf(sub);
         List<TorrentInfo> matched = new ArrayList<>();
         for (TorrentInfo candidate : candidates) {
-            Integer parsedSeason = candidate.getParsedSeason();
-            if (parsedSeason == null || !parsedSeason.equals(subSeason)) {
-                if (firstRejectionInSearch("season", candidate.getTitle(), parsedSeason, subSeason)) {
+            Coverage coverage = coverageOf(sub, candidate, absolutes);
+            if (coverage == null) {
+                if (firstRejectionInSearch("season", candidate.getTitle(), candidate.getParsedSeason(), sub.getSeason())) {
                     log.debug("候选被季号过滤：{} —— 解析季号={}，订阅季号={}",
-                            candidate.getTitle(), parsedSeason, subSeason);
+                            candidate.getTitle(), candidate.getParsedSeason(), sub.getSeason());
                 }
                 continue;
             }
-            if (!titleMatches(subTitles, candidate)) {
+            if (!sameWork(sub, subTitles, candidate)) {
                 if (firstRejectionInSearch("title", candidate.getTitle(), sub.getTitle())) {
                     log.debug("候选被标题过滤：{} —— 与订阅《{}》标题不匹配", candidate.getTitle(), sub.getTitle());
                 }
@@ -1440,13 +1597,11 @@ public class SearchSupplementService {
                 }
                 continue;
             }
-            Integer parsedEpisode = candidate.getParsedEpisode();
-            if (parsedEpisode == null || rangeIntersectsMissing(parsedEpisode, candidate.getParsedEpisodeEnd(), missingEpisodes)) {
+            if (coverage.seasonPack() || coverage.intersects(missingEpisodes)) {
                 matched.add(candidate);
-            } else {
-                if (firstRejectionInSearch("episode", candidate.getTitle(), parsedEpisode)) {
-                    log.debug("候选被集号过滤：{} —— 解析集号={} 不在缺失集合内", candidate.getTitle(), parsedEpisode);
-                }
+            } else if (firstRejectionInSearch("episode", candidate.getTitle(), candidate.getParsedEpisode())) {
+                log.debug("候选被集号过滤：{} —— 解析集号={} 不在缺失集合内",
+                        candidate.getTitle(), candidate.getParsedEpisode());
             }
         }
         return matched;
@@ -1463,21 +1618,40 @@ public class SearchSupplementService {
     private List<TorrentInfo> filterIdCandidates(PtSubscriptionPlus sub, int episode,
                                                   List<TorrentInfo> candidates, Set<Integer> missingEpisodes) {
         if (SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType())) {
-            return candidates;
+            // 标题与年份仍然不校验（ID 已锁定作品），但两道与 RSS 电影分支一致的底线要守住：
+            // 种子自带的 ID 明确指向别的作品、或种子带季/集号（那是剧集），都不是这部电影
+            List<TorrentInfo> matched = new ArrayList<>();
+            for (TorrentInfo candidate : candidates) {
+                if (matcher.identityOf(candidate, sub) == SubscriptionMatcher.Identity.DIFFERENT) {
+                    logIdConflict(sub, candidate);
+                    continue;
+                }
+                if (candidate.getParsedSeason() != null || candidate.getParsedEpisode() != null) {
+                    continue;
+                }
+                matched.add(candidate);
+            }
+            return matched;
         }
-        Integer subSeason = sub.getSeason();
+        AbsoluteEpisodeMap absolutes = absoluteMapOf(sub);
         List<TorrentInfo> matched = new ArrayList<>();
         for (TorrentInfo candidate : candidates) {
-            Integer parsedSeason = candidate.getParsedSeason();
-            if (parsedSeason == null || !parsedSeason.equals(subSeason)) {
-                if (firstRejectionInSearch("idSeason", candidate.getTitle(), parsedSeason, subSeason)) {
+            // 不校验标题是因为 ID 已经锁定了作品；但种子自己带着的 ID 若明确指向另一部作品，就是串台——
+            // 索引器对 tmdbid/imdbid 参数的支持参差不齐，不支持的会静默退化成关键词检索
+            if (matcher.identityOf(candidate, sub) == SubscriptionMatcher.Identity.DIFFERENT) {
+                logIdConflict(sub, candidate);
+                continue;
+            }
+            Coverage coverage = coverageOf(sub, candidate, absolutes);
+            if (coverage == null) {
+                if (firstRejectionInSearch("idSeason", candidate.getTitle(), candidate.getParsedSeason(), sub.getSeason())) {
                     log.debug("ID搜索候选被季号过滤：{} —— 解析季号={}，订阅季号={}",
-                            candidate.getTitle(), parsedSeason, subSeason);
+                            candidate.getTitle(), candidate.getParsedSeason(), sub.getSeason());
                 }
                 continue;
             }
             // ID 检索这条路径本不该串台，但索引器对 tmdbid/imdbid 参数的支持程度不一，
-            // 不支持的会静默退化成关键词检索——而本方法刻意不校验标题，那时年份是唯一的兜底
+            // 不支持的会静默退化成关键词检索——而本方法刻意不校验标题，那时年份是另一道兜底
             if (!matcher.seriesYearPlausible(sub.getYear(), candidate.getParsedYear())) {
                 if (firstRejectionInSearch("idYear", candidate.getTitle(), candidate.getParsedYear(), sub.getYear())) {
                     log.debug("ID搜索候选被年份过滤：{} —— 解析年份={} 早于订阅《{}》首播年={}",
@@ -1485,34 +1659,15 @@ public class SearchSupplementService {
                 }
                 continue;
             }
-            Integer parsedEpisode = candidate.getParsedEpisode();
             if (episode == SubscriptionMatcher.SEASON_PACK) {
-                if (parsedEpisode == null || (missingEpisodes != null
-                        && rangeIntersectsMissing(parsedEpisode, candidate.getParsedEpisodeEnd(), missingEpisodes))) {
+                if (coverage.seasonPack() || coverage.intersects(missingEpisodes)) {
                     matched.add(candidate);
                 }
-            } else if (episodeInRange(episode, parsedEpisode, candidate.getParsedEpisodeEnd())) {
+            } else if (coverage.contains(episode)) {
                 matched.add(candidate);
             }
         }
         return matched;
-    }
-
-    /**
-     * 候选种子解析出的集号区间是否与"当前缺失集号集合"有交集，供整季包场景放行区间打包资源
-     * （如 S01E01-E02，只要区间内有一集仍缺失就该放行，不能像单集那样只看起始集号是否在集合里）。
-     */
-    private boolean rangeIntersectsMissing(Integer parsedEpisode, Integer parsedEpisodeEnd, Set<Integer> missingEpisodes) {
-        if (parsedEpisode == null) {
-            return false;
-        }
-        int rangeEnd = (parsedEpisodeEnd != null && parsedEpisodeEnd > parsedEpisode) ? parsedEpisodeEnd : parsedEpisode;
-        for (int e = parsedEpisode; e <= rangeEnd; e++) {
-            if (missingEpisodes.contains(e)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     /** 订阅当前处于缺失(MISSING)状态的集号集合，供 {@link #filterByTargetManual}/{@link #filterIdCandidates} 放行单集候选使用 */
@@ -1562,7 +1717,7 @@ public class SearchSupplementService {
             if (candidate.getParsedSeason() != null || candidate.getParsedEpisode() != null) {
                 continue;
             }
-            if (!titleMatches(subTitles, candidate)) {
+            if (!sameWork(sub, subTitles, candidate)) {
                 continue;
             }
             // 年份判定走 SubscriptionMatcher 的共享方法（允许 1 年偏差），不要在这里另写一份：

@@ -62,6 +62,16 @@ public class PushSelectedRequest {
     /** 种子描述（RSS &lt;description&gt;） */
     private String description;
 
+    /**
+     * 种子内文件数（Torznab {@code files}），前端原样回传，可为 null。
+     * <p>
+     * 不带的话推送时季包的集数估算与候选列表那次不同（{@code EpisodeCountResolver} 会用文件数给
+     * 集数收口），按每集体积判定的阈值随之变化——列表里放行的候选，点推送时可能被体积规则拒掉。
+     * 与 {@link #description} 是同一类「接收端要重新判一遍、发送端却没传」的漏洞。
+     * </p>
+     */
+    private Integer files;
+
     /** 发布时间原始字符串 */
     private String pubDate;
 }

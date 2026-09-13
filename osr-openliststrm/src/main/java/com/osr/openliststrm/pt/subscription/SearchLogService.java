@@ -129,6 +129,38 @@ public class SearchLogService {
     }
 
     /**
+     * 水位线之后、指定来源写入的<b>最新一条摘要</b>的原因文案；没有则返回 null。
+     * <p>
+     * 供搜索补集把「为什么没推成」回给前端：{@code SubscriptionEngine#handleGroup} 每条失败路径都会
+     * 把准确原因写成一条摘要行，直接取它，回给用户的原因与匹配日志里的就是同一句话——
+     * 两边各拼一份的话，排查时会出现「弹窗里说 A、日志里说 B」。
+     * </p>
+     * <p>
+     * 只取 {@code reason_code IS NULL} 的行：带码的是逐条候选的裁决明细，不是摘要；
+     * 通过的裁决行 reason 为空，一并排除。
+     * </p>
+     */
+    public String latestSummarySince(Integer subId, long watermark, String source) {
+        if (subId == null) {
+            return null;
+        }
+        try {
+            PtSearchLogPlus row = logService.getOne(new LambdaQueryWrapper<PtSearchLogPlus>()
+                    .eq(PtSearchLogPlus::getSubId, subId)
+                    .gt(PtSearchLogPlus::getId, watermark)
+                    .eq(PtSearchLogPlus::getSource, source)
+                    .isNull(PtSearchLogPlus::getReasonCode)
+                    .isNotNull(PtSearchLogPlus::getReason)
+                    .orderByDesc(PtSearchLogPlus::getId)
+                    .last("limit 1"), false);
+            return row == null ? null : row.getReason();
+        } catch (Exception e) {
+            log.warn("读取最新匹配摘要失败（不影响主流程），订阅[{}]：{}", subId, e.getMessage());
+            return null;
+        }
+    }
+
+    /**
      * 一次搜索里「候选被过滤规则淘汰」的聚合结果：给人看的一句话，加上给通知去重用的指纹。
      * <p>
      * 两者出自同一次查询——指纹单独再查一遍库是纯浪费，而它们本来就描述同一批行。

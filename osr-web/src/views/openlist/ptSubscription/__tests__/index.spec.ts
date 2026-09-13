@@ -138,6 +138,7 @@ function baseComposable(overrides: Record<string, any> = {}) {
     searchAllMissingDone: ref(0),
     searchAllMissingTotal: ref(0),
     searchAllMissingAborted: ref(false),
+    searchAllMissingSeasonPhase: ref(false),
     abortSearchAllMissing: vi.fn(),
     pickedSeasonEpisodeCount: ref(null),
     pickedSeasonCountLoading: ref(false),

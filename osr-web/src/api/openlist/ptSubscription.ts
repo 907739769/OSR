@@ -71,17 +71,31 @@ export function resumeSubscriptionApi(id: number) {
   return request.post(`/openliststrm/pt-subscriptions/${id}/resume`)
 }
 
-/** 搜索补集：关键词搜索索引器并推送最优结果。indexerIds 省略或为空时搜全部启用中的索引器 */
+/**
+ * 搜索补集：关键词搜索索引器并推送最优结果。indexerIds 省略或为空时搜全部启用中的索引器。
+ * <p>
+ * 超时按整季自动推送的上限配：那条路径与缺集体检「立即补搜」是同一套（季搜索 30 秒 + 单集补发
+ * 最多 180 秒），60 秒的旧超时会让它必然被前端判超时——而后端照样在跑，用户再点一次就是并发两遍。
+ * </p>
+ */
 export function searchSupplementApi(id: number, data: {
   episode: number
   keyword: string
   manualSelect?: boolean
   indexerIds?: number[]
 }) {
-  return request.post<any, { pushed: boolean; candidateCount: number; candidates?: any[] }>(
+  return request.post<any, {
+    pushed: boolean
+    candidateCount: number
+    candidates?: any[]
+    /** 没推成的原因，与匹配日志里的是同一句话 */
+    reason?: string
+    /** 推送成功的资源个数，整季搜索可能不止一个 */
+    pushedCount?: number
+  }>(
     `/openliststrm/pt-subscriptions/${id}/search`,
     data,
-    { timeout: 60000 }
+    { timeout: 240000 }
   )
 }
 
@@ -100,6 +114,8 @@ export function pushSelectedCandidateApi(id: number, data: {
   infoHash?: string
   description?: string
   pubDate?: string
+  /** 种子内文件数，原样回传：季包的集数估算要用它，丢了会让体积规则的判定与列表不一致 */
+  files?: number
 }) {
   return request.post(`/openliststrm/pt-subscriptions/${id}/push-selected`, data)
 }

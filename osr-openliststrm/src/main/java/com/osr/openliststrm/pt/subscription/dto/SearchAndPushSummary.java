@@ -1,6 +1,5 @@
 package com.osr.openliststrm.pt.subscription.dto;
 
-import lombok.AllArgsConstructor;
 import lombok.Data;
 
 /**
@@ -12,7 +11,6 @@ import lombok.Data;
  * @author Jack
  */
 @Data
-@AllArgsConstructor
 public class SearchAndPushSummary {
 
     /** 订阅不存在/未订阅中/当前没有缺集，本次直接跳过未发起搜索 */
@@ -45,6 +43,18 @@ public class SearchAndPushSummary {
      * </p>
      */
     private String rejectSignature;
+
+    /** 季搜索汇总到的候选种子数（去重后、过滤前），不含单集补发那几次的候选；跳过时为 0 */
+    private int candidateCount;
+
+    public SearchAndPushSummary(boolean skipped, boolean seasonPushed, int episodesPushed,
+                                String rejectSummary, String rejectSignature) {
+        this.skipped = skipped;
+        this.seasonPushed = seasonPushed;
+        this.episodesPushed = episodesPushed;
+        this.rejectSummary = rejectSummary;
+        this.rejectSignature = rejectSignature;
+    }
 
     /** 兼容既有三参调用点，等价于没有淘汰摘要 */
     public SearchAndPushSummary(boolean skipped, boolean seasonPushed, int episodesPushed) {

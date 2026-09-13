@@ -477,4 +477,82 @@ class SubscriptionMatcherTest {
 
         assertNull(matcher.match(t, List.of(reZeroSub())), "别名只解决『是不是这部剧』，不放宽季号");
     }
+
+    // ---------- 外部 ID ----------
+
+    private TorrentInfo withIds(TorrentInfo t, String imdb, String tmdb, Integer... categories) {
+        t.setImdbId(imdb);
+        t.setTmdbId(tmdb);
+        t.setCategories(List.of(categories));
+        return t;
+    }
+
+    @Test
+    void 外部ID_标题对不上但IMDb相同_照样认领且季集判定不放宽() {
+        // 站点用了与 TMDb 不同的译名：标题这一维永远对不上，RSS 此前一条都订不到
+        PtSubscriptionPlus sub = tvSub(10, "足球教练", 1);
+        sub.setImdbId("tt10986410");
+        TorrentInfo t = withIds(torrent("Ted Lasso", null, 1, 5), "tt10986410", null);
+
+        MatchResult result = matcher.match(t, List.of(sub));
+
+        assertNotNull(result);
+        assertEquals(5, result.getEpisode());
+        assertNull(matcher.match(withIds(torrent("Ted Lasso", null, 2, 5), "tt10986410", null), List.of(sub)),
+                "ID 只回答『是不是这部剧』，季号对不上照样不匹配");
+    }
+
+    @Test
+    void 外部ID_同名剧标题相同但ID不同_不串台_改由ID一致的订阅认领() {
+        // 《人生复本》(2024) 与《暗物质》(2016) 英文名都是 Dark Matter、都有第 2 季
+        PtSubscriptionPlus darkMatter2024 = tvSub(1, "人生复本", "Dark Matter", 2);
+        darkMatter2024.setImdbId("tt13651628");
+        PtSubscriptionPlus darkMatter2016 = tvSub(2, "暗物质", "Dark Matter", 2);
+        darkMatter2016.setImdbId("tt4159076");
+        TorrentInfo t = withIds(torrent("Dark Matter", null, 2, null), "tt4159076", null);
+
+        MatchResult result = matcher.match(t, List.of(darkMatter2024, darkMatter2016));
+
+        assertNotNull(result);
+        assertEquals(2, result.getSubscription().getId());
+        assertNull(matcher.match(t, List.of(darkMatter2024)), "ID 明确不一致时标题相同也不认领");
+    }
+
+    @Test
+    void 外部ID_IMDb不同但TMDb相同_以相同为准() {
+        // 发布者把剧集的 IMDb 链接填成了某一集的页面，只凭 IMDb 不同就否决会误伤
+        PtSubscriptionPlus sub = tvSub(10, "Some Show", 1);
+        sub.setImdbId("tt1111111");
+        sub.setTmdbId("1399");
+        TorrentInfo t = withIds(torrent("Some Show", null, 1, 5), "tt2222222", "1399", 5040);
+
+        assertNotNull(matcher.match(t, List.of(sub)));
+        assertEquals(SubscriptionMatcher.Identity.SAME, matcher.identityOf(t, sub));
+    }
+
+    @Test
+    void 外部ID_TMDb分不清电影剧集时不参与比较() {
+        // movie/1399 与 tv/1399 是两部毫不相干的作品
+        PtSubscriptionPlus sub = tvSub(10, "Some Show", 1);
+        sub.setTmdbId("1399");
+
+        assertEquals(SubscriptionMatcher.Identity.UNKNOWN,
+                matcher.identityOf(withIds(torrent("X", null, 1, 5), null, "1399"), sub));
+        assertEquals(SubscriptionMatcher.Identity.UNKNOWN,
+                matcher.identityOf(withIds(torrent("X", null, 1, 5), null, "1399", 2040), sub),
+                "电影分类的 tmdbid 不能拿来和剧集订阅比");
+        assertEquals(SubscriptionMatcher.Identity.SAME,
+                matcher.identityOf(withIds(torrent("X", null, 1, 5), null, "1399", 5040), sub));
+        assertEquals(SubscriptionMatcher.Identity.DIFFERENT,
+                matcher.identityOf(withIds(torrent("X", null, 1, 5), null, "1400", 5040), sub));
+    }
+
+    @Test
+    void 外部ID_订阅侧IMDb未带前导零也能对上() {
+        PtSubscriptionPlus sub = tvSub(10, "Some Show", 1);
+        sub.setImdbId("tt0944947");
+
+        assertEquals(SubscriptionMatcher.Identity.SAME,
+                matcher.identityOf(withIds(torrent("X", null, 1, 5), "tt0944947", null), sub));
+    }
 }

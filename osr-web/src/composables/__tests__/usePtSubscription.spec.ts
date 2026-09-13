@@ -193,12 +193,52 @@ describe('usePtSubscription 一键补齐全部缺集', () => {
     await composable.handleSearchAllMissing()
 
     const calls = (searchSupplementApi as any).mock.calls
-    expect(calls).toHaveLength(3)
+    // 1 次整季 + 3 次逐集（进度 mock 仍报 3 集都缺）
+    expect(calls).toHaveLength(4)
     for (const [subId, payload] of calls) {
       expect(subId).toBe(subA.id)
       expect(payload.keyword).toContain('A剧')
       expect(payload.keyword).toContain('S01')
     }
+    expect(getSubscriptionProgressApi).toHaveBeenCalledWith(subA.id)
+  })
+
+  /**
+   * 只逐集搜是搜不到季包的：`片名 S01E05` 命不中标题 `片名 S01`，逐集模式也不推解析不出集号的季包。
+   * 第一步先走与缺集体检「立即补搜」同一套整季补搜，补上的集不再逐个重搜。
+   */
+  it('先整季补搜，只对仍缺着的集逐集搜', async () => {
+    const composable = usePtSubscription()
+    composable.currentSubscription.value = { id: 1, title: 'A剧', season: 1, mediaType: 'TV' }
+    composable.progress.value = { missingEpisodes: [1, 2, 3] }
+    ;(searchSupplementApi as any).mockImplementation(async (_id: number, payload: any) =>
+      payload.episode === -1 ? { pushed: true, pushedCount: 2 } : { pushed: true })
+    // 整季那一步推掉了 1、2 集
+    ;(getSubscriptionProgressApi as any).mockResolvedValue({ missingEpisodes: [3] })
+
+    await composable.handleSearchAllMissing()
+
+    const episodes = (searchSupplementApi as any).mock.calls.map((c: any[]) => c[1].episode)
+    expect(episodes).toEqual([-1, 3])
+    expect((searchSupplementApi as any).mock.calls[0][1].keyword).toBe('A剧 S01')
+    expect(composable.searchAllMissingDone.value).toBe(3)
+    expect(message.success).toHaveBeenCalledWith(expect.stringContaining('共推送 3 个资源'))
+  })
+
+  it('整季那一步失败时退回逐集搜索，不让用户白等', async () => {
+    const composable = usePtSubscription()
+    composable.currentSubscription.value = { id: 1, title: 'A剧', season: 1, mediaType: 'TV' }
+    composable.progress.value = { missingEpisodes: [1, 2] }
+    ;(searchSupplementApi as any).mockImplementation(async (_id: number, payload: any) => {
+      if (payload.episode === -1) throw new Error('timeout')
+      return { pushed: false }
+    })
+
+    await composable.handleSearchAllMissing()
+
+    const episodes = (searchSupplementApi as any).mock.calls.map((c: any[]) => c[1].episode)
+    expect(episodes).toEqual([-1, 1, 2])
+    expect(composable.searchAllMissingSeasonPhase.value).toBe(false)
   })
 
   it('用户点停止后，当前这一集跑完就收尾，不再搜后面的集', async () => {
@@ -206,15 +246,16 @@ describe('usePtSubscription 一键补齐全部缺集', () => {
     composable.currentSubscription.value = { id: 1, title: 'A剧', season: 1, mediaType: 'TV' }
     composable.progress.value = { missingEpisodes: [1, 2, 3, 4, 5] }
 
-    ;(searchSupplementApi as any).mockImplementation(async () => {
-      composable.abortSearchAllMissing()
+    ;(getSubscriptionProgressApi as any).mockResolvedValue({ missingEpisodes: [1, 2, 3, 4, 5] })
+    ;(searchSupplementApi as any).mockImplementation(async (_id: number, payload: any) => {
+      if (payload.episode !== -1) composable.abortSearchAllMissing()
       return { pushed: false }
     })
 
     await composable.handleSearchAllMissing()
 
-    // 第一集发出去了、跑完才停，所以恰好一次
-    expect((searchSupplementApi as any).mock.calls).toHaveLength(1)
+    // 整季一次 + 第一集发出去了、跑完才停，所以恰好两次
+    expect((searchSupplementApi as any).mock.calls).toHaveLength(2)
     expect(composable.searchAllMissingDone.value).toBe(1)
     expect(composable.searchAllMissingTotal.value).toBe(5)
     expect(composable.searchAllMissingLoading.value).toBe(false)
@@ -237,7 +278,8 @@ describe('usePtSubscription 一键补齐全部缺集', () => {
     await composable.handleSearchAllMissing()
 
     const searched = (searchSupplementApi as any).mock.calls.map((c: any[]) => c[1].episode)
-    expect(searched).toEqual([1, 2, 3])
+    // -1 是第一步的整季补搜（后端同样跳过未播集）
+    expect(searched).toEqual([-1, 1, 2, 3])
     expect(composable.searchAllMissingTotal.value).toBe(3)
   })
 
@@ -256,14 +298,17 @@ describe('usePtSubscription 一键补齐全部缺集', () => {
     const composable = usePtSubscription()
     composable.currentSubscription.value = { id: 1, title: 'A剧', season: 1, mediaType: 'TV' }
     composable.progress.value = { missingEpisodes: [1] }
+    const progressOfB = { missingEpisodes: [7] }
     ;(searchSupplementApi as any).mockImplementation(async () => {
       composable.currentSubscription.value = { id: 99, title: 'B剧', season: 2, mediaType: 'TV' }
+      composable.progress.value = progressOfB
       return { pushed: true }
     })
 
     await composable.handleSearchAllMissing()
 
-    expect(getSubscriptionProgressApi).not.toHaveBeenCalled()
+    // 整季那一步之后会为「A」重查一次进度用来算剩余集，但不能写进用户正在看的 B 的弹窗
+    expect(composable.progress.value).toEqual(progressOfB)
   })
 })
 

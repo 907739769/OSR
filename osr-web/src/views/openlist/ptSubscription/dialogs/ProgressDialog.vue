@@ -128,7 +128,7 @@
           <!-- 跑批期间只留进度与中止：每集要等一次几十秒的检索，几十集就是十几分钟，
                一个光转圈的按钮说不清还要多久 -->
           <span class="batch-search-progress">
-            补齐中 {{ searchAllMissingDone }}/{{ searchAllMissingTotal }}
+            {{ searchAllMissingSeasonPhase ? '整季检索中…' : `补齐中 ${searchAllMissingDone}/${searchAllMissingTotal}` }}
           </span>
           <v-btn
             variant="text"
@@ -192,6 +192,7 @@ const {
   searchAllMissingAborted,
   searchAllMissingDone,
   searchAllMissingLoading,
+  searchAllMissingSeasonPhase,
   searchAllMissingTotal,
   seasonLabel,
   unairedMissingEpisodes,

@@ -630,8 +630,13 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
         message.info('未搜索到匹配资源')
         searchDialogOpen.value = false
       } else {
-        // 自动推送模式
-        message[result.pushed ? 'success' : 'info'](result.pushed ? '已找到并推送下载' : '未搜索到匹配资源')
+        // 自动推送模式。没推成时说出真实原因（过滤规则清光、下载器并发已满、刚被 RSS 占位……），
+        // 一律说「未搜索到」会让用户去改关键词，而那多半不是问题所在
+        if (result.pushed) {
+          message.success((result.pushedCount ?? 1) > 1 ? `已推送 ${result.pushedCount} 个资源到下载器` : '已找到并推送下载')
+        } else {
+          message.info(result.reason || '未搜索到匹配资源')
+        }
         searchDialogOpen.value = false
         base.getList()
         if (currentSubscription.value && currentSubscription.value.id === target.subId) {
@@ -669,7 +674,8 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
         // 原样回传描述：后端会用这些字段重新解析一遍种子，而有一类种子的集号只写在描述里
         // （标题标成整季、描述里才是 S01E51-E66）。不带的话它在推送时又退化成"有季无集"，
         // 占位范围与列表里显示的集号对不上
-        description: candidate.description
+        description: candidate.description,
+        files: candidate.files
       })
       message.success('已推送下载')
       candidateDialogOpen.value = false
@@ -708,6 +714,8 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
   const searchAllMissingTotal = ref(0)
   /** 用户点了「停止」：当前这一集搜完就收尾，不打断已发出的请求 */
   const searchAllMissingAborted = ref(false)
+  /** 正在跑第一步的整季补搜（此时还没有逐集进度可显示） */
+  const searchAllMissingSeasonPhase = ref(false)
 
   const abortSearchAllMissing = () => { searchAllMissingAborted.value = true }
 
@@ -728,7 +736,31 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
     searchAllMissingLoading.value = true
     let pushedCount = 0
     try {
-      for (const ep of missing) {
+      // 第一步：整季补搜，与缺集体检「立即补搜」是同一套后端逻辑（季搜索 + 季包 + 候选池逐集匹配）。
+      // 只逐集搜是搜不到季包的：`片名 S01E05` 这个词命不中标题 `片名 S01`，季包在索引器那层就被滤掉，
+      // 逐集模式下解析不出集号的季包也不会被推——站上只有季包的剧，旧实现每一集都是 0 个候选
+      let remaining = missing
+      searchAllMissingSeasonPhase.value = true
+      try {
+        const seasonResult = await searchSupplementApi(sub.id, {
+          episode: -1,
+          keyword: `${sub.title} S${pad2(sub.season)}`
+        })
+        pushedCount += seasonResult.pushedCount ?? 0
+        // 季包会一次占掉全部缺集、逐集推送也会占掉一批：重查一次，只对仍缺着的集逐个搜
+        const fresh: any = await getSubscriptionProgressApi(sub.id)
+        const stillMissing = new Set<number>(fresh?.missingEpisodes || [])
+        remaining = missing.filter((ep) => stillMissing.has(ep))
+      } catch (e) {
+        // 整季这一步失败不该让用户白等：退回原先的逐集搜索
+        console.error('整季补搜失败，退回逐集搜索：', e)
+      } finally {
+        searchAllMissingSeasonPhase.value = false
+      }
+      // 整季那一步已经补上的集算作完成，进度条从这里接着走
+      searchAllMissingDone.value = missing.length - remaining.length
+
+      for (const ep of remaining) {
         if (searchAllMissingAborted.value) break
         const keyword = `${sub.title} S${pad2(sub.season)}E${pad2(ep)}`
         try {
@@ -739,11 +771,10 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
         }
         searchAllMissingDone.value++
       }
-      const done = searchAllMissingDone.value
       const stoppedTip = searchAllMissingAborted.value ? '（已中止）' : ''
       // 跳过数要说出来，否则「仍缺 12 集」却只搜了 3 集，用户会以为漏跑了
       const skippedTip = skipped ? `，另有 ${skipped} 集未播出已跳过` : ''
-      message.success(`已搜索 ${done}/${missing.length} 集${stoppedTip}：${pushedCount} 集已推送下载${skippedTip}`)
+      message.success(`补齐完成${stoppedTip}：共推送 ${pushedCount} 个资源到下载器${skippedTip}`)
       // 进度只在用户还停在这条订阅上时回写，否则会把他正在看的另一条订阅的弹窗内容改掉
       if (currentSubscription.value?.id === sub.id) {
         progress.value = await getSubscriptionProgressApi(sub.id)
@@ -1022,6 +1053,7 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
     // 一键补齐全部缺集
     searchAllMissingLoading, handleSearchAllMissing, toggleAutoSearch, toggleUpgrade,
     searchAllMissingDone, searchAllMissingTotal, searchAllMissingAborted, abortSearchAllMissing,
+    searchAllMissingSeasonPhase,
     // 行操作
     handleRefresh, handlePause, handleResume, handleRemove,
     // 批量操作

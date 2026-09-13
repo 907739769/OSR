@@ -13,8 +13,11 @@ export function getPtDownloadRecordListApi(params: PtDownloadRecordQuery) {
 
 /** 立即重试一条失败的下载记录：按订阅标题+季/集号重新发起搜索补集 */
 export function retryPtDownloadRecordApi(id: number) {
-  return request.post<any, { pushed: boolean; candidateCount: number }>(
-    `/openliststrm/pt-download-records/${id}/retry`
+  // 季包记录的重试走整季补搜，耗时上限与 searchSupplementApi 相同
+  return request.post<any, { pushed: boolean; candidateCount: number; reason?: string; pushedCount?: number }>(
+    `/openliststrm/pt-download-records/${id}/retry`,
+    null,
+    { timeout: 240000 }
   )
 }
 

@@ -82,6 +82,9 @@ public class SearchCandidateDTO {
      */
     private String description;
 
+    /** 种子内文件数，不展示，供前端推送时原样回传（见 {@code PushSelectedRequest#files}） */
+    private Integer files;
+
     /** 解析出的集号；为 null 表示整季合集（或电影） */
     private Integer parsedEpisode;
 

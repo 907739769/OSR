@@ -1,6 +1,7 @@
 package com.osr.openliststrm.pt.indexer;
 
 import com.osr.common.utils.StringUtils;
+import com.osr.openliststrm.pt.model.ExternalIds;
 import com.osr.openliststrm.pt.model.TorrentInfo;
 import lombok.extern.slf4j.Slf4j;
 import org.w3c.dom.Document;
@@ -9,7 +10,9 @@ import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Torznab / Newznab 响应解析器。纯函数，无 IO，无 Spring 依赖。
@@ -112,8 +115,41 @@ public final class TorznabParser {
         info.setFiles(parseNullableInt(attrValue(item, "files")));
         // 未提供促销信息时按正常计量处理，绝不能默认成免费
         info.setDownloadVolumeFactor(parseDouble(attrValue(item, "downloadvolumefactor"), 1.0));
+        // Prowlarr 给 imdbid=tt0944947，Jackett 老版本只给 imdb=0944947，两个都认，优先带前缀的那个
+        String imdb = ExternalIds.normalizeImdb(attrValue(item, "imdbid"));
+        info.setImdbId(imdb != null ? imdb : ExternalIds.normalizeImdb(attrValue(item, "imdb")));
+        info.setTmdbId(ExternalIds.normalizeTmdb(attrValue(item, "tmdbid")));
+        info.setCategories(parseCategories(item));
 
         return info;
+    }
+
+    /**
+     * 分类号：{@code <category>} 子元素与 {@code category} 属性都可能出现、且都可能出现多次，
+     * 合并去重。非数字的跳过——分类在这里只用来判「电影还是剧集」，判不出来就当没给。
+     */
+    private static List<Integer> parseCategories(Element item) {
+        Set<Integer> result = new LinkedHashSet<>();
+        NodeList children = item.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            Node node = children.item(i);
+            if (node.getNodeType() != Node.ELEMENT_NODE) {
+                continue;
+            }
+            String tag = node.getNodeName();
+            String raw = null;
+            if ("category".equals(tag)) {
+                raw = node.getTextContent();
+            } else if (("attr".equals(tag) || tag.endsWith(":attr"))
+                    && "category".equalsIgnoreCase(((Element) node).getAttribute("name"))) {
+                raw = ((Element) node).getAttribute("value");
+            }
+            Integer parsed = parseNullableInt(raw);
+            if (parsed != null) {
+                result.add(parsed);
+            }
+        }
+        return new ArrayList<>(result);
     }
 
     /**

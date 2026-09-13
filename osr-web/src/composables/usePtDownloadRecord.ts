@@ -65,7 +65,7 @@ export function usePtDownloadRecord(options: ListLoadOptions = {}) {
     try {
       const result = await retryPtDownloadRecordApi(row.id)
       message[result.pushed ? 'success' : 'info'](
-        result.pushed ? '已重新找到并推送下载' : '重试未搜索到匹配资源'
+        result.pushed ? '已重新找到并推送下载' : (result.reason || '重试未搜索到匹配资源')
       )
       getList()
     } catch (e) {

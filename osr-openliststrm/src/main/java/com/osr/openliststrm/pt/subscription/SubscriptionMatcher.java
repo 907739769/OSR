@@ -2,6 +2,7 @@ package com.osr.openliststrm.pt.subscription;
 
 import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
+import com.osr.openliststrm.pt.model.ExternalIds;
 import com.osr.openliststrm.pt.model.TorrentInfo;
 import com.osr.openliststrm.pt.subscription.dto.MatchResult;
 import com.osr.openliststrm.rename.TitleNormalizer;
@@ -44,6 +45,11 @@ public class SubscriptionMatcher {
      */
     public MatchResult match(TorrentInfo torrent, List<PtSubscriptionPlus> subscriptions,
                              Map<Integer, AbsoluteEpisodeMap> absoluteMaps) {
+        // 外部 ID 一轮排在标题之前，见 identityOf 的注释
+        MatchResult byId = matchById(torrent, subscriptions, absoluteMaps);
+        if (byId != null) {
+            return byId;
+        }
         Set<String> torrentTitles = torrentTitles(torrent);
         if (!torrentTitles.isEmpty()) {
             MatchResult byTitle = matchAgainst(torrent, subscriptions, absoluteMaps, torrentTitles);
@@ -74,6 +80,10 @@ public class SubscriptionMatcher {
             if (Collections.disjoint(torrentTitles, subTitles)) {
                 continue;
             }
+            // 标题对得上、ID 却说是另一部作品：同名剧/同名翻拍，标题这一维在构造上分不开它们
+            if (identityOf(torrent, sub) == Identity.DIFFERENT) {
+                continue;
+            }
             MatchResult result = matchEpisode(torrent, sub,
                     absoluteMaps.getOrDefault(sub.getId(), AbsoluteEpisodeMap.EMPTY));
             if (result != null) {
@@ -81,6 +91,88 @@ public class SubscriptionMatcher {
             }
         }
         return null;
+    }
+
+    /**
+     * 按外部 ID 认领：种子带着的 IMDb/TMDb ID 与某条订阅一致，就不再要求标题相同。
+     * <p>
+     * 这一轮只放宽「是不是这部作品」，季号、集号、年份判定原样照走 {@link #matchEpisode}。
+     * </p>
+     */
+    private MatchResult matchById(TorrentInfo torrent, List<PtSubscriptionPlus> subscriptions,
+                                  Map<Integer, AbsoluteEpisodeMap> absoluteMaps) {
+        if (torrent.getImdbId() == null && torrent.getTmdbId() == null) {
+            return null;
+        }
+        for (PtSubscriptionPlus sub : subscriptions) {
+            if (identityOf(torrent, sub) != Identity.SAME) {
+                continue;
+            }
+            MatchResult result = matchEpisode(torrent, sub,
+                    absoluteMaps.getOrDefault(sub.getId(), AbsoluteEpisodeMap.EMPTY));
+            if (result != null) {
+                return result;
+            }
+        }
+        return null;
+    }
+
+    /** 外部 ID 对「种子是不是这条订阅的作品」给出的结论 */
+    public enum Identity {
+        /** 至少有一种可比的 ID 两侧相同 */
+        SAME,
+        /** 有可比的 ID，且全部两侧不同 */
+        DIFFERENT,
+        /** 没有任何一种 ID 两侧都有（或 TMDb 那种分不清电影/剧集），ID 说不出结论 */
+        UNKNOWN
+    }
+
+    /**
+     * 用外部 ID 判断种子是不是这条订阅的作品。<b>RSS 匹配与搜索补集共用这一份判据</b>。
+     * <p>
+     * 引入它是因为「标题全等」这道判据两头都会出错：译名不同、罗马音/拼音命名、解析器切错标题时
+     * 会<b>漏</b>——而搜索侧的 ID 精确检索压根不校验标题，于是出现「RSS 订不到、手动搜索能搜到」；
+     * 同名作品（《人生复本》与《暗物质》英文名都叫 Dark Matter）时又会<b>串</b>。
+     * 索引器（Jackett/Prowlarr）对许多站点会在条目上附带 imdb/tmdbid 属性，那才是能把两件事都
+     * 说清楚的信号。
+     * </p>
+     * <ul>
+     *   <li><b>SAME 只要一种 ID 相同，DIFFERENT 要求全部可比的 ID 都不同。</b>站点上的 IMDb 链接
+     *       是发布者手填的，剧集有时填成了<b>单集</b>的 IMDb 页（与剧集页编号不同）。只凭 IMDb
+     *       不同就否决，会把这类完全正确的种子挡掉，且没有任何错误现象。TMDb 同时给出且相同时，
+     *       以相同为准。</li>
+     *   <li><b>TMDb ID 只有在分类判得出电影/剧集、且与订阅类型一致时才可比。</b>TMDb 的电影与剧集是
+     *       两套独立编号，{@code movie/1399} 与 {@code tv/1399} 毫不相干；分类缺失或两类都有时一律
+     *       当作没给。IMDb 编号全局唯一，没有这个问题。</li>
+     *   <li><b>判不出来就是 UNKNOWN</b>，调用方退回标题判定——绝大多数种子（尤其是没有 IMDb 链接的
+     *       国内资源）走的仍是标题那条路，行为与引入前完全一致。</li>
+     * </ul>
+     */
+    public Identity identityOf(TorrentInfo torrent, PtSubscriptionPlus sub) {
+        boolean comparable = false;
+        String subImdb = ExternalIds.normalizeImdb(sub.getImdbId());
+        if (torrent.getImdbId() != null && subImdb != null) {
+            if (torrent.getImdbId().equals(subImdb)) {
+                return Identity.SAME;
+            }
+            comparable = true;
+        }
+        String subTmdb = ExternalIds.normalizeTmdb(sub.getTmdbId());
+        if (torrent.getTmdbId() != null && subTmdb != null && kindMatches(torrent, sub)) {
+            if (torrent.getTmdbId().equals(subTmdb)) {
+                return Identity.SAME;
+            }
+            comparable = true;
+        }
+        return comparable ? Identity.DIFFERENT : Identity.UNKNOWN;
+    }
+
+    private boolean kindMatches(TorrentInfo torrent, PtSubscriptionPlus sub) {
+        ExternalIds.Kind kind = ExternalIds.kindOf(torrent.getCategories());
+        if (kind == ExternalIds.Kind.UNKNOWN) {
+            return false;
+        }
+        return (kind == ExternalIds.Kind.MOVIE) == TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType());
     }
 
     /**

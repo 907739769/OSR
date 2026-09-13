@@ -295,4 +295,45 @@ class TorznabParserTest {
         assertEquals("A", list.get(0).getTitle());
         assertEquals("C", list.get(2).getTitle());
     }
+
+    @Test
+    void parse_外部ID与分类_归一化后写入() {
+        // Jackett 老版本的 imdb 属性不带 tt、连前导零都可能没有；订阅侧存的是 tt0944947，不归一化就比不上
+        String xml = wrap("""
+                    <item>
+                      <title>Game.of.Thrones.S01E01.1080p</title>
+                      <link>http://x/1</link>
+                      <category>5040</category>
+                      <torznab:attr name="category" value="5000"/>
+                      <torznab:attr name="category" value="100411"/>
+                      <torznab:attr name="imdb" value="944947"/>
+                      <torznab:attr name="tmdbid" value="1399"/>
+                    </item>
+                """);
+
+        TorrentInfo t = TorznabParser.parse(xml).get(0);
+
+        assertEquals("tt0944947", t.getImdbId());
+        assertEquals("1399", t.getTmdbId());
+        assertEquals(List.of(5040, 5000, 100411), t.getCategories());
+    }
+
+    @Test
+    void parse_imdbid带前缀优先_零值当作未提供() {
+        String xml = wrap("""
+                    <item>
+                      <title>A</title>
+                      <link>http://x/1</link>
+                      <torznab:attr name="imdbid" value="tt1234567"/>
+                      <torznab:attr name="imdb" value="7654321"/>
+                      <torznab:attr name="tmdbid" value="0"/>
+                    </item>
+                """);
+
+        TorrentInfo t = TorznabParser.parse(xml).get(0);
+
+        assertEquals("tt1234567", t.getImdbId());
+        assertNull(t.getTmdbId());
+        assertTrue(t.getCategories().isEmpty());
+    }
 }

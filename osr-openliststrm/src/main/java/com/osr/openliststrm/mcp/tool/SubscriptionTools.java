@@ -164,13 +164,13 @@ public class SubscriptionTools implements McpToolGroup {
 
                         【耗时较长】会向每个启用的索引器发起多步检索，可达 1 分钟以上，因此<b>立刻返回一个 jobId</b>，\
                         请随后用 get_job_status 轮询，不要重复提交同一个请求。
-                        结果里的 message 会说清是推送了几个资源，还是因为什么原因一个都没推——\
+                        结果 data 里的 pushedCount 是推送了几个资源，没推成时 reason 说清是因为什么——\
                         「候选全被过滤规则淘汰」与「压根没搜到候选」的处置方向完全相反。
 
                         想一次补齐整条订阅的所有缺集，用 search_missing_episodes 而不是逐集调用本工具。""")
                 .write()
                 .requiredParam("subscriptionId", "integer", "订阅 id")
-                .param("episode", "integer", "目标集号；不填表示整季包/整部电影")
+                .param("episode", "integer", "目标集号；不填表示整季（剧集会补齐全部已播出的缺失集，与 search_missing_episodes 同一套逻辑）/整部电影")
                 .param("keyword", "string", "自定义检索关键词；不填则由系统按标题与季集号生成")
                 .handle(args -> {
                     int id = args.requireInt("subscriptionId");

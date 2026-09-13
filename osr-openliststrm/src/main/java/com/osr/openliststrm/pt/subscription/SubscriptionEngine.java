@@ -482,7 +482,10 @@ public class SubscriptionEngine {
         if (claimed.isEmpty()) {
             log.debug("{} 已被并发轮询占位，跳过", PtLogText.subject(sub, match.getEpisode(), null));
             downloaderLoadCache.merge(downloader.getId(), -1L, Long::sum);
-            return PushOutcome.fail("该集刚被另一次推送占位（可能是 RSS 轮询或自动搜索），无需重复推送");
+            String reason = "该集刚被另一次推送占位（可能是 RSS 轮询或自动搜索），无需重复推送";
+            // 其余失败路径都落了摘要，这两条此前没有：搜索补集要从匹配日志取原因回给用户，漏记就只剩泛化文案
+            searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, reason);
+            return PushOutcome.fail(reason);
         }
 
         String guidHash = GuidHasher.hash(best.getGuid());
@@ -504,7 +507,9 @@ public class SubscriptionEngine {
         if (!saved) {
             releaseAll(claimed, mode);
             downloaderLoadCache.merge(downloader.getId(), -1L, Long::sum);
-            return PushOutcome.fail("保存下载记录失败，已回滚，请查看后端日志");
+            String reason = "保存下载记录失败，已回滚，请查看后端日志";
+            searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, reason);
+            return PushOutcome.fail(reason);
         }
 
         try {
@@ -770,8 +775,12 @@ public class SubscriptionEngine {
      * 逐条查等于把 30 秒的轮询拖成分钟级。索引器查不到（已删除）时保持 false：
      * 判不出来就按"不考核"处理，宁可少规避一次，也不能凭空把一批正常候选当成 H&R 淘汰掉。
      * </p>
+     * <p>
+     * 公开是给手动搜索的候选列表用：那边自己调过滤引擎生成列表，不先打标记的话「规避 H&R」在列表里
+     * 不生效，H&R 站的种子照样列出来，用户点推送时才在这里被拒——列表与推送给出相反结论。
+     * </p>
      */
-    private void markHitAndRun(List<TorrentInfo> torrents) {
+    public void markHitAndRun(List<TorrentInfo> torrents) {
         Set<Integer> hrIndexerIds = indexerService.list().stream()
                 .filter(PtIndexerPlus::hitAndRunEnabled)
                 .map(PtIndexerPlus::getId)

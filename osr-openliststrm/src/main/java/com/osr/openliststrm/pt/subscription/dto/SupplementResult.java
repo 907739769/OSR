@@ -26,9 +26,28 @@ public class SupplementResult {
     /** 手动选择模式下的候选种子列表，非手动模式为 null 或空列表 */
     private List<SearchCandidateDTO> candidates;
 
+    /**
+     * 自动推送没推成时的原因，可直接展示给用户；推成了或手动选择模式下为 null。
+     * <p>
+     * 此前前端拿到 {@code pushed=false} 只能一律提示「未搜索到匹配资源」，而真实原因可能是
+     * 50 个候选被过滤规则清光、下载器并发已满、该集刚被 RSS 占位——用户照着那句话去改关键词，
+     * 方向完全错了。文案与落进匹配日志的摘要是同一份（见 {@code SearchLogService#latestSummarySince}）。
+     * </p>
+     */
+    private String reason;
+
+    /** 本次推送成功的资源个数。整季搜索会逐集推送，可能不止一个；单集/电影推成了恒为 1 */
+    private int pushedCount;
+
     public SupplementResult(boolean pushed, int candidateCount) {
-        this.pushed = pushed;
-        this.candidateCount = candidateCount;
-        this.candidates = null;
+        this(pushed, candidateCount, null, null, pushed ? 1 : 0);
+    }
+
+    public SupplementResult(boolean pushed, int candidateCount, List<SearchCandidateDTO> candidates) {
+        this(pushed, candidateCount, candidates, null, pushed ? 1 : 0);
+    }
+
+    public static SupplementResult miss(int candidateCount, String reason) {
+        return new SupplementResult(false, candidateCount, null, reason, 0);
     }
 }
