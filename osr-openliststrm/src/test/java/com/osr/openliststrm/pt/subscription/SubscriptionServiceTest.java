@@ -32,6 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atMost;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.never;
@@ -322,6 +323,47 @@ class SubscriptionServiceTest {
 
         // 只升级不降级：不应有任何更新
         verify(episodeService, never()).updateBatchById(any());
+    }
+
+    @Test
+    void refresh_TMDb事后补上英文名_写回订阅() throws Exception {
+        // 《后西游记》：建订阅时 TMDb 没有英文翻译，english_title 存的是中文原名，
+        // 事后补上了 Beyond Wukong，订阅里却一直不更新，英文种子全被判标题不匹配
+        PtSubscriptionPlus sub = activeTv(46, 2);
+        sub.setTitle("后西游记");
+        sub.setEnglishTitle("后西游记");
+        when(subscriptionService.getById(46)).thenReturn(sub);
+        when(episodeService.listBySubscription(46)).thenReturn(List.of(
+                episode(1, "MISSING"), episode(2, "MISSING")));
+        when(tmdbSearchService.getSeasonEpisodeCount(anyString(), anyInt())).thenReturn(2);
+        when(tmdbSearchService.resolveChineseTitle(any(), any(), any())).thenReturn("后西游记");
+        when(tmdbSearchService.refreshEnglishTitle(any(), any(), eq("后西游记"))).thenReturn("Beyond Wukong");
+        stubEmbyConfigured();
+        when(mediaServerClient.listEpisodes(any(), anyString(), anyInt())).thenReturn(Set.of());
+
+        service.refresh(46);
+
+        assertEquals("Beyond Wukong", sub.getEnglishTitle());
+        verify(subscriptionService).updateById(sub);
+    }
+
+    @Test
+    void refresh_英文名查不到_不写订阅() throws Exception {
+        PtSubscriptionPlus sub = activeTv(47, 2);
+        sub.setTitle("后西游记");
+        sub.setEnglishTitle("后西游记");
+        when(subscriptionService.getById(47)).thenReturn(sub);
+        when(episodeService.listBySubscription(47)).thenReturn(List.of(
+                episode(1, "MISSING"), episode(2, "MISSING")));
+        when(tmdbSearchService.getSeasonEpisodeCount(anyString(), anyInt())).thenReturn(2);
+        when(tmdbSearchService.resolveChineseTitle(any(), any(), any())).thenReturn("后西游记");
+        when(tmdbSearchService.refreshEnglishTitle(any(), any(), any())).thenReturn("后西游记");
+        stubEmbyConfigured();
+        when(mediaServerClient.listEpisodes(any(), anyString(), anyInt())).thenReturn(Set.of());
+
+        service.refresh(47);
+
+        verify(subscriptionService, never()).updateById(any());
     }
 
     @Test

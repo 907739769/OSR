@@ -353,4 +353,66 @@ class TmdbSearchServiceTest {
 
         verify(tmDbApiService, never()).getAlternativeTitles(anyString(), anyString(), anyInt());
     }
+
+    // ---------- 英文名 ----------
+
+    /** 《后西游记》建订阅时的真实形态：TMDb 没有英文翻译，en-US 详情的 name 退回中文原名 */
+    private void stubNoEnglishTranslation() {
+        when(tmDbApiService.getDetails(anyString(), eq("tv"), eq(333350)))
+                .thenReturn("""
+                        {"id":333350,"name":"后西游记","original_name":"后西游记",
+                         "original_language":"zh","first_air_date":"2026-08-31"}
+                        """);
+        when(tmDbApiService.getDetails(anyString(), eq("tv"), eq(333350), eq("en-US")))
+                .thenReturn("{\"id\":333350,\"name\":\"后西游记\",\"original_name\":\"后西游记\"}");
+    }
+
+    @Test
+    void getDetail_en_US退回中文原名_不当英文名存() {
+        // 存进去的话三个标题全是中文，Beyond Wukong 的种子在两条链路上都被判标题不匹配，
+        // 且 english_title 看着有值，查库时不会想到它其实是空的
+        stubNoEnglishTranslation();
+
+        assertNull(service.getDetail("TV", "333350").getEnglishTitle());
+    }
+
+    @Test
+    void getDetail_en_US退回中文原名_取别名接口的US英文名() {
+        stubNoEnglishTranslation();
+        when(tmDbApiService.getAlternativeTitles(anyString(), eq("tv"), eq(333350)))
+                .thenReturn("{\"results\":[{\"iso_3166_1\":\"CN\",\"title\":\"后西游\"},{\"iso_3166_1\":\"US\",\"title\":\"Beyond Wukong\"}]}");
+
+        assertEquals("Beyond Wukong", service.getDetail("TV", "333350").getEnglishTitle());
+    }
+
+    @Test
+    void refreshEnglishTitle_TMDb事后补上英文名_换成新英文名() {
+        when(tmDbApiService.getDetails(anyString(), eq("tv"), eq(333350)))
+                .thenReturn("{\"id\":333350,\"name\":\"后西游记\",\"original_language\":\"zh\"}");
+        when(tmDbApiService.getDetails(anyString(), eq("tv"), eq(333350), eq("en-US")))
+                .thenReturn("{\"id\":333350,\"name\":\"Beyond Wukong\"}");
+
+        assertEquals("Beyond Wukong", service.refreshEnglishTitle("TV", "333350", "后西游记"));
+    }
+
+    @Test
+    void refreshEnglishTitle_已是英文名_不发请求() {
+        assertEquals("Breaking Bad", service.refreshEnglishTitle("TV", "1396", "Breaking Bad"));
+
+        verify(tmDbApiService, never()).getDetails(anyString(), anyString(), anyInt());
+    }
+
+    @Test
+    void refreshEnglishTitle_仍查不到英文名_原样返回不清空() {
+        stubNoEnglishTranslation();
+
+        assertEquals("后西游记", service.refreshEnglishTitle("TV", "333350", "后西游记"));
+    }
+
+    @Test
+    void refreshEnglishTitle_详情请求失败_原样返回() {
+        when(tmDbApiService.getDetails(anyString(), anyString(), anyInt())).thenReturn(null);
+
+        assertNull(service.refreshEnglishTitle("TV", "333350", null));
+    }
 }

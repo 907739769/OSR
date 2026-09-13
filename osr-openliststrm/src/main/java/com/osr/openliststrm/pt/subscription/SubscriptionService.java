@@ -285,7 +285,9 @@ public class SubscriptionService {
         boolean statusChanged = !newStatus.equals(sub.getStatus()) && !STATUS_PAUSED.equals(sub.getStatus());
         boolean totalChanged = totalEpisodes != sub.getTotalEpisodes();
         boolean titleChanged = refreshChineseTitle(sub);
-        if (statusChanged || totalChanged || titleChanged) {
+        // 不能写进 || 链里短路掉：中文标题刚改写时英文名同样要补
+        boolean englishTitleChanged = refreshEnglishTitle(sub);
+        if (statusChanged || totalChanged || titleChanged || englishTitleChanged) {
             sub.setStatus(STATUS_PAUSED.equals(sub.getStatus()) ? STATUS_PAUSED : newStatus);
             sub.setTotalEpisodes(totalEpisodes);
             subscriptionService.updateById(sub);
@@ -320,6 +322,31 @@ public class SubscriptionService {
             return true;
         } catch (Exception e) {
             log.warn("刷新 {} 的中文标题失败，沿用原标题：{}", PtLogText.subject(sub), e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * 存量订阅的英文名补全：建订阅时 TMDb 还没有英文翻译（新开播的国产剧常见），存下的是退回来的中文原名，
+     * 事后 TMDb 补上了英文名，订阅里却一直是建时那份。英文名是匹配英文种子标题的唯一依据——
+     * 《后西游记》三个标题全是中文，`Beyond Wukong S01` 的种子在 RSS 与搜索两条链路上都被判成标题不匹配。
+     * <p>
+     * 判据与请求代价见 {@code TmdbSearchService#refreshEnglishTitle}：已是英文名时不发请求。
+     * </p>
+     *
+     * @return 英文名是否被改写
+     */
+    private boolean refreshEnglishTitle(PtSubscriptionPlus sub) {
+        try {
+            String english = tmdbSearchService.refreshEnglishTitle(sub.getMediaType(), sub.getTmdbId(), sub.getEnglishTitle());
+            if (StringUtils.isBlank(english) || english.equals(sub.getEnglishTitle())) {
+                return false;
+            }
+            log.info("{} 英文名补全：{} → {}", PtLogText.subject(sub), sub.getEnglishTitle(), english);
+            sub.setEnglishTitle(english);
+            return true;
+        } catch (Exception e) {
+            log.warn("刷新 {} 的英文名失败，沿用原值：{}", PtLogText.subject(sub), e.getMessage());
             return false;
         }
     }
