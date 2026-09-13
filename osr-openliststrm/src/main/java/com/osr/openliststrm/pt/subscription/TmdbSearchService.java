@@ -105,11 +105,35 @@ public class TmdbSearchService {
         if ("en".equalsIgnoreCase(originalLanguage)) {
             return detail.getString(tv ? "name" : "title");
         }
+        // TMDb 缺英文翻译时 en-US 的 name 会直接退回原名（《后西游记》存下来就是三个标题全是中文），
+        // 那不是英文名，当作没有、接着走别名兜底
         String enUsTitle = fetchEnUsTitle(mediaType, tmdbId, tv);
-        if (StringUtils.isNotBlank(enUsTitle)) {
+        if (containsLatin(enUsTitle)) {
             return enUsTitle;
         }
-        return fetchEnglishAlias(mediaType, tmdbId);
+        String alias = fetchEnglishAlias(mediaType, tmdbId);
+        return containsLatin(alias) ? alias : null;
+    }
+
+    /**
+     * 存量订阅的英文名补全：建订阅时 TMDb 还没有英文翻译，事后补上了，订阅里却一直是建时那份。
+     * <p>
+     * 当前值已含拉丁字母（是个真英文名）时原样返回、不发请求；否则重新解析一次，解析不出时同样原样返回
+     * ——绝不因为这次锦上添花的请求把已有值清掉。TMDb 响应有两级缓存，对账高频调用不会高频打 TMDb，
+     * 代价是 TMDb 上刚补的英文名最多要等缓存过期（24 小时）才会被看到。
+     * </p>
+     */
+    public String refreshEnglishTitle(String mediaType, String tmdbId, String current) {
+        if (containsLatin(current) || StringUtils.isBlank(tmdbId)) {
+            return current;
+        }
+        JSONObject detail = readObject(tmDbApiService.getDetails(
+                openlistConfig.getTmdbApiKey(), tmdbType(mediaType), Integer.parseInt(tmdbId)));
+        if (detail == null) {
+            return current;
+        }
+        String resolved = resolveEnglishTitle(mediaType, tmdbId, detail);
+        return StringUtils.isNotBlank(resolved) ? resolved : current;
     }
 
     /**
@@ -254,6 +278,11 @@ public class TmdbSearchService {
     private String aliasTitle(JSONObject alias) {
         String title = alias.getString("title");
         return StringUtils.isNotBlank(title) ? title : alias.getString("name");
+    }
+
+    /** 是否含拉丁字母，判断「这是不是个英文名」用；TMDb 缺翻译时退回的中文原名不含。 */
+    private boolean containsLatin(String text) {
+        return text != null && text.chars().anyMatch(c -> (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'));
     }
 
     /** 是否含 CJK 汉字（简繁都在该区段内）。 */
