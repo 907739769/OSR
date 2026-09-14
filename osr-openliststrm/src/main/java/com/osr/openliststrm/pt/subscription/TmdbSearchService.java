@@ -342,7 +342,7 @@ public class TmdbSearchService {
     }
 
     /**
-     * 取剧集指定季的总集数。
+     * 取剧集指定季的总集数（已剔除大结局之后的占位集，见 {@link #capAtFinale}）。
      * <p>
      * 注意季号 0 是**特别篇**（TMDb 约定），不是电影——电影不该走这个方法。
      * </p>
@@ -350,6 +350,70 @@ public class TmdbSearchService {
      * @throws IllegalArgumentException 响应无 seasons，或该季不存在
      */
     public int getSeasonEpisodeCount(String tmdbId, int season) {
+        int count = getRawSeasonEpisodeCount(tmdbId, season);
+        JSONArray episodes;
+        try {
+            episodes = readArray(
+                    tmDbApiService.getSeasonEpisodes(openlistConfig.getTmdbApiKey(), Integer.parseInt(tmdbId), season),
+                    "episodes");
+        } catch (Exception e) {
+            // 季端点只用来剔占位集，取不到就按详情里的集数算，不能让建订阅/对账因此失败
+            log.debug("取剧集 {} 第 {} 季的集列表失败，按详情集数 {} 处理：{}", tmdbId, season, count, e.getMessage());
+            return count;
+        }
+        int capped = capAtFinale(count, episodes);
+        if (capped < count) {
+            log.debug("剧集 {} 第 {} 季：TMDb 登记 {} 集，第 {} 集已标为本季大结局且其后均无播出日期，按 {} 集计",
+                    tmdbId, season, count, capped, capped);
+        }
+        return capped;
+    }
+
+    /**
+     * 大结局之后的占位集不计入总集数。
+     * <p>
+     * TMDb 的季详情会给每集标 {@code episode_type}，网页上的「本季大结局」就是 {@code finale}。
+     * 综艺常见一种脏数据：大结局已经播完，季里却还挂着一个没有标题、没有播出日期的空条目
+     * （实测《喜剧之王单口季》第 3 季登记 42 集，第 41 集是大结局，第 42 集是空壳）。
+     * 按 42 集建集行的话，第 42 集永远 MISSING、订阅永远完结不了，还会被自动补搜每轮白搜一遍。
+     * </p>
+     * <p>
+     * 只信「大结局 + 其后全部没有播出日期」这个组合，两条缺一不可：
+     * 大结局之后只要有一集定了播出日期，就说明那不是占位集（加更、番外，或者大结局标错了），
+     * 按原集数算；反过来只看「尾部没有日期」也不行——连载中的剧，后面还没定档的集同样没有日期。
+     * {@code mid_season}（年中季终）不是完结，不参与判断。
+     * </p>
+     *
+     * @param count    详情里的 episode_count
+     * @param episodes 季端点的 episodes 数组，可为 null
+     * @return 剔除占位集后的集数，恒不大于 count
+     */
+    static int capAtFinale(int count, JSONArray episodes) {
+        if (episodes == null || episodes.isEmpty()) {
+            return count;
+        }
+        int finale = -1;
+        for (int i = 0; i < episodes.size(); i++) {
+            JSONObject item = episodes.getJSONObject(i);
+            Integer number = item == null ? null : item.getInteger("episode_number");
+            if (number != null && "finale".equalsIgnoreCase(item.getString("episode_type"))) {
+                finale = Math.max(finale, number);
+            }
+        }
+        if (finale <= 0 || finale >= count) {
+            return count;
+        }
+        for (int i = 0; i < episodes.size(); i++) {
+            JSONObject item = episodes.getJSONObject(i);
+            Integer number = item == null ? null : item.getInteger("episode_number");
+            if (number != null && number > finale && StringUtils.isNotBlank(item.getString("air_date"))) {
+                return count;
+            }
+        }
+        return finale;
+    }
+
+    private int getRawSeasonEpisodeCount(String tmdbId, int season) {
         String raw = tmDbApiService.getDetails(openlistConfig.getTmdbApiKey(), "tv", Integer.parseInt(tmdbId));
         JSONArray seasons = readArray(raw, "seasons");
         if (seasons == null) {
