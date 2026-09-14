@@ -41,12 +41,6 @@
         </v-form>
       </MobileSearchPanel>
 
-      <div class="scan-bar">
-        <v-btn color="primary" size="small" prepend-icon="refresh-cw" :loading="scanning" @click="handleScanNow">
-          立即扫描
-        </v-btn>
-      </div>
-
       <!-- Batch Actions -->
       <MobileBatchBar
         :visible="selectedIds.length > 0"
@@ -146,6 +140,7 @@ import MobilePager from '@/components/mobile/MobilePager.vue'
 import FullTextDialog from '@/components/mobile/FullTextDialog.vue'
 import StatusChip from '@/components/StatusChip.vue'
 import { useRenameOrphanList, REASON_META, REASON_OPTIONS, fullPath } from '@/composables/useRenameOrphanList'
+import { useMobilePageAction } from '@/composables/useMobilePageAction'
 
 const searchCollapsed = ref(true)
 
@@ -163,15 +158,19 @@ const {
 const fullTextRef = ref<InstanceType<typeof FullTextDialog>>()
 const showFullText = (content: string, title: string) => fullTextRef.value?.show(content, title)
 
+// 立即扫描是这一页唯一的整页动作，并在悬浮底栏右侧（原先单独占一行，排在搜索面板下面）。
+// 扫描要等后端跑完，loading 期间按钮转圈并禁止重复点击
+useMobilePageAction(() => ({
+  icon: 'scan-search',
+  label: '立即扫描',
+  loading: scanning.value,
+  onClick: () => handleScanNow()
+}))
+
 getList()
 </script>
 
 <style scoped lang="scss">
-.scan-bar {
-  display: flex;
-  justify-content: flex-end;
-}
-
 .orphan-year {
   color: var(--osr-text-secondary);
   font-size: 12px;

@@ -51,11 +51,6 @@
         />
       </MobileSearchPanel>
 
-      <!-- 新增 FAB -->
-      <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="plus" @click="openSubscribeDialog">
-        新增
-      </v-btn>
-
       <!-- 批量选择开关：与 PC 一致，不开启时点卡片不会误选 -->
       <div class="list-toolbar">
         <v-btn variant="text" size="small" @click="toggleSelectionMode">
@@ -152,6 +147,7 @@ import CandidateDialog from './dialogs/CandidateDialog.vue'
 import SearchLogDialog from './dialogs/SearchLogDialog.vue'
 import FilterOverrideDialog from './dialogs/FilterOverrideDialog.vue'
 import { useActionSheet } from '@/composables/useActionSheet'
+import { useMobilePageAction } from '@/composables/useMobilePageAction'
 
 const route = useRoute()
 const router = useRouter()
@@ -201,6 +197,9 @@ onMounted(() => {
   const subId = Number(route.query.id)
   if (subId) showProgressById(subId)
 })
+
+// 新增按钮并在悬浮底栏右侧（原先是压在内容上的右下角悬浮按钮），见 useMobilePageAction
+useMobilePageAction(() => ({ icon: 'plus', label: '新增订阅', onClick: () => openSubscribeDialog() }))
 </script>
 
 <style scoped lang="scss">

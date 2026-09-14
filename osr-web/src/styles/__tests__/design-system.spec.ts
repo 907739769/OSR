@@ -90,7 +90,7 @@ describe('共享样式单源', () => {
     '.pagination-wrapper', '.search-fields', '.inline-fields',
     '.path-box', '.path-row', '.path-label', '.path-text', '.path-name',
     '.card-grid', '.item-card',
-    '.mobile-page', '.task-list', '.task-card', '.fab-add', '.batch-bar',
+    '.mobile-page', '.task-list', '.task-card', '.batch-bar',
     '.card-actions', '.drawer-actions', '.date-range-fields',
     '.mobile-card', '.mobile-card-list',
     '.menu-item', '.menu-group-label'

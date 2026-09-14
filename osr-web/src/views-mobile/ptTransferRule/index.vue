@@ -43,11 +43,6 @@
         </v-btn>
       </MobileBatchBar>
 
-      <!-- 新增 FAB -->
-      <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="plus" @click="handleAdd('新增转移规则')">
-        新增
-      </v-btn>
-
       <!-- 列表 -->
     </template>
 
@@ -181,6 +176,7 @@ import MobilePager from '@/components/mobile/MobilePager.vue'
 import { usePtTransferRule } from '@/composables/usePtTransferRule'
 import { usePageStateProvider } from '@/composables/pageStateContext'
 import PtTransferRuleFormDialog from '@/components/dialogs/PtTransferRuleFormDialog.vue'
+import { useMobilePageAction } from '@/composables/useMobilePageAction'
 
 // 表单弹窗与 PC 端共用一份（components/dialogs/），它靠 usePageStateProvider 取同一份状态。
 // 预览与记录两个弹窗两端形态不同（PC 是数据表、移动端是卡片列表），各留一套
@@ -222,6 +218,9 @@ const stateText = (state: string) =>
 
 const stateType = (state: string) =>
   ({ VERIFYING: 'warning', COMPLETED: 'success', FAILED: 'error', SKIPPED: 'info' } as any)[state] || 'info'
+
+// 新增按钮并在悬浮底栏右侧（原先是压在内容上的右下角悬浮按钮），见 useMobilePageAction
+useMobilePageAction(() => ({ icon: 'plus', label: '新增转移规则', onClick: () => handleAdd('新增转移规则') }))
 </script>
 
 <style scoped lang="scss">

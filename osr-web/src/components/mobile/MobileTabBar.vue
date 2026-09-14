@@ -8,7 +8,7 @@
        不报错、不出横向滚动条，只是边缘缺了一块）。 -->
   <nav
     class="mobile-tabbar"
-    :class="{ 'mobile-tabbar--compact': compact }"
+    :class="{ 'mobile-tabbar--compact': compact, 'mobile-tabbar--with-action': withAction }"
     :style="{ '--osr-tabbar-slots': slotCount, '--osr-tabbar-active': activeIndex }"
     aria-label="主导航"
   >
@@ -46,10 +46,15 @@ import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useMobileTabs } from '@/composables/useMobileTabs'
 
-withDefaults(defineProps<{ compact?: boolean; moreOpen?: boolean }>(), {
-  compact: false,
-  moreOpen: false
-})
+withDefaults(
+  defineProps<{
+    compact?: boolean
+    moreOpen?: boolean
+    /** 本页有主动作时把右侧让给它（MobilePageAction），见 useMobilePageAction */
+    withAction?: boolean
+  }>(),
+  { compact: false, moreOpen: false, withAction: false }
+)
 
 const emit = defineEmits<{ 'open-more': [] }>()
 

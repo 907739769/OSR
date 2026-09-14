@@ -40,10 +40,6 @@
           />
         </v-form>
       </MobileSearchPanel>
-
-      <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="plus" @click="handleAdd('新增热门自动订阅规则')">
-        新增
-      </v-btn>
     </template>
 
     <v-card v-for="item in taskList" :key="item.id" class="task-card">
@@ -130,6 +126,7 @@ import { usePtAutoAddRule } from '@/composables/usePtAutoAddRule'
 import { usePageStateProvider } from '@/composables/pageStateContext'
 import { useActionSheet } from '@/composables/useActionSheet'
 import PtAutoAddRuleFormDialog from '@/components/dialogs/PtAutoAddRuleFormDialog.vue'
+import { useMobilePageAction } from '@/composables/useMobilePageAction'
 
 /** 卡片「更多」动作面板：开关状态与「执行完自动关闭」都在 useActionSheet 里 */
 const { sheetOpen, sheetTarget, openSheet, run } = useActionSheet()
@@ -146,6 +143,8 @@ const {
   filterText, sourceLabel, resultLabel, resultTagType
 } = usePageStateProvider(usePtAutoAddRule())
 
+// 新增按钮并在悬浮底栏右侧（原先是压在内容上的右下角悬浮按钮），见 useMobilePageAction
+useMobilePageAction(() => ({ icon: 'plus', label: '新增热门自动订阅规则', onClick: () => handleAdd('新增热门自动订阅规则') }))
 </script>
 
 <style scoped lang="scss">

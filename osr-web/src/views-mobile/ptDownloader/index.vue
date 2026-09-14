@@ -43,11 +43,6 @@
         </v-btn>
       </MobileBatchBar>
 
-      <!-- 新增 FAB -->
-      <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="plus" @click="handleAdd('新增下载器')">
-        新增
-      </v-btn>
-
       <!-- 列表 -->
     </template>
 
@@ -149,6 +144,7 @@ import {
   roleLabel
 } from '@/composables/usePtDownloader'
 import { usePageStateProvider } from '@/composables/pageStateContext'
+import { useMobilePageAction } from '@/composables/useMobilePageAction'
 
 // 表单弹窗与 PC 端共用一份（components/dialogs/），它靠 usePageStateProvider 取同一份状态
 const {
@@ -161,4 +157,7 @@ const {
   totalPages, prevPage, nextPage, handleSizeChange,
   searchCollapsed
 } = usePageStateProvider(usePtDownloader())
+
+// 新增按钮并在悬浮底栏右侧（原先是压在内容上的右下角悬浮按钮），见 useMobilePageAction
+useMobilePageAction(() => ({ icon: 'plus', label: '新增下载器', onClick: () => handleAdd('新增下载器') }))
 </script>

@@ -135,6 +135,83 @@ test.describe('Mobile Responsive', () => {
 })
 
 /**
+ * 页面主动作（新增/立即扫描/保存）并在悬浮底栏右侧，取代原先压在内容上的右下角悬浮按钮。
+ * 下面几条坏了都不报错：按钮叠在底栏「更多」上、滚到底盖住分页器、切页后按钮留在下一页、
+ * 选择模式下按钮还在。见 composables/useMobilePageAction.ts。
+ */
+test.describe('Page action beside the tab bar', () => {
+  test.beforeEach(async ({ page }) => {
+    // 把过渡压到 0.01ms（令牌层的降级），几何断言就不会量到过渡中途的位置
+    await page.emulateMedia({ reducedMotion: 'reduce' })
+  })
+
+  test('sits in the tab bar row and never over the content', async ({ page }) => {
+    await login(page)
+    await page.goto('/openliststrm/strm_task')
+    const action = page.locator('.mobile-page-action')
+    await expect(action).toHaveAttribute('aria-label', '新增STRM任务')
+
+    const bar = (await page.locator('.mobile-tabbar').boundingBox())!
+    const btn = (await action.boundingBox())!
+    expect(bar.x + bar.width, '底栏没给主动作让位').toBeLessThanOrEqual(btn.x)
+    expect(Math.abs(bar.y + bar.height - (btn.y + btn.height)), '主动作与底栏不在同一行').toBeLessThanOrEqual(1)
+
+    // 滚到底：页面内容的底边必须在按钮上沿之上（原先的悬浮按钮正是在这里盖住分页器）
+    await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+    const content = (await page.locator('.mobile-page').boundingBox())!
+    const btnAtBottom = (await action.boundingBox())!
+    expect(content.y + content.height).toBeLessThanOrEqual(btnAtBottom.y)
+
+    await action.click()
+    await expect(page.locator('.v-dialog').getByText('新增STRM任务')).toBeVisible()
+  })
+
+  test('follows keep-alive navigation instead of leaking to the next page', async ({ page }) => {
+    await login(page)
+    const action = page.locator('.mobile-page-action')
+
+    await page.goto('/openliststrm/strm_task')
+    await expect(action).toBeVisible()
+
+    // STRM 记录页没有主动作：缓存页切走后按钮必须跟着撤掉，底栏还原全宽
+    await page.locator('.tabbar-item', { hasText: 'STRM记录' }).click()
+    await expect(page).toHaveURL(/\/openliststrm\/strm$/)
+    await expect(action).toHaveCount(0)
+    await expect(page.locator('.mobile-tabbar')).not.toHaveClass(/mobile-tabbar--with-action/)
+
+    await page.goBack()
+    await expect(page).toHaveURL(/\/openliststrm\/strm_task/)
+    await expect(action).toHaveAttribute('aria-label', '新增STRM任务')
+  })
+
+  test('steps aside while the batch bar owns the tab bar', async ({ page }) => {
+    await login(page)
+    await page.goto('/openlist/ptSubscription')
+    const action = page.locator('.mobile-page-action')
+    await expect(action).toHaveAttribute('aria-label', '新增订阅')
+
+    await page.locator('.list-toolbar').getByText('批量操作').click()
+    await expect(page.locator('.batch-bar')).toBeVisible()
+    await expect(action).toHaveCount(0)
+
+    await page.locator('.batch-bar').getByText('取消', { exact: true }).click()
+    await expect(action).toBeVisible()
+  })
+
+  test('leaves no horizontal overflow at 320px', async ({ page }) => {
+    await login(page)
+    await page.setViewportSize({ width: 320, height: 568 })
+    await page.goto('/openliststrm/strm_task')
+    await expect(page.locator('.mobile-page-action')).toBeVisible()
+    const bar = (await page.locator('.mobile-tabbar').boundingBox())!
+    const btn = (await page.locator('.mobile-page-action').boundingBox())!
+    expect(btn.x + btn.width).toBeLessThanOrEqual(320)
+    expect(bar.x + bar.width).toBeLessThanOrEqual(btn.x)
+    expect(await horizontalOverflow(page)).toBe(0)
+  })
+})
+
+/**
  * 「只有一份实现、靠 @media 适配移动端」的页面。
  *
  * 大部分业务页是 views/ + views-mobile/ 两套实现，由 createDeviceView 按 device 分流，
