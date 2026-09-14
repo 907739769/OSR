@@ -17,7 +17,7 @@ src/
 ├── components/             # 公共组件 (SearchPanel, PageHeader, DirectoryTreeSelect, ChangePasswordDialog,
 │                           #           StatusChip, ThemeSwitch, MiniTrend, AnimatedNumber, mobile/*)
 │   └── dialogs/            # ★ PC 与移动端<共用>的表单弹窗 (FormDialogShell + 各页 XxxFormDialog)
-├── composables/            # 组合式函数 (useTaskList, useRecordList, useDataTable, useSearchPanel, useSidebarGroups, useBreadcrumb, useCurrentUser, useThemeMode, usePageTransition, useMenuLinks, useActionSheet, useMobileTabs, useMobileChrome, useRecentPages 等)
+├── composables/            # 组合式函数 (useTaskList, useRecordList, useDataTable, useSearchPanel, useSidebarGroups, useBreadcrumb, useCurrentUser, useThemeMode, usePageTransition, useMenuLinks, useActionSheet, useMobileTabs, useMobileChrome, useMobilePageAction, useRecentPages 等)
 ├── layouts/                # 布局组件 (DesktopLayout, MobileLayout)
 ├── router/                 # 路由配置 (动态路由)
 │   └── index.ts
@@ -47,7 +47,7 @@ src/
 | 状态管理 | `src/stores/` | Pinia store (app/user) |
 | 布局 | `src/layouts/` | DesktopLayout / MobileLayout |
 | 两端共用的表单弹窗 | `src/components/dialogs/` | `FormDialogShell` + 10 个 `XxxFormDialog`，见下方「表单弹窗两端共用」 |
-| 移动端组件 | `src/components/mobile/` | MobileListPage(外壳), MobileSearchPanel, MobileBatchBar, MobileActionSheet, MobilePager, FullTextDialog, MobileTabBar, MobileMorePanel, MobileTabSettingsDialog |
+| 移动端组件 | `src/components/mobile/` | MobileListPage(外壳), MobileSearchPanel, MobileBatchBar, MobileActionSheet, MobilePager, FullTextDialog, MobileTabBar, MobilePageAction, MobileMorePanel, MobileTabSettingsDialog |
 | 移动端外壳/导航 | `src/layouts/MobileLayout.vue` + `components/mobile/MobileTabBar.vue` + `MobileMorePanel.vue` | 顶栏 / 悬浮底栏 / 「更多」面板，见下方「移动端外壳」 |
 | MCP 令牌管理 | `views/system/mcpToken/index.vue` + `api/system/mcpToken.ts` | 只有 PC 一套（同参数设置）；明文令牌只在签发响应里出现一次，页面必须让用户当场复制 |
 | PWA 配置 | `vite.config.ts` | VitePWA 插件配置 |
@@ -245,8 +245,8 @@ await 过异步组件的 import，此时 chunk 已到位。
 | `.log-search-form` | `views/monitor/job/index.vue` | 日志弹窗内嵌搜索行（布局已复用 `.inline-fields`，此私有类只留分隔线与 select 宽度） |
 | `.path-box/.path-row/.path-label--src\|dst\|mon/.path-text/.path-name` | `styles/list.scss` | 表格里的「源/目标/监控」路径对照 |
 | `.card-grid` `.item-card`（`--failed/--selectable/--compact`）+ `.card-header/body/row/footer` | `styles/list.scss` | PC 卡片网格（PT 配置类页面） |
-| `.mobile-page` `.task-list` `.task-card` `.fab-add` `.batch-bar` `.card-actions` `.drawer-actions` `.date-range-fields` | `styles/mobile-list.scss` | 移动端页面骨架与卡片（骨架三件套已被 `MobileListPage` 包起来，页面不再直接写） |
-| `.mobile-tabbar` `.tabbar-item` `.tabbar-pill` `.tabbar-label` `.more-panel*` `.more-tile*` `.more-group-label` `.mobile-bigtitle` `.appbar-title` | `styles/mobile-chrome.scss` | 移动端外壳：悬浮底栏 + 「更多」底部面板 + 大标题（**面板会被 Teleport 走，样式不能写进组件的 scoped 块**） |
+| `.mobile-page` `.task-list` `.task-card` `.batch-bar` `.card-actions` `.drawer-actions` `.date-range-fields` | `styles/mobile-list.scss` | 移动端页面骨架与卡片（骨架三件套已被 `MobileListPage` 包起来，页面不再直接写） |
+| `.mobile-tabbar` `.tabbar-item` `.tabbar-pill` `.tabbar-label` `.mobile-page-action` `.more-panel*` `.more-tile*` `.more-group-label` `.mobile-bigtitle` `.appbar-title` | `styles/mobile-chrome.scss` | 移动端外壳：悬浮底栏 + 「更多」底部面板 + 大标题（**面板会被 Teleport 走，样式不能写进组件的 scoped 块**） |
 | `.menu-item` `.menu-group-label` | `styles/menu.scss` | PC 侧边菜单项（DesktopLayout 自己渲染的「首页」那条也用它；移动端已改用「更多」面板，不再用这套） |
 | `.mobile-card*` | `styles/mobile-list.scss` | PC 页在 <768px 时的表格降级卡片（monitor/job） |
 
@@ -483,13 +483,35 @@ STRM记录/重命名，但「最常用的四个」本就因人而异。四条别
 两条关于**几何**的硬约定：
 - **「给底栏让位」一律用 `--osr-mobile-tabbar-occupied`，不要用 `-height`。** 悬浮之后
   「栏高」不再等于「底部占掉多少」，后者还含离底间距与安全区。内容区的 `padding-bottom`、
-  `.fab-add` 的上移、`.batch-bar` 的定位三处都按它算，用错的表现是按钮或最后一张卡片被压
-  在栏下面点不到，而页面不报任何错。
+  `.batch-bar` 的定位都按它算，用错的表现是按钮或最后一张卡片被压在栏下面点不到，
+  而页面不报任何错。
 - **`.batch-bar` 的几何必须与 `.mobile-tabbar` 逐项对齐**（同一批令牌算左右内距、离底距离、
   最小高度）。选择模式一开就是「一个浮着一个贴边」的话，读起来像两个不相干的控件叠在一起，
   而它本该是同一根栏换了个状态。它**背景不透明**（用玻璃会把下面的 tab 图标糊着透出来）、
   **圆角用 `--osr-radius-xl` 而不是 999px**（按钮多时会 wrap 成两行，胶囊圆角会把第二行
   首尾的按钮切进圆弧里）。
+
+**页面主动作并在底栏右侧，不再是压在内容上的右下角悬浮按钮**（`useMobilePageAction` +
+`MobilePageAction`，样式 `.mobile-page-action` 在 `styles/mobile-chrome.scss`）。页面调
+`useMobilePageAction(() => ({ icon, label, onClick, loading }))`，底栏据此把右侧让出一个与栏
+等高的圆钮位，收缩态两者一起变矮、整组向中间收。原先的 `.fab-add` 浮在内容上方，而内容区只为
+底栏留了位——滚到底时正好盖住分页器右侧的「下一页」与每页条数，没有分页器的页面盖住最后一张
+卡片的「更多」，不报任何错。五条别改坏的：
+- **一页一个动作，不做成点开再选的菜单**，否则最常用的动作要多点一次、这颗按钮变成第二个「更多」。
+  **判据**：这一页最常用、不需要先勾选、不是不可撤销的、页面长了要滚回顶部才够得着。现在是
+  11 个「新增」+ 重命名一致性检查「立即扫描」+ 通知路由「保存」。刻意不放的：批量操作开关
+  （进入选择模式后批量条会接管底栏，两者冲突）、跳转链接（缺集体检）、「重新加载」（会丢掉
+  未保存的修改）、只在有数据时出现且影响面大的批量动作（缺集体检「为 N 条订阅开启自动补搜」）、
+  一页里有两个的同类动作（重命名配置的两个保存）。
+- **登记挂在 mounted/activated 与 deactivated/beforeUnmount 两对钩子上**。7 个列表页开了
+  keep-alive，切走时只 deactivate 不 unmount，只挂 mounted 的话按钮会带到下一页（点下去执行的是
+  上一页的新增），返回缓存页时按钮又没了。
+- **按 owner 登记、按 owner 撤销，后登记的优先**。新旧页面的钩子在同一次刷新里先后执行，按
+  「清空当前值」撤销会把新页面刚登记的按钮一起清掉。`useMobilePageAction.spec.ts` 钉住这两条。
+- **批量条出现时主动作要主动收起**（`MobileBatchBar` 里调 `useMobileBatchBarPresence`），
+  不能只靠批量条盖住它：键盘与读屏仍能聚焦到那颗看不见的按钮。
+- **实心主色，不用玻璃**：玻璃圆钮贴着玻璃胶囊，读起来像底栏第六格，而它是「在这一页做一件事」
+  不是导航。按钮只有图标，`label` 是它唯一的文字（读屏名称 + 长按提示），要写全（「新增索引器」）。
 
 **底栏随滚动方向收缩**（`useMobileChrome`）：向下滚收窄成图标态，向上滚或回到顶部附近还原。
 **判据必须是方向，不是「滚过没有」**——按后者做的话，任何一个滚过一次的列表页此后永远是
@@ -559,7 +581,7 @@ desktop 直到用户转一次屏——不是闪一下，是持续判错，且没
 ptTorrentBlacklist / ptAutoAddRule / ptTransferRule / wecomUser。
 
 **为什么只合弹窗、不合整页**：两端真正不同的是**列表外壳**（PC 是 `v-data-table` 表头排序/
-表头全选/`v-pagination` 或卡片网格 + 工具栏，移动端是单列卡片 + FAB + 吸底批量条 +
+表头全选/`v-pagination` 或卡片网格 + 工具栏，移动端是单列卡片 + 底栏主动作 + 吸底批量条 +
 `MobileActionSheet` + `MobilePager`），把它塞进一份模板就是插满 `v-if="isMobile"`——那不是
 一套页面，是两套页面写在同一个文件里。而弹窗**本来就逐字相同**，两端唯一的真实差异只有宽度。
 实测收口前 20 对页面平均有 53% 的行在对侧逐字重复，其中弹窗是重复得最彻底的一块。

@@ -309,6 +309,43 @@ class SubscriptionServiceTest {
     }
 
     @Test
+    void refresh_总集数减少_删掉多出的未下载集_其余全入库即完结() throws Exception {
+        // TMDb 剔掉大结局后的占位集：集行原本铺到第 4 集，现在只有 3 集
+        PtSubscriptionPlus sub = activeTv(47, 4);
+        when(subscriptionService.getById(47)).thenReturn(sub);
+        when(episodeService.listBySubscription(47)).thenReturn(List.of(
+                episode(1, "IN_LIBRARY"), episode(2, "IN_LIBRARY"), episode(3, "IN_LIBRARY"), episode(4, "MISSING")));
+        when(tmdbSearchService.getSeasonEpisodeCount(anyString(), anyInt())).thenReturn(3);
+        stubEmbyConfigured();
+        when(mediaServerClient.listEpisodes(any(), anyString(), anyInt())).thenReturn(Set.of(1, 2, 3));
+
+        service.refresh(47);
+
+        verify(episodeService).removeByIds(List.of(400));
+        ArgumentCaptor<PtSubscriptionPlus> captor = ArgumentCaptor.forClass(PtSubscriptionPlus.class);
+        verify(subscriptionService).updateById(captor.capture());
+        assertEquals("COMPLETED", captor.getValue().getStatus());
+        assertEquals(3, captor.getValue().getTotalEpisodes());
+    }
+
+    @Test
+    void refresh_总集数减少_多出的集已在途_保留不删() throws Exception {
+        PtSubscriptionPlus sub = activeTv(48, 3);
+        when(subscriptionService.getById(48)).thenReturn(sub);
+        PtSubscriptionEpisodePlus claimed = episode(3, "MISSING");
+        claimed.setDownloadId(9);
+        when(episodeService.listBySubscription(48)).thenReturn(List.of(
+                episode(1, "IN_LIBRARY"), episode(2, "IN_FLIGHT"), claimed));
+        when(tmdbSearchService.getSeasonEpisodeCount(anyString(), anyInt())).thenReturn(1);
+        stubEmbyConfigured();
+        when(mediaServerClient.listEpisodes(any(), anyString(), anyInt())).thenReturn(Set.of(1));
+
+        service.refresh(48);
+
+        verify(episodeService, never()).removeByIds(any());
+    }
+
+    @Test
     void refresh_不把已入库降级回缺失() throws Exception {
         PtSubscriptionPlus sub = activeTv(41, 2);
         when(subscriptionService.getById(41)).thenReturn(sub);

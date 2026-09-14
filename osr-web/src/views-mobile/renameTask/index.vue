@@ -58,11 +58,6 @@
         </v-btn>
       </MobileBatchBar>
 
-      <!-- Add Button (FAB) -->
-      <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="plus" @click="handleAdd">
-        新增
-      </v-btn>
-
       <!-- Task List -->
     </template>
 
@@ -144,6 +139,7 @@ import { useRenameTask } from '@/composables/useRenameTask'
 import { usePageStateProvider } from '@/composables/pageStateContext'
 import { useActionSheet } from '@/composables/useActionSheet'
 import RenameTaskFormDialog from '@/components/dialogs/RenameTaskFormDialog.vue'
+import { useMobilePageAction } from '@/composables/useMobilePageAction'
 
 // 表单弹窗与 PC 端共用一份（components/dialogs/），它靠 usePageStateProvider 取同一份状态
 const {
@@ -161,4 +157,7 @@ const showFullText = (content: string, title: string) => fullTextRef.value?.show
 
 /** 卡片「更多」动作面板：开关状态与「执行完自动关闭」都在 useActionSheet 里 */
 const { sheetOpen, sheetTarget, openSheet, run } = useActionSheet()
+
+// 新增按钮并在悬浮底栏右侧（原先是压在内容上的右下角悬浮按钮），见 useMobilePageAction
+useMobilePageAction(() => ({ icon: 'plus', label: '新增重命名任务', onClick: () => handleAdd() }))
 </script>

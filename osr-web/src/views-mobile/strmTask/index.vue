@@ -48,11 +48,6 @@
         </v-btn>
       </MobileBatchBar>
 
-      <!-- Add Button (FAB) -->
-      <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="plus" @click="handleAdd('新增STRM任务')">
-        新增
-      </v-btn>
-
       <!-- Task List -->
     </template>
 
@@ -131,6 +126,7 @@ import { usePageStateProvider } from '@/composables/pageStateContext'
 import { useDebounce } from '@/composables/useDebounce'
 import { useActionSheet } from '@/composables/useActionSheet'
 import StrmTaskFormDialog from '@/components/dialogs/StrmTaskFormDialog.vue'
+import { useMobilePageAction } from '@/composables/useMobilePageAction'
 
 // 表单弹窗与 PC 端共用一份（components/dialogs/），它靠 usePageStateProvider 取同一份状态
 const {
@@ -162,4 +158,7 @@ watch(
   () => [queryParams.strmTaskPath, queryParams.strmTaskStatus],
   () => debouncedSearch()
 )
+
+// 新增按钮并在悬浮底栏右侧（原先是压在内容上的右下角悬浮按钮），见 useMobilePageAction
+useMobilePageAction(() => ({ icon: 'plus', label: '新增STRM任务', onClick: () => handleAdd('新增STRM任务') }))
 </script>

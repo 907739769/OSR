@@ -10,11 +10,6 @@
         <div class="action-left">
           <v-btn variant="text" size="small" prepend-icon="refresh-cw" :disabled="loading" @click="load">重新加载</v-btn>
         </div>
-        <div class="action-right">
-          <v-btn color="primary" size="small" variant="flat" prepend-icon="save" :loading="saving" @click="save">
-            保存
-          </v-btn>
-        </div>
       </div>
 
       <v-alert
@@ -87,11 +82,22 @@
 <script setup lang="ts">
 import { useNotifyRoute, RECIPIENT_SCOPES } from '@/composables/useNotifyRoute'
 import MobileListPage from '@/components/mobile/MobileListPage.vue'
+import { useMobilePageAction } from '@/composables/useMobilePageAction'
 
 const {
   loading, saving, types, channels,
   cellOf, load, save, toggleType, unconfiguredChannels
 } = useNotifyRoute()
+
+// 保存并在悬浮底栏右侧：这页是「通知类型 × 渠道」的长列表，改完最底下几项后
+// 原先要滚回顶部才点得到保存。「重新加载」刻意留在顶部——它会丢掉未保存的修改，
+// 不能放在一点就触发的位置
+useMobilePageAction(() => ({
+  icon: 'save',
+  label: '保存通知路由',
+  loading: saving.value,
+  onClick: () => save()
+}))
 </script>
 
 <style scoped>

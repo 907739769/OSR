@@ -57,11 +57,6 @@
         </v-btn>
       </div>
 
-      <!-- 新增 FAB -->
-      <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="plus" @click="handleAdd('新增企微绑定')">
-        新增
-      </v-btn>
-
       <!-- 列表 -->
     </template>
 
@@ -123,6 +118,7 @@ import StatusChip from '@/components/StatusChip.vue'
 import { useWecomUser } from '@/composables/useWecomUser'
 import { usePageStateProvider } from '@/composables/pageStateContext'
 import WecomUserFormDialog from '@/components/dialogs/WecomUserFormDialog.vue'
+import { useMobilePageAction } from '@/composables/useMobilePageAction'
 
 // 表单弹窗与 PC 端共用一份（components/dialogs/），它靠 usePageStateProvider 取同一份状态
 const {
@@ -133,4 +129,7 @@ const {
   totalPages, prevPage, nextPage, handleSizeChange,
   searchCollapsed
 } = usePageStateProvider(useWecomUser())
+
+// 新增按钮并在悬浮底栏右侧（原先是压在内容上的右下角悬浮按钮），见 useMobilePageAction
+useMobilePageAction(() => ({ icon: 'plus', label: '新增企微绑定', onClick: () => handleAdd('新增企微绑定') }))
 </script>

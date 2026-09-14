@@ -22,6 +22,7 @@ declare module 'vue' {
     MobileBatchBar: typeof import('./components/mobile/MobileBatchBar.vue')['default']
     MobileListPage: typeof import('./components/mobile/MobileListPage.vue')['default']
     MobileMorePanel: typeof import('./components/mobile/MobileMorePanel.vue')['default']
+    MobilePageAction: typeof import('./components/mobile/MobilePageAction.vue')['default']
     MobilePager: typeof import('./components/mobile/MobilePager.vue')['default']
     MobileSearchPanel: typeof import('./components/mobile/MobileSearchPanel.vue')['default']
     MobileTabBar: typeof import('./components/mobile/MobileTabBar.vue')['default']

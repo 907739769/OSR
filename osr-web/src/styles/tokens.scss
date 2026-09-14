@@ -140,7 +140,7 @@
    *
    * **三个值不是一回事，用错那个是这一带最容易犯的错。** 底栏从贴边全宽改成悬浮胶囊之后，
    * 「栏高」不再等于「底部要留多少」——后者还要算上离底间距与安全区。凡是「给底栏让位」
-   * 的地方（内容区 padding-bottom、`.fab-add` 上移、`.batch-bar` 定位）一律用
+   * 的地方（内容区 padding-bottom、`.batch-bar` 定位）一律用
    * `--osr-mobile-tabbar-occupied`；只有画栏本身时才用 `-height` 与 `-inset`。
    * 用错的表现是按钮或最后一张卡片被压在栏底下点不到，而页面不报任何错。
    *
@@ -149,6 +149,14 @@
    */
   --osr-mobile-tabbar-height: 60px;
   --osr-mobile-tabbar-inset: 14px;
+  /* 收缩态（向下滚动时）：栏高与两侧各多收进去的距离。页面主动作（.mobile-page-action）
+     的尺寸与位置跟着这两个值走，写成字面量的话两边迟早对不齐 */
+  --osr-mobile-tabbar-compact-height: 50px;
+  --osr-mobile-tabbar-compact-shrink: 28px;
+  /* 底栏右侧页面主动作（.mobile-page-action）的直径，以及它与底栏之间的缝。
+     两者读作一组控件，缝太大像两个不相干的东西。窄屏下的收窄见本文件末尾 */
+  --osr-mobile-page-action-size: var(--osr-mobile-tabbar-height);
+  --osr-mobile-page-action-gap: 8px;
   --osr-mobile-tabbar-occupied: calc(
     var(--osr-mobile-tabbar-height) + var(--osr-mobile-tabbar-inset) +
       env(safe-area-inset-bottom, 0px)
@@ -335,5 +343,20 @@
   :root[data-theme='dark'] {
     --osr-glass-bg: rgb(var(--v-theme-surface));
     --osr-glass-blur: none;
+  }
+}
+
+/* ============================================
+   窄屏（< 360px）的底栏页面主动作
+
+   按钮与底栏同宽同高时，320px 屏上底栏每格只剩 43px，「同步记录」(44px)
+   「STRM记录」(50px) 两个 11px 标签被截成省略号；340px 上截一个，360px 起全部放得下。
+   标签是分清这五格的唯一依据，所以窄屏下让按钮缩到收缩态的尺寸、垂直居中于栏，把宽度还给标签。
+   不在 360px 以上也这样做：按钮比栏矮一截在宽屏上读起来像没对齐。
+   ============================================ */
+@media (max-width: 359px) {
+  :root {
+    --osr-mobile-page-action-size: var(--osr-mobile-tabbar-compact-height);
+    --osr-mobile-page-action-gap: 6px;
   }
 }

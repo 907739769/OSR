@@ -107,15 +107,108 @@
  * 而标签正是新用户分得清这五格的唯一依据。
  */
 .mobile-tabbar--compact {
-  height: 50px;
-  left: calc(var(--osr-mobile-gutter) + 28px);
-  right: calc(var(--osr-mobile-gutter) + 28px);
+  height: var(--osr-mobile-tabbar-compact-height);
+  left: calc(var(--osr-mobile-gutter) + var(--osr-mobile-tabbar-compact-shrink));
+  right: calc(var(--osr-mobile-gutter) + var(--osr-mobile-tabbar-compact-shrink));
 
   .tabbar-label {
     opacity: 0;
     max-height: 0;
     transform: translateY(4px);
   }
+}
+
+/**
+ * 本页有主动作时，底栏把右侧让给它（组件 MobilePageAction，数据见 useMobilePageAction）。
+ *
+ * 两者是**同一行里的一组控件**：同一个离底距离、同一个高度（收缩态一起变矮），
+ * 收缩时整组向中间收，而不是底栏收了、按钮还钉在屏幕边上。
+ * 取代的是原先各页右下角的悬浮按钮——它压在内容上方，滚到底时正好盖住分页器右侧。
+ */
+.mobile-tabbar--with-action {
+  right: calc(
+    var(--osr-mobile-gutter) + var(--osr-mobile-page-action-size) + var(--osr-mobile-page-action-gap)
+  );
+}
+
+.mobile-tabbar--compact.mobile-tabbar--with-action {
+  right: calc(
+    var(--osr-mobile-gutter) + var(--osr-mobile-tabbar-compact-shrink) +
+      var(--osr-mobile-tabbar-compact-height) + var(--osr-mobile-page-action-gap)
+  );
+}
+
+.mobile-page-action {
+  position: fixed;
+  right: var(--osr-mobile-gutter);
+  /* 垂直居中于底栏：常规尺寸下两者等高、偏移为 0；窄屏下按钮缩小（见 tokens.scss 末尾）才有偏移 */
+  bottom: calc(
+    var(--osr-mobile-tabbar-inset) + env(safe-area-inset-bottom, 0px) +
+      (var(--osr-mobile-tabbar-height) - var(--osr-mobile-page-action-size)) / 2
+  );
+  /* 与底栏同层：批量条（1010）要把两者一起压住 */
+  z-index: 1004;
+
+  width: var(--osr-mobile-page-action-size);
+  height: var(--osr-mobile-page-action-size);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+
+  /* 实心主色而不是玻璃，理由见 MobilePageAction.vue 的注释。
+     顶部那条 inset 高光与底栏同源，让两者在「厚度」上是一套东西 */
+  background: var(--osr-primary);
+  color: var(--osr-on-primary);
+  box-shadow:
+    inset 0 1px 0 var(--osr-glass-spec-top),
+    var(--osr-glass-shadow);
+
+  transition:
+    width var(--osr-dur-3) var(--osr-ease-out),
+    height var(--osr-dur-3) var(--osr-ease-out),
+    right var(--osr-dur-3) var(--osr-ease-out),
+    bottom var(--osr-dur-3) var(--osr-ease-out),
+    transform var(--osr-dur-2) var(--osr-ease-out);
+
+  &:active:not(:disabled) {
+    transform: scale(0.94);
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--osr-primary);
+    outline-offset: 3px;
+  }
+
+  &:disabled {
+    cursor: progress;
+  }
+}
+
+/* 收缩态：栏变矮后按钮与它等高（窄屏下本就是这个尺寸），底边对齐 */
+.mobile-page-action--compact {
+  width: var(--osr-mobile-tabbar-compact-height);
+  height: var(--osr-mobile-tabbar-compact-height);
+  right: calc(var(--osr-mobile-gutter) + var(--osr-mobile-tabbar-compact-shrink));
+  bottom: calc(var(--osr-mobile-tabbar-inset) + env(safe-area-inset-bottom, 0px));
+}
+
+/* 进出场只动 transform/opacity（动效系统第 2 条），底栏宽度的变化由它自己的 right 过渡负责 */
+.mobile-page-action-enter-active,
+.mobile-page-action-leave-active {
+  transition:
+    opacity var(--osr-dur-2) var(--osr-ease-out),
+    transform var(--osr-dur-3) var(--osr-ease-spring);
+}
+
+.mobile-page-action-enter-from,
+.mobile-page-action-leave-to {
+  opacity: 0;
+  transform: scale(0.6);
 }
 
 /**

@@ -300,24 +300,9 @@
   }
 }
 
-/* 底部 tab 栏是 fixed 的，悬浮按钮要按它让位，否则被压在栏下面点不到。
-   **走 --osr-mobile-tabbar-occupied 而不是 -height**：底栏改成悬浮胶囊之后，
-   「栏高」不再等于「底部占掉多少」，后者还含离底间距与安全区（见 tokens.scss 那三个
-   令牌的注释）。用错的表现是按钮正好压在栏上，而页面不报任何错。
-   （原先这里还有一条 @media (min-width: 768px) 的偏移，是死代码：.fab-add 只出现在
-     views-mobile 的页面里，而那些页面 768px 以上根本不渲染，已删。） */
-.fab-add {
-  position: fixed;
-  right: 20px;
-  bottom: calc(var(--osr-mobile-tabbar-occupied) + 12px);
-  z-index: 1000;
-  box-shadow: var(--osr-shadow-lg);
-  transition: all var(--osr-transition-fast);
-
-  &:active {
-    transform: scale(0.96);
-  }
-}
+/* 原先这里是右下角悬浮的新增按钮 .fab-add，已换成悬浮底栏右侧的页面主动作
+   （.mobile-page-action，样式在 mobile-chrome.scss）。它压在内容上方，而内容区只为
+   底栏留了位、没为它留，滚到底时正好盖住分页器右侧——不要再加回一个浮在内容上的按钮。 */
 
 /* 卡片操作区：放在 .card-content 内部最后一个子元素，底部横排，
    与 ptSubscription 的 .sub-actions 保持一致的视觉语言 */

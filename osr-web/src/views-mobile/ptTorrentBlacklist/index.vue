@@ -32,11 +32,6 @@
         </v-form>
       </MobileSearchPanel>
 
-      <!-- 新增 FAB -->
-      <v-btn class="fab-add" color="primary" size="large" rounded="pill" prepend-icon="plus" @click="handleAdd('新增发布组黑名单')">
-        新增
-      </v-btn>
-
       <!-- 列表 -->
     </template>
 
@@ -94,6 +89,7 @@ import StatusChip from '@/components/StatusChip.vue'
 import { usePtTorrentBlacklist } from '@/composables/usePtTorrentBlacklist'
 import { usePageStateProvider } from '@/composables/pageStateContext'
 import PtTorrentBlacklistFormDialog from '@/components/dialogs/PtTorrentBlacklistFormDialog.vue'
+import { useMobilePageAction } from '@/composables/useMobilePageAction'
 
 // 表单弹窗与 PC 端共用一份（components/dialogs/），它靠 usePageStateProvider 取同一份状态
 const {
@@ -108,4 +104,7 @@ const shortHash = (value: string) => {
   if (!value) return '-'
   return value.length > 12 ? `${value.slice(0, 6)}...${value.slice(-4)}` : value
 }
+
+// 新增按钮并在悬浮底栏右侧（原先是压在内容上的右下角悬浮按钮），见 useMobilePageAction
+useMobilePageAction(() => ({ icon: 'plus', label: '新增发布组黑名单', onClick: () => handleAdd('新增发布组黑名单') }))
 </script>

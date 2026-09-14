@@ -45,7 +45,10 @@
       </ErrorBoundary>
     </div>
 
-    <MobileTabBar :compact="compact" :more-open="moreOpen" @open-more="moreOpen = true" />
+    <MobileTabBar :compact="compact" :more-open="moreOpen" :with-action="!!pageAction" @open-more="moreOpen = true" />
+    <!-- 页面主动作（新增/扫描/保存）并在底栏右侧，取代原先各页右下角的悬浮按钮，
+         理由见 composables/useMobilePageAction.ts -->
+    <MobilePageAction :action="pageAction" :compact="compact" />
   </v-main>
 
   <MobileMorePanel v-model="moreOpen" />
@@ -61,6 +64,8 @@ import { useCurrentUser } from '@/composables/useCurrentUser'
 import ChangePasswordDialog from '@/components/ChangePasswordDialog.vue'
 import MobileTabBar from '@/components/mobile/MobileTabBar.vue'
 import MobileMorePanel from '@/components/mobile/MobileMorePanel.vue'
+import MobilePageAction from '@/components/mobile/MobilePageAction.vue'
+import { provideMobilePageChrome } from '@/composables/useMobilePageAction'
 import ThemeSwitch from '@/components/ThemeSwitch.vue'
 import { usePageTransition } from '@/composables/usePageTransition'
 import { useMobileChrome } from '@/composables/useMobileChrome'
@@ -79,6 +84,9 @@ const { contentRef } = usePageTransition()
 // 顶栏小标题与底栏收缩的滚动状态。两个布尔量判据不同（一个看绝对位置、
 // 一个看滚动方向），见 useMobileChrome 的注释
 const { scrolled, compact, reset } = useMobileChrome()
+
+// 各页登记的主动作；批量条出现时它为 null，底栏随之还原全宽
+const { action: pageAction } = provideMobilePageChrome()
 
 // 「更多」面板顶部那行「常用」的数据来源
 const { record } = useRecentPages()
@@ -115,7 +123,8 @@ const handleLogout = async () => {
   padding: var(--osr-mobile-gutter);
   /* **必须用 --osr-mobile-tabbar-occupied 而不是 -height**：底栏是悬浮的，
      它在底部占掉的高度还含离底间距与安全区。用错的表现是最后一张卡片被压在栏下面，
-     而页面不报任何错。同一条约定在 mobile-list.scss 的 .fab-add / .batch-bar 也成立 */
+     而页面不报任何错。同一条约定在 mobile-list.scss 的 .batch-bar 也成立。
+     页面主动作与底栏同在一行，不需要在这里额外让位 */
   padding-bottom: calc(var(--osr-mobile-tabbar-occupied) + 8px);
   -webkit-overflow-scrolling: touch;
 }

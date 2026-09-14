@@ -1,5 +1,6 @@
 package com.osr.openliststrm.pt.subscription;
 
+import com.alibaba.fastjson2.JSONArray;
 import com.osr.openliststrm.config.OpenlistConfig;
 import com.osr.openliststrm.pt.subscription.dto.TmdbSearchItem;
 import com.osr.openliststrm.tmdb.TMDbApiService;
@@ -157,6 +158,76 @@ class TmdbSearchServiceTest {
                         """);
 
         assertEquals(8, service.getSeasonEpisodeCount("1396", 0));
+    }
+
+    @Test
+    void getSeasonEpisodeCount_大结局之后只剩无日期占位集_按大结局集号计() {
+        // 《喜剧之王单口季》第 3 季：TMDb 登记 42 集，第 41 集是本季大结局，第 42 集是空壳
+        when(tmDbApiService.getDetails(anyString(), anyString(), anyInt()))
+                .thenReturn("{\"seasons\":[{\"season_number\":3,\"episode_count\":42}]}");
+        when(tmDbApiService.getSeasonEpisodes(anyString(), anyInt(), eq(3)))
+                .thenReturn("""
+                        {"episodes":[
+                          {"episode_number":40,"episode_type":"standard","air_date":"2026-09-04"},
+                          {"episode_number":41,"episode_type":"finale","air_date":"2026-09-05"},
+                          {"episode_number":42,"episode_type":"standard","air_date":null}
+                        ]}
+                        """);
+
+        assertEquals(41, service.getSeasonEpisodeCount("261391", 3));
+    }
+
+    @Test
+    void getSeasonEpisodeCount_季端点取不到_按详情集数() {
+        when(tmDbApiService.getDetails(anyString(), anyString(), anyInt()))
+                .thenReturn("{\"seasons\":[{\"season_number\":3,\"episode_count\":42}]}");
+        when(tmDbApiService.getSeasonEpisodes(anyString(), anyInt(), anyInt())).thenThrow(new RuntimeException("timeout"));
+
+        assertEquals(42, service.getSeasonEpisodeCount("261391", 3));
+    }
+
+    @Test
+    void capAtFinale_大结局之后有集定了播出日期_不截断() {
+        // 加更/番外有真实播出日期，或大结局标错了，都不能把后面的集砍掉
+        JSONArray episodes = JSONArray.parseArray("""
+                [{"episode_number":10,"episode_type":"finale","air_date":"2026-01-01"},
+                 {"episode_number":11,"episode_type":"standard","air_date":"2026-01-08"},
+                 {"episode_number":12,"episode_type":"standard"}]
+                """);
+
+        assertEquals(12, TmdbSearchService.capAtFinale(12, episodes));
+    }
+
+    @Test
+    void capAtFinale_没有大结局_尾部无日期是连载未定档_不截断() {
+        JSONArray episodes = JSONArray.parseArray("""
+                [{"episode_number":1,"episode_type":"standard","air_date":"2026-01-01"},
+                 {"episode_number":2,"episode_type":"standard"},
+                 {"episode_number":3,"episode_type":"standard"}]
+                """);
+
+        assertEquals(3, TmdbSearchService.capAtFinale(3, episodes));
+    }
+
+    @Test
+    void capAtFinale_年中季终不算完结() {
+        JSONArray episodes = JSONArray.parseArray("""
+                [{"episode_number":6,"episode_type":"mid_season","air_date":"2026-01-01"},
+                 {"episode_number":7,"episode_type":"standard"}]
+                """);
+
+        assertEquals(7, TmdbSearchService.capAtFinale(7, episodes));
+    }
+
+    @Test
+    void capAtFinale_大结局就是最后一集_原样返回() {
+        JSONArray episodes = JSONArray.parseArray("""
+                [{"episode_number":11,"episode_type":"standard","air_date":"2026-01-01"},
+                 {"episode_number":12,"episode_type":"finale","air_date":"2026-01-08"}]
+                """);
+
+        assertEquals(12, TmdbSearchService.capAtFinale(12, episodes));
+        assertEquals(12, TmdbSearchService.capAtFinale(12, null));
     }
 
     @Test

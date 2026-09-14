@@ -248,6 +248,7 @@ public class SubscriptionService {
                         PtLogText.subject(sub), totalEpisodes, e.getMessage());
             }
             appendNewEpisodes(sub, episodes, totalEpisodes);
+            trimSurplusEpisodes(sub, episodes, totalEpisodes);
         }
 
         Set<Integer> inLibrary = queryLibrary(PtLogText.subject(sub), sub.getMediaType(), sub.getTmdbId(), sub.getSeason(),
@@ -678,6 +679,34 @@ public class SubscriptionService {
         existing.addAll(added);
         log.info("{} 总集数由 {} 增至 {}，已补齐 {} 个新集",
                 PtLogText.subject(sub), maxExisting, totalEpisodes, added.size());
+    }
+
+    /**
+     * 总集数变少时删掉超出的集行，否则那几集永远 MISSING、订阅永远完结不了。
+     * <p>
+     * 典型场景是 TMDb 季里挂着大结局之后的占位集（见 {@code TmdbSearchService#capAtFinale}）：
+     * 建订阅时按含占位集的数目铺了集行，后来才剔掉。
+     * </p>
+     * <p>
+     * 只删「MISSING 且没挂下载记录」的行——那种行上没有任何进度可丢，TMDb 日后又把集数加回来时
+     * {@link #appendNewEpisodes} 会原样补回。在途、已入库、洗版中、熔断的一律保留：
+     * 那些行代表真实发生过的下载，删掉等于丢账，宁可让订阅多挂着一集由用户处置。
+     * </p>
+     */
+    private void trimSurplusEpisodes(PtSubscriptionPlus sub, List<PtSubscriptionEpisodePlus> existing, int totalEpisodes) {
+        List<PtSubscriptionEpisodePlus> surplus = existing.stream()
+                .filter(e -> e.getEpisode() != null && e.getEpisode() > totalEpisodes)
+                .filter(e -> STATE_MISSING.equals(e.getState()) && e.getDownloadId() == null)
+                .toList();
+        if (surplus.isEmpty()) {
+            return;
+        }
+        List<Integer> ids = surplus.stream().map(PtSubscriptionEpisodePlus::getId).toList();
+        episodeService.removeByIds(ids);
+        // 不能用 removeAll：*Plus 实体的 equals 继承自 BaseEntity，只比时间戳，未落库时间的实例会被判成全部相等
+        existing.removeIf(e -> ids.contains(e.getId()));
+        log.info("{} 总集数减至 {}，已移除多出的未下载集：第 {} 集",
+                PtLogText.subject(sub), totalEpisodes, PtLogText.episodes(surplus));
     }
 
     /**

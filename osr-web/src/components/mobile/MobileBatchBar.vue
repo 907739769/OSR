@@ -15,7 +15,9 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{
+import { useMobileBatchBarPresence } from '@/composables/useMobilePageAction'
+
+const props = defineProps<{
   /** 显示条件。多数页面是「选中数 > 0」，进过批量模式的页面（订阅/下载记录）传 selectionMode */
   visible: boolean
   count: number
@@ -28,4 +30,8 @@ const emit = defineEmits<{
   'toggle-all': [value: boolean]
   cancel: []
 }>()
+
+// 批量条接管底栏时，底栏右侧的页面主动作要主动收起。批量条全宽不透明、层级更高，
+// 视觉上会把它盖住，但只靠遮盖的话键盘与读屏仍能聚焦到一颗看不见的「新增」上
+useMobileBatchBarPresence(() => props.visible)
 </script>
