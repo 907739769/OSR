@@ -377,7 +377,7 @@ public class CopyRecoveryTask {
             return false;
         }
         try {
-            strmService.strmOneFile(dstFile);
+            strmService.strmOneFile(dstFile, copy.getFileSize());
             return true;
         } catch (Exception e) {
             // STRM 生成失败不回滚复制状态：复制确实成功了，STRM 有自己的失败记录与重试入口

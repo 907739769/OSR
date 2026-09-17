@@ -36,10 +36,10 @@ public class StrmHelper {
      * 目录级的 {@link #batchAddStrm} 早就是同步的（注释里写明「方法返回即已入库」），单文件路径与之对齐。
      * 调用方（{@code strmOneFile}）本就跑在后台虚拟线程上、且刚做完写文件的 IO，多一次库往返可以忽略。
      * <p>
-     * {@code failReason} 成功时传 null，已有记录上的旧原因会被清掉。刻意不写 file_size：单文件生成拿不到网盘文件大小，更新已有记录时也不能拿 null 把目录级生成
-     * 采集到的大小抹掉（那一列是默认的 NOT_NULL 更新策略，这里干脆不 set）。
+     * {@code failReason} 成功时传 null，已有记录上的旧原因会被清掉。{@code fileSize} 拿不到时传 null，
+     * 此时更新已有记录<b>不碰</b>这一列——不能拿 null 把目录级生成采集到的大小抹掉。
      */
-    public void addStrm(String strmPath, String strmFileName, String status, String failReason) {
+    public void addStrm(String strmPath, String strmFileName, String status, String failReason, Long fileSize) {
         try {
             // 表上无唯一约束，历史脏数据可能存在同 path+fileName 多行；用 LIMIT 1 避免
             // .one() 在命中多行时抛 TooManyResultsException
@@ -54,6 +54,7 @@ public class StrmHelper {
                         .eq(OpenlistStrmPlus::getStrmId, existing.getStrmId())
                         .set(OpenlistStrmPlus::getStrmStatus, status)
                         .set(OpenlistStrmPlus::getFailReason, failReason)
+                        .set(fileSize != null, OpenlistStrmPlus::getFileSize, fileSize)
                         .update();
             } else {
                 OpenlistStrmPlus strm = new OpenlistStrmPlus();
@@ -61,6 +62,7 @@ public class StrmHelper {
                 strm.setStrmFileName(strmFileName);
                 strm.setStrmStatus(status);
                 strm.setFailReason(failReason);
+                strm.setFileSize(fileSize);
                 openlistStrmPlusService.save(strm);
             }
         } catch (Exception e) {

@@ -218,7 +218,7 @@ public class AsynHelper {
     public void isCopyDoneOneFile(String path, OpenlistCopyPlus copy) {
         if (StringUtils.isBlank(copy.getCopyTaskId())) {
             if ("1".equals(config.getOpenListCopyStrm())) {
-                strmService.strmOneFile(path);// 生成 STRM 文件
+                strmService.strmOneFile(path, copy.getFileSize());// 生成 STRM 文件
             }
             return;
         }
@@ -257,7 +257,7 @@ public class AsynHelper {
                     updateCopyStatus(copy, "3", null);
                     // 成功后生成 strm
                     if ("1".equals(config.getOpenListCopyStrm())) {
-                        strmService.strmOneFile(path);
+                        strmService.strmOneFile(path, copy.getFileSize());
                     }
                 }
                 return; // 任务完成，退出递归

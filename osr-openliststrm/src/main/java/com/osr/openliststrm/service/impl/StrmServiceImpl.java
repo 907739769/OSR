@@ -219,13 +219,18 @@ public class StrmServiceImpl implements IStrmService {
 
     @Override
     public void strmOneFile(String path) {
+        strmOneFile(path, null);
+    }
+
+    @Override
+    public void strmOneFile(String path, Long fileSize) {
         // 去重只属于「按路径触发」的入口（复制完成、兜底恢复、TG 指令，可能对同一文件触发多次）；
         // 按记录重试不经过这里，见 retryStrm
         if (strmHelper.existsStrm(parentOf(path), nameOf(path))) {
             log.debug("文件已处理过，跳过处理{}", path);
             return;
         }
-        generateOneFile(path);
+        generateOneFile(path, fileSize);
     }
 
     private static String parentOf(String path) {
@@ -236,31 +241,54 @@ public class StrmServiceImpl implements IStrmService {
         return path.contains("/") ? path.substring(path.lastIndexOf("/") + 1) : path;
     }
 
+    /** 去掉扩展名、剔除文件系统非法字符、超长截断，与目录级生成（processFileEntry）同一口径 */
+    private static String localBaseName(String name) {
+        int dot = name.lastIndexOf('.');
+        String base = ILLEGAL_PATTERN.matcher(dot > 0 ? name.substring(0, dot) : name).replaceAll("");
+        return base.length() > 255 ? base.substring(0, 250) : base;
+    }
+
     /**
-     * 单文件 STRM 生成的执行层：不去重，无论已有记录是成功还是失败都重新生成一遍。
-     * 记录由 {@code StrmHelper#addStrm} 按 path + fileName 写回同一行，不会新增重复记录。
+     * 网盘路径对应的本地输出目录，越界（路径含 ..）时写一条失败记录并返回 null。
      */
-    void generateOneFile(String path) {
-        log.info("开始执行指定文件strm任务: {}", path);
+    private Path resolveLocalDir(String path, StrmSettings settings) {
         String filePath = parentOf(path);
-        String name = nameOf(path);
-        String fileName = path.substring(path.lastIndexOf("/") + 1, path.lastIndexOf(".")).replaceAll("[\\\\/:*?\"<>|]", "");
-        String relative = filePath.startsWith("/")
-                ? filePath.substring(1)
-                : filePath;
-        StrmSettings settings = resolveSettings(path);
+        String relative = filePath.startsWith("/") ? filePath.substring(1) : filePath;
         Path outputBase = Paths.get(settings.outputDir()).normalize();
         Path targetDir = resolveWithinBase(outputBase, relative.replace("/", File.separator));
         if (targetDir == null) {
             log.error("拒绝路径穿越：strm目标目录超出输出根目录 {}, path={}", settings.outputDir(), path);
-            strmHelper.addStrm(filePath, name, "0", "目标目录超出 STRM 输出根目录 " + settings.outputDir() + "，已拒绝写入");
+            strmHelper.addStrm(filePath, nameOf(path), "0",
+                    "目标目录超出 STRM 输出根目录 " + settings.outputDir() + "，已拒绝写入", null);
+        }
+        return targetDir;
+    }
+
+    /**
+     * 单文件 STRM 生成的执行层：不去重，无论已有记录是成功还是失败都重新生成一遍。
+     * 记录由 {@code StrmHelper#addStrm} 按 path + fileName 写回同一行，不会新增重复记录。
+     * <p>
+     * <b>只处理视频文件</b>。字幕记录同样存在这张表里，而 .strm 的文件名是「去掉扩展名 + .strm」——
+     * 不判类型的话 {@code a.srt} 会写出 {@code a.strm}，内容指向字幕，正好覆盖同目录 {@code a.mkv}
+     * 的 .strm，那个视频从此播不了，而字幕记录还被标成成功，页面上看不出任何异常。
+     * 字幕的重试走 {@link #downloadSubtitleOneFile}，分流在 {@link #retryOneFile}。
+     *
+     * @param fileSize 网盘文件大小，调用方拿得到时传入（复制完成触发的那次就有），拿不到传 null
+     */
+    void generateOneFile(String path, Long fileSize) {
+        String filePath = parentOf(path);
+        String name = nameOf(path);
+        if (!openListHelper.isVideo(name)) {
+            log.warn("不是视频文件，不生成 .strm（避免覆盖同名视频的 .strm）: {}", path);
             return;
         }
-        File file = targetDir.toFile();
-        if (!file.exists()) {
-            file.mkdirs();
+        log.info("开始执行指定文件strm任务: {}", path);
+        StrmSettings settings = resolveSettings(path);
+        Path targetDir = resolveLocalDir(path, settings);
+        if (targetDir == null) {
+            return;
         }
-        Path strmFile = targetDir.resolve((fileName.length() > 255 ? fileName.substring(0, 250) : fileName) + ".strm");
+        Path strmFile = targetDir.resolve(localBaseName(name) + ".strm");
         try {
             String encodePath = path;
             if (shouldEncode()) {
@@ -270,12 +298,59 @@ public class StrmServiceImpl implements IStrmService {
             }
             String content = config.getOpenListUrl() + "/d" + encodePath;
             writeAtomically(strmFile, content);
-            strmHelper.addStrm(filePath, name, "1", null);
+            strmHelper.addStrm(filePath, name, "1", null, fileSize);
         } catch (Exception e) {
             log.error("生成 .strm 文件失败 {}", strmFile, e);
-            strmHelper.addStrm(filePath, name, "0", StrmHelper.failReason("写入 .strm 文件失败", e));
+            strmHelper.addStrm(filePath, name, "0", StrmHelper.failReason("写入 .strm 文件失败", e), fileSize);
         }
         log.info("执行指定文件strm任务完成: {}", path);
+    }
+
+    /**
+     * 单个字幕文件重新下载，与目录级生成里的字幕分支同一口径（落到同一个本地目录、同一个文件名）。
+     * 按记录重试时用户是明确点了这一条，因此不看「是否下载字幕」开关。
+     */
+    void downloadSubtitleOneFile(String path) {
+        String filePath = parentOf(path);
+        String name = nameOf(path);
+        StrmSettings settings = resolveSettings(path);
+        Path targetDir = resolveLocalDir(path, settings);
+        if (targetDir == null) {
+            return;
+        }
+        try {
+            JSONObject fileJson = openListApi.getFile(path);
+            JSONObject data = fileJson == null ? null : fileJson.getJSONObject("data");
+            if (data == null) {
+                strmHelper.addStrm(filePath, name, "0", fileJson == null
+                        ? "查询字幕文件失败（OpenList 无响应）"
+                        : "网盘上已找不到该字幕文件", null);
+                return;
+            }
+            Long size = data.containsKey("size") ? data.getLongValue("size") : null;
+            Path outFile = targetDir.resolve(localBaseName(name) + name.substring(name.lastIndexOf('.')));
+            downloadSubtitle(data.getString("raw_url"), outFile.toString());
+            strmHelper.addStrm(filePath, name, "1", null, size);
+        } catch (Exception e) {
+            log.error("重新下载字幕失败 {}", path, e);
+            strmHelper.addStrm(filePath, name, "0", StrmHelper.failReason("下载字幕失败", e), null);
+        }
+    }
+
+    /**
+     * 按记录重试的分流：视频重新生成 .strm，字幕重新下载，其余（多半是改过扩展名配置，
+     * 当初按视频/字幕记下的文件现在两边都不认）记一条说得清的失败，而不是静默跳过。
+     */
+    void retryOneFile(String path) {
+        String name = nameOf(path);
+        if (openListHelper.isVideo(name)) {
+            generateOneFile(path, null);
+        } else if (openListHelper.isSrt(name)) {
+            downloadSubtitleOneFile(path);
+        } else {
+            strmHelper.addStrm(parentOf(path), name, "0",
+                    "既不是视频也不是字幕文件（可能改过视频/字幕扩展名配置），无法重试", null);
+        }
     }
 
     @Override
@@ -331,7 +406,7 @@ public class StrmServiceImpl implements IStrmService {
                         try {
                             STRM_SEMAPHORE.acquire();
                             try {
-                                generateOneFile(strm.getStrmPath() + "/" + strm.getStrmFileName());
+                                retryOneFile(strm.getStrmPath() + "/" + strm.getStrmFileName());
                             } finally {
                                 STRM_SEMAPHORE.release();
                             }
