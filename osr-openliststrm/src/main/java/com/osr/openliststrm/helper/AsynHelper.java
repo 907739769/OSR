@@ -54,6 +54,15 @@ public class AsynHelper {
     private final TaskScheduler scheduler = SpringUtils.getBean("virtualScheduledExecutor");
 
     /**
+     * 连续多少轮查不到任务状态（OpenList 无响应）才放弃内存监控。
+     * <p>
+     * 原先一次无响应就把记录标成「未知」并停止监控——可复制任务其实还在跑，一次网络抖动
+     * 就让它完成后没人收尾、STRM 也不生成。放弃时<b>不改状态</b>：记录留在处理中，心跳不再续期，
+     * 由 {@link CopyRecoveryTask} 接管，它对「OpenList 不可达」是下一轮再看，不会误判。
+     */
+    static final int MAX_CONSECUTIVE_QUERY_FAILURES = 5;
+
+    /**
      * 判断openlist的复制任务是否完成 完成就执行strm任务 (批量)
      * 改为异步调度模式
      */
@@ -76,7 +85,7 @@ public class AsynHelper {
                 }
 
                 // 开始递归检查
-                processCopyListRecursive(copyList, dstDir, strmDir, deadline, 0);
+                processCopyListRecursive(copyList, dstDir, strmDir, deadline, 0, new java.util.HashMap<>());
             } catch (Exception e) {
                 log.error("初始化复制完成判定失败", e);
             }
@@ -88,7 +97,8 @@ public class AsynHelper {
      * 逐个网络往返，收尾很慢），并对重新调度采用退避间隔。
      */
     private void processCopyListRecursive(List<OpenlistCopyPlus> copyList, String dstDir,
-                                          String strmDir, Instant deadline, int round) {
+                                          String strmDir, Instant deadline, int round,
+                                          Map<String, Integer> queryFailures) {
         // 先续心跳再查状态：{@link CopyRecoveryTask} 据此认定这些记录已有内存监控认领，
         // 不会跟这里抢着裁决同一条记录
         monitorRegistry.heartbeat(copyList.stream().map(OpenlistCopyPlus::getCopyTaskId).toList());
@@ -109,11 +119,16 @@ public class AsynHelper {
             try {
                 JSONObject jsonResponse = infoMap.get(taskId);
                 if (jsonResponse == null) {
-                    // API 请求失败或无响应，视为异常结束
-                    updateCopyStatus(copy, "4", CopyFailReason.statusQueryFailed());
-                    iterator.remove(); // 从监控列表中移除
+                    // 无响应不等于任务出了问题，连续多轮才放弃，理由见 MAX_CONSECUTIVE_QUERY_FAILURES
+                    int failures = queryFailures.merge(taskId, 1, Integer::sum);
+                    if (failures >= MAX_CONSECUTIVE_QUERY_FAILURES) {
+                        log.warn("连续 {} 次查询复制任务状态无响应，停止内存监控、交给兜底任务接管: taskId={}, path={}/{}",
+                                failures, taskId, copy.getCopySrcPath(), copy.getCopySrcFileName());
+                        iterator.remove();
+                    }
                     continue;
                 }
+                queryFailures.remove(taskId);
 
                 // 检查任务状态
                 Integer code = jsonResponse.getInteger("code");
@@ -131,21 +146,19 @@ public class AsynHelper {
                         if (!copyHelper.discardIfSourceGone(copy)) {
                             // 失败不重试了
                             updateCopyStatus(copy, "2", CopyFailReason.taskFailed(jsonResponse));
-                            TgHelper.sendMsg("<b>复制任务失败</b>\n" +
-                                    "源目录：" + StringUtils.escapeHtml(copy.getCopySrcPath()) + "\n" +
-                                    "源文件名：" + StringUtils.escapeHtml(copy.getCopySrcFileName()));
+                            notifyCopyFailed(copy);
                         }
                         iterator.remove(); // 移除失败任务
                     }
                     // 其他状态（如1运行中）则保留在列表中继续监控
-                } else if (404 == code || state == 2) {
-                    // 404: 任务丢失/过期? state=2: 完成
-                    if (404 == code) {
-                        updateCopyStatus(copy, "4", CopyFailReason.taskLost());
+                } else if (404 == code) {
+                    // 任务从 OpenList 的任务表里消失了：看目标文件在不在再下结论。
+                    // 目录级的 STRM 由收尾的 finishStrmDir 统一生成，这里不用单独补
+                    if (resolveLostTask(copy) != LostTaskOutcome.UNREACHABLE) {
+                        iterator.remove();
                     }
-                    if (state == 2) {
-                        updateCopyStatus(copy, "3", null);
-                    }
+                } else if (state == 2) {
+                    updateCopyStatus(copy, "3", null);
                     iterator.remove(); // 移除已完成任务
                 }
             } catch (Exception e) {
@@ -173,7 +186,7 @@ public class AsynHelper {
         } else {
             // 列表不为空，说明还有任务在运行，按退避间隔再次调用自己
             long interval = nextIntervalSeconds(round);
-            scheduler.schedule(Threads.wrap(() -> processCopyListRecursive(copyList, dstDir, strmDir, deadline, round + 1)),
+            scheduler.schedule(Threads.wrap(() -> processCopyListRecursive(copyList, dstDir, strmDir, deadline, round + 1, queryFailures)),
                     Instant.now().plusSeconds(interval));
         }
     }
@@ -226,20 +239,26 @@ public class AsynHelper {
         // 延迟30秒后开始第一次检查。心跳提前到调度前打，覆盖首检前的这30秒空窗
         monitorRegistry.heartbeat(copy.getCopyTaskId());
         Instant deadline = Instant.now().plus(monitorDuration());
-        scheduler.schedule(Threads.wrap(() -> checkOneFileRecursive(path, copy, deadline, 0)), Instant.now().plusSeconds(30));
+        scheduler.schedule(Threads.wrap(() -> checkOneFileRecursive(path, copy, deadline, 0, 0)), Instant.now().plusSeconds(30));
     }
 
     /**
      * 递归检查单文件状态
      */
-    private void checkOneFileRecursive(String path, OpenlistCopyPlus copy, Instant deadline, int round) {
+    private void checkOneFileRecursive(String path, OpenlistCopyPlus copy, Instant deadline, int round, int queryFailures) {
         try {
             monitorRegistry.heartbeat(copy.getCopyTaskId());
             JSONObject jsonResponse = openlistApi.copyInfo(copy.getCopyTaskId());
 
             if (jsonResponse == null) {
-                updateCopyStatus(copy, "4", CopyFailReason.statusQueryFailed());
-                return; // 结束监控
+                // 无响应不等于任务出了问题，连续多轮才放弃，理由见 MAX_CONSECUTIVE_QUERY_FAILURES
+                if (queryFailures + 1 >= MAX_CONSECUTIVE_QUERY_FAILURES) {
+                    log.warn("连续 {} 次查询复制任务状态无响应，停止内存监控、交给兜底任务接管: taskId={}, path={}",
+                            queryFailures + 1, copy.getCopyTaskId(), path);
+                    return;
+                }
+                scheduleNextCheck(path, copy, deadline, round, queryFailures + 1);
+                return;
             }
 
             Integer code = jsonResponse.getInteger("code");
@@ -249,25 +268,27 @@ public class AsynHelper {
             }
 
             // 判定任务是否完成
-            if (404 == code || state == 2) {
-                if (404 == code) {
-                    updateCopyStatus(copy, "4", CopyFailReason.taskLost());
+            if (404 == code) {
+                // 任务从 OpenList 的任务表里消失了：看目标文件在不在再下结论
+                LostTaskOutcome outcome = resolveLostTask(copy);
+                if (outcome == LostTaskOutcome.SUCCESS && "1".equals(config.getOpenListCopyStrm())) {
+                    strmService.strmOneFile(path, copy.getFileSize());
                 }
-                if (state == 2) {
-                    updateCopyStatus(copy, "3", null);
-                    // 成功后生成 strm
-                    if ("1".equals(config.getOpenListCopyStrm())) {
-                        strmService.strmOneFile(path, copy.getFileSize());
-                    }
+                if (outcome != LostTaskOutcome.UNREACHABLE) {
+                    return;
+                }
+            } else if (state == 2) {
+                updateCopyStatus(copy, "3", null);
+                // 成功后生成 strm
+                if ("1".equals(config.getOpenListCopyStrm())) {
+                    strmService.strmOneFile(path, copy.getFileSize());
                 }
                 return; // 任务完成，退出递归
             } else if (state == 7) {
                 // 失败状态。源已被删掉的情况直接丢记录，理由见 CopyHelper#discardIfSourceGone
                 if (!copyHelper.discardIfSourceGone(copy)) {
                     updateCopyStatus(copy, "2", CopyFailReason.taskFailed(jsonResponse));
-                    TgHelper.sendMsg("<b>复制任务失败</b>\n" +
-                            "源目录：" + StringUtils.escapeHtml(copy.getCopySrcPath()) + "\n" +
-                            "源文件名：" + StringUtils.escapeHtml(copy.getCopySrcFileName()));
+                    notifyCopyFailed(copy);
                 }
                 return; // 任务失败，退出递归
             }
@@ -285,13 +306,50 @@ public class AsynHelper {
             }
 
             // 任务仍在运行中，按退避间隔继续调度下一次检查
-            long interval = nextIntervalSeconds(round);
-            scheduler.schedule(Threads.wrap(() -> checkOneFileRecursive(path, copy, deadline, round + 1)),
-                    Instant.now().plusSeconds(interval));
+            scheduleNextCheck(path, copy, deadline, round, 0);
 
         } catch (Exception e) {
             log.error("递归检查单文件复制状态失败：{}", path, e);
         }
+    }
+
+    private void scheduleNextCheck(String path, OpenlistCopyPlus copy, Instant deadline, int round, int queryFailures) {
+        long interval = nextIntervalSeconds(round);
+        scheduler.schedule(Threads.wrap(() -> checkOneFileRecursive(path, copy, deadline, round + 1, queryFailures)),
+                Instant.now().plusSeconds(interval));
+    }
+
+    enum LostTaskOutcome { SUCCESS, DST_MISSING, UNREACHABLE }
+
+    /**
+     * 任务从 OpenList 任务表消失（404）时的裁决，口径同 {@code CopyRecoveryTask#probeDst}。
+     * <p>
+     * 原先 404 一律标成「未知」。可 404 最常见的两个成因——OpenList 重启、用户在 OpenList 里
+     * 清掉了已完成的任务——多半意味着文件<b>早就复制完了</b>，标成未知等于把一条成功的记录报成异常。
+     * 目标文件在就记成功；不在才记未知；查目标文件时 OpenList 也无响应就先不下结论，
+     * 留给下一轮（或兜底任务）。
+     */
+    LostTaskOutcome resolveLostTask(OpenlistCopyPlus copy) {
+        String dstFile = StringUtils.removeEnd(copy.getCopyDstPath(), "/") + "/" + copy.getCopyDstFileName();
+        JSONObject resp = openlistApi.getFile(dstFile);
+        if (resp == null) {
+            return LostTaskOutcome.UNREACHABLE;
+        }
+        if (Integer.valueOf(200).equals(resp.getInteger("code")) && resp.getJSONObject("data") != null) {
+            log.info("复制任务已从 OpenList 任务列表消失，但目标文件已存在，记为成功: {}", dstFile);
+            updateCopyStatus(copy, "3", null);
+            return LostTaskOutcome.SUCCESS;
+        }
+        updateCopyStatus(copy, "4", CopyFailReason.taskLostAndDstMissing());
+        return LostTaskOutcome.DST_MISSING;
+    }
+
+    /** 失败通知带上原因：原因已经落库，不带的话用户收到通知后唯一能做的是打开页面再查一遍 */
+    private void notifyCopyFailed(OpenlistCopyPlus copy) {
+        TgHelper.sendMsg("<b>复制任务失败</b>\n" +
+                "源目录：" + StringUtils.escapeHtml(copy.getCopySrcPath()) + "\n" +
+                "源文件名：" + StringUtils.escapeHtml(copy.getCopySrcFileName()) +
+                (StringUtils.isBlank(copy.getFailReason()) ? "" : "\n原因：" + StringUtils.escapeHtml(copy.getFailReason())));
     }
 
     // 辅助方法：复制任务状态监控的最长持续时间（可通过 sys_config 配置）

@@ -258,19 +258,22 @@ public class CopyServiceImpl implements ICopyService {
      * 提交同一目录下的批量复制任务：一次 fs/copy 调用复制多个文件，按返回的 tasks 顺序回填任务 ID。
      * 返回构建好的记录列表（不在此处落库），由调用方与目录内其它记录合并后一次性批量写入。
      */
-    private List<OpenlistCopyPlus> submitCopyBatch(String srcPath, String dstPath, List<String> names,
+    List<OpenlistCopyPlus> submitCopyBatch(String srcPath, String dstPath, List<String> names,
                                                    java.util.Map<String, Long> sizeByName) {
         if (names == null || names.isEmpty()) {
             return Collections.emptyList();
         }
         JSONObject resp = openlistApi.copyOpenlist(srcPath, dstPath, names);
-        if (resp == null || !Integer.valueOf(200).equals(resp.getInteger("code"))
-                || resp.getJSONObject("data") == null) {
-            log.warn("批量复制提交失败 {} => {}, 文件数={}", srcPath, dstPath, names.size());
-            return Collections.emptyList();
-        }
-        JSONArray tasks = resp.getJSONObject("data").getJSONArray("tasks");
-        if (tasks != null && tasks.size() != names.size()) {
+        boolean submitted = resp != null && Integer.valueOf(200).equals(resp.getInteger("code"))
+                && resp.getJSONObject("data") != null;
+        // 整批提交失败也要落成失败记录。原先直接返回空列表：这批文件既不出现在同步记录里、也没有重试入口，
+        // 只在日志里留一行 warn，用户看到的是「同步跑完了，这几个文件就是没过去」。
+        // 记成失败（2）不影响下次同步自动再试——已处理集合只认处理中与成功
+        String failReason = submitted ? null : CopyFailReason.submitFailed(resp);
+        JSONArray tasks = submitted ? resp.getJSONObject("data").getJSONArray("tasks") : null;
+        if (!submitted) {
+            log.warn("批量复制提交失败 {} => {}, 文件数={}, 原因={}", srcPath, dstPath, names.size(), failReason);
+        } else if (tasks != null && tasks.size() != names.size()) {
             log.warn("复制任务数({})与文件数({})不一致，按顺序尽力映射: {} => {}",
                     tasks.size(), names.size(), srcPath, dstPath);
         }
@@ -283,11 +286,16 @@ public class CopyServiceImpl implements ICopyService {
             copy.setCopySrcFileName(fileName);
             copy.setCopyDstFileName(fileName);
             copy.setFileSize(sizeByName.get(fileName));
-            // AList 按 names 顺序返回 tasks，逐一映射任务 ID
-            if (tasks != null && i < tasks.size()) {
-                copy.setCopyTaskId(tasks.getJSONObject(i).getString("id"));
+            if (submitted) {
+                // AList 按 names 顺序返回 tasks，逐一映射任务 ID
+                if (tasks != null && i < tasks.size()) {
+                    copy.setCopyTaskId(tasks.getJSONObject(i).getString("id"));
+                }
+                copy.setCopyStatus("1");
+            } else {
+                copy.setCopyStatus("2");
+                copy.setFailReason(failReason);
             }
-            copy.setCopyStatus("1");
             records.add(copy);
         }
         return records;
@@ -408,7 +416,7 @@ public class CopyServiceImpl implements ICopyService {
 
     /**
      * 已有记录按 id 同步写回：紧接着启动的监控会拿这个对象 updateById，id 必须在手里。
-     * 新记录维持原来的异步 upsert。
+     * 新记录走 CopyHelper#addCopy 的 upsert（同步，写完回填 id）。
      */
     private void saveCopy(OpenlistCopyPlus copy) {
         if (copy.getCopyId() != null) {

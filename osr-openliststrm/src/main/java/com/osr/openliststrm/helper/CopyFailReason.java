@@ -33,12 +33,10 @@ public final class CopyFailReason {
                 : truncate("OpenList 复制任务失败：" + error.trim());
     }
 
-    /** 任务已从 OpenList 的任务表消失：多半是 OpenList 重启过，文件可能已经复制完，只是没人收尾 */
-    public static String taskLost() {
-        return "OpenList 中已查不到该复制任务（OpenList 可能重启过），结果未知，请核对目标文件后重试";
-    }
-
-    /** 兜底任务的裁决：任务查不到、目标文件也不存在 */
+    /**
+     * 任务查不到、目标文件也不存在。内存监控遇到 404 与兜底任务共用：404 的常见成因（OpenList 重启、
+     * 用户清掉了已完成任务）多半意味着文件早已复制完，所以两处都先看目标文件，在就记成功，不在才落到这里
+     */
     public static String taskLostAndDstMissing() {
         return "OpenList 中已查不到该复制任务，且目标文件不存在（OpenList 可能重启过），可直接重试";
     }
@@ -46,11 +44,6 @@ public final class CopyFailReason {
     /** 兜底任务的裁决：提交复制时 OpenList 没回任务 ID，只能看目标文件，而目标文件不存在 */
     public static String noTaskIdAndDstMissing() {
         return "提交复制时 OpenList 未返回任务 ID，且目标文件不存在，可直接重试";
-    }
-
-    /** 查询任务状态时 OpenList 无响应，内存监控就此停止 */
-    public static String statusQueryFailed() {
-        return "查询复制任务状态失败（OpenList 无响应），已停止监控，请核对目标文件后重试";
     }
 
     public static String monitorTimeout(Duration duration) {

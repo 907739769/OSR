@@ -230,6 +230,36 @@ class CopyServiceRetryTest {
         verify(openlistCopyPlusService, never()).updateById(any(OpenlistCopyPlus.class));
     }
 
+    @Test
+    void 批量提交整批失败_落成失败记录带原因而不是一条都不留() {
+        when(openlistApi.copyOpenlist(anyString(), anyString(), anyList()))
+                .thenReturn(JSONObject.of("code", 500, "message", "storage not found"));
+
+        List<OpenlistCopyPlus> records = service.submitCopyBatch(SRC_DIR, DST_DIR, List.of("a.mkv", "b.mkv"),
+                java.util.Map.of("a.mkv", 10L, "b.mkv", 20L));
+
+        assertEquals(2, records.size());
+        for (OpenlistCopyPlus record : records) {
+            assertEquals("2", record.getCopyStatus());
+            assertEquals("提交复制任务失败：storage not found", record.getFailReason());
+        }
+        assertEquals(20L, records.get(1).getFileSize());
+    }
+
+    @Test
+    void 批量提交成功_按顺序回填任务ID且没有原因() {
+        when(openlistApi.copyOpenlist(anyString(), anyString(), anyList())).thenReturn(JSONObject.of("code", 200,
+                "data", JSONObject.of("tasks", List.of(JSONObject.of("id", "t-a"), JSONObject.of("id", "t-b")))));
+
+        List<OpenlistCopyPlus> records = service.submitCopyBatch(SRC_DIR, DST_DIR, List.of("a.mkv", "b.mkv"),
+                java.util.Map.of("a.mkv", 10L, "b.mkv", 20L));
+
+        assertEquals("t-b", records.get(1).getCopyTaskId());
+        assertEquals("1", records.get(1).getCopyStatus());
+        assertNull(records.get(1).getFailReason());
+        assertEquals(10L, records.get(0).getFileSize());
+    }
+
     private OpenlistCopyPlus assertRevertedToFailed(String reason) {
         ArgumentCaptor<OpenlistCopyPlus> saved = ArgumentCaptor.forClass(OpenlistCopyPlus.class);
         verify(openlistCopyPlusService).updateById(saved.capture());
