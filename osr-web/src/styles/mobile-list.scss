@@ -370,3 +370,13 @@
   }
 }
 
+/* 记录页（同步 / STRM / 重命名）搜索面板下方的工具条：状态统计条 + 「重试全部失败」。
+   三个记录页共用，与 PC 的 .action-bar 承担同一件事 */
+.record-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 12px;
+}

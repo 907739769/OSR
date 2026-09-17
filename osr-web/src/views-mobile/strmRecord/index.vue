@@ -21,8 +21,8 @@
           />
           <v-text-field
             v-model="queryParams.strmPath"
-            label="目录路径"
-            placeholder="请输入目录路径"
+            label="网盘目录"
+            placeholder="请输入网盘目录"
             clearable
             density="compact"
             variant="outlined"
@@ -30,10 +30,22 @@
             @keyup.enter="handleQuery"
           />
           <v-select
+            v-model="queryParams.fileType"
+            label="文件类型"
+            placeholder="全部类型"
+            :items="STRM_FILE_TYPE_OPTIONS"
+            clearable
+            density="compact"
+            variant="outlined"
+            hide-details
+          />
+          <v-select
             v-model="queryParams.strmStatus"
             label="状态"
             placeholder="全部状态"
-            :items="[{ title: '成功', value: '1' }, { title: '失败', value: '0' }]"
+            :items="STRM_STATUS_OPTIONS"
+            item-title="title"
+            item-value="value"
             clearable
             density="compact"
             variant="outlined"
@@ -63,6 +75,20 @@
         </v-form>
       </MobileSearchPanel>
 
+      <div v-if="stats" class="record-toolbar">
+        <RecordStatusBar v-model="queryParams.strmStatus" :options="STRM_STATUS_OPTIONS" :stats="stats" />
+        <v-btn
+          variant="tonal"
+          color="primary"
+          size="small"
+          prepend-icon="refresh-cw"
+          :disabled="!failedCount"
+          @click="handleRetryAllFailed"
+        >
+          重试全部失败{{ failedCount ? `（${failedCount}）` : '' }}
+        </v-btn>
+      </div>
+
       <!-- Batch Actions -->
       <MobileBatchBar
         :visible="selectedIds.length > 0"
@@ -75,7 +101,7 @@
           <v-icon icon="refresh-cw" start />重试
         </v-btn>
         <v-btn variant="text" color="error" size="small" @click="handleBatchRemoveNetDisk">
-          <v-icon icon="download" start />删网盘
+          <v-icon icon="cloud-off" start />删网盘
         </v-btn>
         <v-btn variant="text" color="error" size="small" @click="handleBatchDelete">
           <v-icon icon="trash-2" start />删记录
@@ -102,7 +128,7 @@
       <div class="card-content">
         <div class="card-top">
           <div class="card-title-row">
-            <v-icon class="card-title-icon" icon="file-video-camera" size="18" />
+            <v-icon class="card-title-icon" :icon="isSubtitleFile(record.strmFileName) ? 'captions' : 'file-video-camera'" size="18" />
             <span class="card-title card-title--link" @click.stop="showFullText(record.strmFileName, '文件名')">{{ record.strmFileName }}</span>
           </div>
           <StatusChip :value="record.strmStatus" enabled-value="1" on-text="成功" off-text="失败" />
@@ -126,7 +152,7 @@
         </div>
         <div class="card-actions" @click.stop>
           <v-btn variant="text" color="primary" size="small" prepend-icon="refresh-cw" @click="handleRetryOne(record)">
-            重试
+            {{ record.strmStatus === '1' ? '重新生成' : '重试' }}
           </v-btn>
           <v-btn class="action-more" variant="text" color="default" size="small" icon="ellipsis" @click="openSheet(record)" />
         </div>
@@ -136,7 +162,7 @@
     <template #foot>
       <!-- 操作抽屉 -->
       <MobileActionSheet v-model="sheetOpen" :target="sheetTarget">
-        <v-btn color="warning" block prepend-icon="download" @click="run(() => handleRemoveNetDiskOne(sheetTarget))">删网盘</v-btn>
+        <v-btn color="warning" block prepend-icon="cloud-off" @click="run(() => handleRemoveNetDiskOne(sheetTarget))">删网盘</v-btn>
         <v-btn color="error" block prepend-icon="trash-2" @click="run(() => handleDeleteOne(sheetTarget))">删记录</v-btn>
       </MobileActionSheet>
 
@@ -158,7 +184,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import MobileListPage from '@/components/mobile/MobileListPage.vue'
 import MobileActionSheet from '@/components/mobile/MobileActionSheet.vue'
 import MobileBatchBar from '@/components/mobile/MobileBatchBar.vue'
@@ -166,21 +192,24 @@ import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import FullTextDialog from '@/components/mobile/FullTextDialog.vue'
 import StatusChip from '@/components/StatusChip.vue'
-import { useStrmRecord } from '@/composables/useStrmRecord'
+import RecordStatusBar from '@/components/RecordStatusBar.vue'
+import { useStrmRecord, STRM_STATUS_OPTIONS, STRM_FILE_TYPE_OPTIONS, isSubtitleFile } from '@/composables/useStrmRecord'
 import { useActionSheet } from '@/composables/useActionSheet'
 import { formatFileSize } from '@/composables/useRecordList'
 
 const searchCollapsed = ref(true)
 
 const {
-  recordList, loading, total, queryParams, totalPages,
+  recordList, loading, total, queryParams, totalPages, stats,
   getList, prevPage, nextPage, handleSizeChange,
   queryRef, dateStart, dateEnd, handleQuery, resetQuery,
   selectedIds, toggleSelect, handleCardClick, clearSelection,
   isAllPageSelected, toggleSelectAllPage,
   handleRetryOne, handleBatchRetry, handleDeleteOne, handleBatchDelete,
-  handleRemoveNetDiskOne, handleBatchRemoveNetDisk
+  handleRemoveNetDiskOne, handleBatchRemoveNetDisk, handleRetryAllFailed
 } = useStrmRecord()
+
+const failedCount = computed(() => stats.value?.['0'] ?? 0)
 
 const fullTextRef = ref<InstanceType<typeof FullTextDialog>>()
 const showFullText = (content: string, title: string) => fullTextRef.value?.show(content, title)

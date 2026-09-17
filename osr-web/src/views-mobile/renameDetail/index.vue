@@ -63,7 +63,29 @@
             v-model="queryParams.status"
             label="状态"
             placeholder="全部状态"
-            :items="[{ title: '成功', value: '1' }, { title: '失败', value: '0' }]"
+            :items="RENAME_STATUS_OPTIONS"
+            item-title="title"
+            item-value="value"
+            clearable
+            density="compact"
+            variant="outlined"
+            hide-details
+          />
+          <v-select
+            v-model="queryParams.mediaType"
+            label="媒体类型"
+            placeholder="全部类型"
+            :items="MEDIA_TYPE_OPTIONS"
+            clearable
+            density="compact"
+            variant="outlined"
+            hide-details
+          />
+          <v-select
+            v-model="queryParams.scrapeStatus"
+            label="刮削状态"
+            placeholder="全部"
+            :items="SCRAPE_STATUS_OPTIONS"
             clearable
             density="compact"
             variant="outlined"
@@ -93,6 +115,20 @@
         </v-form>
       </MobileSearchPanel>
 
+      <div v-if="stats" class="record-toolbar">
+        <RecordStatusBar v-model="queryParams.status" :options="RENAME_STATUS_OPTIONS" :stats="stats" />
+        <v-btn
+          variant="tonal"
+          color="primary"
+          size="small"
+          prepend-icon="refresh-cw"
+          :disabled="!failedCount"
+          @click="handleRetryAllFailed"
+        >
+          重试全部失败{{ failedCount ? `（${failedCount}）` : '' }}
+        </v-btn>
+      </div>
+
       <!-- Batch Actions -->
       <MobileBatchBar
         :visible="selectedIds.length > 0"
@@ -104,18 +140,20 @@
         <v-btn variant="text" color="primary" size="small" prepend-icon="refresh-cw" @click="handleBatchExecute">
           执行
         </v-btn>
-        <v-btn variant="text" color="error" size="small" prepend-icon="brush-cleaning" @click="handleBatchPurge">
-          清产物
-        </v-btn>
-        <v-btn variant="text" color="error" size="small" prepend-icon="database" @click="handleBatchDelete">
-          删记录
-        </v-btn>
-        <v-btn variant="text" color="warning" size="small" prepend-icon="refresh-cw" @click="handleBatchScrape">
+        <v-btn variant="text" color="primary" size="small" prepend-icon="file-search" @click="handleBatchScrape">
           刮削
         </v-btn>
-        <v-btn variant="text" color="error" size="small" prepend-icon="trash-2" @click="handleBatchDeleteScrape">
-          删刮削
-        </v-btn>
+        <!-- 破坏性动作收进菜单：五个按钮里三个红色平铺在一条窄栏上，点错一个就是删文件 -->
+        <v-menu>
+          <template #activator="{ props: menuProps }">
+            <v-btn v-bind="menuProps" variant="text" color="error" size="small" append-icon="chevron-down">危险</v-btn>
+          </template>
+          <v-list density="compact">
+            <v-list-item prepend-icon="brush-cleaning" @click="handleBatchPurge">清理产物</v-list-item>
+            <v-list-item prepend-icon="trash-2" @click="handleBatchDeleteScrape">删除刮削</v-list-item>
+            <v-list-item class="more-actions-danger" prepend-icon="database" @click="handleBatchDelete">仅删记录</v-list-item>
+          </v-list>
+        </v-menu>
       </MobileBatchBar>
 
       <!-- Record List -->
@@ -163,6 +201,18 @@
             <v-icon class="card-path-icon" icon="map-pin" size="12" />
             <span class="card-path-text">{{ record.newPath }}</span>
           </div>
+        </div>
+        <div v-if="renameTags(record).length || tmdbUrl(record)" class="record-tags">
+          <span v-for="tag in renameTags(record)" :key="tag" class="record-tag">{{ tag }}</span>
+          <a v-if="tmdbUrl(record)" class="record-tag" :href="tmdbUrl(record)!" target="_blank" rel="noopener noreferrer" @click.stop>TMDb</a>
+        </div>
+        <div
+          v-if="record.scrapeStatus === '2' && record.scrapeMsg"
+          class="card-path card-path--link card-path--error"
+          @click.stop="showFullText(record.scrapeMsg, '刮削失败原因')"
+        >
+          <v-icon class="card-path-icon" icon="circle-alert" size="14" />
+          <span class="card-path-text">{{ record.scrapeMsg }}</span>
         </div>
         <div class="mobile-status-row">
           <StatusChip :type="record.status === '1' ? 'success' : 'error'" :text="record.status === '1' ? '成功' : '失败'" class="status-tag" />
@@ -337,7 +387,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import MobileListPage from '@/components/mobile/MobileListPage.vue'
 import MobileActionSheet from '@/components/mobile/MobileActionSheet.vue'
 import MobileBatchBar from '@/components/mobile/MobileBatchBar.vue'
@@ -345,7 +395,10 @@ import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import FullTextDialog from '@/components/mobile/FullTextDialog.vue'
 import StatusChip from '@/components/StatusChip.vue'
-import { useRenameDetailList } from '@/composables/useRenameDetailList'
+import RecordStatusBar from '@/components/RecordStatusBar.vue'
+import {
+  useRenameDetailList, RENAME_STATUS_OPTIONS, MEDIA_TYPE_OPTIONS, SCRAPE_STATUS_OPTIONS, renameTags, tmdbUrl
+} from '@/composables/useRenameDetailList'
 import { useActionSheet } from '@/composables/useActionSheet'
 
 const searchCollapsed = ref(true)
@@ -358,12 +411,12 @@ const showFullText = (content: string, title: string) => fullTextRef.value?.show
 const { sheetOpen, sheetTarget, openSheet, run } = useActionSheet()
 
 const {
-  recordList, loading, total, queryParams, totalPages,
+  recordList, loading, total, queryParams, totalPages, stats,
   getList, prevPage, nextPage, handleSizeChange,
   queryRef, dateStart, dateEnd, handleQuery, resetQuery,
   selectedIds, toggleSelect, handleCardClick, clearSelection,
   isAllPageSelected, toggleSelectAllPage,
-  handleDeleteOne, handleBatchDelete,
+  handleDeleteOne, handleBatchDelete, handleRetryAllFailed,
   retryDialogVisible, retryLoading, retryFormRef, retryForm,
   handleRetryOne, handleRetryClose, handleRetrySubmit,
   batchDialogVisible, batchLoading, batchFormRef, batchForm,
@@ -375,6 +428,8 @@ const {
 } = useRenameDetailList()
 
 getList()
+
+const failedCount = computed(() => stats.value?.['0'] ?? 0)
 
 const onRetryDialogUpdate = (val: boolean) => {
   if (!val) handleRetryClose()

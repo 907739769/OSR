@@ -48,11 +48,23 @@
           hide-details
           @keyup.enter="handleQuery"
         />
+        <v-text-field
+          v-model="queryParams.copyTaskId"
+          label="OpenList 任务 ID"
+          placeholder="精确匹配"
+          clearable
+          density="compact"
+          variant="outlined"
+          hide-details
+          @keyup.enter="handleQuery"
+        />
         <v-select
           v-model="queryParams.copyStatus"
           label="状态"
           placeholder="全部状态"
-          :items="[{ title: '处理中', value: '1' }, { title: '失败', value: '2' }, { title: '成功', value: '3' }, { title: '未知', value: '4' }]"
+          :items="COPY_STATUS_OPTIONS"
+          item-title="title"
+          item-value="value"
           clearable
           density="compact"
           variant="outlined"
@@ -81,10 +93,25 @@
         </div>
       </MobileSearchPanel>
 
+      <div v-if="stats" class="record-toolbar">
+        <RecordStatusBar v-model="queryParams.copyStatus" :options="COPY_STATUS_OPTIONS" :stats="stats" />
+        <v-btn
+          variant="tonal"
+          color="primary"
+          size="small"
+          prepend-icon="refresh-cw"
+          :disabled="!failedCount"
+          @click="handleRetryAllFailed"
+        >
+          重试全部失败{{ failedCount ? `（${failedCount}）` : '' }}
+        </v-btn>
+      </div>
+
       <!-- Batch Actions -->
       <MobileBatchBar
         :visible="selectedIds.length > 0"
         :count="selectedIds.length"
+        :summary="selectedSizeText"
         :all-selected="isAllPageSelected"
         @toggle-all="toggleSelectAllPage"
         @cancel="clearSelection"
@@ -185,7 +212,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import MobileListPage from '@/components/mobile/MobileListPage.vue'
 import MobileActionSheet from '@/components/mobile/MobileActionSheet.vue'
 import MobileBatchBar from '@/components/mobile/MobileBatchBar.vue'
@@ -193,22 +220,26 @@ import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import FullTextDialog from '@/components/mobile/FullTextDialog.vue'
 import StatusChip from '@/components/StatusChip.vue'
-import { useCopyRecord } from '@/composables/useCopyRecord'
+import RecordStatusBar from '@/components/RecordStatusBar.vue'
+import { useCopyRecord, COPY_STATUS_OPTIONS } from '@/composables/useCopyRecord'
 import { useActionSheet } from '@/composables/useActionSheet'
 import { formatFileSize } from '@/composables/useRecordList'
 
 const searchCollapsed = ref(true)
 
 const {
-  recordList, loading, total, queryParams, totalPages,
+  recordList, loading, total, queryParams, totalPages, stats,
   getList, prevPage, nextPage, handleSizeChange,
   dateStart, dateEnd, handleQuery, resetQuery,
   selectedIds, toggleSelect, handleCardClick, clearSelection,
   isAllPageSelected, toggleSelectAllPage,
   handleRetryOne, handleBatchRetry, handleDeleteOne, handleBatchDelete,
-  handleRemoveNetDiskOne, handleBatchRemoveNetDisk,
-  getCopyStatusText, getCopyStatusType, canRetryCopy
+  handleRemoveNetDiskOne, handleBatchRemoveNetDisk, handleRetryAllFailed,
+  getCopyStatusText, getCopyStatusType, canRetryCopy, selectedSizeText
 } = useCopyRecord()
+
+// 「重试全部失败」捞的是失败 + 异常两种（与后端 RETRYABLE_STATUSES 一致）
+const failedCount = computed(() => (stats.value?.['2'] ?? 0) + (stats.value?.['4'] ?? 0))
 
 const fullTextRef = ref<InstanceType<typeof FullTextDialog>>()
 const showFullText = (content: string, title: string) => fullTextRef.value?.show(content, title)

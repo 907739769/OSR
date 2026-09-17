@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { useRecordList, batchRetryMessage, formatFileSize } from '../useRecordList'
+import { useRecordList, batchRetryMessage, formatFileSize, removeNetDiskMessage, retryAllFailedMessage } from '../useRecordList'
 
 vi.mock('../useMessage', () => ({
   message: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() }
@@ -99,5 +99,49 @@ describe('记录页的文件大小', () => {
     expect(formatFileSize(1536)).toBe('1.5 KB')
     expect(formatFileSize(734 * 1024 * 1024)).toBe('734.0 MB')
     expect(formatFileSize(Math.round(4.37 * 1024 ** 3))).toBe('4.37 GB')
+  })
+})
+
+describe('后台执行类动作的提示', () => {
+  it('批量重试超过 20 条时说明后台依次处理', () => {
+    // 后端转后台执行、接口立即返回，不说一声用户看到列表纹丝不动会以为没生效
+    expect(batchRetryMessage(30, 30)).toBe('已提交重试 30 条，后台依次处理，稍后刷新查看')
+  })
+
+  it('删除网盘文件：后台执行时不说「删除成功」', () => {
+    expect(removeNetDiskMessage({ requested: 25, removed: 0, background: true }))
+      .toBe('已在后台删除 25 个网盘文件，稍后刷新查看')
+  })
+
+  it('删除网盘文件：部分失败时说清几个没删掉', () => {
+    expect(removeNetDiskMessage({ requested: 3, removed: 2, background: false }))
+      .toBe('已删除 2 个网盘文件，1 个删除失败（记录已保留，可稍后再试）')
+    expect(removeNetDiskMessage({ requested: 2, removed: 2, background: false })).toBe('已删除 2 个网盘文件')
+  })
+
+  it('重试全部失败：报本次条数与超出上限的剩余', () => {
+    expect(retryAllFailedMessage({ retried: 200, remaining: 37 }))
+      .toBe('已提交重试 200 条，后台依次处理；还有 37 条超出单次上限，处理完后可再点一次')
+    expect(retryAllFailedMessage({ retried: 0, remaining: 0 })).toBe('没有需要重试的失败记录')
+  })
+})
+
+describe('统计条数据', () => {
+  it('列表加载时一并拉统计，统计失败不影响列表', async () => {
+    const statsApi = vi.fn().mockRejectedValueOnce(new Error('boom')).mockResolvedValue({ '0': 3, total: 10 })
+    const base = useRecordList({
+      listApi: () => Promise.resolve({ records: [{ id: 1 }], total: 1 }),
+      statsApi,
+      batchDeleteApi: vi.fn(),
+      idField: 'id',
+      recordLabel: '测试记录'
+    })
+
+    await base.getList()
+    expect(base.recordList.value).toHaveLength(1)
+    expect(base.stats.value).toBeNull()
+
+    await base.getList()
+    expect(base.stats.value).toEqual({ '0': 3, total: 10 })
   })
 })

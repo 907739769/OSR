@@ -6,6 +6,16 @@ export function getCopyRecordListApi(params: SearchParams) {
 }
 
 /** 返回实际提交重试的条数；记录处于处理中或已成功时后端直接报错 */
+/** 当前筛选条件下按状态分组计数（忽略状态这一项），返回 { 状态值: 条数, total } */
+export function getCopyRecordStatsApi(params: SearchParams) {
+  return request.get<any, Record<string, number>>('/openliststrm/copy-records/stats', { params })
+}
+
+/** 重试全部失败与异常的记录（一次最多最新 200 条） */
+export function retryAllFailedCopyRecordApi() {
+  return request.post<any, { retried: number, remaining: number }>('/openliststrm/copy-records/retry-failed')
+}
+
 export function retryCopyRecordApi(recordId: number) {
   return request.post<any, number>(`/openliststrm/copy-records/retry/${recordId}`)
 }
