@@ -27,12 +27,14 @@ public interface ICopyService {
     void batchRemoveNetDisk(List<String> idList);
 
     /**
-     * 重试复制任务
+     * 按记录重试复制任务。只重试失败与监控超时/任务丢失的记录，处理中与已成功的跳过。
+     *
+     * @return 实际提交重试的记录数；超过 20 条时在后台执行，返回时尚未跑完
      */
-    void retryCopy(List<String> idList);
+    int retryCopy(List<String> idList);
 
     /**
-     * 批量重试所有失败的复制记录（最多重试最新 200 条）
+     * 批量重试所有失败、监控超时/任务丢失的复制记录（最多取最新 200 条）
      */
     RetryOutcome retryAllFailed();
 

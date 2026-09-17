@@ -21,6 +21,9 @@ import java.util.stream.Collectors;
 @RequestMapping("/api/openliststrm/copy-records")
 public class OpenlistCopyRestController extends BaseCrudRestController<IOpenlistCopyPlusService, OpenlistCopyPlus>
 {
+    /** 只有失败、监控超时/任务丢失的记录能重试；处理中的由监控或兜底任务收尾，已成功的无事可做 */
+    private static final String NOTHING_TO_RETRY = "所选记录处于处理中或已成功，无需重试";
+
     @Autowired
     private ICopyService copyService;
 
@@ -47,7 +50,7 @@ public class OpenlistCopyRestController extends BaseCrudRestController<IOpenlist
      * 重试失败的复制记录
      */
     @PostMapping("/retry/{id}")
-    public Result<Void> retry(@PathVariable("id") Integer id)
+    public Result<Integer> retry(@PathVariable("id") Integer id)
     {
         var record = service.getById(id);
         if (record == null)
@@ -56,23 +59,32 @@ public class OpenlistCopyRestController extends BaseCrudRestController<IOpenlist
         }
         logger.info("重试的复制记录：{}", id);
         List<String> idList = Collections.singletonList(String.valueOf(id));
-        copyService.retryCopy(idList);
-        return Result.success();
+        int submitted = copyService.retryCopy(idList);
+        if (submitted == 0)
+        {
+            return Result.error(NOTHING_TO_RETRY);
+        }
+        return Result.success(submitted);
     }
 
     /**
-     * 批量重试失败的复制记录
+     * 批量重试失败的复制记录。返回实际提交的条数，选中的记录里处理中/已成功的会被跳过，
+     * 前端据此告诉用户「提交了几条、跳过了几条」
      */
     @PostMapping("/retry")
-    public Result<Void> batchRetry(@RequestParam("ids") String ids)
+    public Result<Integer> batchRetry(@RequestParam("ids") String ids)
     {
         if (ids == null || ids.trim().isEmpty())
         {
             return Result.error("请选择要重试的记录");
         }
         List<String> idList = Arrays.stream(Convert.toStrArray(ids)).collect(Collectors.toList());
-        copyService.retryCopy(idList);
-        return Result.success();
+        int submitted = copyService.retryCopy(idList);
+        if (submitted == 0)
+        {
+            return Result.error(NOTHING_TO_RETRY);
+        }
+        return Result.success(submitted);
     }
 
     /**

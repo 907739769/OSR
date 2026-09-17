@@ -219,18 +219,31 @@ public class StrmServiceImpl implements IStrmService {
 
     @Override
     public void strmOneFile(String path) {
-        log.info("开始执行指定文件strm任务: {}", path);
-        String filePath = "";
-        String name = path;
-        if (path.contains("/")) {
-            filePath = path.substring(0, path.lastIndexOf("/"));
-            name = path.substring(path.lastIndexOf("/") + 1);
-        }
-
-        if (strmHelper.existsStrm(filePath, name)) {
+        // 去重只属于「按路径触发」的入口（复制完成、兜底恢复、TG 指令，可能对同一文件触发多次）；
+        // 按记录重试不经过这里，见 retryStrm
+        if (strmHelper.existsStrm(parentOf(path), nameOf(path))) {
             log.debug("文件已处理过，跳过处理{}", path);
             return;
         }
+        generateOneFile(path);
+    }
+
+    private static String parentOf(String path) {
+        return path.contains("/") ? path.substring(0, path.lastIndexOf("/")) : "";
+    }
+
+    private static String nameOf(String path) {
+        return path.contains("/") ? path.substring(path.lastIndexOf("/") + 1) : path;
+    }
+
+    /**
+     * 单文件 STRM 生成的执行层：不去重，无论已有记录是成功还是失败都重新生成一遍。
+     * 记录由 {@code StrmHelper#addStrm} 按 path + fileName 写回同一行，不会新增重复记录。
+     */
+    void generateOneFile(String path) {
+        log.info("开始执行指定文件strm任务: {}", path);
+        String filePath = parentOf(path);
+        String name = nameOf(path);
         String fileName = path.substring(path.lastIndexOf("/") + 1, path.lastIndexOf(".")).replaceAll("[\\\\/:*?\"<>|]", "");
         String relative = filePath.startsWith("/")
                 ? filePath.substring(1)
@@ -309,9 +322,8 @@ public class StrmServiceImpl implements IStrmService {
     @Override
     public void retryStrm(List<String> idList) {
         if (idList == null || idList.isEmpty()) return;
+        // 不再预置成失败：重试直接走执行层、绕过 existsStrm 去重，状态由生成结果写回
         List<OpenlistStrmPlus> strmList = openlistStrmPlusService.listByIds(idList);
-        strmList.forEach(strm -> strm.setStrmStatus("0"));
-        openlistStrmPlusService.updateBatchById(strmList);
         Runnable action = () -> {
             try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
                 List<CompletableFuture<Void>> futures = strmList.stream()
@@ -319,7 +331,7 @@ public class StrmServiceImpl implements IStrmService {
                         try {
                             STRM_SEMAPHORE.acquire();
                             try {
-                                strmOneFile(strm.getStrmPath() + "/" + strm.getStrmFileName());
+                                generateOneFile(strm.getStrmPath() + "/" + strm.getStrmFileName());
                             } finally {
                                 STRM_SEMAPHORE.release();
                             }

@@ -23,6 +23,14 @@ const STATUS_TEXT: Record<string, string> = {
   '4': '未知'
 }
 
+/**
+ * 能按记录重试的状态：失败、监控超时/任务丢失。与后端 CopyServiceImpl#RETRYABLE_STATUSES 一致——
+ * 处理中的由监控或兜底任务收尾，已成功的无事可做，对它们点重试后端会直接拒绝。
+ */
+const RETRYABLE_STATUSES = ['2', '4']
+
+export const canRetryCopy = (status: string) => RETRYABLE_STATUSES.includes(status)
+
 const STATUS_TYPE: Record<string, 'warning' | 'error' | 'success' | 'info'> = {
   '1': 'warning',
   '2': 'error',
@@ -51,5 +59,5 @@ export function useCopyRecord() {
   const getCopyStatusText = (status: string) => STATUS_TEXT[status] || '未知'
   const getCopyStatusType = (status: string) => STATUS_TYPE[status] || 'info'
 
-  return { ...base, getCopyStatusText, getCopyStatusType }
+  return { ...base, getCopyStatusText, getCopyStatusType, canRetryCopy }
 }

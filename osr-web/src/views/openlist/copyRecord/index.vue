@@ -148,7 +148,8 @@
           <StatusChip :type="getCopyStatusType(item.copyStatus)" :text="getCopyStatusText(item.copyStatus)" :pulse="item.copyStatus === '1'" />
         </template>
         <template #item.actions="{ item }">
-          <v-btn variant="text" color="primary" size="small" prepend-icon="refresh-cw" @click="handleRetryOne(item)">
+          <!-- 只有失败/未知能重试：处理中的由监控收尾，已成功的无事可做，后端也会拒绝 -->
+          <v-btn v-if="canRetryCopy(item.copyStatus)" variant="text" color="primary" size="small" prepend-icon="refresh-cw" @click="handleRetryOne(item)">
             重试
           </v-btn>
           <v-menu>
@@ -183,7 +184,7 @@ const {
   noneSelected, handleSelectionChange,
   handleRetryOne, handleBatchRetry, handleDeleteOne, handleBatchDelete,
   handleRemoveNetDiskOne, handleBatchRemoveNetDisk,
-  getCopyStatusText, getCopyStatusType
+  getCopyStatusText, getCopyStatusType, canRetryCopy
 } = useCopyRecord()
 
 const headers = [

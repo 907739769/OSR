@@ -218,33 +218,41 @@ export function useRecordList<TQuery extends SearchParams = SearchParams>(config
     return labelField ? row[labelField] : row[idField]
   }
 
-  /** 统一的「确认 -> 调接口 -> 提示 -> 刷新」流程；用户取消时静默返回 */
-  async function confirmThen(msg: string, title: string, type: 'warning' | 'error', action: () => Promise<any>, successMsg: string) {
+  /**
+   * 统一的「确认 -> 调接口 -> 提示 -> 刷新」流程；用户取消时静默返回。
+   * successMsg 可以是函数，拿接口返回值拼提示（如批量重试报实际提交了几条）
+   */
+  async function confirmThen(
+    msg: string, title: string, type: 'warning' | 'error', action: () => Promise<any>,
+    successMsg: string | ((result: any) => string)
+  ) {
     try {
       await confirm({ message: msg, title, type })
     } catch {
       return
     }
     try {
-      await action()
-      message.success(successMsg)
+      const result = await action()
+      message.success(typeof successMsg === 'function' ? successMsg(result) : successMsg)
       getList()
     } catch (e) {
-      console.error(`[${recordLabel}] ${successMsg}失败:`, e)
+      console.error(`[${recordLabel}] 操作失败:`, e)
     }
   }
 
   const handleRetryOne = (row: any) =>
     confirmThen(
       `是否确认重试${recordLabel}"${labelOf(row)}"？`, '提示', 'warning',
-      () => retryApi!(row[idField]), '重试成功'
+      () => retryApi!(row[idField]), '已提交重试'
     )
 
-  const handleBatchRetry = () =>
-    confirmThen(
-      `是否确认批量重试选中的 ${selectedIds.value.length} 条记录？`, '提示', 'warning',
-      () => batchRetryApi!(selectedIds.value), '批量重试成功'
+  const handleBatchRetry = () => {
+    const selected = selectedIds.value.length
+    return confirmThen(
+      `是否确认批量重试选中的 ${selected} 条记录？`, '提示', 'warning',
+      () => batchRetryApi!(selectedIds.value), result => batchRetryMessage(selected, result)
     )
+  }
 
   const handleDeleteOne = (row: any) =>
     confirmThen(
@@ -283,4 +291,16 @@ export function useRecordList<TQuery extends SearchParams = SearchParams>(config
     handleRetryOne, handleBatchRetry, handleDeleteOne, handleBatchDelete,
     handleRemoveNetDiskOne, handleBatchRemoveNetDisk
   }
+}
+
+/**
+ * 批量重试的提示。接口返回实际提交条数时把跳过的条数说出来——选了 10 条、其中 4 条已成功，
+ * 只说「已提交批量重试」会让人以为 10 条都在跑；没有返回条数的接口（如 STRM）退回通用文案。
+ */
+export function batchRetryMessage(selected: number, submitted: unknown): string {
+  if (typeof submitted !== 'number') return '已提交批量重试'
+  const skipped = selected - submitted
+  return skipped > 0
+    ? `已提交重试 ${submitted} 条，跳过 ${skipped} 条处理中或已成功的记录`
+    : `已提交重试 ${submitted} 条`
 }

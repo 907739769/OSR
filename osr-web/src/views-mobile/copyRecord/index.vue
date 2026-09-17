@@ -142,7 +142,8 @@
           {{ record.createTime }}
         </div>
         <div class="card-actions" @click.stop>
-          <v-btn variant="text" color="primary" size="small" prepend-icon="refresh-cw" @click="handleRetryOne(record)">
+          <!-- 只有失败/未知能重试，理由同 PC 端 -->
+          <v-btn v-if="canRetryCopy(record.copyStatus)" variant="text" color="primary" size="small" prepend-icon="refresh-cw" @click="handleRetryOne(record)">
             重试
           </v-btn>
           <v-btn class="action-more" variant="text" color="default" size="small" icon="ellipsis" @click="openSheet(record)" />
@@ -196,7 +197,7 @@ const {
   isAllPageSelected, toggleSelectAllPage,
   handleRetryOne, handleBatchRetry, handleDeleteOne, handleBatchDelete,
   handleRemoveNetDiskOne, handleBatchRemoveNetDisk,
-  getCopyStatusText, getCopyStatusType
+  getCopyStatusText, getCopyStatusType, canRetryCopy
 } = useCopyRecord()
 
 const fullTextRef = ref<InstanceType<typeof FullTextDialog>>()

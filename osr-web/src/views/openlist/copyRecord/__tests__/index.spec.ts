@@ -42,6 +42,7 @@ function baseComposable(overrides: Record<string, any> = {}) {
     handleBatchRemoveNetDisk: vi.fn(),
     getCopyStatusText: () => '成功',
     getCopyStatusType: () => 'success',
+    canRetryCopy: (status: string) => ['2', '4'].includes(status),
     ...overrides
   }
 }
@@ -77,5 +78,23 @@ describe('CopyRecord 选中反馈', () => {
     expect(wrapper.find('.batch-toolbar').exists()).toBe(false)
     // 漏掉这一句就是「条没了、批量按钮还亮着」
     expect(composable.handleSelectionChange).toHaveBeenLastCalledWith([])
+  })
+})
+
+describe('CopyRecord 重试按钮', () => {
+  const rowWith = (copyStatus: string) =>
+    baseComposable({ recordList: ref([{ copyId: 1, copySrcFileName: 'a.mkv', copyDstFileName: 'a.mkv', copyStatus }]) })
+
+  it.each(['2', '4'])('状态 %s（失败/未知）显示重试', (status) => {
+    (useCopyRecord as any).mockReturnValue(rowWith(status))
+    const wrapper = mount(CopyRecordPage)
+    expect(wrapper.findAll('button').some(b => b.text() === '重试')).toBe(true)
+  })
+
+  it.each(['1', '3'])('状态 %s（处理中/已成功）不显示重试', (status) => {
+    // 后端对这两种状态会直接拒绝，按钮留着只会让用户点一下收到一个报错
+    (useCopyRecord as any).mockReturnValue(rowWith(status))
+    const wrapper = mount(CopyRecordPage)
+    expect(wrapper.findAll('button').some(b => b.text() === '重试')).toBe(false)
   })
 })
