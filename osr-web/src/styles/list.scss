@@ -284,6 +284,49 @@
   }
 }
 
+/* 重命名明细的识别结果标签（类型 · 季集 · 分辨率 · 编码 · 来源 · 发布组 · TMDb），PC 表格与移动端卡片共用。
+   用细描边小标签而不是 v-chip：一行常有六七个，chip 的内边距与圆角会让它们挤成一排按钮、读起来像能点 */
+.record-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.record-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 6px;
+  font-size: 11px;
+  line-height: 18px;
+  border: 1px solid var(--osr-border-base);
+  border-radius: 4px;
+  color: var(--osr-text-secondary);
+  white-space: nowrap;
+}
+
+a.record-tag {
+  color: var(--osr-primary);
+  text-decoration: none;
+
+  &:hover {
+    border-color: var(--osr-primary);
+  }
+}
+
+/* 记录页（同步 / STRM / 重命名刮削）失败原因：挂在详情格最后一行，只在失败/未知状态渲染。
+   最多两行，完整内容走 title；原因里常带 OpenList 回的整句英文报错，不截会把行撑得很高 */
+.record-fail-reason {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--osr-error);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  word-break: break-all;
+}
+
 /* ============================================
    卡片网格（PT 配置类页面：索引器 / 下载器 / 媒体服务器 / 黑名单）
    与 .modern-table 并列的第二种列表范式，单源定义

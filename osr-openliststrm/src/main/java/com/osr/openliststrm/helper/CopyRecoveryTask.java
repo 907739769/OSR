@@ -313,13 +313,13 @@ public class CopyRecoveryTask {
             if (copyHelper.discardIfSourceGone(copy)) {
                 return Outcome.DISCARDED;
             }
-            markStatus(copy, "2");
+            markStatus(copy, "2", CopyFailReason.taskFailed(resp));
             log.info("兜底扫描判定复制失败: {}/{}", copy.getCopySrcPath(), copy.getCopySrcFileName());
             return Outcome.FAILED;
         }
         // 仍在运行（state=1 运行中、8 等待重试）或 AList 返回了意料外的响应：下一轮再看
         if (expired) {
-            markStatus(copy, "4");
+            markStatus(copy, "4", CopyFailReason.monitorTimeout(monitorDuration()));
             log.warn("复制任务超过最长监控时长（{}）仍未结束，标记为异常: taskId={}, path={}/{}",
                     monitorDuration(), taskId, copy.getCopySrcPath(), copy.getCopySrcFileName());
             return Outcome.UNKNOWN;
@@ -342,7 +342,9 @@ public class CopyRecoveryTask {
             }
         }
         if (expired) {
-            markStatus(copy, "4");
+            markStatus(copy, "4", StringUtils.isBlank(copy.getCopyTaskId())
+                    ? CopyFailReason.noTaskIdAndDstMissing()
+                    : CopyFailReason.taskLostAndDstMissing());
             log.warn("复制任务状态不可考且目标文件不存在，标记为异常: taskId={}, dst={}",
                     copy.getCopyTaskId(), dstFile);
             return Outcome.UNKNOWN;
@@ -352,7 +354,7 @@ public class CopyRecoveryTask {
 
     /** 标记成功并补上重启时漏掉的 STRM 生成 */
     private Outcome markSuccess(OpenlistCopyPlus copy) {
-        markStatus(copy, "3");
+        markStatus(copy, "3", null);
         if ("1".equals(config.getOpenListCopyStrm())) {
             generateStrm(copy);
         }
@@ -375,7 +377,7 @@ public class CopyRecoveryTask {
             return false;
         }
         try {
-            strmService.strmOneFile(dstFile);
+            strmService.strmOneFile(dstFile, copy.getFileSize());
             return true;
         } catch (Exception e) {
             // STRM 生成失败不回滚复制状态：复制确实成功了，STRM 有自己的失败记录与重试入口
@@ -384,8 +386,10 @@ public class CopyRecoveryTask {
         }
     }
 
-    private void markStatus(OpenlistCopyPlus copy, String status) {
+    // 状态与原因一起写，成功传 null 即清空，理由见 OpenlistCopyPlus#failReason
+    private void markStatus(OpenlistCopyPlus copy, String status, String failReason) {
         copy.setCopyStatus(status);
+        copy.setFailReason(failReason);
         openlistCopyPlusService.updateById(copy);
     }
 

@@ -14,10 +14,17 @@ import { ref, reactive, computed } from 'vue'
  * 「清空选择」能把表格 model 与 composable 侧的派生态一起清掉。
  */
 
-vi.mock('@/composables/useCopyRecord', () => ({ useCopyRecord: vi.fn() }))
+// 只替换 useCopyRecord 本身，状态选项等常量沿用真实导出（页面模板直接引用它们）
+vi.mock('@/composables/useCopyRecord', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/composables/useCopyRecord')>()),
+  useCopyRecord: vi.fn()
+}))
 
 import { useCopyRecord } from '@/composables/useCopyRecord'
 import CopyRecordPage from '../index.vue'
+
+// 详情抽屉是 v-navigation-drawer，要挂在 v-layout 里；这几条用例不涉及它
+const mountPage = () => mount(CopyRecordPage, { global: { stubs: { RecordDetailDrawer: true } } })
 
 function baseComposable(overrides: Record<string, any> = {}) {
   return {
@@ -42,6 +49,10 @@ function baseComposable(overrides: Record<string, any> = {}) {
     handleBatchRemoveNetDisk: vi.fn(),
     getCopyStatusText: () => '成功',
     getCopyStatusType: () => 'success',
+    canRetryCopy: (status: string) => ['2', '4'].includes(status),
+    stats: ref(null),
+    selectedSizeText: ref(''),
+    handleRetryAllFailed: vi.fn(),
     ...overrides
   }
 }
@@ -49,13 +60,13 @@ function baseComposable(overrides: Record<string, any> = {}) {
 describe('CopyRecord 选中反馈', () => {
   it('没有选中时不出现批量条', () => {
     (useCopyRecord as any).mockReturnValue(baseComposable())
-    const wrapper = mount(CopyRecordPage)
+    const wrapper = mountPage()
     expect(wrapper.find('.batch-toolbar').exists()).toBe(false)
   })
 
   it('选中后出现批量条并显示条数', async () => {
     (useCopyRecord as any).mockReturnValue(baseComposable())
-    const wrapper = mount(CopyRecordPage)
+    const wrapper = mountPage()
     ;(wrapper.vm as any).selectedRows = [{ copyId: 1 }, { copyId: 2 }]
     await wrapper.vm.$nextTick()
 
@@ -67,7 +78,7 @@ describe('CopyRecord 选中反馈', () => {
   it('「清空选择」同时清掉表格 model 与 composable 侧的派生态', async () => {
     const composable = baseComposable()
     ;(useCopyRecord as any).mockReturnValue(composable)
-    const wrapper = mount(CopyRecordPage)
+    const wrapper = mountPage()
     ;(wrapper.vm as any).selectedRows = [{ copyId: 1 }]
     await wrapper.vm.$nextTick()
 
@@ -77,5 +88,42 @@ describe('CopyRecord 选中反馈', () => {
     expect(wrapper.find('.batch-toolbar').exists()).toBe(false)
     // 漏掉这一句就是「条没了、批量按钮还亮着」
     expect(composable.handleSelectionChange).toHaveBeenLastCalledWith([])
+  })
+})
+
+describe('CopyRecord 重试按钮', () => {
+  const rowWith = (copyStatus: string) =>
+    baseComposable({ recordList: ref([{ copyId: 1, copySrcFileName: 'a.mkv', copyDstFileName: 'a.mkv', copyStatus }]) })
+
+  it.each(['2', '4'])('状态 %s（失败/未知）显示重试', (status) => {
+    (useCopyRecord as any).mockReturnValue(rowWith(status))
+    const wrapper = mountPage()
+    expect(wrapper.findAll('button').some(b => b.text() === '重试')).toBe(true)
+  })
+
+  it.each(['1', '3'])('状态 %s（处理中/已成功）不显示重试', (status) => {
+    // 后端对这两种状态会直接拒绝，按钮留着只会让用户点一下收到一个报错
+    (useCopyRecord as any).mockReturnValue(rowWith(status))
+    const wrapper = mountPage()
+    expect(wrapper.findAll('button').some(b => b.text() === '重试')).toBe(false)
+  })
+})
+
+describe('CopyRecord 失败原因与大小', () => {
+  const rowWith = (row: Record<string, any>) =>
+    baseComposable({ recordList: ref([{ copyId: 1, copySrcFileName: 'a.mkv', copyDstFileName: 'a.mkv', ...row }]) })
+
+  it('失败记录显示原因与大小', () => {
+    (useCopyRecord as any).mockReturnValue(rowWith({ copyStatus: '2', failReason: 'OpenList 复制任务失败：quota exceeded', fileSize: 1536 }))
+    const wrapper = mountPage()
+    expect(wrapper.find('.record-fail-reason').text()).toBe('OpenList 复制任务失败：quota exceeded')
+    expect(wrapper.text()).toContain('1.5 KB')
+  })
+
+  it('成功记录即使库里残留原因也不显示', () => {
+    // 原因只在失败/未知状态下有意义；后端写成功时会清空，前端这层是兜底
+    (useCopyRecord as any).mockReturnValue(rowWith({ copyStatus: '3', failReason: '旧原因' }))
+    const wrapper = mountPage()
+    expect(wrapper.find('.record-fail-reason').exists()).toBe(false)
   })
 })

@@ -3,7 +3,7 @@
     <PageHeader
       icon="clapperboard"
       title="STRM 生成记录"
-      desc="每个 STRM 文件的生成结果，失败项可重试或清理网盘源文件"
+      desc="每个 STRM 文件与字幕的生成结果，失败项可重试或清理网盘源文件"
     />
 
     <!-- Search Panel -->
@@ -20,8 +20,8 @@
       />
       <v-text-field
         v-model="queryParams.strmPath"
-        label="目录路径"
-        placeholder="请输入目录路径"
+        label="网盘目录"
+        placeholder="请输入网盘目录"
         clearable
         density="compact"
         variant="outlined"
@@ -29,9 +29,21 @@
         @keyup.enter="handleQuery"
       />
       <v-select
+        v-model="queryParams.fileType"
+        label="文件类型"
+        :items="STRM_FILE_TYPE_OPTIONS"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        class="status-select"
+      />
+      <v-select
         v-model="queryParams.strmStatus"
         label="状态"
-        :items="[{ title: '成功', value: '1' }, { title: '失败', value: '0' }]"
+        :items="STRM_STATUS_OPTIONS"
+        item-title="title"
+        item-value="value"
         clearable
         density="compact"
         variant="outlined"
@@ -63,10 +75,22 @@
       <!-- Action Bar -->
       <div class="action-bar">
         <div class="action-left">
+          <RecordStatusBar v-model="queryParams.strmStatus" :options="STRM_STATUS_OPTIONS" :stats="stats" />
         </div>
-        <v-btn variant="text" prepend-icon="funnel" @click="showSearch = !showSearch">
-          {{ showSearch ? '隐藏搜索' : '显示搜索' }}
-        </v-btn>
+        <div class="action-right">
+          <v-btn
+            variant="text"
+            color="primary"
+            prepend-icon="refresh-cw"
+            :disabled="!failedCount"
+            @click="handleRetryAllFailed"
+          >
+            重试全部失败{{ failedCount ? `（${failedCount}）` : '' }}
+          </v-btn>
+          <v-btn variant="text" prepend-icon="funnel" @click="showSearch = !showSearch">
+            {{ showSearch ? '隐藏搜索' : '显示搜索' }}
+          </v-btn>
+        </div>
       </div>
 
       <!-- 选中后才出现：给出「已选 N 项」这个此前完全缺失的反馈。
@@ -74,15 +98,18 @@
            猜「为什么点不动」；卡片型列表页（订阅/下载记录）本来就是这个形态。 -->
       <div v-if="selectedRows.length" class="batch-toolbar">
         已选 {{ selectedRows.length }} 项
-        <v-btn variant="text" size="small" color="error" :disabled="noneSelected" @click="handleBatchDelete()">
-          批量删除记录
-        </v-btn>
-        <v-btn variant="text" size="small" color="error" :disabled="noneSelected" @click="handleBatchRemoveNetDisk()">
-          批量删除网盘文件
-        </v-btn>
         <v-btn variant="text" size="small" color="primary" :disabled="noneSelected" @click="handleBatchRetry()">
           批量重试
         </v-btn>
+        <v-menu>
+          <template #activator="{ props: menuProps }">
+            <v-btn v-bind="menuProps" variant="text" size="small" color="error" append-icon="chevron-down">危险操作</v-btn>
+          </template>
+          <v-list density="compact">
+            <v-list-item prepend-icon="cloud-off" :disabled="noneSelected" @click="handleBatchRemoveNetDisk()">批量删除网盘文件</v-list-item>
+            <v-list-item class="more-actions-danger" prepend-icon="trash-2" :disabled="noneSelected" @click="handleBatchDelete()">批量删除记录</v-list-item>
+          </v-list>
+        </v-menu>
         <v-spacer />
         <v-btn variant="text" size="small" class="batch-clear-btn" @click="clearSelection">清空选择</v-btn>
       </div>
@@ -109,26 +136,33 @@
       >
         <template #item.fileInfo="{ item }">
           <div class="file-info-box">
-            <div class="file-name" :title="item.strmFileName">
-              <v-icon icon="file-video-camera" size="14" />
+            <div class="file-name" :title="item.strmFileName" @click="openDetail(item)">
+              <v-icon :icon="isSubtitleFile(item.strmFileName) ? 'captions' : 'file-video-camera'" size="14" />
               {{ item.strmFileName }}
             </div>
             <div class="file-path" :title="item.strmPath">{{ item.strmPath }}</div>
+            <div v-if="item.strmStatus === '0' && item.failReason" class="record-fail-reason" :title="item.failReason">
+              {{ item.failReason }}
+            </div>
           </div>
+        </template>
+        <template #item.fileSize="{ item }">
+          {{ formatFileSize(item.fileSize) }}
         </template>
         <template #item.strmStatus="{ item }">
           <StatusChip :value="item.strmStatus" enabled-value="1" on-text="成功" off-text="失败" />
         </template>
         <template #item.actions="{ item }">
           <v-btn variant="text" color="primary" size="small" prepend-icon="refresh-cw" @click="handleRetryOne(item)">
-            重试
+            {{ item.strmStatus === '1' ? '重新生成' : '重试' }}
           </v-btn>
           <v-menu>
             <template #activator="{ props: menuProps }">
               <v-btn v-bind="menuProps" class="more-actions-trigger" variant="text" color="info" size="small" append-icon="chevron-down">更多</v-btn>
             </template>
             <v-list density="compact">
-              <v-list-item prepend-icon="download" @click="handleRemoveNetDiskOne(item)">删除网盘文件</v-list-item>
+              <v-list-item prepend-icon="eye" @click="openDetail(item)">查看详情</v-list-item>
+              <v-list-item prepend-icon="cloud-off" @click="handleRemoveNetDiskOne(item)">删除网盘文件</v-list-item>
               <v-divider class="my-1" />
               <v-list-item class="more-actions-danger" prepend-icon="trash-2" @click="handleDeleteOne(item)">删除记录</v-list-item>
             </v-list>
@@ -136,37 +170,67 @@
         </template>
       </v-data-table-server>
     </v-card>
+
+    <RecordDetailDrawer v-model="detailOpen" title="STRM 生成记录详情" :fields="detailFields" />
   </div>
 </template>
 
 <script setup lang="ts">
+import { ref, computed } from 'vue'
 import PageHeader from '@/components/PageHeader.vue'
 import StatusChip from '@/components/StatusChip.vue'
-import { useStrmRecord } from '@/composables/useStrmRecord'
+import RecordStatusBar from '@/components/RecordStatusBar.vue'
+import RecordDetailDrawer, { type RecordDetailField } from '@/components/RecordDetailDrawer.vue'
+import { useStrmRecord, STRM_STATUS_OPTIONS, STRM_FILE_TYPE_OPTIONS, isSubtitleFile } from '@/composables/useStrmRecord'
 import { useSearchPanel } from '@/composables/useSearchPanel'
 import SearchPanel from '@/components/SearchPanel.vue'
 import { useDataTable } from '@/composables/useDataTable'
+import { formatFileSize } from '@/composables/useRecordList'
 
 const { showSearch } = useSearchPanel()
 
 const {
-  recordList, loading, total, queryParams,
+  recordList, loading, total, queryParams, stats,
   getList, queryRef, dateStart, dateEnd, handleQuery, resetQuery,
   noneSelected, handleSelectionChange,
   handleRetryOne, handleBatchRetry, handleDeleteOne, handleBatchDelete,
-  handleRemoveNetDiskOne, handleBatchRemoveNetDisk
+  handleRemoveNetDiskOne, handleBatchRemoveNetDisk, handleRetryAllFailed
 } = useStrmRecord()
 
 const headers = [
   { title: '文件信息', key: 'fileInfo', minWidth: '300', sortable: false },
+  { title: '大小', key: 'fileSize', align: 'end' as const, width: '100' },
   { title: '状态', key: 'strmStatus', align: 'center' as const, width: '80' },
   { title: '创建时间', key: 'createTime', width: '170', align: 'center' as const },
-  { title: '操作', key: 'actions', align: 'center' as const, width: '170', sortable: false }
+  { title: '操作', key: 'actions', align: 'center' as const, width: '190', sortable: false }
 ]
+
+const failedCount = computed(() => stats.value?.['0'] ?? 0)
 
 // 表格接线（选中承接 / 翻页 / 换页长 / 表头排序）统一在 useDataTable 里，见该文件注释
 const { selectedRows, onSelectionChange, clearSelection, onPageChange, onSizeChange, sortBy, onSortChange, itemsPerPageOptions } =
   useDataTable({ queryParams, getList, handleSelectionChange })
+
+const detailOpen = ref(false)
+const detailRow = ref<any>(null)
+const openDetail = (row: any) => {
+  detailRow.value = row
+  detailOpen.value = true
+}
+const detailFields = computed<RecordDetailField[]>(() => {
+  const row = detailRow.value
+  if (!row) return []
+  return [
+    { label: '类型', value: isSubtitleFile(row.strmFileName) ? '字幕' : '视频' },
+    { label: '状态', value: row.strmStatus === '1' ? '成功' : '失败' },
+    { label: '失败原因', value: row.strmStatus === '0' ? row.failReason : null, error: true },
+    // strm_path 存的是网盘上的源路径，不是本地 .strm 的输出目录
+    { label: '网盘源文件', value: `${row.strmPath}/${row.strmFileName}`, mono: true, copyable: true },
+    { label: '文件大小', value: row.fileSize != null ? formatFileSize(row.fileSize) : null },
+    { label: '创建时间', value: row.createTime },
+    { label: '最后更新', value: row.updateTime }
+  ]
+})
 
 getList()
 </script>
@@ -190,6 +254,11 @@ getList()
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: pointer;
+
+  &:hover {
+    color: var(--osr-primary);
+  }
 
   .v-icon {
     color: var(--osr-text-secondary);

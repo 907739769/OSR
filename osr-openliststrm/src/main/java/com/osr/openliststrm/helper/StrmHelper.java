@@ -35,8 +35,11 @@ public class StrmHelper {
      * backfill 立刻用旧快照又捞一次，两次 addStrm 各自「查不到 → insert」，同一文件留下两条一模一样的记录。
      * 目录级的 {@link #batchAddStrm} 早就是同步的（注释里写明「方法返回即已入库」），单文件路径与之对齐。
      * 调用方（{@code strmOneFile}）本就跑在后台虚拟线程上、且刚做完写文件的 IO，多一次库往返可以忽略。
+     * <p>
+     * {@code failReason} 成功时传 null，已有记录上的旧原因会被清掉。{@code fileSize} 拿不到时传 null，
+     * 此时更新已有记录<b>不碰</b>这一列——不能拿 null 把目录级生成采集到的大小抹掉。
      */
-    public void addStrm(String strmPath, String strmFileName, String status) {
+    public void addStrm(String strmPath, String strmFileName, String status, String failReason, Long fileSize) {
         try {
             // 表上无唯一约束，历史脏数据可能存在同 path+fileName 多行；用 LIMIT 1 避免
             // .one() 在命中多行时抛 TooManyResultsException
@@ -50,12 +53,16 @@ public class StrmHelper {
                 openlistStrmPlusService.lambdaUpdate()
                         .eq(OpenlistStrmPlus::getStrmId, existing.getStrmId())
                         .set(OpenlistStrmPlus::getStrmStatus, status)
+                        .set(OpenlistStrmPlus::getFailReason, failReason)
+                        .set(fileSize != null, OpenlistStrmPlus::getFileSize, fileSize)
                         .update();
             } else {
                 OpenlistStrmPlus strm = new OpenlistStrmPlus();
                 strm.setStrmPath(strmPath);
                 strm.setStrmFileName(strmFileName);
                 strm.setStrmStatus(status);
+                strm.setFailReason(failReason);
+                strm.setFileSize(fileSize);
                 openlistStrmPlusService.save(strm);
             }
         } catch (Exception e) {
@@ -67,13 +74,32 @@ public class StrmHelper {
 
     /**
      * 构造一条待批量写入的 strm 记录（供 {@link #batchAddStrm} 使用）。
+     * 文件大小取列目录时 OpenList 返回的值。目录级生成走 updateBatchById，fail_reason 是 ALWAYS 更新策略，
+     * 成功记录传 null 即把旧原因清掉。
      */
-    public OpenlistStrmPlus newRecord(String strmPath, String strmFileName, String status) {
+    public OpenlistStrmPlus newRecord(String strmPath, String strmFileName, String status, Long fileSize, String failReason) {
         OpenlistStrmPlus strm = new OpenlistStrmPlus();
         strm.setStrmPath(strmPath);
         strm.setStrmFileName(strmFileName);
         strm.setStrmStatus(status);
+        strm.setFileSize(fileSize);
+        strm.setFailReason(failReason);
         return strm;
+    }
+
+    /** 与 {@code fail_reason varchar(500)} 对齐 */
+    static final int MAX_FAIL_REASON_LENGTH = 500;
+
+    /**
+     * 拼一条失败原因：「做什么失败：异常信息」。异常信息优先取 message，没有时退回异常类名——
+     * {@code NoSuchFileException} 这类异常的 message 只有一个路径，单看路径读不出发生了什么。
+     */
+    public static String failReason(String action, Throwable e) {
+        String detail = e == null ? null
+                : (e.getMessage() == null || e.getMessage().isBlank()) ? e.getClass().getSimpleName()
+                : e.getClass().getSimpleName() + ": " + e.getMessage().trim();
+        String reason = detail == null ? action : action + "：" + detail;
+        return reason.length() <= MAX_FAIL_REASON_LENGTH ? reason : reason.substring(0, MAX_FAIL_REASON_LENGTH - 1) + "…";
     }
 
     /**

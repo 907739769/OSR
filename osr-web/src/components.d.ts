@@ -36,6 +36,8 @@ declare module 'vue' {
     PtMediaServerFormDialog: typeof import('./components/dialogs/PtMediaServerFormDialog.vue')['default']
     PtTorrentBlacklistFormDialog: typeof import('./components/dialogs/PtTorrentBlacklistFormDialog.vue')['default']
     PtTransferRuleFormDialog: typeof import('./components/dialogs/PtTransferRuleFormDialog.vue')['default']
+    RecordDetailDrawer: typeof import('./components/RecordDetailDrawer.vue')['default']
+    RecordStatusBar: typeof import('./components/RecordStatusBar.vue')['default']
     RenameTaskFormDialog: typeof import('./components/dialogs/RenameTaskFormDialog.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']

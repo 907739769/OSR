@@ -1,8 +1,6 @@
 package com.osr.openliststrm.helper;
 
 import com.alibaba.fastjson2.JSONObject;
-import com.baomidou.mybatisplus.core.exceptions.MybatisPlusException;
-import com.osr.framework.manager.AsyncManager;
 import com.osr.openliststrm.api.OpenlistApi;
 import com.osr.openliststrm.mybatisplus.domain.OpenlistCopyPlus;
 import com.osr.openliststrm.mybatisplus.service.IOpenlistCopyPlusService;
@@ -29,33 +27,37 @@ public class CopyHelper {
     @Autowired
     private OpenlistApi openlistApi;
 
+    /**
+     * 新增或更新单条复制记录（按源目录 + 源文件名 upsert），写完后 {@code copyId} 回填在入参对象上。
+     * <p>
+     * <b>同步执行，不要再包 {@code AsyncManager}</b>：调用方（{@code CopyServiceImpl#doSyncOneFile}）紧接着
+     * 就拿这个对象启动复制监控，监控里的 {@code updateById} 要靠 {@code copyId}。异步写库时 id 要等约 10ms
+     * 后才回填，两者赛跑，输了的那次监控写回的是一条没有 id 的更新、什么都没改到，记录永远停在处理中。
+     * 与 {@code StrmHelper#addStrm} 改为同步是同一个理由。
+     * <p>
+     * 查已有记录必须 {@code LIMIT 1}：表上 (copy_src_path, copy_src_file_name) 没有唯一约束，历史数据里
+     * 可能有重复行，{@code getOne} 命中多行会抛异常，被下面的 catch 吞掉之后这条记录就没写进去。
+     */
     public void addCopy(OpenlistCopyPlus openlistCopyPlus) {
-        AsyncManager.me().execute(() -> {
-            try {
-                OpenlistCopyPlus existing = openlistCopyPlusService.getOne(
-                        new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<OpenlistCopyPlus>()
-                                .eq(OpenlistCopyPlus::getCopySrcPath, openlistCopyPlus.getCopySrcPath())
-                                .eq(OpenlistCopyPlus::getCopySrcFileName, openlistCopyPlus.getCopySrcFileName())
-                );
-                if (existing != null) {
-                    openlistCopyPlus.setCopyId(existing.getCopyId());
-                    openlistCopyPlusService.updateById(openlistCopyPlus);
-                } else {
-                    openlistCopyPlusService.save(openlistCopyPlus);
-                }
-            } catch (MybatisPlusException e) {
-                if (e.getMessage() != null && e.getMessage().contains("Duplicate entry")) {
-                    log.debug("复制记录已存在：path={}, fileName={}",
-                            openlistCopyPlus.getCopySrcPath(), openlistCopyPlus.getCopySrcFileName());
-                } else {
-                    log.error("写入复制记录失败：path={}, fileName={}",
-                            openlistCopyPlus.getCopySrcPath(), openlistCopyPlus.getCopySrcFileName(), e);
-                }
-            } catch (Exception e) {
-                log.error("写入复制记录失败：path={}, fileName={}",
-                        openlistCopyPlus.getCopySrcPath(), openlistCopyPlus.getCopySrcFileName(), e);
+        try {
+            OpenlistCopyPlus existing = openlistCopyPlusService.getOne(
+                    new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<OpenlistCopyPlus>()
+                            .eq(OpenlistCopyPlus::getCopySrcPath, openlistCopyPlus.getCopySrcPath())
+                            .eq(OpenlistCopyPlus::getCopySrcFileName, openlistCopyPlus.getCopySrcFileName())
+                            .last("LIMIT 1"),
+                    false
+            );
+            if (existing != null) {
+                openlistCopyPlus.setCopyId(existing.getCopyId());
+                openlistCopyPlusService.updateById(openlistCopyPlus);
+            } else {
+                openlistCopyPlusService.save(openlistCopyPlus);
             }
-        });
+        } catch (Exception e) {
+            // 写记录失败不往上抛：复制任务已经提交给 OpenList 了，抛出去只会让调用方中断监控
+            log.error("写入复制记录失败：path={}, fileName={}",
+                    openlistCopyPlus.getCopySrcPath(), openlistCopyPlus.getCopySrcFileName(), e);
+        }
     }
 
     /**

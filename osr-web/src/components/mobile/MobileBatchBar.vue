@@ -3,7 +3,7 @@
        抄漏的地方也一样多（「全选」必须紧挨「取消」前面这条约定，靠人记）。
        样式（含吸底）在 styles/mobile-list.scss 的 .batch-bar 单源。 -->
   <div v-if="visible" class="batch-bar">
-    <span class="selected-count">已选 {{ count }} 项</span>
+    <span class="selected-count">已选 {{ count }} 项<template v-if="summary">，{{ summary }}</template></span>
     <slot />
     <v-btn variant="text" size="small" class="batch-select-all-btn" @click="emit('toggle-all', !allSelected)">
       {{ allSelected ? '取消全选' : '全选' }}
@@ -23,6 +23,8 @@ const props = defineProps<{
   count: number
   /** 当前页是否已全选，决定按钮文案在「全选 / 取消全选」之间切换 */
   allSelected: boolean
+  /** 跟在「已选 N 项」后面的补充说明，如同步记录的选中文件合计大小 */
+  summary?: string
 }>()
 
 const emit = defineEmits<{

@@ -9,9 +9,15 @@ public interface IStrmService {
     void strmOneFile(String path);
 
     /**
+     * 同 {@link #strmOneFile(String)}，调用方拿得到网盘文件大小时（复制完成触发、兜底恢复）一并记进生成记录。
+     * 只处理视频文件，其余类型直接跳过。
+     */
+    void strmOneFile(String path, Long fileSize);
+
+    /**
      * 批量删除网盘文件并更新记录
      */
-    void batchRemoveNetDisk(List<String> idList);
+    BatchRemoveOutcome batchRemoveNetDisk(List<String> idList);
 
     /**
      * 重试STRM任务

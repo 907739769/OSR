@@ -1,4 +1,4 @@
-import { ref, reactive, computed, watch, onActivated } from 'vue'
+import { ref, reactive, computed, watch, onActivated, onDeactivated, onBeforeUnmount } from 'vue'
 import { message } from '@/composables/useMessage'
 import { confirm } from '@/composables/useConfirm'
 import { resetQueryParams } from '@/composables/queryParams'
@@ -15,8 +15,17 @@ export interface RecordListConfig<TQuery extends SearchParams = SearchParams> {
   retryApi?: (id: number) => Promise<any>
   /** 批量重试 */
   batchRetryApi?: (ids: number[]) => Promise<any>
-  /** 从网盘删除文件（危险操作） */
+  /** 从网盘删除文件（危险操作）。返回 BatchRemoveOutcome，前端据此如实提示 */
   batchRemoveNetDiskApi?: (ids: number[]) => Promise<any>
+  /** 当前筛选条件下按状态分组的计数（顶部统计条），返回 `{ 状态值: 条数, total }` */
+  statsApi?: (params: SearchParams) => Promise<Record<string, number>>
+  /** 重试全部失败记录，返回 `{ retried, remaining }` */
+  retryFailedApi?: () => Promise<{ retried: number, remaining: number }>
+  /**
+   * 这条记录是否还在推进中（如同步记录的「处理中」）。页面上有这样的记录时每隔一段时间静默刷新，
+   * 省得用户盯着一条处理中的记录反复手动刷新；全部结束后自动停。
+   */
+  isInProgress?: (row: any) => boolean
   /** 主键字段名 */
   idField: string
   /** 确认弹窗里指代单条记录的字段（一般是文件名），缺省用 idField */
@@ -36,6 +45,7 @@ export interface RecordListConfig<TQuery extends SearchParams = SearchParams> {
 export function useRecordList<TQuery extends SearchParams = SearchParams>(config: RecordListConfig<TQuery>) {
   const {
     listApi, batchDeleteApi, retryApi, batchRetryApi, batchRemoveNetDiskApi,
+    statsApi, retryFailedApi, isInProgress,
     idField, labelField, recordLabel, defaultQuery
   } = config
 
@@ -55,8 +65,21 @@ export function useRecordList<TQuery extends SearchParams = SearchParams>(config
 
   const totalPages = computed(() => Math.ceil(total.value / queryParams.pageSize) || 1)
 
+  /** 统计条数据；接口不可用时保持 null，页面就不渲染统计条 */
+  const stats = ref<Record<string, number> | null>(null)
+
+  async function fetchStats() {
+    if (!statsApi) return
+    try {
+      stats.value = await statsApi(queryParams)
+    } catch (e) {
+      // 统计条是附加信息，拉不到不影响列表本身
+      console.error(`[${recordLabel}] 统计加载失败:`, e)
+    }
+  }
+
   async function fetchList() {
-    const res = await listApi(queryParams) as PageResult
+    const [res] = await Promise.all([listApi(queryParams) as Promise<PageResult>, fetchStats()])
     recordList.value = res.records || []
     total.value = res.total || 0
   }
@@ -97,8 +120,51 @@ export function useRecordList<TQuery extends SearchParams = SearchParams>(config
   // （实测如此）。若按「跳过首次 activated」来写，反而会把返回时的第一次刷新吃掉。
   // 首次进入的数据由页面自己的 getList() 负责，此时 loadedOnce 尚为 false，不会重复请求。
   onActivated(() => {
+    active = true
     if (!loadedOnce) return
     silentRefresh()
+  })
+
+  // --- 后台动作之后的刷新 ---
+  //
+  // 重试与删网盘文件都可能在后端转后台执行（超过 20 条），接口返回时还没跑完。
+  // 立刻刷新一次看到的是旧状态，过几秒再静默刷一次才看得到结果。
+  let active = true
+  let delayedRefreshTimer: ReturnType<typeof setTimeout> | undefined
+  let progressTimer: ReturnType<typeof setInterval> | undefined
+
+  const refreshLater = (delayMs = 5000) => {
+    clearTimeout(delayedRefreshTimer)
+    delayedRefreshTimer = setTimeout(() => {
+      if (active) silentRefresh()
+    }, delayMs)
+  }
+
+  // 有推进中的记录时每 10 秒静默刷新；页面切走（keep-alive 停用）或标签页不可见时不刷
+  const PROGRESS_REFRESH_MS = 10000
+  const hasInProgress = computed(() => !!isInProgress && recordList.value.some(row => isInProgress(row)))
+  const syncProgressTimer = () => {
+    const shouldRun = active && hasInProgress.value
+    if (shouldRun && !progressTimer) {
+      progressTimer = setInterval(() => {
+        if (typeof document !== 'undefined' && document.hidden) return
+        silentRefresh()
+      }, PROGRESS_REFRESH_MS)
+    } else if (!shouldRun && progressTimer) {
+      clearInterval(progressTimer)
+      progressTimer = undefined
+    }
+  }
+  watch(hasInProgress, syncProgressTimer)
+  onActivated(syncProgressTimer)
+  onDeactivated(() => {
+    active = false
+    syncProgressTimer()
+  })
+  onBeforeUnmount(() => {
+    active = false
+    clearTimeout(delayedRefreshTimer)
+    syncProgressTimer()
   })
 
   const prevPage = () => {
@@ -218,32 +284,48 @@ export function useRecordList<TQuery extends SearchParams = SearchParams>(config
     return labelField ? row[labelField] : row[idField]
   }
 
-  /** 统一的「确认 -> 调接口 -> 提示 -> 刷新」流程；用户取消时静默返回 */
-  async function confirmThen(msg: string, title: string, type: 'warning' | 'error', action: () => Promise<any>, successMsg: string) {
+  /**
+   * 统一的「确认 -> 调接口 -> 提示 -> 刷新」流程；用户取消时静默返回。
+   * successMsg 可以是函数，拿接口返回值拼提示（如批量重试报实际提交了几条）
+   */
+  async function confirmThen(
+    msg: string, title: string, type: 'warning' | 'error', action: () => Promise<any>,
+    successMsg: string | ((result: any) => string),
+    options: { refreshLater?: boolean } = {}
+  ) {
     try {
       await confirm({ message: msg, title, type })
     } catch {
       return
     }
     try {
-      await action()
-      message.success(successMsg)
+      const result = await action()
+      message.success(typeof successMsg === 'function' ? successMsg(result) : successMsg)
       getList()
+      if (options.refreshLater) refreshLater()
     } catch (e) {
-      console.error(`[${recordLabel}] ${successMsg}失败:`, e)
+      console.error(`[${recordLabel}] 操作失败:`, e)
     }
   }
 
   const handleRetryOne = (row: any) =>
     confirmThen(
       `是否确认重试${recordLabel}"${labelOf(row)}"？`, '提示', 'warning',
-      () => retryApi!(row[idField]), '重试成功'
+      () => retryApi!(row[idField]), '已提交重试', { refreshLater: true }
     )
 
-  const handleBatchRetry = () =>
+  const handleBatchRetry = () => {
+    const selected = selectedIds.value.length
+    return confirmThen(
+      `是否确认批量重试选中的 ${selected} 条记录？`, '提示', 'warning',
+      () => batchRetryApi!(selectedIds.value), result => batchRetryMessage(selected, result), { refreshLater: true }
+    )
+  }
+
+  const handleRetryAllFailed = () =>
     confirmThen(
-      `是否确认批量重试选中的 ${selectedIds.value.length} 条记录？`, '提示', 'warning',
-      () => batchRetryApi!(selectedIds.value), '批量重试成功'
+      `是否确认重试全部失败的${recordLabel}？一次最多处理最新的 200 条，其余的下次再点。`, '提示', 'warning',
+      () => retryFailedApi!(), retryAllFailedMessage, { refreshLater: true }
     )
 
   const handleDeleteOne = (row: any) =>
@@ -261,19 +343,19 @@ export function useRecordList<TQuery extends SearchParams = SearchParams>(config
   const handleRemoveNetDiskOne = (row: any) =>
     confirmThen(
       `危险操作：确认要从网盘中彻底删除该文件吗？`, '警告', 'error',
-      () => batchRemoveNetDiskApi!([row[idField]]), '删除网盘文件成功'
+      () => batchRemoveNetDiskApi!([row[idField]]), removeNetDiskMessage, { refreshLater: true }
     )
 
   const handleBatchRemoveNetDisk = () =>
     confirmThen(
       `危险操作：确认要从网盘中彻底删除选中的 ${selectedIds.value.length} 个文件吗？`, '警告', 'error',
-      () => batchRemoveNetDiskApi!(selectedIds.value), '删除网盘文件成功'
+      () => batchRemoveNetDiskApi!(selectedIds.value), removeNetDiskMessage, { refreshLater: true }
     )
 
   return {
     // 列表 & 分页
     recordList, loading, total, queryParams, totalPages,
-    getList, silentRefresh, prevPage, nextPage, handleSizeChange,
+    getList, silentRefresh, prevPage, nextPage, handleSizeChange, stats,
     // 搜索
     queryRef, dateRange, dateStart, dateEnd, handleQuery, resetQuery,
     // 选择
@@ -281,6 +363,60 @@ export function useRecordList<TQuery extends SearchParams = SearchParams>(config
     isAllPageSelected, toggleSelectAllPage,
     // 操作
     handleRetryOne, handleBatchRetry, handleDeleteOne, handleBatchDelete,
-    handleRemoveNetDiskOne, handleBatchRemoveNetDisk
+    handleRemoveNetDiskOne, handleBatchRemoveNetDisk, handleRetryAllFailed
   }
+}
+
+/**
+ * 记录页的文件大小。null 是存量记录（加字段之前写入的）或拿不到大小的单文件 STRM 生成，
+ * 显示「-」而不是「0 B」——后者读起来像是一个空文件。
+ */
+export function formatFileSize(bytes: number | null | undefined): string {
+  if (bytes === null || bytes === undefined || bytes < 0) return '-'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
+}
+
+/**
+ * 批量重试的提示。接口返回实际提交条数时把跳过的条数说出来——选了 10 条、其中 4 条已成功，
+ * 只说「已提交批量重试」会让人以为 10 条都在跑；没有返回条数的接口（如 STRM）退回通用文案。
+ */
+export function batchRetryMessage(selected: number, submitted: unknown): string {
+  if (typeof submitted !== 'number') return selected > BACKGROUND_THRESHOLD ? '已提交批量重试，后台依次处理，稍后刷新查看' : '已提交批量重试'
+  const skipped = selected - submitted
+  const base = skipped > 0
+    ? `已提交重试 ${submitted} 条，跳过 ${skipped} 条处理中或已成功的记录`
+    : `已提交重试 ${submitted} 条`
+  // 超过阈值后端转后台执行、接口立即返回：不说一声的话，用户看到列表纹丝不动会以为没生效
+  return submitted > BACKGROUND_THRESHOLD ? `${base}，后台依次处理，稍后刷新查看` : base
+}
+
+/** 与后端 BatchRemoveOutcome.BACKGROUND_THRESHOLD 一致：超过这个条数转后台执行 */
+const BACKGROUND_THRESHOLD = 20
+
+/**
+ * 删除网盘文件的提示。此前一律说「删除网盘文件成功」：转后台时刷新出来记录都还在，
+ * 同步执行时个别文件删除失败（记录会保留）也看不出来。
+ */
+export function removeNetDiskMessage(outcome: unknown): string {
+  const o = outcome as { requested?: number, removed?: number, background?: boolean } | null
+  if (!o || typeof o.requested !== 'number') return '已提交删除网盘文件'
+  if (o.background) return `已在后台删除 ${o.requested} 个网盘文件，稍后刷新查看`
+  const removed = o.removed ?? 0
+  const failed = o.requested - removed
+  return failed > 0
+    ? `已删除 ${removed} 个网盘文件，${failed} 个删除失败（记录已保留，可稍后再试）`
+    : `已删除 ${removed} 个网盘文件`
+}
+
+/** 重试全部失败的提示：说清这次处理了多少、还剩多少 */
+export function retryAllFailedMessage(outcome: unknown): string {
+  const o = outcome as { retried?: number, remaining?: number } | null
+  const retried = o?.retried ?? 0
+  const remaining = o?.remaining ?? 0
+  if (retried === 0 && remaining === 0) return '没有需要重试的失败记录'
+  const base = `已提交重试 ${retried} 条${retried > BACKGROUND_THRESHOLD ? '，后台依次处理' : ''}`
+  return remaining > 0 ? `${base}；还有 ${remaining} 条超出单次上限，处理完后可再点一次` : base
 }

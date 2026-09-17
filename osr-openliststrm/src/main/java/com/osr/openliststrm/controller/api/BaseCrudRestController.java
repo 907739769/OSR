@@ -71,9 +71,28 @@ public abstract class BaseCrudRestController<S extends IService<T>, T> extends B
         return false;
     }
 
+    /**
+     * 本类记录是否由系统生成（同步记录、重命名明细这类）。为 true 时继承来的新增 / 修改 / 单条删除
+     * 一律拒绝，任何人（包括管理员）都不行。
+     * <p>
+     * 这几个端点是模板生成时顺带继承来的，前端一处都没用到，却是实打实能调通的写接口：伪造一条「成功」
+     * 的同步记录，同一个文件从此被当成已处理、再也不会被同步；改一条重命名明细的 new_path，清理产物时
+     * 就会去删一个不相干的目录。删除记录各页有自己的批量接口，那里的确认文案把后果讲清楚了。
+     * 做成钩子而不是子类里覆写三个方法，理由同 {@link #adminOnlyWrite()}。
+     * </p>
+     */
+    protected boolean systemGeneratedRecords()
+    {
+        return false;
+    }
+
     /** 写操作的准入校验：不通过时返回错误 Result，通过返回 null */
     private <R> Result<R> denyIfWriteForbidden()
     {
+        if (systemGeneratedRecords())
+        {
+            return Result.error("该记录由系统生成，不支持手动新增、修改或单条删除");
+        }
         return adminOnlyWrite() ? denyIfNotAdmin() : null;
     }
 

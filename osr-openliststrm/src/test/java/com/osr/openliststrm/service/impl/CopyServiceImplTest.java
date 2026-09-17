@@ -45,12 +45,11 @@ class CopyServiceImplTest {
     @Test
     void retryAllFailed_失败记录未超上限_全部提交重试且remaining为0() {
         when(openlistCopyPlusService.count(any(Wrapper.class))).thenReturn(2L);
-        OpenlistCopyPlus a = new OpenlistCopyPlus();
-        a.setCopyId(7);
-        OpenlistCopyPlus b = new OpenlistCopyPlus();
-        b.setCopyId(4);
+        OpenlistCopyPlus a = record(7, "2");
+        OpenlistCopyPlus b = record(4, "4");
         when(openlistCopyPlusService.list(any(Wrapper.class))).thenReturn(List.of(a, b));
-        when(openlistCopyPlusService.listByIds(any())).thenReturn(List.of());
+        // 监控超时/任务丢失（4）与失败（2）同样计入
+        when(openlistCopyPlusService.listByIds(any())).thenReturn(List.of(a, b));
 
         ICopyService.RetryOutcome outcome = service.retryAllFailed();
 
@@ -62,14 +61,33 @@ class CopyServiceImplTest {
     @Test
     void retryAllFailed_失败记录超过200条上限_只取最新200条且remaining正确() {
         when(openlistCopyPlusService.count(any(Wrapper.class))).thenReturn(300L);
-        OpenlistCopyPlus a = new OpenlistCopyPlus();
-        a.setCopyId(1);
+        OpenlistCopyPlus a = record(1, "2");
         when(openlistCopyPlusService.list(any(Wrapper.class))).thenReturn(List.of(a));
-        when(openlistCopyPlusService.listByIds(any())).thenReturn(List.of());
+        when(openlistCopyPlusService.listByIds(any())).thenReturn(List.of(a));
 
         ICopyService.RetryOutcome outcome = service.retryAllFailed();
 
         assertEquals(1, outcome.retried());
         assertEquals(299, outcome.remaining());
+    }
+
+    @Test
+    void retryAllFailed_查询后状态已被改掉的记录不计入已提交数() {
+        // 查出两条失败记录，到重试时其中一条已被监控或兜底任务改成成功
+        when(openlistCopyPlusService.count(any(Wrapper.class))).thenReturn(2L);
+        when(openlistCopyPlusService.list(any(Wrapper.class))).thenReturn(List.of(record(1, "2"), record(2, "2")));
+        when(openlistCopyPlusService.listByIds(any())).thenReturn(List.of(record(1, "2"), record(2, "3")));
+
+        ICopyService.RetryOutcome outcome = service.retryAllFailed();
+
+        assertEquals(1, outcome.retried());
+        assertEquals(0, outcome.remaining());
+    }
+
+    private static OpenlistCopyPlus record(int id, String status) {
+        OpenlistCopyPlus copy = new OpenlistCopyPlus();
+        copy.setCopyId(id);
+        copy.setCopyStatus(status);
+        return copy;
     }
 }

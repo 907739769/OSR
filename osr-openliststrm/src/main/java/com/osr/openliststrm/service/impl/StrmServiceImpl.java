@@ -16,6 +16,7 @@ import com.osr.openliststrm.mybatisplus.service.IOpenlistCopyPlusService;
 import com.osr.openliststrm.mybatisplus.service.IOpenlistStrmPlusService;
 import com.osr.openliststrm.mybatisplus.service.IOpenlistStrmTaskPlusService;
 import com.osr.openliststrm.rename.cleanup.ArtifactPaths;
+import com.osr.openliststrm.service.BatchRemoveOutcome;
 import com.osr.openliststrm.service.IStrmService;
 import com.osr.openliststrm.service.StrmSettings;
 import com.osr.openliststrm.service.StrmSettingsFactory;
@@ -219,35 +220,76 @@ public class StrmServiceImpl implements IStrmService {
 
     @Override
     public void strmOneFile(String path) {
-        log.info("开始执行指定文件strm任务: {}", path);
-        String filePath = "";
-        String name = path;
-        if (path.contains("/")) {
-            filePath = path.substring(0, path.lastIndexOf("/"));
-            name = path.substring(path.lastIndexOf("/") + 1);
-        }
+        strmOneFile(path, null);
+    }
 
-        if (strmHelper.existsStrm(filePath, name)) {
+    @Override
+    public void strmOneFile(String path, Long fileSize) {
+        // 去重只属于「按路径触发」的入口（复制完成、兜底恢复、TG 指令，可能对同一文件触发多次）；
+        // 按记录重试不经过这里，见 retryStrm
+        if (strmHelper.existsStrm(parentOf(path), nameOf(path))) {
             log.debug("文件已处理过，跳过处理{}", path);
             return;
         }
-        String fileName = path.substring(path.lastIndexOf("/") + 1, path.lastIndexOf(".")).replaceAll("[\\\\/:*?\"<>|]", "");
-        String relative = filePath.startsWith("/")
-                ? filePath.substring(1)
-                : filePath;
-        StrmSettings settings = resolveSettings(path);
+        generateOneFile(path, fileSize);
+    }
+
+    private static String parentOf(String path) {
+        return path.contains("/") ? path.substring(0, path.lastIndexOf("/")) : "";
+    }
+
+    private static String nameOf(String path) {
+        return path.contains("/") ? path.substring(path.lastIndexOf("/") + 1) : path;
+    }
+
+    /** 去掉扩展名、剔除文件系统非法字符、超长截断，与目录级生成（processFileEntry）同一口径 */
+    private static String localBaseName(String name) {
+        int dot = name.lastIndexOf('.');
+        String base = ILLEGAL_PATTERN.matcher(dot > 0 ? name.substring(0, dot) : name).replaceAll("");
+        return base.length() > 255 ? base.substring(0, 250) : base;
+    }
+
+    /**
+     * 网盘路径对应的本地输出目录，越界（路径含 ..）时写一条失败记录并返回 null。
+     */
+    private Path resolveLocalDir(String path, StrmSettings settings) {
+        String filePath = parentOf(path);
+        String relative = filePath.startsWith("/") ? filePath.substring(1) : filePath;
         Path outputBase = Paths.get(settings.outputDir()).normalize();
         Path targetDir = resolveWithinBase(outputBase, relative.replace("/", File.separator));
         if (targetDir == null) {
             log.error("拒绝路径穿越：strm目标目录超出输出根目录 {}, path={}", settings.outputDir(), path);
-            strmHelper.addStrm(filePath, name, "0");
+            strmHelper.addStrm(filePath, nameOf(path), "0",
+                    "目标目录超出 STRM 输出根目录 " + settings.outputDir() + "，已拒绝写入", null);
+        }
+        return targetDir;
+    }
+
+    /**
+     * 单文件 STRM 生成的执行层：不去重，无论已有记录是成功还是失败都重新生成一遍。
+     * 记录由 {@code StrmHelper#addStrm} 按 path + fileName 写回同一行，不会新增重复记录。
+     * <p>
+     * <b>只处理视频文件</b>。字幕记录同样存在这张表里，而 .strm 的文件名是「去掉扩展名 + .strm」——
+     * 不判类型的话 {@code a.srt} 会写出 {@code a.strm}，内容指向字幕，正好覆盖同目录 {@code a.mkv}
+     * 的 .strm，那个视频从此播不了，而字幕记录还被标成成功，页面上看不出任何异常。
+     * 字幕的重试走 {@link #downloadSubtitleOneFile}，分流在 {@link #retryOneFile}。
+     *
+     * @param fileSize 网盘文件大小，调用方拿得到时传入（复制完成触发的那次就有），拿不到传 null
+     */
+    void generateOneFile(String path, Long fileSize) {
+        String filePath = parentOf(path);
+        String name = nameOf(path);
+        if (!openListHelper.isVideo(name)) {
+            log.warn("不是视频文件，不生成 .strm（避免覆盖同名视频的 .strm）: {}", path);
             return;
         }
-        File file = targetDir.toFile();
-        if (!file.exists()) {
-            file.mkdirs();
+        log.info("开始执行指定文件strm任务: {}", path);
+        StrmSettings settings = resolveSettings(path);
+        Path targetDir = resolveLocalDir(path, settings);
+        if (targetDir == null) {
+            return;
         }
-        Path strmFile = targetDir.resolve((fileName.length() > 255 ? fileName.substring(0, 250) : fileName) + ".strm");
+        Path strmFile = targetDir.resolve(localBaseName(name) + ".strm");
         try {
             String encodePath = path;
             if (shouldEncode()) {
@@ -257,18 +299,66 @@ public class StrmServiceImpl implements IStrmService {
             }
             String content = config.getOpenListUrl() + "/d" + encodePath;
             writeAtomically(strmFile, content);
-            strmHelper.addStrm(filePath, name, "1");
+            strmHelper.addStrm(filePath, name, "1", null, fileSize);
         } catch (Exception e) {
             log.error("生成 .strm 文件失败 {}", strmFile, e);
-            strmHelper.addStrm(filePath, name, "0");
+            strmHelper.addStrm(filePath, name, "0", StrmHelper.failReason("写入 .strm 文件失败", e), fileSize);
         }
         log.info("执行指定文件strm任务完成: {}", path);
     }
 
+    /**
+     * 单个字幕文件重新下载，与目录级生成里的字幕分支同一口径（落到同一个本地目录、同一个文件名）。
+     * 按记录重试时用户是明确点了这一条，因此不看「是否下载字幕」开关。
+     */
+    void downloadSubtitleOneFile(String path) {
+        String filePath = parentOf(path);
+        String name = nameOf(path);
+        StrmSettings settings = resolveSettings(path);
+        Path targetDir = resolveLocalDir(path, settings);
+        if (targetDir == null) {
+            return;
+        }
+        try {
+            JSONObject fileJson = openListApi.getFile(path);
+            JSONObject data = fileJson == null ? null : fileJson.getJSONObject("data");
+            if (data == null) {
+                strmHelper.addStrm(filePath, name, "0", fileJson == null
+                        ? "查询字幕文件失败（OpenList 无响应）"
+                        : "网盘上已找不到该字幕文件", null);
+                return;
+            }
+            Long size = data.containsKey("size") ? data.getLongValue("size") : null;
+            Path outFile = targetDir.resolve(localBaseName(name) + name.substring(name.lastIndexOf('.')));
+            downloadSubtitle(data.getString("raw_url"), outFile.toString());
+            strmHelper.addStrm(filePath, name, "1", null, size);
+        } catch (Exception e) {
+            log.error("重新下载字幕失败 {}", path, e);
+            strmHelper.addStrm(filePath, name, "0", StrmHelper.failReason("下载字幕失败", e), null);
+        }
+    }
+
+    /**
+     * 按记录重试的分流：视频重新生成 .strm，字幕重新下载，其余（多半是改过扩展名配置，
+     * 当初按视频/字幕记下的文件现在两边都不认）记一条说得清的失败，而不是静默跳过。
+     */
+    void retryOneFile(String path) {
+        String name = nameOf(path);
+        if (openListHelper.isVideo(name)) {
+            generateOneFile(path, null);
+        } else if (openListHelper.isSrt(name)) {
+            downloadSubtitleOneFile(path);
+        } else {
+            strmHelper.addStrm(parentOf(path), name, "0",
+                    "既不是视频也不是字幕文件（可能改过视频/字幕扩展名配置），无法重试", null);
+        }
+    }
+
     @Override
-    public void batchRemoveNetDisk(List<String> idList) {
-        if (idList == null || idList.isEmpty()) return;
+    public BatchRemoveOutcome batchRemoveNetDisk(List<String> idList) {
+        if (idList == null || idList.isEmpty()) return new BatchRemoveOutcome(0, 0, false);
         List<OpenlistStrmPlus> strmList = openlistStrmPlusService.listByIds(idList);
+        java.util.concurrent.atomic.AtomicInteger removed = new java.util.concurrent.atomic.AtomicInteger();
         Runnable action = () -> {
             // 外部API调用在事务外执行，单条隔离失败，只清理网盘删除成功的记录，避免网盘/DB状态不一致
             List<OpenlistStrmPlus> succeeded = new java.util.ArrayList<>();
@@ -284,6 +374,7 @@ public class StrmServiceImpl implements IStrmService {
                     log.error("网盘文件删除异常，跳过对应记录清理：{}/{}", strm.getStrmPath(), strm.getStrmFileName(), e);
                 }
             }
+            removed.set(succeeded.size());
             if (succeeded.isEmpty()) {
                 return;
             }
@@ -299,19 +390,19 @@ public class StrmServiceImpl implements IStrmService {
                 openlistStrmPlusService.removeBatchByIds(succeededIds);
             });
         };
-        if (idList.size() > 20) {
+        if (idList.size() > BatchRemoveOutcome.BACKGROUND_THRESHOLD) {
             AsyncManager.me().execute(action);
-        } else {
-            action.run();
+            return BatchRemoveOutcome.inBackground(idList.size());
         }
+        action.run();
+        return new BatchRemoveOutcome(idList.size(), removed.get(), false);
     }
 
     @Override
     public void retryStrm(List<String> idList) {
         if (idList == null || idList.isEmpty()) return;
+        // 不再预置成失败：重试直接走执行层、绕过 existsStrm 去重，状态由生成结果写回
         List<OpenlistStrmPlus> strmList = openlistStrmPlusService.listByIds(idList);
-        strmList.forEach(strm -> strm.setStrmStatus("0"));
-        openlistStrmPlusService.updateBatchById(strmList);
         Runnable action = () -> {
             try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
                 List<CompletableFuture<Void>> futures = strmList.stream()
@@ -319,7 +410,7 @@ public class StrmServiceImpl implements IStrmService {
                         try {
                             STRM_SEMAPHORE.acquire();
                             try {
-                                strmOneFile(strm.getStrmPath() + "/" + strm.getStrmFileName());
+                                retryOneFile(strm.getStrmPath() + "/" + strm.getStrmFileName());
                             } finally {
                                 STRM_SEMAPHORE.release();
                             }
@@ -620,10 +711,10 @@ public class StrmServiceImpl implements IStrmService {
                 }
                 String content = ctx.baseUrl() + "/d" + encodePath;
                 writeAtomically(strmFile, content);
-                records.add(strmHelper.newRecord(currentPath, rawName, "1"));
+                records.add(strmHelper.newRecord(currentPath, rawName, "1", size, null));
             } catch (Exception e) {
                 log.error("写入 .strm 文件失败 {}", strmFile, e);
-                records.add(strmHelper.newRecord(currentPath, rawName, "0"));
+                records.add(strmHelper.newRecord(currentPath, rawName, "0", size, StrmHelper.failReason("写入 .strm 文件失败", e)));
             }
         }
 
@@ -634,11 +725,11 @@ public class StrmServiceImpl implements IStrmService {
                     String url = fileJson.getJSONObject("data").getString("raw_url");
                     File outFile = new File(currentLocalPath + File.separator + fileName + rawName.substring(rawName.lastIndexOf(".")));
                     downloadSubtitle(url, outFile.getAbsolutePath());
-                    records.add(strmHelper.newRecord(currentPath, rawName, "1"));
+                    records.add(strmHelper.newRecord(currentPath, rawName, "1", size, null));
                 }
             } catch (Exception e) {
                 log.error("下载字幕失败 {} / {}", currentPath, rawName, e);
-                records.add(strmHelper.newRecord(currentPath, rawName, "0"));
+                records.add(strmHelper.newRecord(currentPath, rawName, "0", size, StrmHelper.failReason("下载字幕失败", e)));
             }
         }
 

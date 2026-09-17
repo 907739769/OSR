@@ -3,17 +3,20 @@ package com.osr.openliststrm.service.impl;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.osr.common.utils.Threads;
 import com.osr.framework.manager.AsyncManager;
 import com.osr.openliststrm.api.OpenlistApi;
 import com.osr.openliststrm.config.OpenlistConfig;
 import com.osr.openliststrm.helper.AsynHelper;
+import com.osr.openliststrm.helper.CopyFailReason;
 import com.osr.openliststrm.helper.CopyHelper;
 import com.osr.openliststrm.helper.OpenListHelper;
 import com.osr.openliststrm.mybatisplus.domain.OpenlistCopyPlus;
 import com.osr.openliststrm.mybatisplus.domain.OpenlistStrmPlus;
 import com.osr.openliststrm.mybatisplus.service.IOpenlistCopyPlusService;
 import com.osr.openliststrm.mybatisplus.service.IOpenlistStrmPlusService;
+import com.osr.openliststrm.service.BatchRemoveOutcome;
 import com.osr.openliststrm.service.ICopyService;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
@@ -35,7 +38,6 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 /**
@@ -47,6 +49,9 @@ public class CopyServiceImpl implements ICopyService {
 
     /** 复制文件处理并发度控制，最多10个虚拟线程同时处理 */
     private static final Semaphore COPY_SEMAPHORE = new Semaphore(10);
+
+    /** 可以按记录重试的状态：失败、监控超时/任务丢失。处理中与已成功不重试 */
+    static final List<String> RETRYABLE_STATUSES = List.of("2", "4");
 
     @Autowired
     private OpenListHelper openListHelper;
@@ -160,6 +165,8 @@ public class CopyServiceImpl implements ICopyService {
             // 收集同一目录下需要复制的文件，合并成一次 fs/copy 调用（AList copy 接口本就接受 names 列表），
             // N 次网络请求 → 1 次，显著减少对 AList 的压力。
             List<String> namesToCopy = new java.util.ArrayList<>();
+            // 列目录时 OpenList 已经给了大小，顺手带进记录，不必再为每个文件单独查一次
+            java.util.Map<String, Long> sizeByName = new java.util.HashMap<>();
             for (Object obj : contents) {
                 JSONObject content = (JSONObject) obj;
                 String name = content.getString("name");
@@ -209,16 +216,18 @@ public class CopyServiceImpl implements ICopyService {
                         copy.setCopySrcFileName(name);
                         copy.setCopyDstFileName(name);
                         copy.setCopyStatus("3");
+                        copy.setFileSize(content.getLongValue("size"));
                         toPersist.add(copy);
                     } else if (content.getLongValue("size") >= minSize) {
                         namesToCopy.add(name);
+                        sizeByName.put(name, content.getLongValue("size"));
                     }
                 }
             }
 
             // 同步提交批量复制任务，保证 syncFilesByQueue 返回前所有复制记录已入库，
             // 消除后续 isCopyDone 监控与异步入库之间的时序竞态。
-            toPersist.addAll(submitCopyBatch(srcPath, dstPath, namesToCopy));
+            toPersist.addAll(submitCopyBatch(srcPath, dstPath, namesToCopy, sizeByName));
             // 整个目录一次性批量落库，而不是逐文件调度
             copyHelper.batchAddCopy(srcPath, toPersist);
             return childDirs;
@@ -250,18 +259,22 @@ public class CopyServiceImpl implements ICopyService {
      * 提交同一目录下的批量复制任务：一次 fs/copy 调用复制多个文件，按返回的 tasks 顺序回填任务 ID。
      * 返回构建好的记录列表（不在此处落库），由调用方与目录内其它记录合并后一次性批量写入。
      */
-    private List<OpenlistCopyPlus> submitCopyBatch(String srcPath, String dstPath, List<String> names) {
+    List<OpenlistCopyPlus> submitCopyBatch(String srcPath, String dstPath, List<String> names,
+                                                   java.util.Map<String, Long> sizeByName) {
         if (names == null || names.isEmpty()) {
             return Collections.emptyList();
         }
         JSONObject resp = openlistApi.copyOpenlist(srcPath, dstPath, names);
-        if (resp == null || !Integer.valueOf(200).equals(resp.getInteger("code"))
-                || resp.getJSONObject("data") == null) {
-            log.warn("批量复制提交失败 {} => {}, 文件数={}", srcPath, dstPath, names.size());
-            return Collections.emptyList();
-        }
-        JSONArray tasks = resp.getJSONObject("data").getJSONArray("tasks");
-        if (tasks != null && tasks.size() != names.size()) {
+        boolean submitted = resp != null && Integer.valueOf(200).equals(resp.getInteger("code"))
+                && resp.getJSONObject("data") != null;
+        // 整批提交失败也要落成失败记录。原先直接返回空列表：这批文件既不出现在同步记录里、也没有重试入口，
+        // 只在日志里留一行 warn，用户看到的是「同步跑完了，这几个文件就是没过去」。
+        // 记成失败（2）不影响下次同步自动再试——已处理集合只认处理中与成功
+        String failReason = submitted ? null : CopyFailReason.submitFailed(resp);
+        JSONArray tasks = submitted ? resp.getJSONObject("data").getJSONArray("tasks") : null;
+        if (!submitted) {
+            log.warn("批量复制提交失败 {} => {}, 文件数={}, 原因={}", srcPath, dstPath, names.size(), failReason);
+        } else if (tasks != null && tasks.size() != names.size()) {
             log.warn("复制任务数({})与文件数({})不一致，按顺序尽力映射: {} => {}",
                     tasks.size(), names.size(), srcPath, dstPath);
         }
@@ -273,11 +286,17 @@ public class CopyServiceImpl implements ICopyService {
             copy.setCopyDstPath(dstPath);
             copy.setCopySrcFileName(fileName);
             copy.setCopyDstFileName(fileName);
-            // AList 按 names 顺序返回 tasks，逐一映射任务 ID
-            if (tasks != null && i < tasks.size()) {
-                copy.setCopyTaskId(tasks.getJSONObject(i).getString("id"));
+            copy.setFileSize(sizeByName.get(fileName));
+            if (submitted) {
+                // AList 按 names 顺序返回 tasks，逐一映射任务 ID
+                if (tasks != null && i < tasks.size()) {
+                    copy.setCopyTaskId(tasks.getJSONObject(i).getString("id"));
+                }
+                copy.setCopyStatus("1");
+            } else {
+                copy.setCopyStatus("2");
+                copy.setFailReason(failReason);
             }
-            copy.setCopyStatus("1");
             records.add(copy);
         }
         return records;
@@ -316,46 +335,134 @@ public class CopyServiceImpl implements ICopyService {
         copy.setCopySrcFileName(fileName);
         copy.setCopyDstFileName(fileName);
 
+        // 去重只属于外部事件入口（第三方回调、目录监听会对同一文件推好几次）；
+        // 按记录重试不经过这里，见 retryCopy
         if (copyHelper.existsCopy(copy)) {
             log.debug("文件已处理过，跳过处理 {}/{}", dstDir, relativePath);
             return;
         }
+        doSyncOneFile(copy);
+    }
 
-        AtomicBoolean flag = new AtomicBoolean(false);
-        JSONObject dstExistResp = openlistApi.getFile(dstDir + "/" + relativePath);
+    /**
+     * 单文件同步的执行层：不去重，拿到哪条记录就处理哪条。
+     * <p>
+     * {@code copy.copyId} 为空表示外部事件新发现的文件，成功提交后才落库（维持原有语义：
+     * 源不存在、体积不够、提交失败都不留记录）；不为空表示按记录重试，此时记录已被
+     * {@link #claimForRetry} 认领成「处理中」，<b>每条提前返回的分支都必须把它收尾</b>，
+     * 否则它会一直挂在处理中，直到兜底任务过了宽限期才来接管。
+     */
+    void doSyncOneFile(OpenlistCopyPlus copy) {
+        boolean retry = copy.getCopyId() != null;
+        String srcFile = StringUtils.removeEnd(copy.getCopySrcPath(), "/") + "/" + copy.getCopySrcFileName();
+        String dstFile = StringUtils.removeEnd(copy.getCopyDstPath(), "/") + "/" + copy.getCopyDstFileName();
 
-        if (dstExistResp == null || !Integer.valueOf(200).equals(dstExistResp.getInteger("code"))) {
-            JSONObject srcResp = openlistApi.getFile(srcDir + "/" + relativePath);
-            if(null==srcResp||null==srcResp.getJSONObject("data")){
-                log.warn("本地文件不存在{}/{}", srcDir, relativePath);
-                return;
+        JSONObject dstExistResp = openlistApi.getFile(dstFile);
+        if (dstExistResp != null && Integer.valueOf(200).equals(dstExistResp.getInteger("code"))) {
+            // 目标已存在，直接记为成功，无需复制
+            JSONObject dstData = dstExistResp.getJSONObject("data");
+            if (dstData != null && dstData.containsKey("size")) {
+                copy.setFileSize(dstData.getLongValue("size"));
             }
-            if (srcResp.getJSONObject("data").getLong("size") >= config.getMinFileSizeBytes()) {
-
-                openlistApi.mkdir(copyDstPath);
-                JSONObject resp = openlistApi.copyOpenlist(
-                        copySrcPath,
-                        copyDstPath,
-                        Collections.singletonList(fileName)
-                );
-
-                if (resp != null && Integer.valueOf(200).equals(resp.getInteger("code"))) {
-                    flag.set(true);
-                    JSONArray tasks = resp.getJSONObject("data").getJSONArray("tasks");
-                    copy.setCopyTaskId(tasks.getJSONObject(0).getString("id"));
-                    copy.setCopyStatus("1");
-                    copyHelper.addCopy(copy);
-                }
-            }
-        } else {
-            flag.set(true);
             copy.setCopyStatus("3");
+            copy.setFailReason(null);
+            saveCopy(copy);
+            asynHelper.isCopyDoneOneFile(dstFile, copy);
+            return;
+        }
+
+        JSONObject srcResp = openlistApi.getFile(srcFile);
+        if (srcResp == null) {
+            // AList 不可达：判不出源在不在，不能按「源已消失」删记录（口径同 CopyHelper#discardIfSourceGone）
+            log.warn("查询源文件失败（OpenList 无响应）{}", srcFile);
+            markRetryFailed(copy, retry, CopyFailReason.sourceQueryFailed());
+            return;
+        }
+        if (srcResp.getJSONObject("data") == null) {
+            log.warn("源文件不存在 {}", srcFile);
+            if (retry) {
+                // 源确实没了，这条记录永远不可能重试成功，删掉才是它的真实语义
+                log.info("重试时源文件已不存在，丢弃复制记录[{}] {}", copy.getCopyId(), srcFile);
+                openlistCopyPlusService.removeById(copy.getCopyId());
+            }
+            return;
+        }
+        long size = srcResp.getJSONObject("data").getLongValue("size");
+        copy.setFileSize(size);
+        if (size < config.getMinFileSizeBytes()) {
+            log.info("源文件体积 {} 字节低于同步阈值 {} 字节，不复制 {}", size, config.getMinFileSizeBytes(), srcFile);
+            markRetryFailed(copy, retry, CopyFailReason.belowMinSize(size, config.getMinFileSizeBytes()));
+            return;
+        }
+
+        openlistApi.mkdir(copy.getCopyDstPath());
+        JSONObject resp = openlistApi.copyOpenlist(
+                copy.getCopySrcPath(),
+                copy.getCopyDstPath(),
+                Collections.singletonList(copy.getCopySrcFileName())
+        );
+        JSONArray tasks = resp == null || resp.getJSONObject("data") == null
+                ? null : resp.getJSONObject("data").getJSONArray("tasks");
+        if (!Integer.valueOf(200).equals(resp == null ? null : resp.getInteger("code")) || tasks == null || tasks.isEmpty()) {
+            log.warn("提交复制任务失败 {} => {}", srcFile, copy.getCopyDstPath());
+            markRetryFailed(copy, retry, CopyFailReason.submitFailed(resp));
+            return;
+        }
+        copy.setFailReason(null);
+        copy.setCopyTaskId(tasks.getJSONObject(0).getString("id"));
+        copy.setCopyStatus("1");
+        saveCopy(copy);
+        asynHelper.isCopyDoneOneFile(dstFile, copy);
+    }
+
+    /**
+     * 已有记录按 id 同步写回：紧接着启动的监控会拿这个对象 updateById，id 必须在手里。
+     * 新记录走 CopyHelper#addCopy 的 upsert（同步，写完回填 id）。
+     */
+    private void saveCopy(OpenlistCopyPlus copy) {
+        if (copy.getCopyId() != null) {
+            openlistCopyPlusService.updateById(copy);
+        } else {
             copyHelper.addCopy(copy);
         }
+    }
 
-        if (flag.get()) {
-            asynHelper.isCopyDoneOneFile(dstDir + "/" + relativePath, copy);
+    /** 重试时没能提交复制，把认领时置成的「处理中」退回失败；新发现的文件没有记录，无需处理 */
+    private void markRetryFailed(OpenlistCopyPlus copy, boolean retry, String failReason) {
+        if (!retry) {
+            return;
         }
+        copy.setCopyStatus("2");
+        copy.setFailReason(failReason);
+        openlistCopyPlusService.updateById(copy);
+    }
+
+    /**
+     * 认领一条待重试的记录：条件更新 {@code 失败/未知 → 处理中}，影响行数为 1 才算抢到。
+     * <p>
+     * 这一步替代了原先「先把状态改成失败、好让 existsCopy 放行」的做法，同时补上那层去重
+     * 顺带提供的并发保护——页面连点两次、或 TG 的 retryAllFailed 与页面重试撞在一起时，
+     * 只有一方能认领成功，不会给 OpenList 提交两个复制任务。
+     * <p>
+     * <b>必须在信号量内、真正执行前调用，不能在入口处批量预置</b>：排队中的记录若提前变成处理中
+     * 且没有任务 ID，过了宽限期会被 {@code CopyRecoveryTask} 当成无主记录接管，两条链路抢同一条记录。
+     */
+    boolean claimForRetry(OpenlistCopyPlus copy) {
+        OpenlistCopyPlus set = new OpenlistCopyPlus();
+        set.setCopyStatus("1");
+        set.setCopyTaskId("");
+        boolean claimed = openlistCopyPlusService.update(set, new UpdateWrapper<OpenlistCopyPlus>()
+                .eq("copy_id", copy.getCopyId())
+                .in("copy_status", RETRYABLE_STATUSES));
+        if (claimed) {
+            copy.setCopyStatus("1");
+            copy.setCopyTaskId("");
+            // 库里的原因已被认领一并清空（ALWAYS 策略），对象上也要清，否则后续 updateById 会把旧原因写回去
+            copy.setFailReason(null);
+            // 置空后由自动填充写入当前时间；否则后续 updateById 会把库里刚刷新的 update_time 写回旧值
+            copy.setUpdateTime(null);
+        }
+        return claimed;
     }
 
     @Override
@@ -377,9 +484,10 @@ public class CopyServiceImpl implements ICopyService {
     }
 
     @Override
-    public void batchRemoveNetDisk(List<String> idList) {
-        if (idList == null || idList.isEmpty()) return;
+    public BatchRemoveOutcome batchRemoveNetDisk(List<String> idList) {
+        if (idList == null || idList.isEmpty()) return new BatchRemoveOutcome(0, 0, false);
         List<OpenlistCopyPlus> copyList = openlistCopyPlusService.listByIds(idList);
+        java.util.concurrent.atomic.AtomicInteger removed = new java.util.concurrent.atomic.AtomicInteger();
         Runnable action = () -> {
             // 外部API调用在事务外执行，单条隔离失败，只清理网盘删除成功的记录，避免网盘/DB状态不一致
             List<OpenlistCopyPlus> succeeded = new java.util.ArrayList<>();
@@ -395,6 +503,7 @@ public class CopyServiceImpl implements ICopyService {
                     log.error("网盘文件删除异常，跳过对应记录清理：{}/{}", copy.getCopyDstPath(), copy.getCopyDstFileName(), e);
                 }
             }
+            removed.set(succeeded.size());
             if (succeeded.isEmpty()) {
                 return;
             }
@@ -410,22 +519,27 @@ public class CopyServiceImpl implements ICopyService {
                 openlistCopyPlusService.removeBatchByIds(succeededIds);
             });
         };
-        if (idList.size() > 20) {
+        if (idList.size() > BatchRemoveOutcome.BACKGROUND_THRESHOLD) {
             AsyncManager.me().execute(action);
-        } else {
-            action.run();
+            return BatchRemoveOutcome.inBackground(idList.size());
         }
+        action.run();
+        return new BatchRemoveOutcome(idList.size(), removed.get(), false);
     }
 
     @Override
-    public void retryCopy(List<String> idList) {
-        if (idList == null || idList.isEmpty()) return;
-        List<OpenlistCopyPlus> copyList = openlistCopyPlusService.listByIds(idList);
-        copyList.forEach(copy -> {
-            copy.setCopyStatus("2");
-            copy.setCopyTaskId("");
-        });
-        openlistCopyPlusService.updateBatchById(copyList);
+    public int retryCopy(List<String> idList) {
+        if (idList == null || idList.isEmpty()) return 0;
+        List<OpenlistCopyPlus> copyList = openlistCopyPlusService.listByIds(idList).stream()
+                .filter(copy -> RETRYABLE_STATUSES.contains(copy.getCopyStatus()))
+                .toList();
+        if (copyList.size() < idList.size()) {
+            log.info("重试复制记录：选中 {} 条，其中 {} 条处于处理中/已成功或已不存在，跳过",
+                    idList.size(), idList.size() - copyList.size());
+        }
+        if (copyList.isEmpty()) {
+            return 0;
+        }
         Runnable action = () -> {
             try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
                 List<CompletableFuture<Void>> futures = copyList.stream()
@@ -433,7 +547,13 @@ public class CopyServiceImpl implements ICopyService {
                         try {
                             COPY_SEMAPHORE.acquire();
                             try {
-                                syncOneFile(copy.getCopySrcPath(), copy.getCopyDstPath(), copy.getCopySrcFileName());
+                                if (claimForRetry(copy)) {
+                                    doSyncOneFile(copy);
+                                } else {
+                                    log.info("复制记录[{}] 已被其它重试认领或状态已变化，跳过", copy.getCopyId());
+                                }
+                            } catch (Exception e) {
+                                log.error("重试复制记录[{}] 失败：{}", copy.getCopyId(), e.getMessage(), e);
                             } finally {
                                 COPY_SEMAPHORE.release();
                             }
@@ -445,30 +565,33 @@ public class CopyServiceImpl implements ICopyService {
                 CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
             }
         };
-        if (idList.size() > 20) {
+        if (copyList.size() > 20) {
             AsyncManager.me().execute(action);
         } else {
             action.run();
         }
+        return copyList.size();
     }
 
     @Override
     public RetryOutcome retryAllFailed() {
+        // 与页面重试同一口径：失败 + 监控超时/任务丢失都算
         LambdaQueryWrapper<OpenlistCopyPlus> countWrapper = new LambdaQueryWrapper<>();
-        countWrapper.eq(OpenlistCopyPlus::getCopyStatus, "2");
+        countWrapper.in(OpenlistCopyPlus::getCopyStatus, RETRYABLE_STATUSES);
         long total = openlistCopyPlusService.count(countWrapper);
         if (total == 0) {
             return new RetryOutcome(0, 0);
         }
 
         LambdaQueryWrapper<OpenlistCopyPlus> wrapper = new LambdaQueryWrapper<>();
-        wrapper.eq(OpenlistCopyPlus::getCopyStatus, "2")
+        wrapper.in(OpenlistCopyPlus::getCopyStatus, RETRYABLE_STATUSES)
                 .orderByDesc(OpenlistCopyPlus::getCreateTime)
                 .last("LIMIT 200");
         List<OpenlistCopyPlus> failed = openlistCopyPlusService.list(wrapper);
         List<String> idList = failed.stream().map(c -> String.valueOf(c.getCopyId())).toList();
-        retryCopy(idList);
-        return new RetryOutcome(idList.size(), (int) total - idList.size());
+        // 报实际提交数：查询与重试之间状态可能已被监控/兜底任务改掉，按查到的条数报会虚高
+        int submitted = retryCopy(idList);
+        return new RetryOutcome(submitted, (int) total - idList.size());
     }
 
     /**

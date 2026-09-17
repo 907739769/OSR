@@ -19,7 +19,7 @@ import type { IconAliases, IconProps, IconSet } from 'vuetify'
 import {
   Activity, ArrowBigUp, ArrowDown, ArrowLeft, ArrowLeftRight, ArrowRight,
   ArrowUp, BadgeCheck, Ban, Bell, BellOff, BellRing,
-  BookOpen, Bookmark, Bot, BrushCleaning, Calendar, Calendar1,
+  BookOpen, Bookmark, Bot, BrushCleaning, Calendar, Calendar1, Captions,
   CalendarDays, CalendarOff, ChartColumn, ChartLine, Check, ChevronDown,
   ChevronLeft, ChevronRight, ChevronUp, ChevronsLeft, ChevronsRight, ChevronsUpDown,
   Circle, CircleAlert, CircleArrowUp, CircleCheck, CircleDot, CirclePlay,
@@ -98,6 +98,7 @@ const icons: Record<string, Component> = {
   'calendar-1': Calendar1,
   'calendar-days': CalendarDays,
   'calendar-off': CalendarOff,
+  'captions': Captions,
   'chart-column': ChartColumn,
   'chart-line': ChartLine,
   'check': Check,

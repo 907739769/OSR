@@ -61,7 +61,29 @@
       <v-select
         v-model="queryParams.status"
         label="状态"
-        :items="[{ title: '成功', value: '1' }, { title: '失败', value: '0' }]"
+        :items="RENAME_STATUS_OPTIONS"
+        item-title="title"
+        item-value="value"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        class="status-select"
+      />
+      <v-select
+        v-model="queryParams.mediaType"
+        label="媒体类型"
+        :items="MEDIA_TYPE_OPTIONS"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        class="status-select"
+      />
+      <v-select
+        v-model="queryParams.scrapeStatus"
+        label="刮削状态"
+        :items="SCRAPE_STATUS_OPTIONS"
         clearable
         density="compact"
         variant="outlined"
@@ -96,10 +118,22 @@
       <!-- Action Bar -->
       <div class="action-bar">
         <div class="action-left">
+          <RecordStatusBar v-model="queryParams.status" :options="RENAME_STATUS_OPTIONS" :stats="stats" />
         </div>
-        <v-btn variant="text" prepend-icon="funnel" @click="showSearch = !showSearch">
-          {{ showSearch ? '隐藏搜索' : '显示搜索' }}
-        </v-btn>
+        <div class="action-right">
+          <v-btn
+            variant="text"
+            color="primary"
+            prepend-icon="refresh-cw"
+            :disabled="!failedCount"
+            @click="handleRetryAllFailed"
+          >
+            重试全部失败{{ failedCount ? `（${failedCount}）` : '' }}
+          </v-btn>
+          <v-btn variant="text" prepend-icon="funnel" @click="showSearch = !showSearch">
+            {{ showSearch ? '隐藏搜索' : '显示搜索' }}
+          </v-btn>
+        </div>
       </div>
 
       <!-- 选中后才出现：给出「已选 N 项」这个此前完全缺失的反馈。
@@ -107,21 +141,23 @@
            猜「为什么点不动」；卡片型列表页（订阅/下载记录）本来就是这个形态。 -->
       <div v-if="selectedRows.length" class="batch-toolbar">
         已选 {{ selectedRows.length }} 项
-        <v-btn variant="text" size="small" color="error" :disabled="noneSelected" @click="handleBatchPurge()">
-          批量清理产物
-        </v-btn>
-        <v-btn variant="text" size="small" color="error" :disabled="noneSelected" @click="handleBatchDelete()">
-          仅删记录
-        </v-btn>
-        <v-btn variant="text" size="small" color="info" :disabled="noneSelected" @click="handleBatchExecute()">
+        <v-btn variant="text" size="small" color="primary" :disabled="noneSelected" @click="handleBatchExecute()">
           批量执行
         </v-btn>
-        <v-btn variant="text" size="small" color="warning" :disabled="noneSelected" @click="handleBatchScrape()">
+        <v-btn variant="text" size="small" color="primary" :disabled="noneSelected" @click="handleBatchScrape()">
           批量刮削
         </v-btn>
-        <v-btn variant="text" size="small" color="error" :disabled="noneSelected" @click="handleBatchDeleteScrape()">
-          批量删除刮削
-        </v-btn>
+        <!-- 破坏性动作收进菜单：原先五个按钮里三个红色平铺，点错一个就是删文件 -->
+        <v-menu>
+          <template #activator="{ props: menuProps }">
+            <v-btn v-bind="menuProps" variant="text" size="small" color="error" append-icon="chevron-down">危险操作</v-btn>
+          </template>
+          <v-list density="compact">
+            <v-list-item prepend-icon="brush-cleaning" :disabled="noneSelected" @click="handleBatchPurge()">批量清理产物</v-list-item>
+            <v-list-item prepend-icon="trash-2" :disabled="noneSelected" @click="handleBatchDeleteScrape()">批量删除刮削</v-list-item>
+            <v-list-item class="more-actions-danger" prepend-icon="database" :disabled="noneSelected" @click="handleBatchDelete()">仅删记录</v-list-item>
+          </v-list>
+        </v-menu>
         <v-spacer />
         <v-btn variant="text" size="small" class="batch-clear-btn" @click="clearSelection">清空选择</v-btn>
       </div>
@@ -150,13 +186,20 @@
           <div class="path-box rename-box">
             <div class="path-row">
               <span class="path-label path-label--src">原</span>
-              <span class="path-name" :title="item.originalName">{{ item.originalName }}</span>
+              <span class="path-name record-detail-link" :title="item.originalName" @click="openDetail(item)">{{ item.originalName }}</span>
               <span class="path-text path-text--muted" :title="item.originalPath">{{ item.originalPath }}</span>
             </div>
             <div class="path-row">
               <span class="path-label path-label--dst">新</span>
               <span class="path-name" :title="item.newName">{{ item.newName }}</span>
               <span class="path-text path-text--muted" :title="item.newPath">{{ item.newPath }}</span>
+            </div>
+            <div v-if="renameTags(item).length || tmdbUrl(item)" class="record-tags">
+              <span v-for="tag in renameTags(item)" :key="tag" class="record-tag">{{ tag }}</span>
+              <a v-if="tmdbUrl(item)" class="record-tag" :href="tmdbUrl(item)!" target="_blank" rel="noopener noreferrer">TMDb</a>
+            </div>
+            <div v-if="item.scrapeStatus === '2' && item.scrapeMsg" class="record-fail-reason" :title="item.scrapeMsg">
+              刮削失败：{{ item.scrapeMsg }}
             </div>
           </div>
         </template>
@@ -183,6 +226,7 @@
               </v-btn>
             </template>
             <v-list density="compact">
+              <v-list-item prepend-icon="eye" title="查看详情" @click="openDetail(item)" />
               <v-list-item
                 v-if="item.scrapeStatus === '1'"
                 base-color="error"
@@ -334,13 +378,20 @@
         </v-card-actions>
       </v-card>
     </v-dialog>
+
+    <RecordDetailDrawer v-model="detailOpen" title="重命名明细详情" :fields="detailFields" />
   </div>
 </template>
 
 <script setup lang="ts">
 import PageHeader from '@/components/PageHeader.vue'
+import { ref, computed } from 'vue'
 import StatusChip from '@/components/StatusChip.vue'
-import { useRenameDetailList } from '@/composables/useRenameDetailList'
+import RecordStatusBar from '@/components/RecordStatusBar.vue'
+import RecordDetailDrawer, { type RecordDetailField } from '@/components/RecordDetailDrawer.vue'
+import {
+  useRenameDetailList, RENAME_STATUS_OPTIONS, MEDIA_TYPE_OPTIONS, SCRAPE_STATUS_OPTIONS, renameTags, tmdbUrl
+} from '@/composables/useRenameDetailList'
 import { useSearchPanel } from '@/composables/useSearchPanel'
 import SearchPanel from '@/components/SearchPanel.vue'
 import { useDataTable } from '@/composables/useDataTable'
@@ -348,10 +399,10 @@ import { useDataTable } from '@/composables/useDataTable'
 const { showSearch } = useSearchPanel()
 
 const {
-  recordList, loading, total, queryParams,
+  recordList, loading, total, queryParams, stats,
   getList, queryRef, dateStart, dateEnd, handleQuery, resetQuery,
   selectedIds, noneSelected, handleSelectionChange,
-  handleDeleteOne, handleBatchDelete,
+  handleDeleteOne, handleBatchDelete, handleRetryAllFailed,
   retryDialogVisible, retryLoading, retryFormRef, retryForm,
   handleRetryOne, handleRetryClose, handleRetrySubmit,
   batchDialogVisible, batchLoading, batchFormRef, batchForm,
@@ -363,6 +414,32 @@ const {
 } = useRenameDetailList()
 
 getList()
+
+const failedCount = computed(() => stats.value?.['0'] ?? 0)
+
+const detailOpen = ref(false)
+const detailRow = ref<any>(null)
+const openDetail = (row: any) => {
+  detailRow.value = row
+  detailOpen.value = true
+}
+const SCRAPE_TEXT: Record<string, string> = { '0': '未刮削', '1': '成功', '2': '失败' }
+const detailFields = computed<RecordDetailField[]>(() => {
+  const row = detailRow.value
+  if (!row) return []
+  return [
+    { label: '重命名状态', value: row.status === '1' ? '成功' : '失败' },
+    { label: '刮削状态', value: SCRAPE_TEXT[row.scrapeStatus] },
+    { label: '刮削失败原因', value: row.scrapeStatus === '2' ? row.scrapeMsg : null, error: true },
+    { label: '原文件', value: `${row.originalPath}/${row.originalName}`, mono: true, copyable: true },
+    { label: '新文件', value: `${row.newPath}/${row.newName}`, mono: true, copyable: true },
+    { label: '识别标题', value: [row.title, row.year ? `(${row.year})` : ''].filter(Boolean).join(' ') },
+    { label: '识别结果', value: renameTags(row).join(' · ') },
+    { label: 'TMDb', value: row.tmdbId, href: tmdbUrl(row) || undefined },
+    { label: '创建时间', value: row.createTime },
+    { label: '最后更新', value: row.updateTime }
+  ]
+})
 
 // 表格最小总宽 = 48(勾选) + 340 + 80 + 80 + 170 + 260 ≈ 978，与 strmRecord/copyRecord 同一量级。
 // 「操作」列此前是 460（5 个平铺按钮），把整张表撑到 1248px，1280 宽的屏幕上必然横向溢出——
@@ -407,6 +484,14 @@ const episodeRule = (v: string) => !v || /^\d{1,4}$/.test(v) || '集为 1-4 位�
 .rename-box {
   :deep(.path-name) {
     max-width: 55%;
+  }
+}
+
+.record-detail-link {
+  cursor: pointer;
+
+  &:hover {
+    color: var(--osr-primary);
   }
 }
 

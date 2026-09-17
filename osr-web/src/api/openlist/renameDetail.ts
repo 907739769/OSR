@@ -5,6 +5,16 @@ export function getRenameDetailListApi(params: SearchParams) {
   return request.get<any, PageResult<any>>('/openliststrm/rename-details', { params })
 }
 
+/** 当前筛选条件下按状态分组计数（忽略状态这一项），返回 { 状态值: 条数, total } */
+export function getRenameDetailStatsApi(params: SearchParams) {
+  return request.get<any, Record<string, number>>('/openliststrm/rename-details/stats', { params })
+}
+
+/** 重试全部失败的重命名明细（一次最多最新 200 条） */
+export function retryAllFailedRenameDetailApi() {
+  return request.post<any, { retried: number, remaining: number }>('/openliststrm/rename-details/retry-failed')
+}
+
 export function batchDeleteRenameDetailApi(recordIds: number[]) {
   return request.post('/openliststrm/rename-details/batchDelete', null, { params: { ids: recordIds.join(',') } })
 }

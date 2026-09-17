@@ -4,8 +4,11 @@ import { confirm } from '@/composables/useConfirm'
 import type { VForm } from 'vuetify/components'
 import { useRecordList } from './useRecordList'
 import type { SearchParams } from '@/types'
+import type { RecordStatusOption } from '@/components/RecordStatusBar.vue'
 import {
   getRenameDetailListApi,
+  getRenameDetailStatsApi,
+  retryAllFailedRenameDetailApi,
   executeRenameDetailApi,
   batchDeleteRenameDetailApi,
   scrapeRenameDetailApi,
@@ -23,6 +26,49 @@ export type RenameDetailQuery = SearchParams & {
   newPath?: string
   title?: string
   status?: string
+  mediaType?: string
+  scrapeStatus?: string
+}
+
+export const RENAME_STATUS_OPTIONS: RecordStatusOption[] = [
+  { value: '0', title: '失败', type: 'error' },
+  { value: '1', title: '成功', type: 'success' }
+]
+
+export const MEDIA_TYPE_OPTIONS = [
+  { title: '电影', value: 'movie' },
+  { title: '剧集', value: 'tv' }
+]
+
+export const SCRAPE_STATUS_OPTIONS = [
+  { title: '未刮削', value: '0' },
+  { title: '刮削成功', value: '1' },
+  { title: '刮削失败', value: '2' }
+]
+
+/**
+ * 新文件名下面那排识别结果标签：类型 · 季集 · 分辨率 · 编码 · 来源 · 发布组。
+ * 这些字段一直存在 rename_detail 里，页面上一个都没展示——判断「是不是刮错了」只能去翻数据库。
+ * 缺失的片段整段不写，不写「未知」（同 PtNotifyText 的取向：一串「未知」只会把有用的几段挤下去）。
+ */
+export function renameTags(row: any): string[] {
+  const tags: string[] = []
+  if (row.mediaType === 'movie') tags.push('电影')
+  else if (row.mediaType === 'tv') tags.push('剧集')
+  if (row.mediaType === 'tv' && (row.season || row.episode)) {
+    const pad = (v: string) => (v && v.length < 2 ? `0${v}` : v)
+    tags.push(`S${pad(row.season) || '??'}${row.episode ? `E${pad(row.episode)}` : ''}`)
+  }
+  for (const value of [row.resolution, row.videoCodec, row.audioCodec, row.source, row.releaseGroup]) {
+    if (value) tags.push(String(value))
+  }
+  return tags
+}
+
+/** TMDb 条目链接：刮错了的第一反应是去 TMDb 上看一眼这到底是哪部作品 */
+export function tmdbUrl(row: any): string | null {
+  if (!row.tmdbId || (row.mediaType !== 'movie' && row.mediaType !== 'tv')) return null
+  return `https://www.themoviedb.org/${row.mediaType}/${row.tmdbId}`
 }
 
 /**
@@ -37,16 +83,18 @@ export function useRenameDetailList() {
     getList, silentRefresh, prevPage, nextPage, handleSizeChange,
     queryRef, dateRange, dateStart, dateEnd, handleQuery, resetQuery,
     selectedIds, noneSelected, toggleSelect, handleCardClick, clearSelection, handleSelectionChange,
-    isAllPageSelected, toggleSelectAllPage
+    isAllPageSelected, toggleSelectAllPage, stats, handleRetryAllFailed
     // 删除记录不用 useRecordList 的默认实现：它的确认文案只说"是否确认删除"，
     // 而这里"只删记录不删文件"的后果必须讲清楚，见下方 handleDeleteOne
   } = useRecordList<RenameDetailQuery>({
     listApi: getRenameDetailListApi,
+    statsApi: getRenameDetailStatsApi,
+    retryFailedApi: retryAllFailedRenameDetailApi,
     batchDeleteApi: batchDeleteRenameDetailApi,
     idField: 'id',
     labelField: 'newName',
     recordLabel: '重命名记录',
-    defaultQuery: { status: undefined }
+    defaultQuery: { status: undefined, mediaType: undefined, scrapeStatus: undefined }
   })
 
   // --- 重试改名弹窗 ---
@@ -149,7 +197,11 @@ export function useRenameDetailList() {
 
   const handleBatchDeleteScrape = async () => {
     try {
-      await confirm({ message: `是否确认删除选中记录的刮削文件？`, title: '批量删除刮削', type: 'warning' })
+      await confirm({
+        message: `是否确认删除选中的 ${selectedIds.value.length} 条记录的刮削文件（NFO + 图片）？`,
+        title: '批量删除刮削',
+        type: 'warning'
+      })
       await batchDeleteScrapeFilesApi(selectedIds.value)
       message.success('刮削文件已删除')
       getList()
@@ -223,12 +275,12 @@ export function useRenameDetailList() {
   }
 
   return {
-    recordList, loading, total, queryParams, totalPages,
+    recordList, loading, total, queryParams, totalPages, stats,
     getList, silentRefresh, prevPage, nextPage, handleSizeChange,
     queryRef, dateRange, dateStart, dateEnd, handleQuery, resetQuery,
     selectedIds, noneSelected, toggleSelect, handleCardClick, clearSelection, handleSelectionChange,
     isAllPageSelected, toggleSelectAllPage,
-    handleDeleteOne, handleBatchDelete,
+    handleDeleteOne, handleBatchDelete, handleRetryAllFailed,
     retryDialogVisible, retryLoading, retryFormRef, retryForm,
     handleRetryOne, handleRetryClose, handleRetrySubmit,
     batchDialogVisible, batchLoading, batchFormRef, batchForm,
