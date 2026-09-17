@@ -98,3 +98,22 @@ describe('CopyRecord 重试按钮', () => {
     expect(wrapper.findAll('button').some(b => b.text() === '重试')).toBe(false)
   })
 })
+
+describe('CopyRecord 失败原因与大小', () => {
+  const rowWith = (row: Record<string, any>) =>
+    baseComposable({ recordList: ref([{ copyId: 1, copySrcFileName: 'a.mkv', copyDstFileName: 'a.mkv', ...row }]) })
+
+  it('失败记录显示原因与大小', () => {
+    (useCopyRecord as any).mockReturnValue(rowWith({ copyStatus: '2', failReason: 'OpenList 复制任务失败：quota exceeded', fileSize: 1536 }))
+    const wrapper = mount(CopyRecordPage)
+    expect(wrapper.find('.record-fail-reason').text()).toBe('OpenList 复制任务失败：quota exceeded')
+    expect(wrapper.text()).toContain('1.5 KB')
+  })
+
+  it('成功记录即使库里残留原因也不显示', () => {
+    // 原因只在失败/未知状态下有意义；后端写成功时会清空，前端这层是兜底
+    (useCopyRecord as any).mockReturnValue(rowWith({ copyStatus: '3', failReason: '旧原因' }))
+    const wrapper = mount(CopyRecordPage)
+    expect(wrapper.find('.record-fail-reason').exists()).toBe(false)
+  })
+})

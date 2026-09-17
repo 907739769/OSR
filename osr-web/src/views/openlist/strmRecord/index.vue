@@ -114,7 +114,13 @@
               {{ item.strmFileName }}
             </div>
             <div class="file-path" :title="item.strmPath">{{ item.strmPath }}</div>
+            <div v-if="item.strmStatus === '0' && item.failReason" class="record-fail-reason" :title="item.failReason">
+              {{ item.failReason }}
+            </div>
           </div>
+        </template>
+        <template #item.fileSize="{ item }">
+          {{ formatFileSize(item.fileSize) }}
         </template>
         <template #item.strmStatus="{ item }">
           <StatusChip :value="item.strmStatus" enabled-value="1" on-text="成功" off-text="失败" />
@@ -146,6 +152,7 @@ import { useStrmRecord } from '@/composables/useStrmRecord'
 import { useSearchPanel } from '@/composables/useSearchPanel'
 import SearchPanel from '@/components/SearchPanel.vue'
 import { useDataTable } from '@/composables/useDataTable'
+import { formatFileSize } from '@/composables/useRecordList'
 
 const { showSearch } = useSearchPanel()
 
@@ -159,6 +166,7 @@ const {
 
 const headers = [
   { title: '文件信息', key: 'fileInfo', minWidth: '300', sortable: false },
+  { title: '大小', key: 'fileSize', align: 'end' as const, width: '100' },
   { title: '状态', key: 'strmStatus', align: 'center' as const, width: '80' },
   { title: '创建时间', key: 'createTime', width: '170', align: 'center' as const },
   { title: '操作', key: 'actions', align: 'center' as const, width: '170', sortable: false }

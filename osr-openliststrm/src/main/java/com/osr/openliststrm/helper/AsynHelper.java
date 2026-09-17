@@ -110,7 +110,7 @@ public class AsynHelper {
                 JSONObject jsonResponse = infoMap.get(taskId);
                 if (jsonResponse == null) {
                     // API 请求失败或无响应，视为异常结束
-                    updateCopyStatus(copy, "4");
+                    updateCopyStatus(copy, "4", CopyFailReason.statusQueryFailed());
                     iterator.remove(); // 从监控列表中移除
                     continue;
                 }
@@ -130,7 +130,7 @@ public class AsynHelper {
                         // 永远重试不成功的记录 + 一条无从解释的告警，直接丢弃
                         if (!copyHelper.discardIfSourceGone(copy)) {
                             // 失败不重试了
-                            updateCopyStatus(copy, "2");
+                            updateCopyStatus(copy, "2", CopyFailReason.taskFailed(jsonResponse));
                             TgHelper.sendMsg("<b>复制任务失败</b>\n" +
                                     "源目录：" + StringUtils.escapeHtml(copy.getCopySrcPath()) + "\n" +
                                     "源文件名：" + StringUtils.escapeHtml(copy.getCopySrcFileName()));
@@ -141,10 +141,10 @@ public class AsynHelper {
                 } else if (404 == code || state == 2) {
                     // 404: 任务丢失/过期? state=2: 完成
                     if (404 == code) {
-                        updateCopyStatus(copy, "4");
+                        updateCopyStatus(copy, "4", CopyFailReason.taskLost());
                     }
                     if (state == 2) {
-                        updateCopyStatus(copy, "3");
+                        updateCopyStatus(copy, "3", null);
                     }
                     iterator.remove(); // 移除已完成任务
                 }
@@ -162,7 +162,7 @@ public class AsynHelper {
             // 避免下游一直卡在非终态时调度任务无限期堆积
             Duration duration = monitorDuration();
             for (OpenlistCopyPlus copy : copyList) {
-                updateCopyStatus(copy, "4");
+                updateCopyStatus(copy, "4", CopyFailReason.monitorTimeout(duration));
                 log.warn("复制任务监控超时（超过 {}），已标记为异常并停止监控: taskId={}, path={}",
                         duration, copy.getCopyTaskId(), copy.getCopySrcPath());
             }
@@ -238,7 +238,7 @@ public class AsynHelper {
             JSONObject jsonResponse = openlistApi.copyInfo(copy.getCopyTaskId());
 
             if (jsonResponse == null) {
-                updateCopyStatus(copy, "4");
+                updateCopyStatus(copy, "4", CopyFailReason.statusQueryFailed());
                 return; // 结束监控
             }
 
@@ -251,10 +251,10 @@ public class AsynHelper {
             // 判定任务是否完成
             if (404 == code || state == 2) {
                 if (404 == code) {
-                    updateCopyStatus(copy, "4");
+                    updateCopyStatus(copy, "4", CopyFailReason.taskLost());
                 }
                 if (state == 2) {
-                    updateCopyStatus(copy, "3");
+                    updateCopyStatus(copy, "3", null);
                     // 成功后生成 strm
                     if ("1".equals(config.getOpenListCopyStrm())) {
                         strmService.strmOneFile(path);
@@ -264,7 +264,7 @@ public class AsynHelper {
             } else if (state == 7) {
                 // 失败状态。源已被删掉的情况直接丢记录，理由见 CopyHelper#discardIfSourceGone
                 if (!copyHelper.discardIfSourceGone(copy)) {
-                    updateCopyStatus(copy, "2");
+                    updateCopyStatus(copy, "2", CopyFailReason.taskFailed(jsonResponse));
                     TgHelper.sendMsg("<b>复制任务失败</b>\n" +
                             "源目录：" + StringUtils.escapeHtml(copy.getCopySrcPath()) + "\n" +
                             "源文件名：" + StringUtils.escapeHtml(copy.getCopySrcFileName()));
@@ -274,7 +274,7 @@ public class AsynHelper {
 
             if (Instant.now().isAfter(deadline)) {
                 // 超过最长监控时长仍未结束：强制标记为异常，停止继续调度
-                updateCopyStatus(copy, "4");
+                updateCopyStatus(copy, "4", CopyFailReason.monitorTimeout(monitorDuration()));
                 Duration duration = monitorDuration();
                 log.warn("单文件复制监控超时（超过 {}），已标记为异常并停止监控: taskId={}, path={}",
                         duration, copy.getCopyTaskId(), path);
@@ -300,8 +300,10 @@ public class AsynHelper {
     }
 
     // 辅助方法：更新数据库状态
-    private void updateCopyStatus(OpenlistCopyPlus copy, String status) {
+    // 状态与原因一起写：fail_reason 是 ALWAYS 更新策略，成功时传 null 即清空（见 OpenlistCopyPlus#failReason）
+    private void updateCopyStatus(OpenlistCopyPlus copy, String status, String failReason) {
         copy.setCopyStatus(status);
+        copy.setFailReason(failReason);
         openlistCopyPlusService.updateById(copy);
     }
 

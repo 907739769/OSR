@@ -284,6 +284,19 @@
   }
 }
 
+/* 记录页（同步 / STRM）失败原因：挂在详情格最后一行，只在失败/未知状态渲染。
+   最多两行，完整内容走 title；原因里常带 OpenList 回的整句英文报错，不截会把行撑得很高 */
+.record-fail-reason {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--osr-error);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  word-break: break-all;
+}
+
 /* ============================================
    卡片网格（PT 配置类页面：索引器 / 下载器 / 媒体服务器 / 黑名单）
    与 .modern-table 并列的第二种列表范式，单源定义

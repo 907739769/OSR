@@ -253,7 +253,7 @@ public class StrmServiceImpl implements IStrmService {
         Path targetDir = resolveWithinBase(outputBase, relative.replace("/", File.separator));
         if (targetDir == null) {
             log.error("拒绝路径穿越：strm目标目录超出输出根目录 {}, path={}", settings.outputDir(), path);
-            strmHelper.addStrm(filePath, name, "0");
+            strmHelper.addStrm(filePath, name, "0", "目标目录超出 STRM 输出根目录 " + settings.outputDir() + "，已拒绝写入");
             return;
         }
         File file = targetDir.toFile();
@@ -270,10 +270,10 @@ public class StrmServiceImpl implements IStrmService {
             }
             String content = config.getOpenListUrl() + "/d" + encodePath;
             writeAtomically(strmFile, content);
-            strmHelper.addStrm(filePath, name, "1");
+            strmHelper.addStrm(filePath, name, "1", null);
         } catch (Exception e) {
             log.error("生成 .strm 文件失败 {}", strmFile, e);
-            strmHelper.addStrm(filePath, name, "0");
+            strmHelper.addStrm(filePath, name, "0", StrmHelper.failReason("写入 .strm 文件失败", e));
         }
         log.info("执行指定文件strm任务完成: {}", path);
     }
@@ -632,10 +632,10 @@ public class StrmServiceImpl implements IStrmService {
                 }
                 String content = ctx.baseUrl() + "/d" + encodePath;
                 writeAtomically(strmFile, content);
-                records.add(strmHelper.newRecord(currentPath, rawName, "1"));
+                records.add(strmHelper.newRecord(currentPath, rawName, "1", size, null));
             } catch (Exception e) {
                 log.error("写入 .strm 文件失败 {}", strmFile, e);
-                records.add(strmHelper.newRecord(currentPath, rawName, "0"));
+                records.add(strmHelper.newRecord(currentPath, rawName, "0", size, StrmHelper.failReason("写入 .strm 文件失败", e)));
             }
         }
 
@@ -646,11 +646,11 @@ public class StrmServiceImpl implements IStrmService {
                     String url = fileJson.getJSONObject("data").getString("raw_url");
                     File outFile = new File(currentLocalPath + File.separator + fileName + rawName.substring(rawName.lastIndexOf(".")));
                     downloadSubtitle(url, outFile.getAbsolutePath());
-                    records.add(strmHelper.newRecord(currentPath, rawName, "1"));
+                    records.add(strmHelper.newRecord(currentPath, rawName, "1", size, null));
                 }
             } catch (Exception e) {
                 log.error("下载字幕失败 {} / {}", currentPath, rawName, e);
-                records.add(strmHelper.newRecord(currentPath, rawName, "0"));
+                records.add(strmHelper.newRecord(currentPath, rawName, "0", size, StrmHelper.failReason("下载字幕失败", e)));
             }
         }
 

@@ -142,7 +142,13 @@
               <span class="path-name" :title="item.copyDstFileName">{{ item.copyDstFileName }}</span>
               <span class="path-text path-text--muted" :title="item.copyDstPath">{{ item.copyDstPath }}</span>
             </div>
+            <div v-if="canRetryCopy(item.copyStatus) && item.failReason" class="record-fail-reason" :title="item.failReason">
+              {{ item.failReason }}
+            </div>
           </div>
+        </template>
+        <template #item.fileSize="{ item }">
+          {{ formatFileSize(item.fileSize) }}
         </template>
         <template #item.copyStatus="{ item }">
           <StatusChip :type="getCopyStatusType(item.copyStatus)" :text="getCopyStatusText(item.copyStatus)" :pulse="item.copyStatus === '1'" />
@@ -175,6 +181,7 @@ import { useCopyRecord } from '@/composables/useCopyRecord'
 import { useSearchPanel } from '@/composables/useSearchPanel'
 import SearchPanel from '@/components/SearchPanel.vue'
 import { useDataTable } from '@/composables/useDataTable'
+import { formatFileSize } from '@/composables/useRecordList'
 
 const { showSearch } = useSearchPanel()
 
@@ -189,6 +196,7 @@ const {
 
 const headers = [
   { title: '复制详情', key: 'detail', minWidth: '300', sortable: false },
+  { title: '大小', key: 'fileSize', align: 'end' as const, width: '100' },
   { title: '状态', key: 'copyStatus', align: 'center' as const, width: '80' },
   { title: '创建时间', key: 'createTime', width: '170', align: 'center' as const },
   { title: '操作', key: 'actions', align: 'center' as const, width: '170', sortable: false }

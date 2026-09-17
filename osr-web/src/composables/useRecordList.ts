@@ -294,6 +294,18 @@ export function useRecordList<TQuery extends SearchParams = SearchParams>(config
 }
 
 /**
+ * 记录页的文件大小。null 是存量记录（加字段之前写入的）或拿不到大小的单文件 STRM 生成，
+ * 显示「-」而不是「0 B」——后者读起来像是一个空文件。
+ */
+export function formatFileSize(bytes: number | null | undefined): string {
+  if (bytes === null || bytes === undefined || bytes < 0) return '-'
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
+}
+
+/**
  * 批量重试的提示。接口返回实际提交条数时把跳过的条数说出来——选了 10 条、其中 4 条已成功，
  * 只说「已提交批量重试」会让人以为 10 条都在跑；没有返回条数的接口（如 STRM）退回通用文案。
  */

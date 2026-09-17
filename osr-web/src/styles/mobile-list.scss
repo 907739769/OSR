@@ -150,6 +150,10 @@
     &.card-path--warning .card-path-text {
       color: var(--osr-warning);
     }
+
+    &.card-path--error .card-path-text {
+      color: var(--osr-error);
+    }
   }
 
   .card-detail {

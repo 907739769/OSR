@@ -19,6 +19,7 @@ import org.mockito.MockitoAnnotations;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -65,6 +66,7 @@ class CopyServiceRetryTest {
 
     private static OpenlistCopyPlus record(int id, String status) {
         OpenlistCopyPlus copy = new OpenlistCopyPlus();
+        copy.setFailReason("2".equals(status) || "4".equals(status) ? "上一次失败的原因" : null);
         copy.setCopyId(id);
         copy.setCopySrcPath(SRC_DIR);
         copy.setCopyDstPath(DST_DIR);
@@ -89,6 +91,9 @@ class CopyServiceRetryTest {
         assertEquals(5, saved.getValue().getCopyId());
         assertEquals("1", saved.getValue().getCopyStatus());
         assertEquals("task-1", saved.getValue().getCopyTaskId());
+        // 上一次的失败原因必须清掉：fail_reason 是 ALWAYS 策略，对象上留着就会被原样写回
+        assertNull(saved.getValue().getFailReason());
+        assertEquals(1000L, saved.getValue().getFileSize());
         verify(asynHelper).isCopyDoneOneFile(eq(DST_DIR + "/" + NAME), same(saved.getValue()));
     }
 
@@ -152,7 +157,7 @@ class CopyServiceRetryTest {
 
         service.retryCopy(List.of("5"));
 
-        assertRevertedToFailed();
+        assertRevertedToFailed("查询源文件失败（OpenList 无响应）");
         verify(openlistCopyPlusService, never()).removeById(any());
     }
 
@@ -163,7 +168,8 @@ class CopyServiceRetryTest {
 
         service.retryCopy(List.of("5"));
 
-        assertRevertedToFailed();
+        OpenlistCopyPlus saved = assertRevertedToFailed("源文件大小 10 字节，低于同步阈值 100 字节，未复制");
+        assertEquals(10L, saved.getFileSize());
         verify(openlistApi, never()).copyOpenlist(anyString(), anyString(), anyList());
     }
 
@@ -174,7 +180,7 @@ class CopyServiceRetryTest {
 
         service.retryCopy(List.of("5"));
 
-        assertRevertedToFailed();
+        assertRevertedToFailed("提交复制任务失败（OpenList 无响应）");
         verify(asynHelper, never()).isCopyDoneOneFile(anyString(), any());
     }
 
@@ -188,6 +194,8 @@ class CopyServiceRetryTest {
         ArgumentCaptor<OpenlistCopyPlus> saved = ArgumentCaptor.forClass(OpenlistCopyPlus.class);
         verify(openlistCopyPlusService).updateById(saved.capture());
         assertEquals("3", saved.getValue().getCopyStatus());
+        assertNull(saved.getValue().getFailReason());
+        assertEquals(1000L, saved.getValue().getFileSize());
         verify(openlistApi, never()).copyOpenlist(anyString(), anyString(), anyList());
     }
 
@@ -222,10 +230,12 @@ class CopyServiceRetryTest {
         verify(openlistCopyPlusService, never()).updateById(any(OpenlistCopyPlus.class));
     }
 
-    private void assertRevertedToFailed() {
+    private OpenlistCopyPlus assertRevertedToFailed(String reason) {
         ArgumentCaptor<OpenlistCopyPlus> saved = ArgumentCaptor.forClass(OpenlistCopyPlus.class);
         verify(openlistCopyPlusService).updateById(saved.capture());
         assertEquals(5, saved.getValue().getCopyId());
         assertEquals("2", saved.getValue().getCopyStatus());
+        assertEquals(reason, saved.getValue().getFailReason());
+        return saved.getValue();
     }
 }

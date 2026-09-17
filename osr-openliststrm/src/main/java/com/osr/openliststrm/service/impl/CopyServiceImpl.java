@@ -9,6 +9,7 @@ import com.osr.framework.manager.AsyncManager;
 import com.osr.openliststrm.api.OpenlistApi;
 import com.osr.openliststrm.config.OpenlistConfig;
 import com.osr.openliststrm.helper.AsynHelper;
+import com.osr.openliststrm.helper.CopyFailReason;
 import com.osr.openliststrm.helper.CopyHelper;
 import com.osr.openliststrm.helper.OpenListHelper;
 import com.osr.openliststrm.mybatisplus.domain.OpenlistCopyPlus;
@@ -163,6 +164,8 @@ public class CopyServiceImpl implements ICopyService {
             // 收集同一目录下需要复制的文件，合并成一次 fs/copy 调用（AList copy 接口本就接受 names 列表），
             // N 次网络请求 → 1 次，显著减少对 AList 的压力。
             List<String> namesToCopy = new java.util.ArrayList<>();
+            // 列目录时 OpenList 已经给了大小，顺手带进记录，不必再为每个文件单独查一次
+            java.util.Map<String, Long> sizeByName = new java.util.HashMap<>();
             for (Object obj : contents) {
                 JSONObject content = (JSONObject) obj;
                 String name = content.getString("name");
@@ -212,16 +215,18 @@ public class CopyServiceImpl implements ICopyService {
                         copy.setCopySrcFileName(name);
                         copy.setCopyDstFileName(name);
                         copy.setCopyStatus("3");
+                        copy.setFileSize(content.getLongValue("size"));
                         toPersist.add(copy);
                     } else if (content.getLongValue("size") >= minSize) {
                         namesToCopy.add(name);
+                        sizeByName.put(name, content.getLongValue("size"));
                     }
                 }
             }
 
             // 同步提交批量复制任务，保证 syncFilesByQueue 返回前所有复制记录已入库，
             // 消除后续 isCopyDone 监控与异步入库之间的时序竞态。
-            toPersist.addAll(submitCopyBatch(srcPath, dstPath, namesToCopy));
+            toPersist.addAll(submitCopyBatch(srcPath, dstPath, namesToCopy, sizeByName));
             // 整个目录一次性批量落库，而不是逐文件调度
             copyHelper.batchAddCopy(srcPath, toPersist);
             return childDirs;
@@ -253,7 +258,8 @@ public class CopyServiceImpl implements ICopyService {
      * 提交同一目录下的批量复制任务：一次 fs/copy 调用复制多个文件，按返回的 tasks 顺序回填任务 ID。
      * 返回构建好的记录列表（不在此处落库），由调用方与目录内其它记录合并后一次性批量写入。
      */
-    private List<OpenlistCopyPlus> submitCopyBatch(String srcPath, String dstPath, List<String> names) {
+    private List<OpenlistCopyPlus> submitCopyBatch(String srcPath, String dstPath, List<String> names,
+                                                   java.util.Map<String, Long> sizeByName) {
         if (names == null || names.isEmpty()) {
             return Collections.emptyList();
         }
@@ -276,6 +282,7 @@ public class CopyServiceImpl implements ICopyService {
             copy.setCopyDstPath(dstPath);
             copy.setCopySrcFileName(fileName);
             copy.setCopyDstFileName(fileName);
+            copy.setFileSize(sizeByName.get(fileName));
             // AList 按 names 顺序返回 tasks，逐一映射任务 ID
             if (tasks != null && i < tasks.size()) {
                 copy.setCopyTaskId(tasks.getJSONObject(i).getString("id"));
@@ -344,7 +351,12 @@ public class CopyServiceImpl implements ICopyService {
         JSONObject dstExistResp = openlistApi.getFile(dstFile);
         if (dstExistResp != null && Integer.valueOf(200).equals(dstExistResp.getInteger("code"))) {
             // 目标已存在，直接记为成功，无需复制
+            JSONObject dstData = dstExistResp.getJSONObject("data");
+            if (dstData != null && dstData.containsKey("size")) {
+                copy.setFileSize(dstData.getLongValue("size"));
+            }
             copy.setCopyStatus("3");
+            copy.setFailReason(null);
             saveCopy(copy);
             asynHelper.isCopyDoneOneFile(dstFile, copy);
             return;
@@ -354,7 +366,7 @@ public class CopyServiceImpl implements ICopyService {
         if (srcResp == null) {
             // AList 不可达：判不出源在不在，不能按「源已消失」删记录（口径同 CopyHelper#discardIfSourceGone）
             log.warn("查询源文件失败（OpenList 无响应）{}", srcFile);
-            markRetryFailed(copy, retry);
+            markRetryFailed(copy, retry, CopyFailReason.sourceQueryFailed());
             return;
         }
         if (srcResp.getJSONObject("data") == null) {
@@ -367,9 +379,10 @@ public class CopyServiceImpl implements ICopyService {
             return;
         }
         long size = srcResp.getJSONObject("data").getLongValue("size");
+        copy.setFileSize(size);
         if (size < config.getMinFileSizeBytes()) {
             log.info("源文件体积 {} 字节低于同步阈值 {} 字节，不复制 {}", size, config.getMinFileSizeBytes(), srcFile);
-            markRetryFailed(copy, retry);
+            markRetryFailed(copy, retry, CopyFailReason.belowMinSize(size, config.getMinFileSizeBytes()));
             return;
         }
 
@@ -383,9 +396,10 @@ public class CopyServiceImpl implements ICopyService {
                 ? null : resp.getJSONObject("data").getJSONArray("tasks");
         if (!Integer.valueOf(200).equals(resp == null ? null : resp.getInteger("code")) || tasks == null || tasks.isEmpty()) {
             log.warn("提交复制任务失败 {} => {}", srcFile, copy.getCopyDstPath());
-            markRetryFailed(copy, retry);
+            markRetryFailed(copy, retry, CopyFailReason.submitFailed(resp));
             return;
         }
+        copy.setFailReason(null);
         copy.setCopyTaskId(tasks.getJSONObject(0).getString("id"));
         copy.setCopyStatus("1");
         saveCopy(copy);
@@ -405,11 +419,12 @@ public class CopyServiceImpl implements ICopyService {
     }
 
     /** 重试时没能提交复制，把认领时置成的「处理中」退回失败；新发现的文件没有记录，无需处理 */
-    private void markRetryFailed(OpenlistCopyPlus copy, boolean retry) {
+    private void markRetryFailed(OpenlistCopyPlus copy, boolean retry, String failReason) {
         if (!retry) {
             return;
         }
         copy.setCopyStatus("2");
+        copy.setFailReason(failReason);
         openlistCopyPlusService.updateById(copy);
     }
 
@@ -433,6 +448,8 @@ public class CopyServiceImpl implements ICopyService {
         if (claimed) {
             copy.setCopyStatus("1");
             copy.setCopyTaskId("");
+            // 库里的原因已被认领一并清空（ALWAYS 策略），对象上也要清，否则后续 updateById 会把旧原因写回去
+            copy.setFailReason(null);
             // 置空后由自动填充写入当前时间；否则后续 updateById 会把库里刚刷新的 update_time 写回旧值
             copy.setUpdateTime(null);
         }

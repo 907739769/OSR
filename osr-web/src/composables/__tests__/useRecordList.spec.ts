@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest'
-import { useRecordList, batchRetryMessage } from '../useRecordList'
+import { useRecordList, batchRetryMessage, formatFileSize } from '../useRecordList'
 
 vi.mock('../useMessage', () => ({
   message: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() }
@@ -84,5 +84,20 @@ describe('批量重试的提示', () => {
   it('接口不返回条数时退回通用文案', () => {
     // STRM 的批量重试不返回条数，不能拼出「已提交重试 undefined 条」
     expect(batchRetryMessage(3, undefined)).toBe('已提交批量重试')
+  })
+})
+
+describe('记录页的文件大小', () => {
+  it('没有大小时显示「-」而不是 0 B', () => {
+    // 存量记录与单文件 STRM 生成拿不到大小，「0 B」读起来像是一个空文件
+    expect(formatFileSize(null)).toBe('-')
+    expect(formatFileSize(undefined)).toBe('-')
+  })
+
+  it('按量级换算', () => {
+    expect(formatFileSize(0)).toBe('0 B')
+    expect(formatFileSize(1536)).toBe('1.5 KB')
+    expect(formatFileSize(734 * 1024 * 1024)).toBe('734.0 MB')
+    expect(formatFileSize(Math.round(4.37 * 1024 ** 3))).toBe('4.37 GB')
   })
 })

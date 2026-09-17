@@ -137,9 +137,18 @@
           <v-icon class="card-path-icon" icon="map-pin" size="14" />
           <span class="card-path-text">{{ record.copyDstPath }}</span>
         </div>
+        <div
+          v-if="canRetryCopy(record.copyStatus) && record.failReason"
+          class="card-path card-path--link card-path--error"
+          @click.stop="showFullText(record.failReason, '失败原因')"
+        >
+          <v-icon class="card-path-icon" icon="circle-alert" size="14" />
+          <span class="card-path-text">{{ record.failReason }}</span>
+        </div>
         <div class="card-time">
           <v-icon icon="clock" size="12" />
           {{ record.createTime }}
+          <template v-if="record.fileSize != null">· {{ formatFileSize(record.fileSize) }}</template>
         </div>
         <div class="card-actions" @click.stop>
           <!-- 只有失败/未知能重试，理由同 PC 端 -->
@@ -186,6 +195,7 @@ import FullTextDialog from '@/components/mobile/FullTextDialog.vue'
 import StatusChip from '@/components/StatusChip.vue'
 import { useCopyRecord } from '@/composables/useCopyRecord'
 import { useActionSheet } from '@/composables/useActionSheet'
+import { formatFileSize } from '@/composables/useRecordList'
 
 const searchCollapsed = ref(true)
 
