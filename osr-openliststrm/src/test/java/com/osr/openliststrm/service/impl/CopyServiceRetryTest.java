@@ -9,6 +9,7 @@ import com.osr.openliststrm.helper.CopyHelper;
 import com.osr.openliststrm.helper.OpenListHelper;
 import com.osr.openliststrm.mybatisplus.domain.OpenlistCopyPlus;
 import com.osr.openliststrm.mybatisplus.service.IOpenlistCopyPlusService;
+import com.osr.openliststrm.service.BatchRemoveOutcome;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -47,6 +48,10 @@ class CopyServiceRetryTest {
     private OpenlistConfig config;
     @Mock
     private OpenListHelper openListHelper;
+    @Mock
+    private com.osr.openliststrm.mybatisplus.service.IOpenlistStrmPlusService openlistStrmPlusService;
+    @Mock
+    private org.springframework.transaction.support.TransactionTemplate transactionTemplate;
 
     @InjectMocks
     private CopyServiceImpl service;
@@ -258,6 +263,17 @@ class CopyServiceRetryTest {
         assertEquals("1", records.get(1).getCopyStatus());
         assertNull(records.get(1).getFailReason());
         assertEquals(10L, records.get(0).getFileSize());
+    }
+
+    @Test
+    void 批量删除网盘文件_同步执行时报出实际删掉几个_失败的不算() {
+        when(openlistCopyPlusService.listByIds(any())).thenReturn(List.of(record(5, "3"), record(6, "3")));
+        when(openlistApi.fsRemove(anyString(), anyList()))
+                .thenReturn(JSONObject.of("code", 200), JSONObject.of("code", 500, "message", "denied"));
+
+        BatchRemoveOutcome outcome = service.batchRemoveNetDisk(List.of("5", "6"));
+
+        assertEquals(new BatchRemoveOutcome(2, 1, false), outcome);
     }
 
     private OpenlistCopyPlus assertRevertedToFailed(String reason) {

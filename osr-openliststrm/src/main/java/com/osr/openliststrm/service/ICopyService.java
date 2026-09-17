@@ -24,7 +24,7 @@ public interface ICopyService {
     /**
      * 批量删除网盘文件并更新记录
      */
-    void batchRemoveNetDisk(List<String> idList);
+    BatchRemoveOutcome batchRemoveNetDisk(List<String> idList);
 
     /**
      * 按记录重试复制任务。只重试失败与监控超时/任务丢失的记录，处理中与已成功的跳过。

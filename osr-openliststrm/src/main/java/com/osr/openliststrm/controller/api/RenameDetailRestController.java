@@ -30,6 +30,37 @@ public class RenameDetailRestController extends BaseCrudRestController<IRenameDe
     @Autowired
     private RenameCleanupService cleanupService;
 
+    @Override
+    protected boolean systemGeneratedRecords()
+    {
+        return true;
+    }
+
+    /**
+     * 按状态分组计数，供页面顶部统计条使用。筛选条件与列表一致，但忽略状态这一项
+     */
+    @GetMapping("/stats")
+    public Result<java.util.Map<String, Long>> stats(RenameDetailPlus query)
+    {
+        if (query != null)
+        {
+            query.setStatus(null);
+        }
+        com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<RenameDetailPlus> conditions =
+                new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<>();
+        applyConditions(conditions, query);
+        return Result.success(RecordStatusCounts.count(service.getBaseMapper(), conditions, "status"));
+    }
+
+    /**
+     * 重试全部失败的重命名明细（最多取最新 200 条），与 TG 的「重试全部失败」同一套逻辑
+     */
+    @PostMapping("/retry-failed")
+    public Result<RenameTaskManager.RetryOutcome> retryAllFailed()
+    {
+        return Result.success(renameTaskManager.retryAllFailed());
+    }
+
     /**
      * 批量删除重命名明细（只删数据库记录，磁盘上的产物原样保留）。
      * <p>
@@ -172,6 +203,16 @@ public class RenameDetailRestController extends BaseCrudRestController<IRenameDe
     protected com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<RenameDetailPlus> buildQueryWrapper(RenameDetailPlus renameDetail)
     {
         com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<RenameDetailPlus> wrapper = new com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<>();
+        applyConditions(wrapper, renameDetail);
+        wrapper.orderByDesc("create_time");
+        return wrapper;
+    }
+
+    /**
+     * 只加筛选条件、不加排序：统计接口要拿它做 GROUP BY，见 {@link RecordStatusCounts}
+     */
+    private void applyConditions(com.baomidou.mybatisplus.core.conditions.query.QueryWrapper<RenameDetailPlus> wrapper, RenameDetailPlus renameDetail)
+    {
         if (renameDetail != null)
         {
             if (StringUtils.isNotEmpty(renameDetail.getOriginalPath()))
@@ -206,6 +247,10 @@ public class RenameDetailRestController extends BaseCrudRestController<IRenameDe
             {
                 wrapper.eq("status", renameDetail.getStatus());
             }
+            if (StringUtils.isNotEmpty(renameDetail.getScrapeStatus()))
+            {
+                wrapper.eq("scrape_status", renameDetail.getScrapeStatus());
+            }
             // 开始 / 结束时间各自独立，只填一侧就是半开区间；格式不合法的一侧直接忽略
             String beginTime = QueryTimeRange.get(renameDetail.getParams(), "beginTime");
             String endTime = QueryTimeRange.get(renameDetail.getParams(), "endTime");
@@ -218,7 +263,5 @@ public class RenameDetailRestController extends BaseCrudRestController<IRenameDe
                 wrapper.le("create_time", endTime);
             }
         }
-        wrapper.orderByDesc("create_time");
-        return wrapper;
     }
 }

@@ -17,7 +17,7 @@ public interface IStrmService {
     /**
      * 批量删除网盘文件并更新记录
      */
-    void batchRemoveNetDisk(List<String> idList);
+    BatchRemoveOutcome batchRemoveNetDisk(List<String> idList);
 
     /**
      * 重试STRM任务

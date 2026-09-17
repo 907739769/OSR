@@ -16,6 +16,7 @@ import com.osr.openliststrm.mybatisplus.service.IOpenlistCopyPlusService;
 import com.osr.openliststrm.mybatisplus.service.IOpenlistStrmPlusService;
 import com.osr.openliststrm.mybatisplus.service.IOpenlistStrmTaskPlusService;
 import com.osr.openliststrm.rename.cleanup.ArtifactPaths;
+import com.osr.openliststrm.service.BatchRemoveOutcome;
 import com.osr.openliststrm.service.IStrmService;
 import com.osr.openliststrm.service.StrmSettings;
 import com.osr.openliststrm.service.StrmSettingsFactory;
@@ -354,9 +355,10 @@ public class StrmServiceImpl implements IStrmService {
     }
 
     @Override
-    public void batchRemoveNetDisk(List<String> idList) {
-        if (idList == null || idList.isEmpty()) return;
+    public BatchRemoveOutcome batchRemoveNetDisk(List<String> idList) {
+        if (idList == null || idList.isEmpty()) return new BatchRemoveOutcome(0, 0, false);
         List<OpenlistStrmPlus> strmList = openlistStrmPlusService.listByIds(idList);
+        java.util.concurrent.atomic.AtomicInteger removed = new java.util.concurrent.atomic.AtomicInteger();
         Runnable action = () -> {
             // 外部API调用在事务外执行，单条隔离失败，只清理网盘删除成功的记录，避免网盘/DB状态不一致
             List<OpenlistStrmPlus> succeeded = new java.util.ArrayList<>();
@@ -372,6 +374,7 @@ public class StrmServiceImpl implements IStrmService {
                     log.error("网盘文件删除异常，跳过对应记录清理：{}/{}", strm.getStrmPath(), strm.getStrmFileName(), e);
                 }
             }
+            removed.set(succeeded.size());
             if (succeeded.isEmpty()) {
                 return;
             }
@@ -387,11 +390,12 @@ public class StrmServiceImpl implements IStrmService {
                 openlistStrmPlusService.removeBatchByIds(succeededIds);
             });
         };
-        if (idList.size() > 20) {
+        if (idList.size() > BatchRemoveOutcome.BACKGROUND_THRESHOLD) {
             AsyncManager.me().execute(action);
-        } else {
-            action.run();
+            return BatchRemoveOutcome.inBackground(idList.size());
         }
+        action.run();
+        return new BatchRemoveOutcome(idList.size(), removed.get(), false);
     }
 
     @Override
