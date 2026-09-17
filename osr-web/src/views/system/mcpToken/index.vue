@@ -109,8 +109,8 @@
     <!-- 签发 -->
     <v-dialog v-model="issueDialog" max-width="560" persistent>
       <v-card>
-        <v-card-title class="dialog-title">签发 MCP 令牌</v-card-title>
-        <v-card-text class="dialog-body">
+        <v-card-title>签发 MCP 令牌</v-card-title>
+        <v-card-text>
           <v-text-field
             v-model="issueForm.name"
             label="令牌名称"
@@ -155,10 +155,10 @@
     <!-- 签发结果：明文只在这里出现这一次 -->
     <v-dialog v-model="issuedDialog" max-width="720" persistent>
       <v-card>
-        <v-card-title class="dialog-title">
+        <v-card-title>
           <v-icon icon="key-round" size="small" class="mr-2" />令牌已签发
         </v-card-title>
-        <v-card-text class="dialog-body">
+        <v-card-text>
           <v-alert type="warning" variant="tonal" density="compact" class="mb-4">
             <b>这是这枚令牌唯一一次完整显示。</b>关掉这个窗口之后，服务端也拿不回明文了——
             忘了保存只能重新签发一枚。
@@ -191,8 +191,8 @@
     <!-- 连接说明 -->
     <v-dialog v-model="showGuide" max-width="720" scrollable>
       <v-card>
-        <v-card-title class="dialog-title">如何连接</v-card-title>
-        <v-card-text class="dialog-body guide">
+        <v-card-title>如何连接</v-card-title>
+        <v-card-text class="guide">
           <p>MCP 端点：<code>{{ mcpEndpoint }}</code>，认证方式为 <code>Authorization: Bearer &lt;令牌&gt;</code>。</p>
           <p>
             <b>部署提示：</b>如果通过 Nginx 反向代理访问，<code>/mcp</code> 需要单独一条 location，
