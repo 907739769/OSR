@@ -36,7 +36,7 @@
     </div>
 
     <!-- Hint -->
-    <p v-if="meta.hint" class="config-item__hint">{{ meta.hint }}</p>
+    <p v-if="hint" class="config-item__hint">{{ hint }}</p>
 
     <!-- Display value (non-switch, non-editing) -->
     <div
@@ -69,8 +69,10 @@
         />
         <span v-if="meta.type === 'number' && meta.unit" class="edit-unit">{{ meta.unit }}</span>
 
-        <!-- select -->
-        <v-combobox
+        <!-- select：选项是固定清单，不需要手输。
+             不要换回 v-combobox——它的 returnObject 默认为 true，选中后 configValue
+             拿到的是 { label, value } 对象而不是字符串，保存时整个对象被发给后端 -->
+        <v-select
           v-else-if="meta.type === 'select'"
           v-model="form.configValue"
           :items="meta.options"
@@ -133,7 +135,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { SysConfig } from '@/types/system'
-import { metaOf, isSensitive } from './configMeta'
+import { metaOf, hintOf, isSensitive } from './configMeta'
 
 /**
  * 参数设置里的一条配置。展示态 / 开关 / 编辑态（number、select、password、textarea、text）
@@ -162,6 +164,7 @@ const emit = defineEmits<{
 }>()
 
 const meta = computed(() => metaOf(props.config))
+const hint = computed(() => hintOf(props.config))
 
 /** 展示态的取值：下拉显中文标签、数字带单位、敏感值脱敏 */
 const displayValue = (config: SysConfig): string => {
@@ -211,7 +214,8 @@ const displayValue = (config: SysConfig): string => {
   &--editing {
     border-color: rgb(var(--v-theme-warning));
     box-shadow: 0 0 0 2px rgba(var(--v-theme-warning), 0.2);
-    grid-column: 1 / -1;
+    /* 不要再给编辑态加 grid-column: 1 / -1：独占一行会让它和后面的卡片整体换位，
+       用户刚点的那张卡片跳到别处，旁边的卡片也跟着挪 */
   }
 
   .config-item__header {

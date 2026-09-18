@@ -21,15 +21,22 @@
         :rules="apiKeyRules"
       />
       <FormField label="分类">
-        <v-select
+        <!-- 用 combobox 而不是 select：placeholder 一直写着「可直接输入分类 ID」，
+             而 v-select 根本打不了字，caps 拿不到的站点就没有任何办法配分类 -->
+        <v-combobox
           v-model="categoriesSelected"
           :items="categoryFlatOptions"
+          :return-object="false"
           multiple
           chips
           closable-chips
           hide-details
-          placeholder="点击右侧「获取分类」后选择，或直接输入分类 ID"
-        />
+          placeholder="点击右侧「获取分类」后选择，或输入分类 ID 后回车"
+        >
+          <template #chip="{ props: chipProps, item }">
+            <v-chip v-bind="chipProps" :text="item.title.trim()" />
+          </template>
+        </v-combobox>
         <v-btn :loading="categoriesLoading" variant="outlined" @click="fetchCategories">获取分类</v-btn>
       </FormField>
       <v-text-field
@@ -110,7 +117,7 @@ const {
 const apiKeyRules = computed(() => (form.value.id ? [] : toRuleFns(rules.apiKey)))
 
 // 原来的父子分类分组结构在 Vuetify v-select 中拍平为一层，父分类照常可选，
-// 子分类前缀全角空格保留原有的缩进视觉效果
+// 子分类前缀全角空格保留原有的缩进视觉效果（chip 上会 trim 掉，那里不需要缩进）
 const categoryFlatOptions = computed(() => {
   const list: { title: string; value: string }[] = []
   categoryOptions.value.forEach(parent => {
