@@ -78,6 +78,12 @@
             <span class="label">轮询周期</span>
             <span class="value">{{ item.pollInterval }} 秒</span>
           </div>
+          <div class="detail-row" v-if="item.hrEnabled === '1'">
+            <span class="label">H&amp;R</span>
+            <span class="value">
+              <StatusChip type="warning" :text="hrLabel(item)" />
+            </span>
+          </div>
           <div class="detail-row">
             <span class="label">上次轮询</span>
             <span class="value">{{ item.lastPollTime || '-' }}</span>
@@ -141,7 +147,7 @@ const {
   handleQuery, resetQuery,
   selectedIds, toggleSelect, handleCardClick, clearSelection,
   isAllPageSelected, toggleSelectAllPage,
-  handleAdd, handleUpdate, handleDelete,
+  handleAdd, handleUpdate, handleDelete, hrLabel,
   totalPages, prevPage, nextPage, handleSizeChange,
   searchCollapsed
 } = usePageStateProvider(usePtIndexer())

@@ -92,8 +92,16 @@ export function usePtIndexer(options: ListLoadOptions = {}) {
   }
 
   // ---------- 分类获取（caps 接口） ----------
-  const categoriesLoading = ref(false)
-  const categoryOptions = ref<CategoryOption[]>([])
+  // 分类树属于「某个索引器的某个地址」，按 id + url 分别记下。原先是整页共用一份 ref、
+  // 打开别的索引器也不清空，于是编辑 B 时下拉里摆着 A 的分类，选进去的是 A 站的分类 ID。
+  // 按键存而不是「打开弹窗时清空」，还顺带解决两件事：改了接口地址后旧分类自动失效；
+  // 请求没回来就切到别的索引器，结果落在原来的键上，不会串到新弹窗里
+  const categorySourceKey = computed(() =>
+    `${base.form.value.id ?? ''}|${String(base.form.value.url ?? '').trim()}`)
+  const categoryCache = ref<Record<string, CategoryOption[]>>({})
+  const categoryLoadingKeys = ref<string[]>([])
+  const categoryOptions = computed<CategoryOption[]>(() => categoryCache.value[categorySourceKey.value] ?? [])
+  const categoriesLoading = computed(() => categoryLoadingKeys.value.includes(categorySourceKey.value))
 
   const fetchCategories = async () => {
     // 编辑已有记录时 apikey 被后端脱敏为空属正常现象，留空提交交给后端按 id 回填已保存的值
@@ -101,25 +109,47 @@ export function usePtIndexer(options: ListLoadOptions = {}) {
       message.warning('请先填写接口地址与 apikey')
       return
     }
-    categoriesLoading.value = true
+    const key = categorySourceKey.value
+    categoryLoadingKeys.value = [...categoryLoadingKeys.value, key]
     try {
-      categoryOptions.value = await getPtIndexerCategoriesApi(base.form.value) as unknown as CategoryOption[]
-      message.success('分类获取成功')
+      const options = (await getPtIndexerCategoriesApi({ ...base.form.value }) as unknown as CategoryOption[]) ?? []
+      categoryCache.value = { ...categoryCache.value, [key]: options }
+      // 用户已经切到别的索引器时不再弹提示，免得对着另一个弹窗说「获取成功」
+      if (key !== categorySourceKey.value) return
+      if (options.length) message.success(`已获取 ${options.length} 个分类`)
+      else message.warning('该索引器没有返回任何分类，可直接输入分类 ID')
     } catch (e) {
       // 失败提示已由 axios 拦截器统一弹出，见 handleTest 同类注释
       console.error('[PT索引器] 获取分类失败:', e)
     } finally {
-      categoriesLoading.value = false
+      categoryLoadingKeys.value = categoryLoadingKeys.value.filter(k => k !== key)
     }
   }
 
-  // 分类字段落库/提交仍是逗号分隔字符串，仅在下拉展示层转换为数组
+  // 分类字段落库/提交仍是逗号分隔字符串，仅在下拉展示层转换为数组。
+  // 下拉允许手输：值可能是选项对象，也可能是一串「2000,5000」，统一拆开、只留数字 ID——
+  // Torznab 的分类 ID 全是数字，非数字原样落库会拼成 &cat=abc，索引器多半直接报错
   const categoriesSelected = computed<string[]>({
     get: () => (base.form.value.categories ? String(base.form.value.categories).split(',').filter(Boolean) : []),
-    set: (val: string[]) => {
-      base.form.value.categories = val.length ? val.join(',') : undefined
+    set: (val: unknown[]) => {
+      const tokens = (val ?? [])
+        .map(v => (typeof v === 'object' && v !== null ? String((v as any).value ?? '') : String(v)))
+        .flatMap(s => s.split(/[,，\s]+/))
+        .map(s => s.trim())
+        .filter(Boolean)
+      const ids = [...new Set(tokens.filter(s => /^\d+$/.test(s)))]
+      if (ids.length < new Set(tokens).size) message.warning('分类 ID 只能是数字，已忽略非数字的输入')
+      base.form.value.categories = ids.length ? ids.join(',') : undefined
     }
   })
+
+  /** 列表卡片上的 H&R 要求摘要。两项是「或」的关系，只填了一项就只显示那一项；两端卡片共用 */
+  const hrLabel = (item: any) => {
+    const parts: string[] = []
+    if (item.hrSeedHours > 0) parts.push(`做满 ${item.hrSeedHours}h`)
+    if (item.hrRatio > 0) parts.push(`分享率 ${item.hrRatio}`)
+    return parts.length ? parts.join(' 或 ') : '未配置阈值'
+  }
 
   // ---------- 移动端 - 分页辅助 ----------
   const totalPages = computed(() => Math.ceil(base.total.value / base.queryParams.pageSize) || 1)
@@ -152,6 +182,7 @@ export function usePtIndexer(options: ListLoadOptions = {}) {
   return {
     ...base, testLoading, handleTest,
     categoriesLoading, categoryOptions, fetchCategories, categoriesSelected,
+    hrLabel,
     totalPages, prevPage, nextPage, handleSizeChange,
     searchCollapsed
   }

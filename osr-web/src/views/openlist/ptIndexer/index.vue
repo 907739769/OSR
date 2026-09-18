@@ -57,10 +57,9 @@
         <div v-for="item in taskList" :key="item.id" class="item-card">
           <div class="card-header">
             <div class="card-checkbox">
-              <v-checkbox
+              <v-checkbox-btn
                 :model-value="selectedIds.includes(item.id)"
                 density="compact"
-                hide-details
                 @update:model-value="toggleSelect(item.id)"
               />
             </div>
@@ -155,20 +154,12 @@ import PtIndexerFormDialog from '@/components/dialogs/PtIndexerFormDialog.vue'
 
 const { showSearch } = useSearchPanel()
 
-/** 列表卡片上的 H&R 要求摘要。两项是「或」的关系，只填了一项就只显示那一项 */
-const hrLabel = (item: any) => {
-  const parts: string[] = []
-  if (item.hrSeedHours > 0) parts.push(`做满 ${item.hrSeedHours}h`)
-  if (item.hrRatio > 0) parts.push(`分享率 ${item.hrRatio}`)
-  return parts.length ? parts.join(' 或 ') : '未配置阈值'
-}
-
 // 表单弹窗与移动端共用一份（components/dialogs/），它靠 usePageStateProvider 取同一份状态
 const {
   taskList, loading, total, queryParams, getList, handleQuery, resetQuery, queryRef,
   selectedIds, notOneSelected, noneSelected, toggleSelect,
   isAllPageSelected, toggleSelectAllPage,
-  handleAdd, handleUpdate, handleDelete
+  handleAdd, handleUpdate, handleDelete, hrLabel
 } = usePageStateProvider(usePtIndexer({ autoLoad: false }))
 
 // 每页条数按网格实际列数取整到整行，窗口宽度变了跟着重算
