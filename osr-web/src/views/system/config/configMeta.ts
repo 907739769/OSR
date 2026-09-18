@@ -77,9 +77,20 @@ export const CONFIG_META: Record<string, ConfigMeta> = {
   'openlist.wecom.touser': { type: 'text', hint: '无归属通知的接收人，多个用 | 分隔，@all 表示应用可见范围内全部成员' },
   'openlist.wecom.autocreate': { type: 'switch', hint: '开启后企微成员首次发指令即自动建 OSR 账号并绑定（账号为停用状态，无法登录网页端），管理员无需逐个建号；关闭则必须先在「企业微信用户」页面建好绑定' },
   'openlist.wecom.proxy': { type: 'text', hint: '企微 API 中转地址。仅 2022-06-20 之后创建的自建应用、且服务器无固定公网 IP 时需要（企微要求登记可信 IP），填反代 qyapi.weixin.qq.com 的地址。不使用代理请保留默认值 https://qyapi.weixin.qq.com' },
-  'openlist.notify.wecom.types': { type: 'text', hint: '逗号分隔的通知类型，留空=全部发送。可选：GENERAL,SUBSCRIPTION_HIT,DOWNLOAD_COMPLETE,DOWNLOAD_FAILED,EMBY_LIBRARY_SYNC' },
-  // OpenAI
+  // 通知渠道（说明文字取数据库 remark，这里只声明控件类型）
+  'openlist.notify.webhook.url': { type: 'text' },
+  'openlist.notify.bark.url': { type: 'text' },
+  'openlist.notify.gotify.url': { type: 'text' },
+  'openlist.notify.gotify.token': { type: 'password' },
+  // 复制：临时目录过滤（正则串，逗号分隔）
+  'openlist.copy.transientdirs': { type: 'textarea' },
+  // 登录与安全：三项都是「填 0 关闭」
+  'sys.login.maxRetryCount': { type: 'number', min: 0, unit: '次' },
+  'sys.login.ipMaxRetryCount': { type: 'number', min: 0, unit: '次' },
+  'sys.login.lockMinutes': { type: 'number', min: 0, unit: '分钟' },
+  // RSSHub
   'openlist.rsshub.base-url': { type: 'text', hint: '自建 RSSHub 实例地址，如 http://192.168.1.10:1200。留空则「豆瓣热门(RSSHub)」数据源不工作。实例带访问码时可直接把 ?key=xxx 写在地址里' },
+  // OpenAI
   'openlist.openai.apikey': { type: 'password', hint: 'OpenAI API Key' },
   'openlist.openai.endpoint': { type: 'text', hint: 'OpenAI 接口地址，默认 https://api.openai.com' },
   'openlist.openai.model': { type: 'text', hint: 'OpenAI 模型名称，例如 gpt-5-mini' },
@@ -92,6 +103,14 @@ export const CONFIG_META: Record<string, ConfigMeta> = {
 
 export const metaOf = (config: SysConfig): ConfigMeta => {
   return CONFIG_META[config.configKey] || { type: 'text' }
+}
+
+/**
+ * 说明文字：元数据里写了就用元数据，否则退回数据库 remark。
+ * 迁移脚本插配置时都会写 remark，新增配置即使忘了登记元数据也不会是光秃秃一个输入框。
+ */
+export const hintOf = (config: SysConfig): string => {
+  return metaOf(config).hint || config.remark || ''
 }
 
 /**
@@ -109,27 +128,51 @@ export const metaOf = (config: SysConfig): ConfigMeta => {
  * 匹配取最长前缀：openlist.notify.tg.types 归「通知渠道」而不是「Telegram 机器人」，
  * 它描述的是通知路由而不是机器人本身。
  */
-export const SECTION_RULES: Array<{ key: string; title: string; icon: string; prefixes: string[] }> = [
-  { key: 'openlist', title: 'OpenList 服务', icon: 'server',
+export const SECTION_RULES: Array<{ key: string; title: string; icon: string; tab: string; prefixes: string[] }> = [
+  { key: 'openlist', title: 'OpenList 服务', icon: 'server', tab: 'openlist',
     prefixes: ['openlist.server.', 'openlist.api.', 'openlist.local.'] },
-  { key: 'copy', title: '复制 & STRM 任务', icon: 'arrow-left-right',
+  { key: 'copy', title: '复制 & STRM 任务', icon: 'arrow-left-right', tab: 'copy',
     prefixes: ['openlist.copy.', 'openlist.strm.'] },
-  { key: 'notify', title: '通知渠道', icon: 'bell',
+  { key: 'notify', title: '通知渠道', icon: 'bell', tab: 'notify',
     prefixes: ['openlist.notify.'] },
-  { key: 'tg', title: 'Telegram 机器人', icon: 'brand-telegram',
+  { key: 'tg', title: 'Telegram 机器人', icon: 'brand-telegram', tab: 'notify',
     prefixes: ['openlist.tg.'] },
-  { key: 'wecom', title: '企业微信', icon: 'brand-wecom',
+  { key: 'wecom', title: '企业微信', icon: 'brand-wecom', tab: 'notify',
     prefixes: ['openlist.wecom.'] },
-  { key: 'tmdb', title: 'TMDb 影视配置', icon: 'zap',
+  { key: 'tmdb', title: 'TMDb 影视配置', icon: 'zap', tab: 'external',
     prefixes: ['openlist.tmdb.'] },
-  { key: 'openai', title: 'OpenAI 配置', icon: 'bot',
+  { key: 'openai', title: 'OpenAI 配置', icon: 'bot', tab: 'external',
     prefixes: ['openlist.openai.'] },
-  { key: 'rsshub', title: 'RSSHub 服务', icon: 'rss',
+  { key: 'rsshub', title: 'RSSHub 服务', icon: 'rss', tab: 'external',
     prefixes: ['openlist.rsshub.'] },
-  { key: 'security', title: '登录与安全', icon: 'shield-check',
+  { key: 'security', title: '登录与安全', icon: 'shield-check', tab: 'security',
     prefixes: ['sys.login.', 'sys.account.'] },
-  { key: 'other', title: '其他', icon: 'ellipsis', prefixes: [] }
+  { key: 'other', title: '其他', icon: 'ellipsis', tab: 'other', prefixes: [] }
 ]
+
+/**
+ * 标签页：一个标签装一个或多个分组（SECTION_RULES 的 tab 字段）。
+ *
+ * 分组是「配置属于谁」，标签是「用户到哪儿找它」，两者粒度不同。原先一个分组一个标签，
+ * 10 个标签里 RSSHub 只有 1 项、Telegram 2 项，1280 宽下一行排不下、后几个被挤到
+ * 滚动箭头后面。合并后标签内按分组分小节，归属信息一点没丢。
+ */
+export const CONFIG_TABS: Array<{ key: string; title: string; icon: string }> = [
+  { key: 'openlist', title: 'OpenList 服务', icon: 'server' },
+  { key: 'copy', title: '复制 & STRM', icon: 'arrow-left-right' },
+  { key: 'notify', title: '通知与机器人', icon: 'bell' },
+  { key: 'external', title: '外部服务', icon: 'plug' },
+  { key: 'security', title: '登录与安全', icon: 'shield-check' },
+  { key: 'other', title: '其他', icon: 'ellipsis' }
+]
+
+/** 搜索：配置名、键名、说明文字任一包含关键词（不区分大小写） */
+export const matchesQuery = (config: SysConfig, query: string): boolean => {
+  const q = query.trim().toLowerCase()
+  if (!q) return true
+  return [config.configName, config.configKey, hintOf(config)]
+    .some(text => (text || '').toLowerCase().includes(q))
+}
 
 export const HIDDEN_KEYS = new Set([
   // 重命名文件名模板 → /openlist/renameConfig
