@@ -4,7 +4,7 @@
     <div class="welcome-header">
       <div class="welcome-text">
         <div class="welcome-title">欢迎回来，{{ userName }}</div>
-        <div class="welcome-quote" title="点击换一句" @click="loadQuote">“{{ quote }}”</div>
+        <div class="welcome-quote" :title="`${quote}（点击换一句）`" @click="loadQuote">“{{ quote }}”</div>
       </div>
       <div class="welcome-date">
         <div class="welcome-weekday">{{ weekdayText }}</div>
@@ -12,8 +12,16 @@
       </div>
     </div>
 
+    <!-- 统计接口失败时明说失败并给重试，不再拿一排 0 冒充「系统很干净」 -->
+    <v-alert v-if="statError && !statLoading" type="error" variant="tonal" density="compact" class="mb-3">
+      统计数据加载失败，下方数字暂不可用。
+      <template #append>
+        <v-btn size="small" variant="text" @click="loadStats">重试</v-btn>
+      </template>
+    </v-alert>
+
     <!-- Stat Cards -->
-    <v-row class="stat-row" dense>
+    <v-row v-if="!statError || statLoading" class="stat-row" dense>
       <template v-if="statLoading">
         <v-col cols="6" md="2" v-for="i in 6" :key="'skeleton-' + i">
           <v-skeleton-loader type="list-item-avatar" class="stat-skeleton" />
@@ -26,9 +34,9 @@
                Vuetify 的负外边距一起算，卡片入场时左右会漂 -->
           <v-card
             class="stat-card osr-enter"
-            :class="[stat.type, { clickable: !!stat.path }]"
+            :class="[stat.type, { clickable: !!(stat.path || stat.anchor) }]"
             :style="{ '--osr-i': index }"
-            @click="stat.path && router.push(stat.path)"
+            @click="onStatClick(stat)"
           >
             <div class="stat-icon">
               <v-icon :icon="stat.icon" size="18" />
@@ -75,10 +83,14 @@
       </v-col>
     </v-row>
 
-    <!-- Bottom: recent failures + quick links -->
+    <!-- Bottom: recent failures + todo + quick links -->
     <v-row class="bottom-row">
-      <v-col cols="12" md="8">
+      <v-col id="dashboard-failures" cols="12" md="5">
         <RecentFailuresCard />
+      </v-col>
+
+      <v-col cols="12" md="3">
+        <TodoCard ref="todoCard" />
       </v-col>
 
       <v-col cols="12" md="4">
@@ -105,39 +117,14 @@ import PtOverviewCard from './PtOverviewCard.vue'
 import RecentFailuresCard from './RecentFailuresCard.vue'
 import QuickLinksCard from './QuickLinksCard.vue'
 import { getDashboardStatsApi, getDashboardTrendApi, type DashboardTrendPoint } from '@/api/openlist/dashboard'
-import { getHitokotoApi } from '@/api/openlist/hitokoto'
+import TodoCard from './TodoCard.vue'
+import { useDashboardHeader } from '@/composables/useDashboardHeader'
 
 echarts.use([LineChart, TitleComponent, TooltipComponent, GridComponent, LegendComponent, CanvasRenderer])
 
 const router = useRouter()
 const { displayName: userName } = useCurrentUser()
-const weekdayText = new Date().toLocaleDateString('zh-CN', { weekday: 'long' })
-const dateText = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })
-
-/** 一言接口请求失败时的备用文案，与移动端首页保持一致 */
-const FALLBACK_QUOTES = [
-  '代码写得好，Bug就是少。',
-  '生活明朗，万物可爱。',
-  '愿你被这个世界温柔以待。',
-  '不积跬步，无以至千里。',
-  '心之所向，素履以往。'
-]
-
-function randomFallbackQuote(): string {
-  return FALLBACK_QUOTES[Math.floor(Math.random() * FALLBACK_QUOTES.length)]
-}
-
-const quote = ref(randomFallbackQuote())
-
-function loadQuote() {
-  getHitokotoApi()
-    .then((data) => {
-      quote.value = data.from ? `${data.hitokoto} —— ${data.from}` : data.hitokoto
-    })
-    .catch((e) => {
-      console.error('[Dashboard] 每日一言加载失败:', e)
-    })
-}
+const { weekdayText, dateText, quote, refreshDate, loadQuote } = useDashboardHeader('Dashboard')
 
 interface StatCard {
   label: string
@@ -145,62 +132,76 @@ interface StatCard {
   icon: string
   type: 'primary' | 'success' | 'warning' | 'info'
   path?: string | null
+  /** 点击后滚动到的锚点 id（没有独立落地页的统计，如失败数） */
+  anchor?: string
   /** 有值时卡片右下角展示对应类型的近 7 天迷你趋势线 */
   sparkKey?: 'copy' | 'strm' | 'rename'
 }
 
+function onStatClick(stat: StatCard) {
+  if (stat.path) router.push(stat.path)
+  else if (stat.anchor) document.getElementById(stat.anchor)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
+
+const todoCard = ref<{ load: () => void } | null>(null)
 const statCards = ref<StatCard[]>([])
 const statLoading = ref(true)
+const statError = ref(false)
 const chartLoading = ref(true)
 const trendSeries = ref<Record<'copy' | 'strm' | 'rename', number[]>>({ copy: [], strm: [], rename: [] })
 
-/** 近 7 天完整趋势数据（sparkline 与初始图表共用，避免重复请求） */
-const trendCache = ref<Partial<Record<'copy' | 'strm' | 'rename', DashboardTrendPoint[]>>>({})
+type TrendType = 'copy' | 'strm' | 'rename'
 
-/** 统计卡 sparkline 数据：复用 getDashboardTrendApi 的 totalCount 序列 */
+/** 趋势缓存，键为 `类型:天数`。切 tab / 切天数来回切换不再重复请求；手动刷新与定时刷新时清空 */
+const trendCache = new Map<string, DashboardTrendPoint[]>()
+
+async function fetchTrend(type: TrendType, days: number): Promise<DashboardTrendPoint[]> {
+  const key = `${type}:${days}`
+  const hit = trendCache.get(key)
+  if (hit) return hit
+  const points = (await getDashboardTrendApi(type, days)) || []
+  trendCache.set(key, points)
+  return points
+}
+
+/** 统计卡 sparkline：三条近 7 天趋势并行取，单条失败不影响其余 */
 async function loadSparklines() {
-  const types = ['copy', 'strm', 'rename'] as const
-  const results = await Promise.allSettled(types.map((t) => getDashboardTrendApi(t, 7)))
+  const types: TrendType[] = ['copy', 'strm', 'rename']
+  const results = await Promise.allSettled(types.map((t) => fetchTrend(t, 7)))
   results.forEach((r, i) => {
-    if (r.status === 'fulfilled' && Array.isArray(r.value)) {
-      trendCache.value[types[i]] = r.value
+    if (r.status === 'fulfilled') {
       trendSeries.value[types[i]] = r.value.map((p) => p.totalCount)
     }
   })
 }
 
-onMounted(async () => {
-  loadQuote()
+async function loadStats() {
+  // 后台刷新时保留旧数字，不闪骨架屏；只有首次加载或上次失败才显示加载态
+  if (!statCards.value.length || statError.value) statLoading.value = true
   try {
     const statsData: any = await getDashboardStatsApi()
     const copyCount = statsData?.copyRecordCount ?? 0
     const strmCount = statsData?.strmRecordCount ?? 0
     const renameCount = statsData?.renameDetailCount ?? 0
-    const successRate = statsData?.successRate ?? 0
+    const successRate: number | null = statsData?.successRate ?? null
     const failedCount = statsData?.failedCount ?? 0
     const processingCount = statsData?.processingCount ?? 0
     statCards.value = [
       { label: 'COPY 任务', value: copyCount, icon: 'files', type: 'primary', path: getRoutePathForComponent('openlist/copyRecord/index'), sparkKey: 'copy' },
       { label: 'STRM 任务', value: strmCount, icon: 'video', type: 'success', path: getRoutePathForComponent('openlist/strmRecord/index'), sparkKey: 'strm' },
       { label: 'Rename 任务', value: renameCount, icon: 'square-pen', type: 'warning', path: getRoutePathForComponent('openlist/renameDetail/index'), sparkKey: 'rename' },
-      { label: '成功率', value: successRate > 0 ? successRate + '%' : '--', icon: 'circle-check', type: 'info' },
-      { label: '失败数', value: failedCount, icon: 'circle-x', type: 'warning' },
-      { label: '处理中', value: processingCount, icon: 'loader-circle', type: 'primary' }
+      { label: '成功率', value: successRate != null ? successRate + '%' : '--', icon: 'circle-check', type: 'info' },
+      { label: '失败数', value: failedCount, icon: 'circle-x', type: 'warning', anchor: 'dashboard-failures' },
+      { label: '处理中', value: processingCount, icon: 'loader-circle', type: 'primary', path: getRoutePathForComponent('openlist/copyRecord/index') }
     ]
+    statError.value = false
   } catch (e) {
     console.error('[Dashboard] Failed to load stat cards:', e)
-    statCards.value = [
-      { label: 'COPY 任务', value: '0', icon: 'files', type: 'primary' },
-      { label: 'STRM 任务', value: '0', icon: 'video', type: 'success' },
-      { label: 'Rename 任务', value: '0', icon: 'square-pen', type: 'warning' },
-      { label: '成功率', value: '--', icon: 'circle-check', type: 'info' },
-      { label: '失败数', value: '0', icon: 'circle-x', type: 'warning' },
-      { label: '处理中', value: '0', icon: 'loader-circle', type: 'primary' }
-    ]
+    statError.value = true
   } finally {
     statLoading.value = false
   }
-})
+}
 
 /* ============================================
    Task trend chart (tabbed: COPY / STRM / Rename)
@@ -244,17 +245,11 @@ let chartReqSeq = 0
 
 async function loadTaskChart() {
   if (!taskChart) return
-  // 初始 tab 近 7 天数据已由 loadSparklines 取过，直接复用避免重复请求
-  const cached = trendCache.value[activeTaskTab.value]
-  if (cached && taskDays.value === 7) {
-    renderTrendChart(cached)
-    return
-  }
   const seq = ++chartReqSeq
   try {
-    const points = await getDashboardTrendApi(activeTaskTab.value, taskDays.value)
+    const points = await fetchTrend(activeTaskTab.value, taskDays.value)
     if (seq !== chartReqSeq) return // 已切 tab/天数，丢弃过期响应
-    renderTrendChart(points || [])
+    renderTrendChart(points)
   } catch (e) {
     if (seq !== chartReqSeq) return
     console.error('Failed to load task trend chart:', e)
@@ -262,32 +257,41 @@ async function loadTaskChart() {
   }
 }
 
-/* ============================================
-   PT subscription overview
-   ============================================ */
+/** 首屏并行：统计卡与趋势图互不依赖；sparkline 先填缓存，图表随后直接命中 */
+async function loadAll() {
+  await Promise.all([loadStats(), loadSparklines().then(loadTaskChart)])
+  chartLoading.value = false
+}
 
+/** 页面重新可见且距上次加载超过该间隔才刷新，避免切标签页就狂发请求 */
+const AUTO_REFRESH_MS = 60_000
+let lastLoadedAt = Date.now()
 
-
-
-/* ============================================
-   Quick links
-   ============================================ */
+function onVisibilityChange() {
+  if (document.visibilityState !== 'visible') return
+  refreshDate()
+  if (Date.now() - lastLoadedAt < AUTO_REFRESH_MS) return
+  lastLoadedAt = Date.now()
+  trendCache.clear()
+  loadAll()
+  todoCard.value?.load()
+}
 
 let resizeHandler: (() => void) | null = null
+let themeChangeHandler: (() => void) | null = null
 
 onMounted(async () => {
+  loadQuote()
   await nextTick()
   if (taskChartContainer.value) {
     taskChart = echarts.init(taskChartContainer.value)
   }
-  // 先取 sparkline 趋势（填充 trendCache），loadTaskChart 复用初始 tab 数据避免重复请求
-  // PT 概览由 PtOverviewCard 自己在 onMounted 里取
-  await loadSparklines()
-  await loadTaskChart()
-  chartLoading.value = false
+  await loadAll()
+  lastLoadedAt = Date.now()
 
   resizeHandler = () => taskChart?.resize()
   window.addEventListener('resize', resizeHandler)
+  document.addEventListener('visibilitychange', onVisibilityChange)
 
   // 主题切换后重绘图表（canvas 无法用 CSS 变量）
   themeChangeHandler = () => {
@@ -300,13 +304,13 @@ onMounted(async () => {
   document.addEventListener('osr-theme-change', themeChangeHandler)
 })
 
-let themeChangeHandler: (() => void) | null = null
-
 onUnmounted(() => {
   resizeHandler && window.removeEventListener('resize', resizeHandler)
   themeChangeHandler && document.removeEventListener('osr-theme-change', themeChangeHandler)
+  document.removeEventListener('visibilitychange', onVisibilityChange)
   taskChart?.dispose()
 })
+
 </script>
 
 <style scoped lang="scss">
@@ -396,7 +400,7 @@ onUnmounted(() => {
   box-shadow: var(--osr-shadow-base);
   margin-bottom: 12px;
   cursor: default;
-  transition: all var(--osr-transition-base);
+  transition: transform var(--osr-transition-base), box-shadow var(--osr-transition-base);
 
   &:hover {
     transform: translateY(-2px);

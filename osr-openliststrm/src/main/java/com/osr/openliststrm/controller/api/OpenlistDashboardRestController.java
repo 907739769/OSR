@@ -84,7 +84,9 @@ public class OpenlistDashboardRestController {
 
             long totalDone = copyTotal + strmTotal;
             long totalSuccess = copySuccess + strmSuccess;
-            double successRate = totalDone > 0 ? Math.round(totalSuccess * 1000.0 / totalDone) / 10.0 : 0.0;
+            // 没有任何 COPY/STRM 记录时成功率无从谈起，返回 null 而不是 0.0：
+            // 0 与「全部失败」无法区分，前端会把两者显示成同一个样子
+            Double successRate = totalDone > 0 ? Math.round(totalSuccess * 1000.0 / totalDone) / 10.0 : null;
 
             stats.put("strmRecordCount", strmTotal);
             stats.put("copyRecordCount", copyTotal);

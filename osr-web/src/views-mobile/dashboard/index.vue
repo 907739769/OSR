@@ -15,7 +15,13 @@
 
     <!-- 统计概览 -->
     <v-progress-linear v-if="loading" indeterminate color="primary" />
-    <div class="stats-grid">
+    <v-alert v-if="statError && !loading" type="error" variant="tonal" density="compact">
+      统计数据加载失败
+      <template #append>
+        <v-btn size="small" variant="text" @click="reloadStats">重试</v-btn>
+      </template>
+    </v-alert>
+    <div v-else class="stats-grid">
       <div
         v-for="(stat, index) in statCards"
         :key="stat.label"
@@ -29,6 +35,22 @@
         </div>
         <div class="stat-value"><AnimatedNumber :value="stat.value" /></div>
         <div class="stat-label">{{ stat.label }}</div>
+      </div>
+    </div>
+
+    <!-- 待办提醒：与 PC 首页同源（useDashboardTodo），没有待办时不占位 -->
+    <div v-if="todoItems.length || todoFailed" class="todo-section">
+      <h3>待办提醒</h3>
+      <div v-if="!todoItems.length" class="todo-failed">部分数据没取到，暂时无法判断是否有待办</div>
+      <div
+        v-for="item in todoItems"
+        :key="item.key"
+        class="todo-row"
+        @click="item.path && router.push(item.path)"
+      >
+        <span class="todo-count" :class="item.tone">{{ item.count }}</span>
+        <span class="todo-label">{{ item.label }}</span>
+        <span class="todo-hint">{{ item.hint }}</span>
       </div>
     </div>
 
@@ -73,11 +95,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useUserStore } from '@/stores/user'
 import { getDashboardStatsApi, getCopyStatsApi, getStrmStatsApi, getRenameStatsApi } from '@/api/openlist/dashboard'
-import { getHitokotoApi } from '@/api/openlist/hitokoto'
+import { useDashboardHeader } from '@/composables/useDashboardHeader'
+import { useDashboardTodo } from '@/composables/useDashboardTodo'
 import { useMenuLinks } from '@/composables/useMenuLinks'
 import { getRoutePathForComponent } from '@/router'
 import AnimatedNumber from '@/components/AnimatedNumber.vue'
@@ -91,36 +114,13 @@ interface StatCard {
   path?: string
 }
 
-/** 一言接口请求失败时的备用文案 */
-const FALLBACK_QUOTES = [
-  '代码写得好，Bug就是少。',
-  '生活明朗，万物可爱。',
-  '愿你被这个世界温柔以待。',
-  '不积跬步，无以至千里。',
-  '心之所向，素履以往。'
-]
-
-function randomFallbackQuote(): string {
-  return FALLBACK_QUOTES[Math.floor(Math.random() * FALLBACK_QUOTES.length)]
-}
-
 const router = useRouter()
 const userStore = useUserStore()
 const loading = ref(true)
+const statError = ref(false)
+const { items: todoItems, failed: todoFailed, load: loadTodo } = useDashboardTodo()
 const todayLoading = ref(true)
-const quote = ref(randomFallbackQuote())
-const weekdayText = new Date().toLocaleDateString('zh-CN', { weekday: 'long' })
-const dateText = new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })
-
-function loadQuote() {
-  getHitokotoApi()
-    .then((data) => {
-      quote.value = data.from ? `${data.hitokoto} —— ${data.from}` : data.hitokoto
-    })
-    .catch((e) => {
-      console.error('[MobileDashboard] 每日一言加载失败:', e)
-    })
-}
+const { weekdayText, dateText, quote, refreshDate, loadQuote } = useDashboardHeader('MobileDashboard')
 
 const statCards = ref<StatCard[]>([])
 const todayStatCards = ref<StatCard[]>([])
@@ -137,7 +137,7 @@ function buildStatCards(data: any): StatCard[] {
     { label: '同步记录', value: data?.copyRecordCount ?? 0, icon: 'files', type: 'primary', path: recordPaths.copy },
     { label: 'STRM 记录', value: data?.strmRecordCount ?? 0, icon: 'video', type: 'success', path: recordPaths.strm },
     { label: '重命名明细', value: data?.renameDetailCount ?? 0, icon: 'square-pen', type: 'warning', path: recordPaths.renameDetail },
-    { label: '成功率', value: data?.successRate > 0 ? data.successRate + '%' : '--', icon: 'circle-check', type: 'info' },
+    { label: '成功率', value: data?.successRate != null ? data.successRate + '%' : '--', icon: 'circle-check', type: 'info' },
     { label: '失败数', value: data?.failedCount ?? 0, icon: 'circle-x', type: 'warning' },
     { label: '处理中', value: data?.processingCount ?? 0, icon: 'loader-circle', type: 'primary' }
   ]
@@ -159,18 +159,31 @@ function buildTodayStatCards(copy: number, strm: number, rename: number): StatCa
 
 const quickLinks = useMenuLinks()
 
-onMounted(async () => {
-  loadQuote()
-
+async function reloadStats() {
+  loading.value = true
   try {
     const data: any = await getDashboardStatsApi()
     statCards.value = buildStatCards(data)
+    statError.value = false
   } catch (e) {
+    // 失败就明说，不再拿一排 0 冒充「系统很干净」
     console.error('[MobileDashboard] 统计数据加载失败:', e)
-    statCards.value = buildStatCards(null)
+    statError.value = true
   } finally {
     loading.value = false
   }
+}
+
+function onVisibilityChange() {
+  if (document.visibilityState === 'visible') refreshDate()
+}
+
+onMounted(async () => {
+  loadQuote()
+  loadTodo()
+  document.addEventListener('visibilitychange', onVisibilityChange)
+
+  await reloadStats()
 
   try {
     const [copyToday, strmToday, renameToday] = await Promise.all([
@@ -190,6 +203,7 @@ onMounted(async () => {
     todayLoading.value = false
   }
 })
+onUnmounted(() => document.removeEventListener('visibilitychange', onVisibilityChange))
 </script>
 
 <style scoped lang="scss">
@@ -324,6 +338,59 @@ onMounted(async () => {
 /* ============================================
    今日处理
    ============================================ */
+.todo-section {
+  h3 {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 8px;
+  }
+
+  .todo-failed {
+    font-size: 13px;
+    color: var(--osr-text-secondary);
+  }
+
+  .todo-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    margin-bottom: 6px;
+    border-radius: var(--osr-radius-md);
+    background: var(--osr-surface);
+    box-shadow: var(--osr-shadow-base);
+    cursor: pointer;
+  }
+
+  .todo-count {
+    min-width: 28px;
+    text-align: center;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: var(--osr-radius-md);
+
+    &.warning {
+      color: var(--osr-warning);
+      background: var(--osr-warning-light);
+    }
+    &.error {
+      color: var(--osr-error);
+      background: var(--osr-error-light);
+    }
+  }
+
+  .todo-label {
+    font-size: 14px;
+    color: var(--osr-text-primary);
+  }
+
+  .todo-hint {
+    margin-left: auto;
+    font-size: 12px;
+    color: var(--osr-text-secondary);
+  }
+}
+
 .today-section {
   h3 {
     font-size: 15px;
