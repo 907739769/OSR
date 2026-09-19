@@ -68,7 +68,7 @@ src/
 - **列表页公共样式**: PC 用 `styles/list.scss`，移动端用 `styles/mobile-list.scss`，**禁止在页面里复制这些类**；各页只保留特有子规则（见下方 DESIGN SYSTEM）
 - **PageHeader**: 每个业务页顶部都要有 `PageHeader`（图标+标题+描述+操作区），不要自造 page-header 样式
 - **页面切换动画走 `usePageTransition`（WAAPI，只做入场不做离场），仍然不要包 `<transition>`**: 两个 Layout 里都刻意没有 `<transition>`——在「`<KeepAlive>` 与裸 `<component>` 交替 + 页面组件异步加载」这个结构下，过渡类不会被清掉、离场过渡收不到结束事件，每导航一次旧页面就留在新页面下方越堆越多（`mode="out-in"` / `:duration` 都压不住）。现在的做法见下方「动效系统」一节
-- **Dashboard**: PC 统计卡用 `MiniTrend`（SVG sparkline，颜色走 `--osr-*` CSS 变量自动适配暗色，折线带 `pathLength="1"` 的描边动画）；统计数字一律套 `AnimatedNumber`（rAF 滚动，自己解析 `85%` / `--` / `12 分钟` 这类混合形态）；快捷入口统一用 `useMenuLinks`（菜单树拍平，PC/移动共用，禁止写死路径）；PT 概览/失败列表/图表空态/骨架屏均在 `views/dashboard/desktop.vue` 内
+- **Dashboard**: PC 统计卡用 `MiniTrend`（SVG sparkline，颜色走 `--osr-*` CSS 变量自动适配暗色，折线带 `pathLength="1"` 的描边动画）；统计数字一律套 `AnimatedNumber`（rAF 滚动，自己解析 `85%` / `--` / `12 分钟` 这类混合形态）；快捷入口统一用 `useMenuLinks`（菜单树拍平，PC/移动共用，禁止写死路径）；PT 概览/失败列表/待办提醒/快捷入口各自是 `views/dashboard/` 下的独立卡片组件，自己取自己的数。**首页有三条不要改坏的**：（1）**统计接口失败必须显示错误态 + 重试，不能退化成一排 0**——用户会把它读成「系统很干净」；成功率无任何 COPY/STRM 记录时后端返回 `null`（不是 0.0），前端显示 `--`，0% 是「全部失败」的真实含义；（2）**欢迎区的日期与一言只有 `composables/useDashboardHeader` 一份**，PC 与移动端共用，日期是 ref、页面重新可见时 `refreshDate`；（3）**「待办提醒」数据只有 `composables/useDashboardTodo` 一份**（缺集体检分档数 + 异常索引器数），两路 `allSettled` 各自独立，**取失败要如实说没取到，不能当成「暂无待办」**。趋势缓存键是 `类型:天数`，页面重新可见且距上次加载超过 60 秒才自动刷新（刷新时保留旧数字、不闪骨架屏）
 
 ## DESIGN SYSTEM
 

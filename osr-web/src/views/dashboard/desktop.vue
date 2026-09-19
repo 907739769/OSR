@@ -34,9 +34,9 @@
                Vuetify 的负外边距一起算，卡片入场时左右会漂 -->
           <v-card
             class="stat-card osr-enter"
-            :class="[stat.type, { clickable: !!stat.path }]"
+            :class="[stat.type, { clickable: !!(stat.path || stat.anchor) }]"
             :style="{ '--osr-i': index }"
-            @click="stat.path && router.push(stat.path)"
+            @click="onStatClick(stat)"
           >
             <div class="stat-icon">
               <v-icon :icon="stat.icon" size="18" />
@@ -83,10 +83,14 @@
       </v-col>
     </v-row>
 
-    <!-- Bottom: recent failures + quick links -->
+    <!-- Bottom: recent failures + todo + quick links -->
     <v-row class="bottom-row">
-      <v-col cols="12" md="8">
+      <v-col id="dashboard-failures" cols="12" md="5">
         <RecentFailuresCard />
+      </v-col>
+
+      <v-col cols="12" md="3">
+        <TodoCard ref="todoCard" />
       </v-col>
 
       <v-col cols="12" md="4">
@@ -113,46 +117,14 @@ import PtOverviewCard from './PtOverviewCard.vue'
 import RecentFailuresCard from './RecentFailuresCard.vue'
 import QuickLinksCard from './QuickLinksCard.vue'
 import { getDashboardStatsApi, getDashboardTrendApi, type DashboardTrendPoint } from '@/api/openlist/dashboard'
-import { getHitokotoApi } from '@/api/openlist/hitokoto'
+import TodoCard from './TodoCard.vue'
+import { useDashboardHeader } from '@/composables/useDashboardHeader'
 
 echarts.use([LineChart, TitleComponent, TooltipComponent, GridComponent, LegendComponent, CanvasRenderer])
 
 const router = useRouter()
 const { displayName: userName } = useCurrentUser()
-// 做成 ref 而不是模块级常量：页面挂过午夜后，重新可见时要能刷新成新的一天
-const weekdayText = ref('')
-const dateText = ref('')
-function refreshDate() {
-  const now = new Date()
-  weekdayText.value = now.toLocaleDateString('zh-CN', { weekday: 'long' })
-  dateText.value = now.toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric' })
-}
-refreshDate()
-
-/** 一言接口请求失败时的备用文案，与移动端首页保持一致 */
-const FALLBACK_QUOTES = [
-  '代码写得好，Bug就是少。',
-  '生活明朗，万物可爱。',
-  '愿你被这个世界温柔以待。',
-  '不积跬步，无以至千里。',
-  '心之所向，素履以往。'
-]
-
-function randomFallbackQuote(): string {
-  return FALLBACK_QUOTES[Math.floor(Math.random() * FALLBACK_QUOTES.length)]
-}
-
-const quote = ref(randomFallbackQuote())
-
-function loadQuote() {
-  getHitokotoApi()
-    .then((data) => {
-      quote.value = data.from ? `${data.hitokoto} —— ${data.from}` : data.hitokoto
-    })
-    .catch((e) => {
-      console.error('[Dashboard] 每日一言加载失败:', e)
-    })
-}
+const { weekdayText, dateText, quote, refreshDate, loadQuote } = useDashboardHeader('Dashboard')
 
 interface StatCard {
   label: string
@@ -160,10 +132,18 @@ interface StatCard {
   icon: string
   type: 'primary' | 'success' | 'warning' | 'info'
   path?: string | null
+  /** 点击后滚动到的锚点 id（没有独立落地页的统计，如失败数） */
+  anchor?: string
   /** 有值时卡片右下角展示对应类型的近 7 天迷你趋势线 */
   sparkKey?: 'copy' | 'strm' | 'rename'
 }
 
+function onStatClick(stat: StatCard) {
+  if (stat.path) router.push(stat.path)
+  else if (stat.anchor) document.getElementById(stat.anchor)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+}
+
+const todoCard = ref<{ load: () => void } | null>(null)
 const statCards = ref<StatCard[]>([])
 const statLoading = ref(true)
 const statError = ref(false)
@@ -203,16 +183,16 @@ async function loadStats() {
     const copyCount = statsData?.copyRecordCount ?? 0
     const strmCount = statsData?.strmRecordCount ?? 0
     const renameCount = statsData?.renameDetailCount ?? 0
-    const successRate = statsData?.successRate ?? 0
+    const successRate: number | null = statsData?.successRate ?? null
     const failedCount = statsData?.failedCount ?? 0
     const processingCount = statsData?.processingCount ?? 0
     statCards.value = [
       { label: 'COPY 任务', value: copyCount, icon: 'files', type: 'primary', path: getRoutePathForComponent('openlist/copyRecord/index'), sparkKey: 'copy' },
       { label: 'STRM 任务', value: strmCount, icon: 'video', type: 'success', path: getRoutePathForComponent('openlist/strmRecord/index'), sparkKey: 'strm' },
       { label: 'Rename 任务', value: renameCount, icon: 'square-pen', type: 'warning', path: getRoutePathForComponent('openlist/renameDetail/index'), sparkKey: 'rename' },
-      { label: '成功率', value: successRate > 0 ? successRate + '%' : '--', icon: 'circle-check', type: 'info' },
-      { label: '失败数', value: failedCount, icon: 'circle-x', type: 'warning' },
-      { label: '处理中', value: processingCount, icon: 'loader-circle', type: 'primary' }
+      { label: '成功率', value: successRate != null ? successRate + '%' : '--', icon: 'circle-check', type: 'info' },
+      { label: '失败数', value: failedCount, icon: 'circle-x', type: 'warning', anchor: 'dashboard-failures' },
+      { label: '处理中', value: processingCount, icon: 'loader-circle', type: 'primary', path: getRoutePathForComponent('openlist/copyRecord/index') }
     ]
     statError.value = false
   } catch (e) {
@@ -294,6 +274,7 @@ function onVisibilityChange() {
   lastLoadedAt = Date.now()
   trendCache.clear()
   loadAll()
+  todoCard.value?.load()
 }
 
 let resizeHandler: (() => void) | null = null
