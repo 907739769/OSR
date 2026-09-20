@@ -1,6 +1,8 @@
 package com.osr.openliststrm.controller.api;
 
+import com.osr.common.core.controller.BaseController;
 import com.osr.common.core.domain.Result;
+import com.osr.openliststrm.pt.stats.PtStatsScope;
 import com.osr.openliststrm.pt.stats.PtStatsService;
 import com.osr.openliststrm.pt.stats.dto.PtStatsActiveSubscriptionDTO;
 import com.osr.openliststrm.pt.stats.dto.PtStatsFailReasonDTO;
@@ -17,14 +19,20 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * PT 统计仪表盘只读 REST API：5 个独立端点，不含业务逻辑，只做参数白名单校验后转调
- * {@link PtStatsService}(设计文档4节：Controller 瘦、Service 厚)。
+ * PT 统计仪表盘只读 REST API：6 个独立端点，不含业务逻辑，只做参数白名单校验 + 归属范围
+ * 解析后转调 {@link PtStatsService}(设计文档4节：Controller 瘦、Service 厚)。
+ * <p>
+ * <b>归属隔离在这一层解析、在 Service 层落到 SQL 上</b>：订阅列表早就按 owner_user_id
+ * 隔离，而统计面板此前是全站裸奔的——任何登录用户都能从 Top 活跃订阅里看到别人的剧名，
+ * 点进去却被订阅页挡住。判据与 {@code PtSubscriptionRestController} 同一条：
+ * 管理员看全站，其余用户看自己的 + 无归属的公共订阅。
+ * </p>
  *
  * @author Jack
  */
 @RestController
 @RequestMapping("/api/openliststrm/pt-stats")
-public class PtStatsRestController {
+public class PtStatsRestController extends BaseController {
 
     private static final Set<Integer> ALLOWED_DAYS = Set.of(7, 30, 90);
     static final int DEFAULT_DAYS = 30;
@@ -39,22 +47,22 @@ public class PtStatsRestController {
 
     @GetMapping("/overview")
     public Result<PtStatsOverviewDTO> overview() {
-        return Result.success(statsService.overview());
+        return Result.success(statsService.overview(scope()));
     }
 
     @GetMapping("/trend")
     public Result<List<PtStatsTrendPointDTO>> trend(@RequestParam(value = "days", required = false) Integer days) {
-        return Result.success(statsService.trend(normalizeDays(days)));
+        return Result.success(statsService.trend(normalizeDays(days), scope()));
     }
 
     @GetMapping("/indexer-hit-rate")
     public Result<List<PtStatsIndexerHitRateDTO>> indexerHitRate() {
-        return Result.success(statsService.indexerHitRate());
+        return Result.success(statsService.indexerHitRate(scope()));
     }
 
     @GetMapping("/fail-reasons")
     public Result<List<PtStatsFailReasonDTO>> failReasons(@RequestParam(value = "days", required = false) Integer days) {
-        return Result.success(statsService.failReasons(normalizeDays(days)));
+        return Result.success(statsService.failReasons(normalizeDays(days), scope()));
     }
 
     /**
@@ -63,14 +71,22 @@ public class PtStatsRestController {
      */
     @GetMapping("/reject-reasons")
     public Result<List<PtStatsRejectReasonDTO>> rejectReasons() {
-        return Result.success(statsService.rejectReasons());
+        return Result.success(statsService.rejectReasons(scope()));
     }
 
     @GetMapping("/top-subscriptions")
     public Result<List<PtStatsActiveSubscriptionDTO>> topSubscriptions(
             @RequestParam(value = "days", required = false) Integer days,
             @RequestParam(value = "limit", required = false) Integer limit) {
-        return Result.success(statsService.topSubscriptions(normalizeDays(days), normalizeLimit(limit)));
+        return Result.success(statsService.topSubscriptions(normalizeDays(days), normalizeLimit(limit), scope()));
+    }
+
+    /**
+     * 当前请求的可见范围。每个端点各调一次而不是缓存到字段上——
+     * Controller 是单例，把请求级状态放实例字段上是本项目明令禁止的（见 ApiInterceptor 那次事故）。
+     */
+    private PtStatsScope scope() {
+        return PtStatsScope.of(isAdmin(), getUserId());
     }
 
     /** days 只允许 7/30/90，非法值(含null)一律回退到 30，避免前端传入超大天数触发无边界的全表扫描 */

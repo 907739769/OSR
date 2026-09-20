@@ -117,7 +117,8 @@ public class MysqlDdl extends SimpleDdl {
                 "sql/20260792-drop-dict.sql",
                 "sql/20260793-pt-auto-add-rsshub.sql",
                 "sql/20260794-mcp-access-token.sql",
-                "sql/20260795-copy-strm-size-reason.sql"
+                "sql/20260795-copy-strm-size-reason.sql",
+                "sql/20260796-pt-stats-index.sql"
         );
     }
 }

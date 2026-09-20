@@ -34,6 +34,9 @@ class PtStatsServiceTest {
         return new PtStatsService(downloadRecordService, searchLogService, subscriptionService, indexerService);
     }
 
+    /** 管理员范围：这几条用例关心的是聚合本身，归属过滤另有用例 */
+    private static final PtStatsScope ALL = PtStatsScope.ALL;
+
     private Map<String, Object> row(Object... kv) {
         Map<String, Object> m = new LinkedHashMap<>();
         for (int i = 0; i < kv.length; i += 2) {
@@ -44,11 +47,10 @@ class PtStatsServiceTest {
 
     @Test
     void overview_下载记录为空_返回全0而不抛异常() {
-        when(subscriptionService.count()).thenReturn(0L);
-        when(subscriptionService.count(any(Wrapper.class))).thenReturn(0L);
+        when(subscriptionService.count(any(Wrapper.class))).thenReturn(0L, 0L);
         when(downloadRecordService.listMaps(any(Wrapper.class))).thenReturn(List.of());
 
-        PtStatsOverviewDTO dto = service().overview();
+        PtStatsOverviewDTO dto = service().overview(ALL);
 
         assertEquals(0L, dto.getTotalSubscriptions());
         assertEquals(0L, dto.getActiveSubscriptions());
@@ -61,12 +63,11 @@ class PtStatsServiceTest {
 
     @Test
     void overview_正常数据_成功率与平均耗时计算正确() {
-        when(subscriptionService.count()).thenReturn(20L);
-        when(subscriptionService.count(any(Wrapper.class))).thenReturn(15L);
+        when(subscriptionService.count(any(Wrapper.class))).thenReturn(20L, 15L);
         when(downloadRecordService.listMaps(any(Wrapper.class))).thenReturn(List.of(
                 row("total", 100L, "completed_count", 80L, "failed_count", 10L, "avg_duration_minutes", 45.5)));
 
-        PtStatsOverviewDTO dto = service().overview();
+        PtStatsOverviewDTO dto = service().overview(ALL);
 
         assertEquals(20L, dto.getTotalSubscriptions());
         assertEquals(15L, dto.getActiveSubscriptions());
@@ -78,22 +79,32 @@ class PtStatsServiceTest {
     }
 
     @Test
-    void trend_缺失日期补齐为0且平均耗时为null() {
+    void trend_三条线各按自己的日期列分组且缺失日期补0() {
         java.time.LocalDate today = java.time.LocalDate.now();
         java.time.format.DateTimeFormatter fmt = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd");
-        String onlyDay = today.format(fmt);
-        when(downloadRecordService.listMaps(any(Wrapper.class))).thenReturn(List.of(
-                row("day", onlyDay, "pushed_count", 3L, "completed_count", 2L, "failed_count", 0L, "avg_duration_minutes", 30.0)));
+        String todayKey = today.format(fmt);
+        String yesterdayKey = today.minusDays(1).format(fmt);
+        // 三次 listMaps 依次是：推送(pushed_time) / 完成(completed_time) / 失败(update_time)
+        when(downloadRecordService.listMaps(any(Wrapper.class))).thenReturn(
+                List.of(row("day", yesterdayKey, "cnt", 3L)),
+                List.of(row("day", todayKey, "cnt", 2L, "avg_duration_minutes", 30.0)),
+                List.of(row("day", todayKey, "cnt", 1L)));
 
-        List<com.osr.openliststrm.pt.stats.dto.PtStatsTrendPointDTO> points = service().trend(7);
+        List<com.osr.openliststrm.pt.stats.dto.PtStatsTrendPointDTO> points = service().trend(7, ALL);
 
         assertEquals(7, points.size());
         var last = points.get(points.size() - 1);
-        assertEquals(onlyDay, last.getDate());
-        assertEquals(3L, last.getPushedCount());
+        assertEquals(todayKey, last.getDate());
+        // 昨天推送、今天完成：完成数必须落在今天这一格，而不是跟着推送日期跑到昨天去
+        assertEquals(0L, last.getPushedCount());
         assertEquals(2L, last.getCompletedCount());
-        assertEquals(0L, last.getFailedCount());
+        assertEquals(1L, last.getFailedCount());
         assertEquals(30.0, last.getAvgDurationMinutes());
+
+        var yesterday = points.get(points.size() - 2);
+        assertEquals(3L, yesterday.getPushedCount());
+        assertEquals(0L, yesterday.getCompletedCount());
+        org.junit.jupiter.api.Assertions.assertNull(yesterday.getAvgDurationMinutes());
 
         var first = points.get(0);
         assertEquals(0L, first.getPushedCount());
@@ -116,7 +127,7 @@ class PtStatsServiceTest {
         when(searchLogService.listMaps(any(Wrapper.class))).thenReturn(List.of(
                 row("indexer_id", 1, "accepted_count", 30L, "rejected_count", 10L)));
 
-        List<com.osr.openliststrm.pt.stats.dto.PtStatsIndexerHitRateDTO> result = service().indexerHitRate();
+        List<com.osr.openliststrm.pt.stats.dto.PtStatsIndexerHitRateDTO> result = service().indexerHitRate(ALL);
 
         assertEquals(2, result.size());
         var a = result.get(0);
@@ -135,19 +146,38 @@ class PtStatsServiceTest {
         assertEquals(0.0, b.getHitRate());
     }
 
+    /**
+     * 按码聚合是这张饼图能读的前提：fail_reason 原文里嵌着集号与超时小时数，
+     * 按原文分组会碎成一堆计数为 1 的扇形。
+     */
     @Test
-    void failReasons_返回两种固定文案的计数与顺序() {
+    void failReasons_按码聚合并给出中文标签() {
         when(downloadRecordService.listMaps(any(Wrapper.class))).thenReturn(List.of(
-                row("reason", "下载超过 24 小时仍未完成，判定为僵尸种子", "count", 12L),
-                row("reason", "下载器中已找不到该种子（可能被删除或元数据解析失败）", "count", 5L)));
+                row("code", "ZOMBIE_TIMEOUT", "cnt", 12L),
+                row("code", "NO_TARGET_EPISODE", "cnt", 5L)));
 
-        List<com.osr.openliststrm.pt.stats.dto.PtStatsFailReasonDTO> result = service().failReasons(30);
+        List<com.osr.openliststrm.pt.stats.dto.PtStatsFailReasonDTO> result = service().failReasons(30, ALL);
 
         assertEquals(2, result.size());
-        assertEquals("下载超过 24 小时仍未完成，判定为僵尸种子", result.get(0).getReason());
+        assertEquals("ZOMBIE_TIMEOUT", result.get(0).getCode());
+        assertEquals("下载超时", result.get(0).getReason());
         assertEquals(12L, result.get(0).getCount());
-        assertEquals("下载器中已找不到该种子（可能被删除或元数据解析失败）", result.get(1).getReason());
+        assertEquals("NO_TARGET_EPISODE", result.get(1).getCode());
+        assertEquals("无目标集", result.get(1).getReason());
         assertEquals(5L, result.get(1).getCount());
+    }
+
+    /** 历史记录 fail_reason_code 为空时归到 OTHER，不能在图上画出一个叫 "null" 的扇形 */
+    @Test
+    void failReasons_历史未分类记录归为其他原因() {
+        when(downloadRecordService.listMaps(any(Wrapper.class))).thenReturn(List.of(
+                row("code", null, "cnt", 4L)));
+
+        List<com.osr.openliststrm.pt.stats.dto.PtStatsFailReasonDTO> result = service().failReasons(30, ALL);
+
+        assertEquals(1, result.size());
+        assertEquals("OTHER", result.get(0).getCode());
+        assertEquals("其他原因", result.get(0).getReason());
     }
 
     @Test
@@ -164,7 +194,7 @@ class PtStatsServiceTest {
         when(subscriptionService.listByIds(any())).thenReturn(List.of(sub10));
 
         List<com.osr.openliststrm.pt.stats.dto.PtStatsActiveSubscriptionDTO> result =
-                service().topSubscriptions(30, 2);
+                service().topSubscriptions(30, 2, ALL);
 
         assertEquals(2, result.size());
         assertEquals(10, result.get(0).getSubId());
@@ -178,5 +208,41 @@ class PtStatsServiceTest {
         org.junit.jupiter.api.Assertions.assertNull(result.get(1).getSeason());
         org.junit.jupiter.api.Assertions.assertNull(result.get(1).getMediaType());
         org.junit.jupiter.api.Assertions.assertNull(result.get(1).getLastMatchTime());
+    }
+
+    /**
+     * 归属过滤要真的落到 SQL 上。删掉 scoped* 里的 inSql 不会让任何功能报错，
+     * 只是别人的订阅重新出现在统计里，所以这条断言盯的是 wrapper 本身。
+     */
+    @Test
+    void 受限范围_下载记录查询带上可见订阅子查询() {
+        when(downloadRecordService.listMaps(any(Wrapper.class))).thenReturn(List.of());
+
+        service().failReasons(30, PtStatsScope.of(false, 9L));
+
+        org.mockito.ArgumentCaptor<Wrapper> captor = org.mockito.ArgumentCaptor.forClass(Wrapper.class);
+        org.mockito.Mockito.verify(downloadRecordService).listMaps(captor.capture());
+        String sql = captor.getValue().getSqlSegment();
+        org.junit.jupiter.api.Assertions.assertTrue(sql.contains("sub_id IN"), sql);
+        org.junit.jupiter.api.Assertions.assertTrue(sql.contains("owner_user_id = 9"), sql);
+    }
+
+    @Test
+    void 管理员范围_不加任何归属条件() {
+        when(searchLogService.listMaps(any(Wrapper.class))).thenReturn(List.of());
+
+        service().rejectReasons(PtStatsScope.ALL);
+
+        org.mockito.ArgumentCaptor<Wrapper> captor = org.mockito.ArgumentCaptor.forClass(Wrapper.class);
+        org.mockito.Mockito.verify(searchLogService).listMaps(captor.capture());
+        org.junit.jupiter.api.Assertions.assertFalse(captor.getValue().getSqlSegment().contains("owner_user_id"));
+    }
+
+    /** 取不到当前用户时只放行公共订阅，绝不能拼出恒为 unknown 的 `owner_user_id = NULL` */
+    @Test
+    void 取不到用户_只放行无归属的公共订阅() {
+        String sql = PtStatsScope.of(false, null).visibleSubIdSql();
+        org.junit.jupiter.api.Assertions.assertTrue(sql.contains("owner_user_id IS NULL"), sql);
+        org.junit.jupiter.api.Assertions.assertFalse(sql.contains("= NULL"), sql);
     }
 }

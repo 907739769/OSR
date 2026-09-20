@@ -27,7 +27,11 @@ export interface PtStatsIndexerHitRate {
   hasData: boolean
 }
 
+/** 失败原因分布。按分类码聚合——fail_reason 原文里嵌着集号与超时小时数，按原文分组会碎成一堆计数为 1 的扇形 */
 export interface PtStatsFailReason {
+  /** 原始码，见后端 FailReasonCode 枚举；历史未分类记录归为 OTHER */
+  code: string
+  /** 中文短标签，如「下载超时」 */
   reason: string
   count: number
 }

@@ -1,5 +1,6 @@
 package com.osr.openliststrm.pt.stats;
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.Wrappers;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloadRecordPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtIndexerPlus;
@@ -18,14 +19,24 @@ import com.osr.openliststrm.pt.stats.dto.PtStatsTrendPointDTO;
 import com.osr.openliststrm.pt.filter.RejectCode;
 import com.osr.openliststrm.pt.subscription.SubscriptionService;
 import com.osr.openliststrm.pt.task.DownloadRecordState;
+import com.osr.openliststrm.pt.task.FailReasonCode;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * PT 订阅统计仪表盘的聚合查询：全部用 QueryWrapper 原生 select/groupBy + IService.listMaps
  * 完成分组统计，不新建 XML Mapper，见设计文档 2.2 节。
+ * <p>
+ * 每个查询都带一个 {@link PtStatsScope}：统计面板与订阅列表共用同一条归属判据，
+ * 非管理员只统计自己的订阅与无归属的公共订阅。
+ * </p>
  *
  * @author Jack
  */
@@ -34,7 +45,7 @@ public class PtStatsService {
 
     private static final String STATE_COMPLETED = DownloadRecordState.COMPLETED.value();
     private static final String STATE_FAILED = DownloadRecordState.FAILED.value();
-    private static final java.time.format.DateTimeFormatter DAY_FORMATTER = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd");
+    private static final DateTimeFormatter DAY_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd");
 
     private final IPtDownloadRecordPlusService downloadRecordService;
     private final IPtSearchLogPlusService searchLogService;
@@ -55,14 +66,14 @@ public class PtStatsService {
      * 总览统计：订阅总数/活跃数 + 下载记录一次性聚合(总数/完成/失败/成功率/全局平均耗时)，
      * 不做时间范围筛选(设计文档2.1，overview 覆盖全量历史)。
      */
-    public PtStatsOverviewDTO overview() {
+    public PtStatsOverviewDTO overview(PtStatsScope scope) {
         PtStatsOverviewDTO dto = new PtStatsOverviewDTO();
-        dto.setTotalSubscriptions(subscriptionService.count());
+        dto.setTotalSubscriptions(subscriptionService.count(scopedSubscriptions(scope)));
         dto.setActiveSubscriptions(subscriptionService.count(
-                Wrappers.<PtSubscriptionPlus>query().eq("status", SubscriptionService.STATUS_ACTIVE)));
+                scopedSubscriptions(scope).eq("status", SubscriptionService.STATUS_ACTIVE)));
 
         List<Map<String, Object>> rows = downloadRecordService.listMaps(
-                Wrappers.<PtDownloadRecordPlus>query().select(
+                scopedRecords(scope).select(
                         "count(*) as total, "
                                 + "SUM(CASE WHEN state='" + STATE_COMPLETED + "' THEN 1 ELSE 0 END) as completed_count, "
                                 + "SUM(CASE WHEN state='" + STATE_FAILED + "' THEN 1 ELSE 0 END) as failed_count, "
@@ -83,44 +94,56 @@ public class PtStatsService {
     }
 
     /**
-     * 下载量趋势：按 pushed_time 所在日期分组，日期区间连续补齐(设计文档2.1只用 pushed_time/state
-     * 两个字段——按"推送日期"这一维度分类，而不是按完成/失败发生的日期分类)。
+     * 下载量趋势：三条线各按<b>自己那件事发生的日期</b>分组，日期区间连续补齐。
+     * <p>
+     * <b>三条线不能共用 pushed_time 分组。</b>早先的实现把完成数、失败数一并挂在
+     * 「推送日期」上，于是今天推送的种子今天多半还没下完，图上最后一天的完成数恒定趴在
+     * 底部——看起来像"今天全挂了"，而那只是记账口径。同理，30 天前推送、昨天才失败的
+     * 记录会记在 30 天前那一格，用户当天什么都看不到。现在：
+     * </p>
+     * <ul>
+     *   <li>推送：{@code pushed_time}，专列</li>
+     *   <li>完成：{@code completed_time}，专列，只在完成那一刻写一次；每日平均耗时随它一起算
+     *       （耗时属于"这天完成的这批"，挂在推送日毫无意义）</li>
+     *   <li>失败：{@code update_time} + {@code state='FAILED'}。失败没有专属时间列，而
+     *       <b>处于 FAILED 状态的记录，它的 update_time 就是被判失败的那一刻</b>——H&R 采样
+     *       只更新已完成的记录，进度回写只更新下载中的记录，重试会把状态改回 PUSHED
+     *       而不再是 FAILED。这是个代理列，但在 FAILED 这个状态上它是准的。</li>
+     * </ul>
      */
-    public List<PtStatsTrendPointDTO> trend(int days) {
-        java.time.LocalDate start = java.time.LocalDate.now().minusDays(days - 1L);
+    public List<PtStatsTrendPointDTO> trend(int days, PtStatsScope scope) {
+        LocalDate start = LocalDate.now().minusDays(days - 1L);
 
-        List<Map<String, Object>> rows = downloadRecordService.listMaps(
-                Wrappers.<PtDownloadRecordPlus>query()
-                        .select("DATE_FORMAT(pushed_time,'%Y-%m-%d') as day, "
-                                + "count(*) as pushed_count, "
-                                + "SUM(CASE WHEN state='" + STATE_COMPLETED + "' THEN 1 ELSE 0 END) as completed_count, "
-                                + "SUM(CASE WHEN state='" + STATE_FAILED + "' THEN 1 ELSE 0 END) as failed_count, "
-                                + "AVG(CASE WHEN state='" + STATE_COMPLETED
-                                + "' THEN TIMESTAMPDIFF(MINUTE, pushed_time, completed_time) ELSE NULL END) as avg_duration_minutes")
+        Map<String, Map<String, Object>> pushed = byDay(downloadRecordService.listMaps(
+                scopedRecords(scope)
+                        .select("DATE_FORMAT(pushed_time,'%Y-%m-%d') as day, count(*) as cnt")
                         .ge("pushed_time", start.atStartOfDay())
-                        .groupBy("DATE_FORMAT(pushed_time,'%Y-%m-%d')"));
+                        .groupBy("DATE_FORMAT(pushed_time,'%Y-%m-%d')")));
 
-        Map<String, Map<String, Object>> byDay = rows.stream()
-                .collect(java.util.stream.Collectors.toMap(r -> String.valueOf(r.get("day")), r -> r));
+        Map<String, Map<String, Object>> completed = byDay(downloadRecordService.listMaps(
+                scopedRecords(scope)
+                        .select("DATE_FORMAT(completed_time,'%Y-%m-%d') as day, count(*) as cnt, "
+                                + "AVG(TIMESTAMPDIFF(MINUTE, pushed_time, completed_time)) as avg_duration_minutes")
+                        .ge("completed_time", start.atStartOfDay())
+                        .groupBy("DATE_FORMAT(completed_time,'%Y-%m-%d')")));
 
-        List<PtStatsTrendPointDTO> result = new java.util.ArrayList<>();
+        Map<String, Map<String, Object>> failed = byDay(downloadRecordService.listMaps(
+                scopedRecords(scope)
+                        .select("DATE_FORMAT(update_time,'%Y-%m-%d') as day, count(*) as cnt")
+                        .eq("state", STATE_FAILED)
+                        .ge("update_time", start.atStartOfDay())
+                        .groupBy("DATE_FORMAT(update_time,'%Y-%m-%d')")));
+
+        List<PtStatsTrendPointDTO> result = new ArrayList<>();
         for (int i = 0; i < days; i++) {
-            java.time.LocalDate day = start.plusDays(i);
-            String key = day.format(DAY_FORMATTER);
-            Map<String, Object> row = byDay.get(key);
+            String key = start.plusDays(i).format(DAY_FORMATTER);
             PtStatsTrendPointDTO point = new PtStatsTrendPointDTO();
             point.setDate(key);
-            if (row == null) {
-                point.setPushedCount(0);
-                point.setCompletedCount(0);
-                point.setFailedCount(0);
-                point.setAvgDurationMinutes(null);
-            } else {
-                point.setPushedCount(asLong(row.get("pushed_count")));
-                point.setCompletedCount(asLong(row.get("completed_count")));
-                point.setFailedCount(asLong(row.get("failed_count")));
-                point.setAvgDurationMinutes(asDouble(row.get("avg_duration_minutes")));
-            }
+            point.setPushedCount(count(pushed.get(key)));
+            point.setCompletedCount(count(completed.get(key)));
+            point.setFailedCount(count(failed.get(key)));
+            Map<String, Object> completedRow = completed.get(key);
+            point.setAvgDurationMinutes(completedRow == null ? null : asDouble(completedRow.get("avg_duration_minutes")));
             result.add(point);
         }
         return result;
@@ -129,11 +152,11 @@ public class PtStatsService {
     /**
      * 索引器命中率：驱动集合是 pt_indexer 全量(indexerService.list())，不是只查有日志的索引器，
      * 新增索引器还没跑过时 hasData=false 也要出现在结果里(设计文档测试计划)。不做 days 筛选，
-     * 见设计文档 2.4 节：pt_search_log 本身按订阅保留≤200条，再叠加时间筛选口径会不一致。
+     * 见设计文档 2.4 节：pt_search_log 本身按订阅只保留最近若干条，再叠加时间筛选口径会不一致。
      */
-    public List<PtStatsIndexerHitRateDTO> indexerHitRate() {
+    public List<PtStatsIndexerHitRateDTO> indexerHitRate(PtStatsScope scope) {
         List<Map<String, Object>> rows = searchLogService.listMaps(
-                Wrappers.<PtSearchLogPlus>query()
+                scopedLogs(scope)
                         .select("indexer_id as indexer_id, "
                                 + "SUM(CASE WHEN accepted='1' THEN 1 ELSE 0 END) as accepted_count, "
                                 + "SUM(CASE WHEN accepted='0' THEN 1 ELSE 0 END) as rejected_count")
@@ -141,11 +164,10 @@ public class PtStatsService {
                         .groupBy("indexer_id"));
 
         Map<Integer, Map<String, Object>> byIndexer = rows.stream()
-                .collect(java.util.stream.Collectors.toMap(
-                        r -> ((Number) r.get("indexer_id")).intValue(), r -> r));
+                .collect(Collectors.toMap(r -> ((Number) r.get("indexer_id")).intValue(), Function.identity()));
 
         List<PtIndexerPlus> indexers = indexerService.list();
-        List<PtStatsIndexerHitRateDTO> result = new java.util.ArrayList<>();
+        List<PtStatsIndexerHitRateDTO> result = new ArrayList<>();
         for (PtIndexerPlus indexer : indexers) {
             Map<String, Object> row = byIndexer.get(indexer.getId());
             PtStatsIndexerHitRateDTO dto = new PtStatsIndexerHitRateDTO();
@@ -164,23 +186,38 @@ public class PtStatsService {
     }
 
     /**
-     * 失败原因分布：fail_reason 只由 DownloadTrackService.fail() 写入，固定两种文案，
-     * 直接按原始字符串 GROUP BY 即可，不做归一化(设计文档2.1)。
+     * 失败原因分布：按 {@code fail_reason_code} 聚合，与 {@link #rejectReasons} 同一个姿势。
+     * <p>
+     * <b>不能按 {@code fail_reason} 文案聚合。</b>那一列里嵌着实际值——
+     * {@code "种子内不含任何目标集（包内第 5,6 集，本次要补第 7 集）"}、
+     * {@code "下载超过 24 小时仍未完成"}（小时数来自配置，用户一调就又裂出一类）——
+     * 按文案 GROUP BY 得到的是一堆计数为 1 的碎片，饼图完全读不出"主要卡在哪"。
+     * 这正是 {@link RejectCode} 当初存在的理由，失败侧的码（{@link FailReasonCode}）
+     * 一直都在，只是统计这边没用上。
+     * </p>
+     * <p>
+     * {@code fail_reason_code} 是 20260738 才加的列，更早的失败记录为 NULL，
+     * 用 {@code COALESCE} 归到 {@code OTHER}，不让它在图上显示成一个叫 "null" 的扇形。
+     * </p>
      */
-    public List<PtStatsFailReasonDTO> failReasons(int days) {
-        java.time.LocalDate start = java.time.LocalDate.now().minusDays(days - 1L);
+    public List<PtStatsFailReasonDTO> failReasons(int days, PtStatsScope scope) {
+        LocalDate start = LocalDate.now().minusDays(days - 1L);
         List<Map<String, Object>> rows = downloadRecordService.listMaps(
-                Wrappers.<PtDownloadRecordPlus>query()
-                        .select("fail_reason as reason, count(*) as count")
+                scopedRecords(scope)
+                        .select("COALESCE(fail_reason_code, 'OTHER') as code, count(*) as cnt")
                         .eq("state", STATE_FAILED)
-                        .ge("pushed_time", start.atStartOfDay())
-                        .groupBy("fail_reason")
-                        .orderByDesc("count"));
+                        // 与趋势图的失败线同口径：按"何时失败"而不是"何时推送"筛，
+                        // 否则 30 天前推送、昨天才失败的记录在"近30天"里一条都看不到
+                        .ge("update_time", start.atStartOfDay())
+                        .groupBy("COALESCE(fail_reason_code, 'OTHER')")
+                        .orderByDesc("cnt"));
 
         return rows.stream().map(row -> {
             PtStatsFailReasonDTO dto = new PtStatsFailReasonDTO();
-            dto.setReason(String.valueOf(row.get("reason")));
-            dto.setCount(asLong(row.get("count")));
+            String code = row.get("code") == null ? FailReasonCode.OTHER.value() : String.valueOf(row.get("code"));
+            dto.setCode(code);
+            dto.setReason(FailReasonCode.labelOf(code));
+            dto.setCount(asLong(row.get("cnt")));
             return dto;
         }).toList();
     }
@@ -196,24 +233,24 @@ public class PtStatsService {
      * <p>
      * 按<b>码</b>聚合而不是按 reason 文案：文案里嵌着实际值，按文案 GROUP BY 只会得到
      * 一堆计数为 1 的碎片。与 {@link #indexerHitRate} 同理不做 days 筛选——
-     * {@code pt_search_log} 本身按订阅保留 ≤200 条，再叠加时间筛选口径会不一致。
+     * {@code pt_search_log} 本身按订阅只保留最近若干条，再叠加时间筛选口径会不一致。
      * </p>
      */
-    public List<PtStatsRejectReasonDTO> rejectReasons() {
+    public List<PtStatsRejectReasonDTO> rejectReasons(PtStatsScope scope) {
         List<Map<String, Object>> rows = searchLogService.listMaps(
-                Wrappers.<PtSearchLogPlus>query()
-                        .select("reason_code as reason_code, count(*) as count")
+                scopedLogs(scope)
+                        .select("reason_code as reason_code, count(*) as cnt")
                         .eq("accepted", "0")
                         .isNotNull("reason_code")
                         .groupBy("reason_code")
-                        .orderByDesc("count"));
+                        .orderByDesc("cnt"));
 
         return rows.stream().map(row -> {
             PtStatsRejectReasonDTO dto = new PtStatsRejectReasonDTO();
             String code = String.valueOf(row.get("reason_code"));
             dto.setCode(code);
             dto.setReason(RejectCode.labelOf(code));
-            dto.setCount(asLong(row.get("count")));
+            dto.setCount(asLong(row.get("cnt")));
             return dto;
         }).toList();
     }
@@ -223,10 +260,10 @@ public class PtStatsService {
      * (跟 SearchLogService 里清理旧日志用的同一种写法，n 是后端已校验过的白名单/上限值，无拼接风险)。
      * 订阅已被删除时(historical download record 还在但 pt_subscription 查不到)兜底展示，不抛 NPE。
      */
-    public List<PtStatsActiveSubscriptionDTO> topSubscriptions(int days, int limit) {
-        java.time.LocalDate start = java.time.LocalDate.now().minusDays(days - 1L);
+    public List<PtStatsActiveSubscriptionDTO> topSubscriptions(int days, int limit, PtStatsScope scope) {
+        LocalDate start = LocalDate.now().minusDays(days - 1L);
         List<Map<String, Object>> rows = downloadRecordService.listMaps(
-                Wrappers.<PtDownloadRecordPlus>query()
+                scopedRecords(scope)
                         .select("sub_id as sub_id, count(*) as download_count, "
                                 + "SUM(CASE WHEN state='" + STATE_COMPLETED + "' THEN 1 ELSE 0 END) as completed_count, "
                                 + "SUM(CASE WHEN state='" + STATE_FAILED + "' THEN 1 ELSE 0 END) as failed_count")
@@ -237,7 +274,7 @@ public class PtStatsService {
 
         List<Integer> subIds = rows.stream().map(r -> ((Number) r.get("sub_id")).intValue()).toList();
         Map<Integer, PtSubscriptionPlus> subs = subIds.isEmpty() ? Map.of() : subscriptionService.listByIds(subIds)
-                .stream().collect(java.util.stream.Collectors.toMap(PtSubscriptionPlus::getId, s -> s));
+                .stream().collect(Collectors.toMap(PtSubscriptionPlus::getId, Function.identity()));
 
         return rows.stream().map(row -> {
             int subId = ((Number) row.get("sub_id")).intValue();
@@ -253,6 +290,52 @@ public class PtStatsService {
             dto.setLastMatchTime(sub == null ? null : sub.getLastMatchTime());
             return dto;
         }).toList();
+    }
+
+    /** 订阅表上的归属条件 */
+    private QueryWrapper<PtSubscriptionPlus> scopedSubscriptions(PtStatsScope scope) {
+        QueryWrapper<PtSubscriptionPlus> wrapper = Wrappers.query();
+        if (!scope.all()) {
+            Long userId = scope.userId();
+            if (userId == null) {
+                // 取不到当前用户时只放行无归属的公共订阅。不能把 null 交给 eq()——
+                // MyBatis-Plus 会生成 `owner_user_id = NULL`，在 SQL 里恒为 unknown
+                wrapper.isNull("owner_user_id");
+            } else {
+                wrapper.and(w -> w.eq("owner_user_id", userId).or().isNull("owner_user_id"));
+            }
+        }
+        return wrapper;
+    }
+
+    /** 下载记录表上的归属条件（经 sub_id 反查订阅） */
+    private QueryWrapper<PtDownloadRecordPlus> scopedRecords(PtStatsScope scope) {
+        QueryWrapper<PtDownloadRecordPlus> wrapper = Wrappers.query();
+        String sql = scope.visibleSubIdSql();
+        if (sql != null) {
+            wrapper.inSql("sub_id", sql);
+        }
+        return wrapper;
+    }
+
+    /** 匹配日志表上的归属条件（经 sub_id 反查订阅） */
+    private QueryWrapper<PtSearchLogPlus> scopedLogs(PtStatsScope scope) {
+        QueryWrapper<PtSearchLogPlus> wrapper = Wrappers.query();
+        String sql = scope.visibleSubIdSql();
+        if (sql != null) {
+            wrapper.inSql("sub_id", sql);
+        }
+        return wrapper;
+    }
+
+    private static Map<String, Map<String, Object>> byDay(List<Map<String, Object>> rows) {
+        return rows.stream()
+                .filter(r -> r.get("day") != null)
+                .collect(Collectors.toMap(r -> String.valueOf(r.get("day")), Function.identity(), (a, b) -> a));
+    }
+
+    private static long count(Map<String, Object> row) {
+        return row == null ? 0L : asLong(row.get("cnt"));
     }
 
     private static long asLong(Object v) {

@@ -21,7 +21,7 @@ public enum FailReasonCode {
      * 判成不可重试会把该集当前最优的那个种子永久烧掉，若该集只此一个资源，往后再也补不回来。
      * </p>
      */
-    TORRENT_NOT_FOUND("TORRENT_NOT_FOUND", true),
+    TORRENT_NOT_FOUND("TORRENT_NOT_FOUND", true, "种子丢失"),
     /**
      * 种子仍在下载器里但超过僵尸超时仍未完成。
      * <p>
@@ -29,7 +29,7 @@ public enum FailReasonCode {
      * 用户仍可在下载记录页手动重试，那条路径会重新搜索并挑别的资源。
      * </p>
      */
-    ZOMBIE_TIMEOUT("ZOMBIE_TIMEOUT", false),
+    ZOMBIE_TIMEOUT("ZOMBIE_TIMEOUT", false, "下载超时"),
     /**
      * 种子的文件列表里一个目标集都没有（季包实际只含别的段落，或包内那几集早已入库）。
      * <p>
@@ -38,7 +38,7 @@ public enum FailReasonCode {
      * 允许重试等于让同一个包被反复选中、每次都空跑一轮 30 秒轮询再中止。
      * </p>
      */
-    NO_TARGET_EPISODE("NO_TARGET_EPISODE", false),
+    NO_TARGET_EPISODE("NO_TARGET_EPISODE", false, "无目标集"),
     /**
      * 种子在下载器里，但迟迟解析不出文件列表（种子损坏、磁力无人做种）。
      * <p>
@@ -47,7 +47,7 @@ public enum FailReasonCode {
      * 与 {@code ZOMBIE_TIMEOUT} 的区别在于那是"下载不动"，这是"根本没能开始"。
      * </p>
      */
-    METADATA_TIMEOUT("METADATA_TIMEOUT", false),
+    METADATA_TIMEOUT("METADATA_TIMEOUT", false, "种子无响应"),
     /**
      * 兜底分类：为将来的失败路径（如推送失败落记录）预留。
      * <p>
@@ -55,18 +55,51 @@ public enum FailReasonCode {
      * 新增失败路径时应显式给出自己的取值和 retryable 判断，而不是复用本项。
      * </p>
      */
-    OTHER("OTHER", false);
+    OTHER("OTHER", false, "其他原因");
 
     private final String value;
     private final boolean retryable;
+    private final String label;
 
-    FailReasonCode(String value, boolean retryable) {
+    FailReasonCode(String value, boolean retryable, String label) {
         this.value = value;
         this.retryable = retryable;
+        this.label = label;
     }
 
     public String value() {
         return value;
+    }
+
+    /**
+     * 中文短标签，供统计面板按分类聚合时展示。
+     * <p>
+     * 用词与前端下载记录页的 {@code failReasonCodeLabel} 保持一致——同一条失败记录在
+     * 两个页面上叫不同的名字，用户会以为是两回事。
+     * </p>
+     */
+    public String label() {
+        return label;
+    }
+
+    /**
+     * 按落库字符串取中文标签，写法与 {@link com.osr.openliststrm.pt.filter.RejectCode#labelOf} 一致。
+     * <p>
+     * 无法识别（历史数据、拼写错误）时原样返回入参而不是塌成「其他原因」：统计面板上
+     * 显示一个陌生取值，比显示一个错误的分类更诚实。null/空串走 {@link #OTHER}——
+     * {@code fail_reason_code} 是 20260738 才加的列，更早的失败记录该列为空。
+     * </p>
+     */
+    public static String labelOf(String code) {
+        if (code == null || code.isBlank()) {
+            return OTHER.label();
+        }
+        for (FailReasonCode c : values()) {
+            if (c.value.equals(code)) {
+                return c.label();
+            }
+        }
+        return code;
     }
 
     /** 这类失败是否允许该种子被重新选中 */
