@@ -303,7 +303,7 @@ ptTorrentBlacklist / wecomUser（即全部 `.card-grid` 页面）。新增卡片
   **（2）`@click.stop` 不是防御性写法**——订阅卡在批量模式下整卡点击 = 选中、选片弹窗整行点击 = 选片，
   不拦住的话点一下 TMDb 会顺带改掉选择状态；
   **（3）`episode` 只接受 TMDb 口径的集号**（`tmdb_episode_number`），本地季内相对号与 TMDb 主数据
-  未必一致（长篇动画用绝对号，见根目录 AGENTS.md「集号有三套」），拼进去会落到一个 TMDb 上不存在
+  未必一致（长篇动画用绝对号，见 osr-openliststrm/.../pt/subscription/AGENTS.md「集号有三套」），拼进去会落到一个 TMDb 上不存在
   的集——追剧日历的 `CalendarEntry.episode` 正是本地号，所以那两处只深链到季；
   **（4）判断是不是电影一律看 `mediaType` 不看 `season`**：电影的 season 恒为哨兵 0，而剧集的
   特别篇也是第 0 季。形态有 `icon`（默认，卡片标题旁）/ `tag`（复用 list.scss 的 `a.record-tag`，
@@ -733,7 +733,7 @@ index.html 与静态资源都打了 `no-store`、镜像里的旧 chunk 文件已
 ## ANTI-PATTERNS
 - 不要在组件中直接调用 `axios`，统一用 `src/api/` 中的封装
 - **没有前端权限 store，别再造一个**。菜单与路由由后端 `getRouters` 按角色过滤后下发，前端
-  只负责渲染；能不能调某个接口由后端各 Controller 自己判（见根目录 AGENTS.md「后端的接口鉴权」
+  只负责渲染；能不能调某个接口由后端各 Controller 自己判（见 osr-framework/AGENTS.md「后端的接口鉴权」
   那条）。曾经有个 `stores/permission.ts`：`hasPermission()` 恒返回 `true`、`generateRoutes()`
   基本是空操作，而且**全项目零引用**——它唯一的作用是让人以为前端有一套权限系统，
   照着它加校验会得到一个恒真的判断。已删除。真要做前端级的按钮粒度控制，先想清楚它挡的是
@@ -789,3 +789,13 @@ index.html 与静态资源都打了 `no-store`、镜像里的旧 chunk 文件已
 - **不要写死路由 path**。后端菜单 path 历史上有 `/openlist/xxx` 与 `/openliststrm/xxx` 两种前缀，
   写死会跳 404。用 `getRoutePathForComponent('openlist/xxx/index')` 按 `meta.componentKey` 反查
   （不要用组件对象引用比对，HMR 下会失效）。菜单快捷入口用 `useMenuLinks`。
+
+## NOTES
+- **「逐集跑一遍」这类跑批必须在开始前把订阅对象快照下来，不能在循环里现读 `currentSubscription`**。订阅进度弹窗的「一键补齐全部」每集要等一次几十秒的检索（后端单索引器预算 30 秒还是软上限），几十集就是十几二十分钟；这期间弹窗点遮罩就能关，用户去点开另一条订阅的进度会把 `currentSubscription` 换掉——旧实现每轮现读它，于是剩下的集变成「拿 A 的集号、按 B 的标题、推给 B 的订阅」，**界面上没有任何迹象**（loading 挂在已经关掉的弹窗上）。同理收尾回写进度也要判 `currentSubscription?.id === 快照.id`，否则会把用户正在看的另一条订阅的弹窗内容改掉。跑批期间弹窗设 `persistent`、显示「已完成 N/M」并给一个中止入口（置个 flag，当前这一集跑完就停，不打断已发出的请求）。`composables/__tests__/usePtSubscription.spec.ts` 里三条用例钉住这些。
+- **PT 统计仪表盘的取数与图表选项只有 `composables/usePtStats.ts` 一份，PC 与移动端共用**。两端各写一份的代价已经兑现过：「搜索淘汰原因分布」只有 PC 有、移动端从来没加；失败原因的配色函数被复制了两遍，于是同一个 bug 存在两份——那个函数是从首页状态卡抄来的、按"名字里带不带『失败』"猜颜色，而失败原因文案一个都命中不了，`findIndex` 恒返回 -1，**整张饼图恒为同一个红色**。三条：**配色按分类码查表且走 `--osr-*` 令牌**（写死的十六进制在暗色主题下不跟着变，正是 `plugins/echartsTheme.ts` 当初要修的毛病）；**主题切换只 bump `themeTick` 让 option 重算，绝不重新取数**（旧实现的 `osr-theme-change` 处理器直接调取数函数，切一次深浅色就打一轮扫全表的聚合查询）；**ECharts 实例一律经 `composables/useEchart.ts` 绑定**——旧实现四张图各写一遍 init/resize/dispose，而 `onUnmounted` 里漏掉了其中一张，每进出一次页面泄漏一个实例，不报错不告警，这类"N 份样板里少写一份"只能靠收口消掉。另：平均耗时后端一直在算也一直在传，两端都没画，现在挂在趋势图第二根 Y 轴上。
+- **PT 菜单分四组，新增菜单挂到语义对应的那一组**（20260785）：`PT 追剧`(2070) 追剧日历/缺集体检/订阅管理/热门自动订阅、`PT 下载`(2079) 下载记录/统计仪表盘/转移做种、`PT 规则`(2080) 过滤规则/洗版规则/黑名单、`PT 接入`(2081) 索引器/下载器/媒体服务器。四个分组都直接挂在 `parent_id=0`，**不要再引入第三级**——20260752 刚把三级收敛成两级，桌面端 `SidebarMenuItem.vue` 也是把分组渲染成一行标题、子项平铺，再套一层只会多出一行没人点的标题。分组标题已带 PT，**子菜单名不要再写 `PT` 前缀**（侧边栏宽 220px）。改分组归属只 `UPDATE parent_id/order_num/menu_name`，`menu_id`/`url`/`perms` 不动，`sys_role_menu` 按 `menu_id` 关联因此不受影响；但**新建 M 分组要把旧分组的角色授权继承过去**（`INSERT IGNORE INTO sys_role_menu SELECT role_id, <新id> FROM sys_role_menu WHERE menu_id=<旧id>`）——非管理员走 `selectMenusByUserId`，父级 M 菜单没授权的话整组子菜单都不显示，而管理员走 `selectMenuNormalAll` 看不出问题。
+- **图标是 lucide，`sys_menu.icon` 直接写 lucide 官方名**（kebab-case，如 `bell-ring`、`calendar-days`，全站描边风格），**中间没有翻译层**。前端由 `plugins/lucideIcons.ts` 注册一个 Vuetify 自定义 IconSet，图标按需引入；模板里写的、库里存的、lucide 官网上叫的，是同一个名字。三条不要改坏的：**（1）新图标必须在 `lucideIcons.ts` 的 `icons` 表里登记**——名字从数据库来，打包时静态分析看不见，漏登记的表现是那个菜单显示一个问号（开发模式下另有 console.warn）；**（2）Vuetify 的 63 个 `$` 别名要一并给全**（下拉箭头、勾选框、排序箭头、分页），漏掉的那个别名在对应组件上表现为「图标位置空着」，不报错不告警，而 v-select / v-checkbox / v-data-table 遍布全站；**（3）绝不要再引入 mdi→lucide 的运行时字典。** 这条路走过四次：历史上 icon 存的是 Font Awesome 类名（RuoYi 遗留），而前端是 Vuetify、**根本没引入 Font Awesome**，只能靠 `useMenuIcon.ts` 里一张手写字典翻译——于是建菜单要改两处，漏了不报错也不告警，只是那个菜单没图标（侧边栏用 `v-if` 包着 `#prepend`，图标认不出时整个插槽不渲染，该项比同级少一块缩进，肉眼极易忽略）。`sql/` 里 4 个 fix-menu-icon 迁移都是这么来的，20260778 的「通知路由」又栽了一次。20260780 换成 mdi 名拆掉了 fa 字典，20260791 换成 lucide 名——两次都是**一次性 codemod + 一条 SQL 迁移，跑完即弃**。
+  **品牌图标是唯一的例外**：lucide 官方不收 logo（已剥离到 simple-icons），而 Telegram / 企业微信的图标本身就承担「这条通知走哪个渠道」的识别功能。这两个从 simple-icons 取官方路径内联在 `lucideIcons.ts` 里，名字是 `brand-telegram` / `brand-wecom`，是**全站仅有的两个实心图标**——品牌标识按惯例就是实心的，描边版本认不出来。新增通知渠道时照抄，不要为了统一风格把 logo 改成描边。
+  另：`mdi-spin` 那类 MDI 字体自带的修饰类随字体一起没了，加载图标的自转改成 `motion.scss` 里针对 `.lucide-loader-circle` 的规则，**它是全站唯一不走 `--osr-dur-*` 令牌的动画**（令牌在 reduced-motion 下被压到 0.01ms，套上去就是每秒转十万圈）。
+- **参数设置页的分组按「配置键前缀」归类**（`SECTION_RULES`，见 `views/system/config/index.vue`），不是按键名里的关键词猜。加同前缀的配置零改动就落到正确分组；全新前缀落进「其他」，看得见但不会错放。旧实现是一串 if-else 匹配子串，41 个配置里有 15 个掉进兜底的「基础配置」——通知类和登录安全类全在里面。分组之上还有一层**标签**（`CONFIG_TABS`，分组靠 `tab` 字段挂上去）：分组回答「配置属于谁」，标签回答「用户到哪儿找」，原先一个分组一个标签，10 个里有几个只有 1~3 项、1280 宽下一行排不下；合并后标签内按分组分小节。新增分组时 `tab` 必须指向已有标签，否则那批配置整个不出现（`configMeta.spec.ts` 守着）。两条别改坏的：**下拉用 `v-select`，不要换回 `v-combobox`**——后者 `returnObject` 默认为 true，选中后配置值变成 `{label,value}` 对象被整个发给后端，不报错；**元数据的说明缺失时退回数据库 `remark`**（`hintOf`），迁移脚本插配置都写了 remark，新配置忘登记元数据也不会是光秃秃一个输入框，但数字/密码类仍要登记控件类型，否则数字框能存进 `abc`、token 编辑时是明文。
+- **PC 列表页的表头排序全部接在 `useDataTable#onSortChange` 上**，落成 `orderByColumn`/`isAsc` 两个参数交给 `BaseController#selectPage`。`v-data-table-server` **只发事件、不自己排数据**（它手里本来就只有当前一页），不接这个事件的表现是「点表头、箭头翻转、一行不动」——10 个 PC 列表页此前全是这个状态，只有定时任务页因为用的是客户端的 `v-data-table` 才碰巧能排。三条不要改坏的：**表头 key 不是数据库列的必须标 `sortable: false`**（`detail`/`config`/`fileInfo` 这类把几个字段拼成一格的合成列，传过去就是个不存在的列名，整页 500，而用户只是点了一下表头）；**各 Controller `buildQueryWrapper` 里的默认排序要留着**——MyBatis-Plus 的分页拦截器把 `Page` 上的排序放在 SQL 自带 ORDER BY 之**前**（`PageOrderPrecedenceTest` 钉住了这个第三方行为，反过来的话所有排序都会被 create_time 静默吃掉），默认排序因此降为次级键，同值行的先后仍然稳定，去掉它翻页会出现重复行与漏行；**`resetQueryParams` 不清排序参数**，理由与 pageSize 相同，且箭头是表格自己的状态、清了参数就会和实际顺序对不上。
