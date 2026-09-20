@@ -38,7 +38,7 @@
         @toggle-all="toggleSelectAllPage"
         @cancel="clearSelection"
       >
-        <v-btn variant="text" color="error" size="small" @click="handleDelete(undefined, `是否确认删除编号为“${selectedIds}”的媒体服务器？`)">
+        <v-btn variant="text" color="error" size="small" @click="handleDelete()">
           批量删除
         </v-btn>
       </MobileBatchBar>
@@ -68,7 +68,7 @@
         <div class="card-detail">
           <div class="detail-row">
             <span class="label">类型</span>
-            <span class="value">{{ item.type === 'JELLYFIN' ? 'Jellyfin' : 'Emby' }}</span>
+            <span class="value">{{ mediaServerTypeLabel(item.type) }}</span>
           </div>
           <div class="detail-row">
             <span class="label">服务器地址</span>
@@ -122,6 +122,7 @@ import { usePtMediaServer } from '@/composables/usePtMediaServer'
 import { usePageStateProvider } from '@/composables/pageStateContext'
 import PtMediaServerFormDialog from '@/components/dialogs/PtMediaServerFormDialog.vue'
 import { mediaServerHealth } from '@/composables/mediaServerHealth'
+import { mediaServerTypeLabel } from '@/composables/mediaServerTypes'
 import { computed } from 'vue'
 import { useMobilePageAction } from '@/composables/useMobilePageAction'
 

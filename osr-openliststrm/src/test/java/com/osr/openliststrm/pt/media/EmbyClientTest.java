@@ -145,7 +145,7 @@ class EmbyClientTest {
     void testConnection_系统信息接口正常_判定连通() throws Exception {
         server.enqueue(new MockResponse().setBody("{\"ServerName\":\"emby\",\"Version\":\"4.8.0\"}"));
 
-        assertTrue(client.testConnection(config(null)));
+        assertTrue(client.testConnection(config(null)).ok());
         assertEquals("/System/Info", server.takeRequest().getPath());
     }
 
@@ -153,7 +153,149 @@ class EmbyClientTest {
     void testConnection_鉴权失败_判定不连通而非抛异常() {
         server.enqueue(new MockResponse().setResponseCode(401));
 
-        assertFalse(client.testConnection(config(null)));
+        assertFalse(client.testConnection(config(null)).ok());
+    }
+
+    // ---------- 失败原因要能指导处置 ----------
+    //
+    // 这几条钉住的是「连接失败」四个字回答不了的问题：API Key 填错、地址/端口不通、
+    // 反代把请求转给了别的服务——三者要用户去改的东西完全不同。退回一句通用文案时，
+    // 功能照常「工作」（仍然正确地判定为不连通），只是用户无从下手，所以只能靠断言守着。
+
+    @Test
+    void testConnection_连通时回显产品名与版本_让用户确认连的是哪一台() {
+        server.enqueue(new MockResponse().setBody("""
+                {"ProductName":"Jellyfin Server","Version":"10.9.11","ServerName":"客厅"}
+                """));
+
+        MediaServerProbe probe = client.testConnection(config(null));
+
+        assertTrue(probe.ok());
+        assertTrue(probe.detail().contains("Jellyfin Server"));
+        assertTrue(probe.detail().contains("10.9.11"));
+        assertTrue(probe.detail().contains("客厅"));
+    }
+
+    /** 缺失的片段整段不写，不写「未知」——一句「版本：未知」不帮用户做任何判断 */
+    @Test
+    void testConnection_信息字段缺失时不输出未知() {
+        server.enqueue(new MockResponse().setBody("{}"));
+
+        MediaServerProbe probe = client.testConnection(config(null));
+
+        assertTrue(probe.ok());
+        assertFalse(probe.detail().contains("未知"));
+    }
+
+    @Test
+    void testConnection_401指向APIKey() {
+        server.enqueue(new MockResponse().setResponseCode(401));
+
+        assertTrue(client.testConnection(config(null)).detail().contains("API Key"));
+    }
+
+    @Test
+    void testConnection_403同样指向APIKey() {
+        server.enqueue(new MockResponse().setResponseCode(403));
+
+        assertTrue(client.testConnection(config(null)).detail().contains("API Key"));
+    }
+
+    /** 404 最常见的成因是反代少配了路径前缀，与 Key 错完全是两个方向 */
+    @Test
+    void testConnection_404指向地址而不是APIKey() {
+        server.enqueue(new MockResponse().setResponseCode(404));
+
+        String detail = client.testConnection(config(null)).detail();
+        assertTrue(detail.contains("地址"));
+        assertFalse(detail.contains("API Key"));
+    }
+
+    @Test
+    void testConnection_502指向对端或代理不可用() {
+        server.enqueue(new MockResponse().setResponseCode(502));
+
+        assertTrue(client.testConnection(config(null)).detail().contains("502"));
+    }
+
+    @Test
+    void testConnection_返回HTML_指出这可能不是EmbyJellyfin地址() {
+        server.enqueue(new MockResponse().setBody("<html><body>Welcome to nginx</body></html>"));
+
+        MediaServerProbe probe = client.testConnection(config(null));
+
+        assertFalse(probe.ok());
+        assertTrue(probe.detail().contains("不是合法 JSON"));
+    }
+
+    @Test
+    void testConnection_地址无法解析时不抛异常() {
+        PtMediaServerPlus broken = config(null);
+        broken.setUrl("这不是一个地址");
+
+        assertFalse(client.testConnection(broken).ok());
+    }
+
+    // ---------- 用户列表 ----------
+
+    @Test
+    void listUsers_解析出id与名称() throws Exception {
+        server.enqueue(new MockResponse().setBody("""
+                [{"Id":"abc123","Name":"Jack"},{"Id":"def456","Name":"家人"}]
+                """));
+
+        var users = client.listUsers(config(null));
+
+        assertEquals(2, users.size());
+        assertEquals("abc123", users.get(0).id());
+        assertEquals("Jack", users.get(0).name());
+        assertEquals("/Users", server.takeRequest().getPath());
+    }
+
+    /** 没有 Id 的条目直接丢掉：它填进配置里也没有意义 */
+    @Test
+    void listUsers_跳过没有Id的条目() throws Exception {
+        server.enqueue(new MockResponse().setBody("""
+                [{"Id":"abc123","Name":"Jack"},{"Name":"坏数据"}]
+                """));
+
+        assertEquals(1, client.listUsers(config(null)).size());
+    }
+
+    @Test
+    void listUsers_HTTP错误_抛IOException() {
+        server.enqueue(new MockResponse().setResponseCode(401));
+
+        assertThrows(IOException.class, () -> client.listUsers(config(null)));
+    }
+
+    // ---------- 全剧集号 ----------
+
+    /**
+     * 这个方法存在的前提就是「库的分季方式和订阅对不上」，所以它<b>不能</b>带 season 参数——
+     * 带了就退化成按季查，长篇动画那条兜底路径整个失效，而结果只是「少匹配上几集」。
+     */
+    @Test
+    void listAllEpisodeNumbers_不带季号参数() throws Exception {
+        server.enqueue(new MockResponse().setBody("{\"Items\":[{\"Id\":\"series-42\"}]}"));
+        server.enqueue(new MockResponse().setBody("""
+                {"Items":[{"IndexNumber":1168},{"IndexNumber":1169}]}
+                """));
+
+        Set<Integer> numbers = client.listAllEpisodeNumbers(config(null), "12345");
+
+        assertEquals(Set.of(1168, 1169), numbers);
+        server.takeRequest();
+        RecordedRequest episodes = server.takeRequest();
+        assertEquals(null, episodes.getRequestUrl().queryParameter("season"));
+    }
+
+    @Test
+    void listAllEpisodeNumbers_剧集不在库中_返回空集合且不发第二次请求() throws Exception {
+        server.enqueue(new MockResponse().setBody("{\"Items\":[]}"));
+
+        assertTrue(client.listAllEpisodeNumbers(config(null), "99999").isEmpty());
+        assertEquals(1, server.getRequestCount());
     }
 
     @Test

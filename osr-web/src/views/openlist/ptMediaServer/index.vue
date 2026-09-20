@@ -41,7 +41,7 @@
           <v-btn color="success" prepend-icon="square-pen" :disabled="notOneSelected" @click="handleUpdate(undefined, '修改媒体服务器')">
             修改
           </v-btn>
-          <v-btn color="error" prepend-icon="trash-2" :disabled="noneSelected" @click="handleDelete(undefined, `是否确认删除编号为“${selectedIds}”的媒体服务器？`)">
+          <v-btn color="error" prepend-icon="trash-2" :disabled="noneSelected" @click="handleDelete()">
             批量删除
           </v-btn>
           <v-btn variant="text" class="batch-select-all-btn" @click="toggleSelectAllPage(!isAllPageSelected)">
@@ -71,7 +71,7 @@
           <div class="card-body">
             <div class="card-row">
               <span class="label">类型</span>
-              <span class="value">{{ item.type === 'JELLYFIN' ? 'Jellyfin' : 'Emby' }}</span>
+              <span class="value">{{ mediaServerTypeLabel(item.type) }}</span>
             </div>
             <div class="card-row">
               <span class="label">服务器地址</span>
@@ -140,6 +140,7 @@ import { useSearchPanel } from '@/composables/useSearchPanel'
 import SearchPanel from '@/components/SearchPanel.vue'
 import PtMediaServerFormDialog from '@/components/dialogs/PtMediaServerFormDialog.vue'
 import { mediaServerHealth } from '@/composables/mediaServerHealth'
+import { mediaServerTypeLabel } from '@/composables/mediaServerTypes'
 import { computed } from 'vue'
 
 const { showSearch } = useSearchPanel()

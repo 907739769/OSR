@@ -7,11 +7,16 @@ import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.mybatisplus.domain.PtMediaServerPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtMediaServerPlusService;
 import com.osr.openliststrm.pt.media.MediaServerClientFactory;
+import com.osr.openliststrm.pt.media.MediaServerProbe;
+import com.osr.openliststrm.pt.media.MediaServerUser;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.io.IOException;
+import java.util.List;
 
 /**
  * PT 媒体服务器配置 REST API 控制器
@@ -68,12 +73,58 @@ public class PtMediaServerRestController extends BaseCrudRestController<IPtMedia
      * </p>
      */
     @PostMapping("/test")
-    public Result<Void> test(@RequestBody PtMediaServerPlus entity) {
-        Result<Void> denied = denyIfNotAdmin();
+    public Result<String> test(@RequestBody PtMediaServerPlus entity) {
+        Result<String> denied = denyIfNotAdmin();
         if (denied != null) {
             return denied;
         }
-        // 编辑已有媒体服务器时前端 API Key 框留空表示"沿用已保存的 API Key"，测试连接同样要用已保存的值
+        Result<String> invalid = prepareForProbe(entity);
+        if (invalid != null) {
+            return invalid;
+        }
+        try {
+            MediaServerProbe probe = mediaServerClientFactory.get(entity).testConnection(entity);
+            // 成功与失败都把 detail 原样回给用户：那句话是他唯一能看到的解释，
+            // 换成通用文案等于把刚算出来的信息丢掉（同「推送失败要把真实原因回到用户眼前」）
+            return probe.ok() ? Result.success(probe.detail()) : Result.error(probe.detail());
+        } catch (IllegalArgumentException e) {
+            return Result.error(e.getMessage());
+        }
+    }
+
+    /**
+     * 列出该媒体服务器上的用户，供配置页填「用户ID」时选取。
+     * <p>
+     * 限管理员的理由与 {@link #test} 逐字相同：下面同样会把<b>已保存的</b> API Key 填进来，
+     * 再发往请求体里<b>调用方指定的</b> url。
+     * </p>
+     */
+    @PostMapping("/users")
+    public Result<List<MediaServerUser>> users(@RequestBody PtMediaServerPlus entity) {
+        Result<List<MediaServerUser>> denied = denyIfNotAdmin();
+        if (denied != null) {
+            return denied;
+        }
+        Result<List<MediaServerUser>> invalid = prepareForProbe(entity);
+        if (invalid != null) {
+            return invalid;
+        }
+        try {
+            return Result.success(mediaServerClientFactory.get(entity).listUsers(entity));
+        } catch (IllegalArgumentException e) {
+            return Result.error(e.getMessage());
+        } catch (IOException e) {
+            return Result.error("获取用户列表失败：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 两个探测类端点共用的准备：回填已保存的 API Key，并校验必填项。
+     *
+     * @return 校验不通过时的错误响应；通过则返回 null
+     */
+    private <T> Result<T> prepareForProbe(PtMediaServerPlus entity) {
+        // 编辑已有媒体服务器时前端 API Key 框留空表示"沿用已保存的 API Key"，探测同样要用已保存的值
         if (StringUtils.isBlank(entity.getApiKey()) && entity.getId() != null) {
             PtMediaServerPlus existing = service.getById(entity.getId());
             if (existing != null) {
@@ -83,12 +134,6 @@ public class PtMediaServerRestController extends BaseCrudRestController<IPtMedia
         if (StringUtils.isBlank(entity.getUrl()) || StringUtils.isBlank(entity.getApiKey())) {
             return Result.error("服务器地址与 API Key 不能为空");
         }
-        try {
-            return mediaServerClientFactory.get(entity).testConnection(entity)
-                    ? Result.success()
-                    : Result.error("连接失败，请检查地址、API Key 与网络");
-        } catch (IllegalArgumentException e) {
-            return Result.error(e.getMessage());
-        }
+        return null;
     }
 }

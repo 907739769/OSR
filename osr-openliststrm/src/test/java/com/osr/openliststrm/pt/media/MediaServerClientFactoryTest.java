@@ -82,7 +82,7 @@ class MediaServerClientFactoryTest {
         }
 
         @Override
-        public boolean testConnection(PtMediaServerPlus config) {
+        public MediaServerProbe testConnection(PtMediaServerPlus config) {
             throw new UnsupportedOperationException();
         }
 

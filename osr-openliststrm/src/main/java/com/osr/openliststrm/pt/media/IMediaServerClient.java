@@ -3,6 +3,7 @@ package com.osr.openliststrm.pt.media;
 import com.osr.openliststrm.mybatisplus.domain.PtMediaServerPlus;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -20,8 +21,26 @@ public interface IMediaServerClient {
 
     /**
      * 连通性测试。任何异常均视为不连通，不向上抛。
+     * <p>
+     * 返回 {@link MediaServerProbe} 而不是 boolean，是为了把「为什么不通」带回用户眼前——
+     * 理由见该类的注释。实现里要把异常翻成能指导处置的中文，不要原样抛 {@code getMessage()}：
+     * 那多半是一串英文的 {@code SocketTimeoutException} 之类，对用户没有意义。
+     * </p>
      */
-    boolean testConnection(PtMediaServerPlus config);
+    MediaServerProbe testConnection(PtMediaServerPlus config);
+
+    /**
+     * 列出媒体服务器上的用户，供配置页选取「用户ID」。
+     * <p>
+     * 默认返回空表：不支持这个概念的服务器实现（将来的 Plex 等）不必为此改动，
+     * 配置页那一侧会退回纯手填。
+     * </p>
+     *
+     * @throws IOException 网络异常或服务器返回非 2xx
+     */
+    default List<MediaServerUser> listUsers(PtMediaServerPlus config) throws IOException {
+        return List.of();
+    }
 
     /**
      * 查询某剧某季在库中已有的集号集合。
