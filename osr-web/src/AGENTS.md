@@ -202,9 +202,37 @@ await 过异步组件的 import，此时 chunk 已到位。
 ### 登录页
 
 全站唯一**不跟随明暗主题**的页面：固定的深色放映厅调性（极光 + 网格 + 暗角三层纯 CSS
-装饰 + 玻璃面板）。它是一个**时刻**而不是一个工作区。三条：
+装饰 + 玻璃面板）。它是一个**时刻**而不是一个工作区。六条：
+- **品牌区只有两层：图标 + 全称，不要把 `OSR` 那个大标题加回来。**
+  `public/icons/` 那枚图标本身就是 OSR 标志（三个字母画在里面），外面再写一遍简称、
+  下面又写一遍全称，同一件事说了三遍。现在留下的一层既是标志又是名字。原来挂在简称上的
+  品牌渐变移到了全称上——它是这一屏唯一的品牌色落点，不能跟着一起删。全称是 19 个等宽
+  字符的单行（`white-space: nowrap`），字号在 480px / 360px 两档各降一级：不降不会触发
+  横向滚动条，只是左右各顶进内边距几个像素，看起来像没对齐。
 - 卡片用 `<v-theme-provider theme="osrDark">` 包起来，**不要手写颜色覆盖**——
   里面全是 Vuetify 组件，让它们自己按暗色主题渲染才不会漏掉聚焦态、错误态这些分支。
+- **那个 provider 必须带 `with-background`，尽管这里并不想要它的背景。**
+  它的实现是 `if (!props.withBackground) return slots.default?.()`——不带这个 prop
+  就**一个元素都不渲染**，只靠 inject 传主题。Vuetify 组件照样会把 `v-theme--osrDark`
+  挂到自己身上、拿到正确的 CSS 变量（`--v-theme-on-surface` 查出来是对的），但
+  **`color` 是继承属性**，中间没有元素重新锚定，面板里的输入文字与 prepend/append 图标
+  会一路从 `.v-application` 继承下去——而它在用户开浅色时是 `osrLight`，于是
+  `rgba(26,26,26,.87)` 的近黑色压在深色玻璃输入框上，对比度约 1.1:1，基本看不见。
+  补上这一环的正是 `.v-theme-provider` 自带的那条 `color: rgb(var(--v-theme-on-background))`。
+  **这个 bug 极其隐蔽**：跟随系统主题的默认设置下，**深色系统的用户完全看不到**，
+  而 CSS 变量查出来全是对的，只有去看 `getComputedStyle(input).color` 才发现是继承来的。
+  不想要的那层不透明背景用 `.login-theme-scope { display: contents }` 消掉——
+  没有盒子就不画背景，元素却仍在继承链上；顺带它也不会成为 `.login-stage` 的 flex 子项
+  去顶替 `.login-panel` 参与尺寸计算。`e2e/login.spec.ts` 那条**在浅色下**测前景色的用例
+  钉住这件事，钉在浅色是关键，深色下它恒过。
+- **提交走 `<v-form @submit.prevent>` + 按钮 `type="submit"`，不要用 `@click`。**
+  两件事：`VBtn` 默认渲染成 `type="button"`，而表单有两个以上文本控件且没有提交按钮时
+  浏览器**不做隐式提交**——按钮挂 `@click` 的那一版，在用户名框里按回车是彻底没有动静的
+  （密码框当时靠一句 `@keyup.enter` 单独兜着）；而 `.prevent` 也不是顺手加的，
+  `VForm.onSubmit` 在校验通过且事件未被 preventDefault 时会调 `formRef.submit()`
+  走**原生提交**，那是一次整页刷新。密码显隐用 `#append-inner` 插槽放 `v-btn`，
+  不要用 `append-inner-icon` + `@click:append-inner`——后者渲染出来是个裸 `v-icon`，
+  鼠标能点、键盘 Tab 不到，而这颗按钮恰恰是给看不清自己输了什么的人用的。
 - 极光层用 `inset: -20%` 溢出容器（免得模糊边缘露出硬边），靠 `.login-stage` 的
   `overflow: hidden` 兜住。漏掉那条不报错，只会让手机上多一条横向滚动条，
   `e2e/mobile.spec.ts` 的登录页用例钉住了这一点。
