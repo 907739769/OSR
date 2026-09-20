@@ -55,6 +55,12 @@
             </span>
           </template>
           <template #item.year="{ item }">{{ item.year || '-' }}</template>
+          <!-- 这一列此前是纯文本。选片是用户在建订阅<b>之前</b>唯一一次能亲眼核对
+               「这到底是不是那部作品」的机会，而同名作品（Dark Matter 有两部）
+               靠标题和年份分不开——订错了的代价是真的开始占用索引器和下载器去下别的片子 -->
+          <template #item.tmdbId="{ item }">
+            <TmdbLink variant="text" :tmdb-id="item.tmdbId" :media-type="item.mediaType" />
+          </template>
         </v-data-table>
 
         <div v-if="picked" class="picked-bar">
@@ -95,6 +101,7 @@
 
 <script setup lang="ts">
 import { usePtSubscriptionContext } from '@/composables/ptSubscriptionContext'
+import TmdbLink from '@/components/TmdbLink.vue'
 
 const {
   confirmSubscribe,

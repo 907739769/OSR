@@ -48,6 +48,9 @@
           <span>{{ item.mediaType === 'MOVIE' ? '电影' : '剧集' }}</span>
           <span v-if="item.mediaType !== 'MOVIE'">S{{ item.season }}</span>
           <span>共 {{ item.totalEpisodes }} 集</span>
+          <!-- 订错了/想确认是不是这一部时的出口：订阅手里就握着 tmdbId，此前只能当一串看不见的数字。
+               剧集深链到季（订阅本来就是按季建的），电影落到条目页 -->
+          <TmdbLink :tmdb-id="item.tmdbId" :media-type="item.mediaType" :season="item.season" />
           <!-- 被单独配过过滤规则/下载器的订阅要看得出来，否则只能逐条打开弹窗才知道 -->
           <v-chip
             v-if="hasFilterOverride(item)"
@@ -146,6 +149,7 @@
 <script setup lang="ts">
 import { computed, reactive, watch } from 'vue'
 import StatusChip from '@/components/StatusChip.vue'
+import TmdbLink from '@/components/TmdbLink.vue'
 import { getRoutePathForComponent } from '@/router'
 import { useRouter } from 'vue-router'
 import { usePtSubscriptionContext } from '@/composables/ptSubscriptionContext'

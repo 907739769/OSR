@@ -120,6 +120,10 @@
                 class="source-link"
               >{{ item.title }}</a>
               <span v-else>{{ item.title }}</span>
+              <!-- 这一页存在的理由就是排查「这轮为什么没加 / 加的是不是对的」，而补全那一步
+                   （PopularItemResolver 按标题搜 TMDb）恰恰是整个功能里唯一会订错片的地方。
+                   豆瓣源有条目链接、TMDb 源此前什么链接都没有，而它手里就握着补出来的 tmdbId -->
+              <TmdbLink :tmdb-id="item.tmdbId" :media-type="item.mediaType" :season="item.season" />
             </template>
           </v-data-table>
           <v-empty-state v-if="!logLoading && logList.length === 0" icon="inbox" title="暂无日志" />
@@ -131,6 +135,7 @@
 
 <script setup lang="ts">
 import StatusChip from '@/components/StatusChip.vue'
+import TmdbLink from '@/components/TmdbLink.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { usePtAutoAddRule } from '@/composables/usePtAutoAddRule'
 import { usePageStateProvider } from '@/composables/pageStateContext'

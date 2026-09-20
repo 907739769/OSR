@@ -196,7 +196,7 @@
             </div>
             <div v-if="renameTags(item).length || tmdbUrl(item)" class="record-tags">
               <span v-for="tag in renameTags(item)" :key="tag" class="record-tag">{{ tag }}</span>
-              <a v-if="tmdbUrl(item)" class="record-tag" :href="tmdbUrl(item)!" target="_blank" rel="noopener noreferrer">TMDb</a>
+              <TmdbLink variant="tag" :tmdb-id="item.tmdbId" :media-type="item.mediaType" />
             </div>
             <div v-if="item.scrapeStatus === '2' && item.scrapeMsg" class="record-fail-reason" :title="item.scrapeMsg">
               刮削失败：{{ item.scrapeMsg }}
@@ -390,8 +390,10 @@ import StatusChip from '@/components/StatusChip.vue'
 import RecordStatusBar from '@/components/RecordStatusBar.vue'
 import RecordDetailDrawer, { type RecordDetailField } from '@/components/RecordDetailDrawer.vue'
 import {
-  useRenameDetailList, RENAME_STATUS_OPTIONS, MEDIA_TYPE_OPTIONS, SCRAPE_STATUS_OPTIONS, renameTags, tmdbUrl
+  useRenameDetailList, RENAME_STATUS_OPTIONS, MEDIA_TYPE_OPTIONS, SCRAPE_STATUS_OPTIONS, renameTags
 } from '@/composables/useRenameDetailList'
+import { tmdbUrl } from '@/composables/tmdbLink'
+import TmdbLink from '@/components/TmdbLink.vue'
 import { useSearchPanel } from '@/composables/useSearchPanel'
 import SearchPanel from '@/components/SearchPanel.vue'
 import { useDataTable } from '@/composables/useDataTable'
@@ -435,7 +437,7 @@ const detailFields = computed<RecordDetailField[]>(() => {
     { label: '新文件', value: `${row.newPath}/${row.newName}`, mono: true, copyable: true },
     { label: '识别标题', value: [row.title, row.year ? `(${row.year})` : ''].filter(Boolean).join(' ') },
     { label: '识别结果', value: renameTags(row).join(' · ') },
-    { label: 'TMDb', value: row.tmdbId, href: tmdbUrl(row) || undefined },
+    { label: 'TMDb', value: row.tmdbId, href: tmdbUrl(row) ?? undefined },
     { label: '创建时间', value: row.createTime },
     { label: '最后更新', value: row.updateTime }
   ]

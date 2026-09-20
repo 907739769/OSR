@@ -4,7 +4,7 @@ vi.mock('../useMessage', () => ({
   message: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() }
 }))
 
-import { renameTags, tmdbUrl } from '../useRenameDetailList'
+import { renameTags } from '../useRenameDetailList'
 import { isSubtitleFile } from '../useStrmRecord'
 
 describe('重命名明细的识别结果标签', () => {
@@ -16,12 +16,6 @@ describe('重命名明细的识别结果标签', () => {
 
   it('电影不带季集', () => {
     expect(renameTags({ mediaType: 'movie', season: '1', resolution: '1080p' })).toEqual(['电影', '1080p'])
-  })
-
-  it('TMDb 链接按媒体类型拼，缺类型或缺 id 时不给', () => {
-    expect(tmdbUrl({ mediaType: 'tv', tmdbId: '79481' })).toBe('https://www.themoviedb.org/tv/79481')
-    expect(tmdbUrl({ mediaType: 'tv' })).toBeNull()
-    expect(tmdbUrl({ tmdbId: '1' })).toBeNull()
   })
 })
 

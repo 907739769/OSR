@@ -110,6 +110,9 @@
                 {{ sub.title }}
                 <span v-if="sub.mediaType !== 'MOVIE'" class="card-season">S{{ pad(sub.season) }}</span>
               </span>
+              <!-- 「这一集为什么还是灰的」的下一步常常是去 TMDb 核对播出日期、核对这季到底几集。
+                   放在标题<b>外面</b>：标题整块是「打开这条订阅」的热区，套在里面点哪儿都成谜 -->
+              <TmdbLink class="card-tmdb" :tmdb-id="sub.tmdbId" :media-type="sub.mediaType" :season="sub.season" size="16" />
             </div>
             <v-chip v-if="sub.ignored" size="x-small" variant="tonal" prepend-icon="bell-off">
               已忽略
@@ -259,6 +262,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { usePtHealth, bucketMeta, diagnosisMeta, posterUrl } from '@/composables/usePtHealth'
+import TmdbLink from '@/components/TmdbLink.vue'
 import type { EpisodeHealthItem, SubscriptionHealthItem } from '@/api/openlist/ptHealth'
 
 const {
@@ -362,6 +366,12 @@ const expandEpisodes = (subId: number) => {
   font-size: 11px;
   font-weight: 400;
   color: var(--osr-text-secondary);
+}
+
+/* 拇指热区：图标只有 16px，靠内距撑开；负外边距抵掉它对标题行行高的影响 */
+.card-tmdb {
+  padding: 8px;
+  margin: -8px 0 -8px 2px;
 }
 
 .summary-of-total {

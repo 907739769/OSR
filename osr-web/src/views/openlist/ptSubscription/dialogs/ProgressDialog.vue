@@ -13,6 +13,14 @@
             <span v-if="seasonLabel(currentSubscription)" class="progress-season">
               {{ seasonLabel(currentSubscription) }}
             </span>
+            <!-- 「这一集怎么还缺着」常常要去 TMDb 对一眼播出日期/这季到底几集，
+                 而用户此刻正好在看这条订阅的进度 -->
+            <TmdbLink
+              v-if="currentSubscription"
+              :tmdb-id="currentSubscription.tmdbId"
+              :media-type="currentSubscription.mediaType"
+              :season="currentSubscription.season"
+            />
           </p>
           <!-- 电影在集表里只有一行哨兵记录（集号 0），照剧集那套渲染出来是「已入库 1 / 1 集」
                加一个不可点的集号「0」，重置按钮还要展开「查看全部集」才露出来、写着「第0集」。
@@ -163,6 +171,7 @@
 
 <script setup lang="ts">
 import { usePtSubscriptionContext } from '@/composables/ptSubscriptionContext'
+import TmdbLink from '@/components/TmdbLink.vue'
 
 const {
   abortSearchAllMissing,

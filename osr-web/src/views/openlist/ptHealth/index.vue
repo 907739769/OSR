@@ -138,6 +138,9 @@
                   {{ sub.title }}
                 </button>
                 <span v-if="sub.mediaType !== 'MOVIE'" class="item-season">S{{ pad(sub.season) }}</span>
+                <!-- 「这一集为什么还是灰的」的下一步常常是去 TMDb 核对播出日期、
+                     核对这季到底几集——体检手里就有 tmdbId，深链到季直接落到那张表上 -->
+                <TmdbLink :tmdb-id="sub.tmdbId" :media-type="sub.mediaType" :season="sub.season" />
                 <span v-if="sub.maxOverdueDays !== null" class="item-overdue">
                   已播出 {{ sub.maxOverdueDays }} 天
                 </span>
@@ -258,6 +261,7 @@
 import { ref, computed } from 'vue'
 import PageHeader from '@/components/PageHeader.vue'
 import { usePtHealth, bucketMeta, diagnosisMeta, posterUrl } from '@/composables/usePtHealth'
+import TmdbLink from '@/components/TmdbLink.vue'
 import type { EpisodeHealthItem, SubscriptionHealthItem } from '@/api/openlist/ptHealth'
 
 const {

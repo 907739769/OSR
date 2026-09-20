@@ -65,12 +65,6 @@ export function renameTags(row: any): string[] {
   return tags
 }
 
-/** TMDb 条目链接：刮错了的第一反应是去 TMDb 上看一眼这到底是哪部作品 */
-export function tmdbUrl(row: any): string | null {
-  if (!row.tmdbId || (row.mediaType !== 'movie' && row.mediaType !== 'tv')) return null
-  return `https://www.themoviedb.org/${row.mediaType}/${row.tmdbId}`
-}
-
 /**
  * 重命名明细页（PC + 移动端）共用逻辑。
  * 列表/分页/搜索/选择/删除是标准记录页逻辑，复用 useRecordList；

@@ -53,6 +53,10 @@
                 {{ item.originalTitle }}
               </span>
             </div>
+            <!-- 选片是建订阅<b>之前</b>唯一一次能核对「是不是那部作品」的机会（同名作品
+                 靠标题和年份分不开）。单独占一块热区而不是塞进标题行里：挨着标题的话，
+                 想点链接却选中了另一部片子——在手机上这是必然会发生的误触 -->
+            <TmdbLink class="result-tmdb" :tmdb-id="item.tmdbId" :media-type="item.mediaType" size="18" />
             <v-icon v-if="picked && picked.tmdbId === item.tmdbId" icon="circle-check" color="primary" />
           </div>
           <v-empty-state v-if="!searchLoading && searchResults.length === 0" icon="search" title="暂无搜索结果" />
@@ -96,6 +100,7 @@
 
 <script setup lang="ts">
 import { usePtSubscriptionContext } from '@/composables/ptSubscriptionContext'
+import TmdbLink from '@/components/TmdbLink.vue'
 
 const {
   confirmSubscribe,
@@ -193,6 +198,12 @@ const {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* 拇指够得着的热区：图标本身只有 18px，靠内距撑到 34px 见方 */
+.result-tmdb {
+  padding: 8px;
+  margin: -8px 0;
+}
+
 .result-original {
   font-size: 11px;
   color: var(--osr-text-secondary);

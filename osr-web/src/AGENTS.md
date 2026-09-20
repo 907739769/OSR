@@ -292,6 +292,25 @@ ptTorrentBlacklist / wecomUser（即全部 `.card-grid` 页面）。新增卡片
   **禁止再手写 `.form-item` / `.form-label` / `.field-label` / `.rule-field-label`**（那是 `el-form-item` 的复刻）。
 - **`StatusChip`**：所有状态徽章走它。二元开关用 `<StatusChip :value="row.enabled" />`，
   开=success 关=error 全站一致；自定义状态用 `<StatusChip type="warning" text="下载中" />`。
+- **「去 TMDb 看一眼」外链只有 `components/TmdbLink.vue` + `composables/tmdbLink.ts` 一份**，
+  PC 与移动端、6 个页面 14 个落点共用（重命名明细、订阅卡与进度弹窗、选片弹窗、缺集体检、
+  追剧日历的两个弹窗、热门自动订阅执行日志）。收口的理由不是"少写几行"，而是**大小写这一条
+  必然漂移**：`rename_detail.media_type` 存小写 `tv`/`movie`，`pt_subscription` /
+  `pt_auto_add_log` 存大写 `TV`/`MOVIE`（后端两条链路各有各的约定，不打算统一）。严格判等小写
+  的实现拿到 PT 侧的数据会**恒返回 null**——不报错、不告警，只是那个链接一个都不渲染，
+  而"这个按钮怎么没出来"是最难从代码审查里看出来的一类缺陷。四条不要改坏的：
+  **（1）信息不足时整个组件不渲染**，调用方不必自己判（拼不出链接时留一个点不动的图标更让人困惑）；
+  **（2）`@click.stop` 不是防御性写法**——订阅卡在批量模式下整卡点击 = 选中、选片弹窗整行点击 = 选片，
+  不拦住的话点一下 TMDb 会顺带改掉选择状态；
+  **（3）`episode` 只接受 TMDb 口径的集号**（`tmdb_episode_number`），本地季内相对号与 TMDb 主数据
+  未必一致（长篇动画用绝对号，见根目录 AGENTS.md「集号有三套」），拼进去会落到一个 TMDb 上不存在
+  的集——追剧日历的 `CalendarEntry.episode` 正是本地号，所以那两处只深链到季；
+  **（4）判断是不是电影一律看 `mediaType` 不看 `season`**：电影的 season 恒为哨兵 0，而剧集的
+  特别篇也是第 0 季。形态有 `icon`（默认，卡片标题旁）/ `tag`（复用 list.scss 的 `a.record-tag`，
+  重命名明细那排标签）/ `text`（把 TMDb ID 本身变成链接）三种，不要加第四种。
+  **尚未覆盖的三处要后端先补字段**：下载记录（只有 subId/subTitle）、PT 统计仪表盘的 Top 活跃订阅
+  与首页 PT 概览卡（`PtStatsActiveSubscriptionDTO` 无 tmdbId）、重命名一致性检查（要 join 回
+  rename_detail）。
 - **不作为表单字段的勾选框一律用 `v-checkbox-btn`，不要用 `v-checkbox`**（移动端卡片角标已全部收口，`views-mobile` 里只剩弹窗表单里那一个真·表单字段）。
   后者是**表单字段**：内部套一层 `VInput`，带来 min-height、label 的 `opacity: .6`、
   以及 details/hint 行的预留空间。把它放进批量工具条、卡片角标、全选行这类紧凑位置，

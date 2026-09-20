@@ -101,10 +101,25 @@
               <v-progress-linear v-if="logLoading" indeterminate color="primary" />
               <div v-for="log in logList" :key="log.id" class="log-item">
                 <div class="log-top">
-                  <span class="log-title" :title="log.title">{{ log.title || '-' }}</span>
+                  <!-- 豆瓣源的条目链接，与 PC 端同一处理：标题本身就是链接。
+                       TMDb 源没有这个字段（sourceItemUrl 为空），退回纯文本 -->
+                  <a
+                    v-if="log.sourceItemUrl"
+                    class="log-title log-title--link"
+                    :href="log.sourceItemUrl"
+                    :title="log.title"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >{{ log.title || '-' }}</a>
+                  <span v-else class="log-title" :title="log.title">{{ log.title || '-' }}</span>
                   <StatusChip :type="resultTagType(log.result)" :text="resultLabel(log.result)" />
                 </div>
-                <div class="log-meta">{{ log.createTime }}<span v-if="log.season"> · 第{{ log.season }}季</span></div>
+                <div class="log-meta">
+                  {{ log.createTime }}<span v-if="log.season"> · 第{{ log.season }}季</span>
+                  <!-- 理由同 PC：补全那一步是整个功能里唯一会订错片的地方，
+                       而这条日志手里就握着补出来的 tmdbId -->
+                  <TmdbLink class="log-tmdb" :tmdb-id="log.tmdbId" :media-type="log.mediaType" :season="log.season" size="16" />
+                </div>
                 <div class="log-message" v-if="log.message">{{ log.message }}</div>
               </div>
               <v-empty-state v-if="!logLoading && logList.length === 0" icon="inbox" title="暂无日志" />
@@ -118,6 +133,7 @@
 
 <script setup lang="ts">
 import StatusChip from '@/components/StatusChip.vue'
+import TmdbLink from '@/components/TmdbLink.vue'
 import MobileListPage from '@/components/mobile/MobileListPage.vue'
 import MobileActionSheet from '@/components/mobile/MobileActionSheet.vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
@@ -182,11 +198,25 @@ useMobilePageAction(() => ({ icon: 'plus', label: '新增热门自动订阅规�
       text-overflow: ellipsis;
       white-space: nowrap;
     }
+
+    /* 必须排在 .log-title 之后：两条特异性相同，靠顺序取胜 */
+    .log-title--link {
+      color: var(--osr-primary);
+      text-decoration: none;
+    }
   }
 
   .log-meta {
+    display: flex;
+    align-items: center;
     font-size: 12px;
     color: var(--osr-text-secondary);
+  }
+
+  /* 拇指热区：图标只有 16px，靠内距撑开 */
+  .log-tmdb {
+    padding: 8px;
+    margin: -8px 0 -8px 2px;
   }
 
   .log-message {

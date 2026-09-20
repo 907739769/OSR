@@ -111,6 +111,20 @@
             <span class="label">播出日期</span>
             <span class="value">{{ activeEntry.airDate }}</span>
           </div>
+          <!-- 日历上只会出现剧集：播出日期同步（EpisodeAirDateSyncService）显式排除了电影，
+               而 CalendarEntry 本身不带 mediaType，所以这里写死 tv。
+               只深链到季、不带集号：这里的 episode 是本地季内相对号，与 TMDb 主数据未必一致
+               （长篇动画用绝对号），拼进去会落到一个 TMDb 上不存在的集 -->
+          <div class="entry-dialog-row">
+            <span class="label">TMDb</span>
+            <TmdbLink
+              variant="text"
+              media-type="tv"
+              :tmdb-id="activeEntry.tmdbId"
+              :season="activeEntry.season"
+              :text="`第 ${activeEntry.season} 季`"
+            />
+          </div>
           <div class="entry-dialog-row">
             <span class="label">状态</span>
             <v-chip size="small" :color="stateColor(activeEntry.state)" variant="tonal">
@@ -132,6 +146,7 @@
 import { nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { usePtCalendar, stateMeta, posterUrl } from '@/composables/usePtCalendar'
+import TmdbLink from '@/components/TmdbLink.vue'
 import { getRoutePathForComponent } from '@/router'
 import type { CalendarEntry } from '@/api/openlist/ptCalendar'
 

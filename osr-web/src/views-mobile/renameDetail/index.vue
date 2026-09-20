@@ -204,7 +204,7 @@
         </div>
         <div v-if="renameTags(record).length || tmdbUrl(record)" class="record-tags">
           <span v-for="tag in renameTags(record)" :key="tag" class="record-tag">{{ tag }}</span>
-          <a v-if="tmdbUrl(record)" class="record-tag" :href="tmdbUrl(record)!" target="_blank" rel="noopener noreferrer" @click.stop>TMDb</a>
+          <TmdbLink variant="tag" :tmdb-id="record.tmdbId" :media-type="record.mediaType" />
         </div>
         <div
           v-if="record.scrapeStatus === '2' && record.scrapeMsg"
@@ -397,8 +397,10 @@ import FullTextDialog from '@/components/mobile/FullTextDialog.vue'
 import StatusChip from '@/components/StatusChip.vue'
 import RecordStatusBar from '@/components/RecordStatusBar.vue'
 import {
-  useRenameDetailList, RENAME_STATUS_OPTIONS, MEDIA_TYPE_OPTIONS, SCRAPE_STATUS_OPTIONS, renameTags, tmdbUrl
+  useRenameDetailList, RENAME_STATUS_OPTIONS, MEDIA_TYPE_OPTIONS, SCRAPE_STATUS_OPTIONS, renameTags
 } from '@/composables/useRenameDetailList'
+import { tmdbUrl } from '@/composables/tmdbLink'
+import TmdbLink from '@/components/TmdbLink.vue'
 import { useActionSheet } from '@/composables/useActionSheet'
 
 const searchCollapsed = ref(true)
