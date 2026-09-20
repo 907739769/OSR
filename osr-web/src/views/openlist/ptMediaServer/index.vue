@@ -3,7 +3,7 @@
     <PageHeader
       icon="server"
       title="媒体服务器"
-      desc="配置 Emby / Jellyfin，用于入库对账"
+      desc="配置 Emby / Jellyfin，用于入库对账。启用的服务器全部参与查询，任一台命中即算已入库"
     />
 
     <!-- Search Panel -->
@@ -55,7 +55,7 @@
 
       <div class="card-grid" ref="gridRef">
         <v-progress-linear v-if="loading" indeterminate color="primary" />
-        <div v-for="item in taskList" :key="item.id" class="item-card">
+        <div v-for="{ item, health } in rows" :key="item.id" class="item-card">
           <div class="card-header">
             <div class="card-checkbox">
               <v-checkbox
@@ -77,9 +77,21 @@
               <span class="label">服务器地址</span>
               <span class="value" :title="item.url">{{ item.url }}</span>
             </div>
+            <!-- 「创建时间」换成对账状态：媒体服务器挂掉的唯一可见症状是订阅进度不动，
+                 而这一行是页面上唯一能看出它挂了的地方 -->
             <div class="card-row">
-              <span class="label">创建时间</span>
-              <span class="value">{{ item.createTime }}</span>
+              <span class="label">对账状态</span>
+              <span class="value">
+                <StatusChip
+                  :type="health.type"
+                  :text="health.text"
+                  :title="health.detail"
+                />
+              </span>
+            </div>
+            <div v-if="health.showError" class="card-row">
+              <span class="label">失败原因</span>
+              <span class="value text-error" :title="item.lastCheckError">{{ item.lastCheckError }}</span>
             </div>
           </div>
           <div class="card-footer">
@@ -127,6 +139,8 @@ import { useGridPageSize } from '@/composables/useGridPageSize'
 import { useSearchPanel } from '@/composables/useSearchPanel'
 import SearchPanel from '@/components/SearchPanel.vue'
 import PtMediaServerFormDialog from '@/components/dialogs/PtMediaServerFormDialog.vue'
+import { mediaServerHealth } from '@/composables/mediaServerHealth'
+import { computed } from 'vue'
 
 const { showSearch } = useSearchPanel()
 
@@ -137,6 +151,11 @@ const {
   isAllPageSelected, toggleSelectAllPage,
   handleAdd, handleUpdate, handleDelete
 } = usePageStateProvider(usePtMediaServer({ autoLoad: false }))
+
+// 连通状态每行只算一次。直接在模板里调 mediaServerHealth(item) 的话，同一条记录
+// 每次重渲染要解析四遍时间串；包成 { item, health } 而不是展开成副本，是为了让
+// handleUpdate/handleDelete 拿到的仍是原始记录，不会把 health 这个前端字段提交回后端
+const rows = computed(() => taskList.value.map((item: any) => ({ item, health: mediaServerHealth(item) })))
 
 // 每页条数按网格实际列数取整到整行，窗口宽度变了跟着重算
 const { gridRef, pageSizeOptions, setPageSize } = useGridPageSize((size) => {

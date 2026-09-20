@@ -18,6 +18,7 @@ import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.osr.openliststrm.notify.NotificationType;
 import com.osr.openliststrm.notify.NotifyTarget;
 import com.osr.openliststrm.pt.media.MediaServerClientFactory;
+import com.osr.openliststrm.pt.media.MediaServerHealthRecorder;
 import com.osr.openliststrm.pt.subscription.dto.BatchOperationResult;
 import com.osr.openliststrm.pt.subscription.dto.SubscribeRequest;
 import com.osr.openliststrm.pt.subscription.dto.SubscriptionProgress;
@@ -31,6 +32,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.IOException;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
@@ -119,6 +121,8 @@ public class SubscriptionService {
     private IPtMediaServerPlusService mediaServerService;
     @Autowired
     private MediaServerClientFactory mediaServerClientFactory;
+    @Autowired
+    private MediaServerHealthRecorder healthRecorder;
     @Autowired
     private TmdbSearchService tmdbSearchService;
     @Autowired
@@ -218,6 +222,19 @@ public class SubscriptionService {
      * 「媒体库里一集都没有」的日志节流，key 是 tmdbId。跨轮次存活，见 {@link FaultThrottle} 的类注释。
      */
     private final FaultThrottle missingInLibrary = new FaultThrottle();
+
+    /**
+     * 媒体服务器不可用的日志节流，key 是 serverId（一台都没配时是 {@link #NO_SERVER_KEY}）。
+     * <p>
+     * 与 {@link #missingInLibrary} 分开是因为两者的故障源不同：那个按剧分组（这部剧还没下），
+     * 这个按服务器分组（Emby 挂了）。混用一个实例会让一次宕机被记成几十个互不相干的故障，
+     * 每个都各自放行一条「首次失败」，节流形同虚设。
+     * </p>
+     */
+    private final FaultThrottle mediaServerFault = new FaultThrottle();
+
+    /** 「一台媒体服务器都没启用」这个故障的节流 key。它不属于任何一台服务器，因此取一个不会与 id 相撞的常量 */
+    private static final String NO_SERVER_KEY = "__none__";
 
     /**
      * 对账刷新：重新拉 TMDb 总集数补齐集行 → 查 Emby → 推进集状态 → 重算订阅状态。
@@ -585,51 +602,119 @@ public class SubscriptionService {
     private Set<Integer> queryLibrary(String subject, String mediaType, String tmdbId, int season,
                                       List<Integer> localEpisodes,
                                       Map<Integer, TmdbEpisodeAligner.TmdbEpisodeRef> aligned) {
-        PtMediaServerPlus server = mediaServerService.getActive();
-        if (server == null) {
-            log.warn("未配置启用中的媒体服务器，{} 的已入库集数按 0 处理", subject);
+        List<PtMediaServerPlus> servers = mediaServerService.listActive();
+        if (servers.isEmpty()) {
+            // 节流理由与下面那条相同：这是个会持续成立的状态，而本方法是<b>每条订阅</b>调一次的。
+            // 不节流的话，一个还没配媒体服务器的新装库每天会刷出「订阅数 × 144」行逐字相同的 WARN
+            // （实测 103 条订阅 ≈ 14800 行/天），而它们不比第一行多说明任何事
+            if (mediaServerFault.onFailure(NO_SERVER_KEY).shouldReport()) {
+                log.warn("未配置启用中的媒体服务器，全部订阅的已入库集数一律按 0 处理（本轮涉及 {}）", subject);
+            }
             return Collections.emptySet();
         }
-        try {
-            IMediaServerClient client = mediaServerClientFactory.get(server);
-            if (TYPE_MOVIE.equalsIgnoreCase(mediaType)) {
-                return client.hasMovie(server, tmdbId) ? Set.of(MOVIE_EPISODE) : Collections.emptySet();
-            }
+        mediaServerFault.onSuccess(NO_SERVER_KEY);
 
-            Set<Integer> inSeason = client.listEpisodes(server, tmdbId, season);
-            Set<Integer> result = new HashSet<>();
-            Set<Integer> wholeSeries = null;
-
-            for (Integer episode : localEpisodes) {
-                if (episode == null) {
-                    continue;
+        boolean movie = TYPE_MOVIE.equalsIgnoreCase(mediaType);
+        Set<Integer> result = new HashSet<>();
+        for (PtMediaServerPlus server : servers) {
+            try {
+                IMediaServerClient client = mediaServerClientFactory.get(server);
+                if (movie) {
+                    if (client.hasMovie(server, tmdbId)) {
+                        result.add(MOVIE_EPISODE);
+                    }
+                } else {
+                    result.addAll(queryLibraryOn(client, server, tmdbId, season, localEpisodes, aligned));
                 }
-                if (inSeason.contains(episode)) {
-                    result.add(episode);
-                    continue;
+                healthRecorder.recordSuccess(server.getId());
+                if (mediaServerFault.onSuccess(healthKey(server))) {
+                    log.info("媒体服务器[{}]已恢复", server.getName());
                 }
-                TmdbEpisodeAligner.TmdbEpisodeRef ref = aligned.get(episode);
-                if (ref == null || ref.episodeNumber() == episode) {
-                    continue;
-                }
-                if (inSeason.contains(ref.episodeNumber())) {
-                    result.add(episode);
-                    continue;
-                }
-                // 整部剧的编号只在确有需要时拉一次，普通剧集根本走不到这里
-                if (wholeSeries == null) {
-                    wholeSeries = client.listAllEpisodeNumbers(server, tmdbId);
-                }
-                if (wholeSeries.contains(ref.episodeNumber())) {
-                    result.add(episode);
+            } catch (Exception e) {
+                // 一台不通只是少命中几集，不影响其余服务器，也不影响对账本身——对账只升不降，
+                // 少命中的集维持原状态，下一轮它恢复了再补上，不会造成任何误判
+                healthRecorder.recordFailure(server.getId(), describeFailure(e));
+                FaultThrottle.Decision d = mediaServerFault.onFailure(healthKey(server));
+                if (d.shouldReport()) {
+                    log.warn("查询媒体服务器[{}]失败（连续第 {} 次），本轮它贡献的已入库集数按 0 处理：{}",
+                            server.getName(), d.consecutiveFailures(), describeFailure(e));
                 }
             }
-            reportLibraryCoverage(subject, tmdbId, result.isEmpty());
-            return result;
-        } catch (Exception e) {
-            log.warn("查询媒体库失败，{} 的已入库集数按 0 处理：{}", subject, e.getMessage());
-            return Collections.emptySet();
+            // 「任一命中即算入库」，这条订阅要的集已经全齐时，后面的服务器一次请求都不必发
+            if (coversAllRequested(result, movie, localEpisodes)) {
+                break;
+            }
         }
+        reportLibraryCoverage(subject, tmdbId, result.isEmpty());
+        return result;
+    }
+
+    /**
+     * 在<b>单台</b>服务器上按类注释里那三条规则算出已入库的本地集号。
+     * <p>
+     * 拆成一台一次是有意的：{@code listAllEpisodeNumbers} 的懒加载（第 3 条规则才拉、且整部剧只拉一次）
+     * 必须按服务器各自持有，几台共用一个 {@code wholeSeries} 变量会让 A 的全剧编号被拿去判 B 的命中。
+     * </p>
+     */
+    private Set<Integer> queryLibraryOn(IMediaServerClient client, PtMediaServerPlus server,
+                                        String tmdbId, int season, List<Integer> localEpisodes,
+                                        Map<Integer, TmdbEpisodeAligner.TmdbEpisodeRef> aligned) throws IOException {
+        Set<Integer> inSeason = client.listEpisodes(server, tmdbId, season);
+        Set<Integer> result = new HashSet<>();
+        Set<Integer> wholeSeries = null;
+
+        for (Integer episode : localEpisodes) {
+            if (episode == null) {
+                continue;
+            }
+            if (inSeason.contains(episode)) {
+                result.add(episode);
+                continue;
+            }
+            TmdbEpisodeAligner.TmdbEpisodeRef ref = aligned.get(episode);
+            if (ref == null || ref.episodeNumber() == episode) {
+                continue;
+            }
+            if (inSeason.contains(ref.episodeNumber())) {
+                result.add(episode);
+                continue;
+            }
+            // 整部剧的编号只在确有需要时拉一次，普通剧集根本走不到这里
+            if (wholeSeries == null) {
+                wholeSeries = client.listAllEpisodeNumbers(server, tmdbId);
+            }
+            if (wholeSeries.contains(ref.episodeNumber())) {
+                result.add(episode);
+            }
+        }
+        return result;
+    }
+
+    /** 这条订阅要的集是不是已经全部命中了——命中即可跳过其余服务器，少打一轮请求 */
+    private static boolean coversAllRequested(Set<Integer> found, boolean movie, List<Integer> requested) {
+        if (movie) {
+            return found.contains(MOVIE_EPISODE);
+        }
+        for (Integer episode : requested) {
+            if (episode != null && !found.contains(episode)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** 故障节流的 key。媒体服务器是故障源，按它分组——按订阅分组会让同一次宕机被当成几十个独立故障 */
+    private static String healthKey(PtMediaServerPlus server) {
+        return String.valueOf(server.getId());
+    }
+
+    /**
+     * 异常的人话描述。{@code getMessage()} 对 NPE 一类可能为 null，而这串会原样显示在配置页上，
+     * 一个空白的失败原因比「连接失败」还难处置。
+     */
+    private static String describeFailure(Exception e) {
+        String message = e.getMessage();
+        return StringUtils.isBlank(message) ? e.getClass().getSimpleName() : message;
     }
 
     /**

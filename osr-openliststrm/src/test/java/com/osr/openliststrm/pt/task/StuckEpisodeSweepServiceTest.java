@@ -47,7 +47,7 @@ class StuckEpisodeSweepServiceTest {
     private void withActiveMediaServer() {
         PtMediaServerPlus server = new PtMediaServerPlus();
         server.setId(1);
-        when(mediaServerService.getActive()).thenReturn(server);
+        when(mediaServerService.listActive()).thenReturn(List.of(server));
     }
 
     private PtSubscriptionEpisodePlus stuck(int id, int episode, Integer failCount) {
@@ -137,11 +137,60 @@ class StuckEpisodeSweepServiceTest {
     void 没有启用中的媒体服务器_整体跳过不查不改() {
         // 那种配置下 queryLibrary 恒返回空集，任何集都不可能被推进 IN_LIBRARY。
         // 清扫会把每一次正常完成的下载都判成卡死，变成无限重下
-        when(mediaServerService.getActive()).thenReturn(null);
+        when(mediaServerService.listActive()).thenReturn(List.of());
 
         assertEquals(0, service().sweep());
         verify(episodeService, never()).listStuckInFlight(anyInt());
         verify(episodeService, never()).update(any(PtSubscriptionEpisodePlus.class), any(Wrapper.class));
+    }
+
+    // ---------- 对账源不可用时整体跳过 ----------
+    //
+    // 「配了但全都连不上」与「一台都没配」是同一回事：对账查不到库，IN_FLIGHT 永远推不进
+    // IN_LIBRARY，而 sweep 只看「在途了多久」。缺这一判的后果是 Emby 宕机超过 12 小时后，
+    // 未 file_confirmed 的在途集会被退回 MISSING 并累加 fail_count，连续 3 次熔断成 BLOCKED——
+    // 而故障期间每一轮都满足同样的条件。删掉这个分支不会让任何别的用例变红，下面三条是它的守卫。
+
+    private PtMediaServerPlus mediaServer(int id, String lastCheckOk) {
+        PtMediaServerPlus server = new PtMediaServerPlus();
+        server.setId(id);
+        server.setName("srv" + id);
+        server.setLastCheckOk(lastCheckOk);
+        return server;
+    }
+
+    @Test
+    void 启用中的媒体服务器最近一次查询全部失败_整体跳过不查不改() {
+        when(mediaServerService.listActive()).thenReturn(List.of(mediaServer(1, "0"), mediaServer(2, "0")));
+
+        assertEquals(0, service().sweep());
+        verify(episodeService, never()).listStuckInFlight(anyInt());
+        verify(episodeService, never()).update(any(PtSubscriptionEpisodePlus.class), any(Wrapper.class));
+    }
+
+    /** 只要还有一台通，对账就有依据，清扫照跑 */
+    @Test
+    void 有一台媒体服务器仍然连通_照常清扫() {
+        when(mediaServerService.listActive()).thenReturn(List.of(mediaServer(1, "0"), mediaServer(2, "1")));
+        when(episodeService.listStuckInFlight(12)).thenReturn(List.of(stuck(501, 27, 0)));
+        when(episodeService.update(any(PtSubscriptionEpisodePlus.class), any(Wrapper.class))).thenReturn(true);
+        when(subscriptionService.getById(10)).thenReturn(sub());
+
+        assertEquals(1, service().sweep());
+    }
+
+    /**
+     * last_check_ok 为 null 是「还没被用到过」（新装库、或库里一条 ACTIVE 订阅都没有），
+     * 不是「不通」。按失败处理会让清扫在这些库上整体停摆。
+     */
+    @Test
+    void 媒体服务器还没被用到过_不算失败_照常清扫() {
+        when(mediaServerService.listActive()).thenReturn(List.of(mediaServer(1, null)));
+        when(episodeService.listStuckInFlight(12)).thenReturn(List.of(stuck(501, 27, 0)));
+        when(episodeService.update(any(PtSubscriptionEpisodePlus.class), any(Wrapper.class))).thenReturn(true);
+        when(subscriptionService.getById(10)).thenReturn(sub());
+
+        assertEquals(1, service().sweep());
     }
 
     /**

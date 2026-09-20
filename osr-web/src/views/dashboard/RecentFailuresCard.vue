@@ -29,6 +29,7 @@ import { getRoutePathForComponent } from '@/router'
 import { getStrmRecordListApi } from '@/api/openlist/strmRecord'
 import { getCopyRecordListApi } from '@/api/openlist/copyRecord'
 import { getRenameDetailListApi } from '@/api/openlist/renameDetail'
+import { formatRelativeTime } from '@/composables/relativeTime'
 
 /**
  * 首页的「最近失败记录」：把 STRM / 同步 / 重命名三张表的失败项合成一条时间线。
@@ -49,21 +50,6 @@ interface FailureItem {
   name: string
   time: string
   path: string | null
-}
-
-/** 后端时间转相对时间（x 分钟前/小时前/天前），无效值原样返回 */
-function formatRelativeTime(time: string): string {
-  if (!time) return ''
-  const t = new Date(time).getTime()
-  if (Number.isNaN(t)) return time
-  const min = Math.floor((Date.now() - t) / 60000)
-  if (min < 1) return '刚刚'
-  if (min < 60) return `${min} 分钟前`
-  const hour = Math.floor(min / 60)
-  if (hour < 24) return `${hour} 小时前`
-  const day = Math.floor(hour / 24)
-  if (day < 30) return `${day} 天前`
-  return new Date(time).toLocaleDateString('zh-CN')
 }
 
 const recentFailures = ref<FailureItem[]>([])

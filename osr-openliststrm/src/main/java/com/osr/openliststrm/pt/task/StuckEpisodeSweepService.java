@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.helper.TgHelper;
 import com.osr.openliststrm.notify.NotifyTarget;
+import com.osr.openliststrm.mybatisplus.domain.PtMediaServerPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtMediaServerPlusService;
@@ -42,9 +43,10 @@ import java.util.stream.Collectors;
  * STRM 生成或刮削环节把文件丢了、Emby 就是没刮出这一集……成因不同，症状都是同一个。
  * </p>
  * <p>
- * <b>两条安全约束。</b>其一，没有启用中的媒体服务器时整体跳过——那种配置下
- * {@code queryLibrary} 恒返回空集，任何集都不可能被推进 IN_LIBRARY，清扫会把每一次
- * 正常完成的下载都退回缺失，变成无限重下。其二，退回时<b>累加 fail_count</b>：
+ * <b>两条安全约束。</b>其一，<b>对账源不可用时整体跳过</b>——既包括「一台媒体服务器都没启用」，
+ * 也包括「配了但最近一次对账查询全部失败」。这两种情况下 {@code queryLibrary} 恒返回空集，
+ * 任何集都不可能被推进 IN_LIBRARY，清扫会把每一次正常完成的下载都退回缺失，变成无限重下。
+ * 其二，退回时<b>累加 fail_count</b>：
  * 与补缺集失败共用同一个熔断计数，同一集反复被扫到会在阈值处转 BLOCKED 停止自动重试。
  * 没有这条，一个永远对不上账的集会无休止地重下重扫，把索引器配额烧干。
  * </p>
@@ -103,10 +105,28 @@ public class StuckEpisodeSweepService {
      * @return 实际退回缺失的集数
      */
     public int sweep() {
-        if (mediaServerService.getActive() == null) {
+        List<PtMediaServerPlus> servers = mediaServerService.listActive();
+        if (servers.isEmpty()) {
             // 没有媒体服务器 = 没有对账依据，IN_FLIGHT 永远不会被推进 IN_LIBRARY。
             // 此时清扫等于把每一次成功的下载都判成卡死，必须整体跳过
             log.debug("未配置启用中的媒体服务器，跳过卡死在途集清扫");
+            return 0;
+        }
+        // 「配了但全都连不上」与「一台都没配」是同一回事，上面那段推理在这里逐字成立：
+        // 对账查不到库，IN_FLIGHT 就永远推不进 IN_LIBRARY，而本方法只看「在途了多久」。
+        // 缺了这一判的后果是：Emby 宕机超过 stuckTimeoutHours（默认 12 小时）之后，
+        // 未 file_confirmed 的在途集会被退回 MISSING 并累加 fail_count，连续 maxConsecutiveFailures
+        // 次就熔断成 BLOCKED——而故障期间每一轮都满足同样的条件，等于因为对账源挂了而把集判死。
+        //
+        // 判据取「最近一次业务访问的结果」（MediaServerHealthRecorder 被动写回），不是现打一次探针：
+        // 探针通了不代表查得到数据，而这里要的恰恰是「对账用它的时候好不好使」。时序上也正好——
+        // LibrarySyncTask 每轮先 refreshAll（写回状态）再调本方法。
+        //
+        // lastCheckFailed() 对 null 返回 false，即「还没被用到过」不算失败：新装库、或者库里一条
+        // ACTIVE 订阅都没有时状态是 null，按失败处理会让清扫在这些库上整体停摆。
+        if (servers.stream().allMatch(PtMediaServerPlus::lastCheckFailed)) {
+            log.debug("启用中的 {} 台媒体服务器最近一次对账查询均失败，本轮跳过卡死在途集清扫（对账源不可用时无法判定是否真的卡死）",
+                    servers.size());
             return 0;
         }
         List<PtSubscriptionEpisodePlus> stuck = episodeService.listStuckInFlight(stuckTimeoutHours);

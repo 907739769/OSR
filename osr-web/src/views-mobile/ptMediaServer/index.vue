@@ -47,7 +47,7 @@
     </template>
 
     <v-card
-      v-for="item in taskList"
+      v-for="{ item, health } in rows"
       :key="item.id"
       class="task-card"
       :class="{ selected: selectedIds.includes(item.id) }"
@@ -74,9 +74,17 @@
             <span class="label">服务器地址</span>
             <span class="value">{{ item.url }}</span>
           </div>
+          <!-- 「创建时间」换成对账状态：媒体服务器挂掉的唯一可见症状是订阅进度不动，
+               而这一行是页面上唯一能看出它挂了的地方 -->
           <div class="detail-row">
-            <span class="label">创建时间</span>
-            <span class="value">{{ item.createTime }}</span>
+            <span class="label">对账状态</span>
+            <span class="value">
+              <StatusChip :type="health.type" :text="health.text" :title="health.detail" />
+            </span>
+          </div>
+          <div v-if="health.showError" class="detail-row">
+            <span class="label">失败原因</span>
+            <span class="value text-error">{{ item.lastCheckError }}</span>
           </div>
         </div>
         <div class="card-actions" @click.stop>
@@ -113,6 +121,8 @@ import MobilePager from '@/components/mobile/MobilePager.vue'
 import { usePtMediaServer } from '@/composables/usePtMediaServer'
 import { usePageStateProvider } from '@/composables/pageStateContext'
 import PtMediaServerFormDialog from '@/components/dialogs/PtMediaServerFormDialog.vue'
+import { mediaServerHealth } from '@/composables/mediaServerHealth'
+import { computed } from 'vue'
 import { useMobilePageAction } from '@/composables/useMobilePageAction'
 
 // 表单弹窗与 PC 端共用一份（components/dialogs/），它靠 usePageStateProvider 取同一份状态
@@ -125,6 +135,9 @@ const {
   totalPages, prevPage, nextPage, handleSizeChange,
   searchCollapsed
 } = usePageStateProvider(usePtMediaServer())
+
+// 连通状态每行只算一次，理由与 PC 端那份注释相同（判据本身收口在 composables/mediaServerHealth.ts）
+const rows = computed(() => taskList.value.map((item: any) => ({ item, health: mediaServerHealth(item) })))
 
 // 新增按钮并在悬浮底栏右侧（原先是压在内容上的右下角悬浮按钮），见 useMobilePageAction
 useMobilePageAction(() => ({ icon: 'plus', label: '新增媒体服务器', onClick: () => handleAdd('新增媒体服务器') }))

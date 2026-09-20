@@ -8,6 +8,7 @@ import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusServic
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.osr.openliststrm.pt.media.IMediaServerClient;
 import com.osr.openliststrm.pt.media.MediaServerClientFactory;
+import com.osr.openliststrm.pt.media.MediaServerHealthRecorder;
 import com.osr.openliststrm.pt.subscription.dto.BatchOperationResult;
 import com.osr.openliststrm.pt.subscription.dto.SubscribeRequest;
 import com.osr.openliststrm.pt.subscription.dto.SubscriptionProgress;
@@ -33,8 +34,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.atMost;
 import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -54,6 +57,8 @@ class SubscriptionServiceTest {
     private MediaServerClientFactory mediaServerClientFactory;
     @Mock
     private IMediaServerClient mediaServerClient;
+    @Mock
+    private MediaServerHealthRecorder healthRecorder;
     @Mock
     private TmdbSearchService tmdbSearchService;
 
@@ -85,7 +90,7 @@ class SubscriptionServiceTest {
         PtMediaServerPlus server = new PtMediaServerPlus();
         server.setId(1);
         server.setType("EMBY");
-        when(mediaServerService.getActive()).thenReturn(server);
+        when(mediaServerService.listActive()).thenReturn(List.of(server));
         when(mediaServerClientFactory.get(any())).thenReturn(mediaServerClient);
     }
 
@@ -133,7 +138,7 @@ class SubscriptionServiceTest {
         when(tmdbSearchService.getDetail(anyString(), anyString())).thenReturn(detail("绝命毒师", "Breaking Bad", "2008"));
         when(tmdbSearchService.getSeasonEpisodeCount(anyString(), anyInt())).thenReturn(7);
         stubSaveAssignsId(10);
-        when(mediaServerService.getActive()).thenReturn(null);
+        when(mediaServerService.listActive()).thenReturn(List.of());
 
         service.subscribe(tvRequest());
 
@@ -199,7 +204,7 @@ class SubscriptionServiceTest {
         d.setImdbId("tt0137523");
         when(tmdbSearchService.getDetail(anyString(), anyString())).thenReturn(d);
         stubSaveAssignsId(70);
-        when(mediaServerService.getActive()).thenReturn(null);
+        when(mediaServerService.listActive()).thenReturn(List.of());
 
         service.subscribe(movieRequest());
 
@@ -212,7 +217,7 @@ class SubscriptionServiceTest {
     void subscribe_电影_不调用剧集的总集数接口() throws Exception {
         when(tmdbSearchService.getDetail(anyString(), anyString())).thenReturn(detail("片", "1999"));
         stubSaveAssignsId(21);
-        when(mediaServerService.getActive()).thenReturn(null);
+        when(mediaServerService.listActive()).thenReturn(List.of());
 
         service.subscribe(movieRequest());
 
@@ -240,7 +245,7 @@ class SubscriptionServiceTest {
         when(tmdbSearchService.getDetail(anyString(), anyString())).thenReturn(detail("剧", "2020"));
         when(tmdbSearchService.getSeasonEpisodeCount(anyString(), anyInt())).thenReturn(3);
         stubSaveAssignsId(30);
-        when(mediaServerService.getActive()).thenReturn(null);
+        when(mediaServerService.listActive()).thenReturn(List.of());
 
         service.subscribe(tvRequest());
 
@@ -412,7 +417,7 @@ class SubscriptionServiceTest {
                 episode(1, "IN_LIBRARY"), episode(2, "IN_LIBRARY")));
         // TMDb 那边这一季从 2 集涨到 4 集
         when(tmdbSearchService.getSeasonEpisodeCount(anyString(), anyInt())).thenReturn(4);
-        when(mediaServerService.getActive()).thenReturn(null);
+        when(mediaServerService.listActive()).thenReturn(List.of());
 
         service.refresh(42);
 
@@ -481,7 +486,7 @@ class SubscriptionServiceTest {
                 episode(1, "IN_LIBRARY"), episode(2, "IN_LIBRARY")));
         // TMDb 那边这一季从 2 集涨到 4 集
         when(tmdbSearchService.getSeasonEpisodeCount(anyString(), anyInt())).thenReturn(4);
-        when(mediaServerService.getActive()).thenReturn(null);
+        when(mediaServerService.listActive()).thenReturn(List.of());
 
         service.refresh(45);
 
@@ -772,5 +777,155 @@ class SubscriptionServiceTest {
     void 列表进度计数对空列表不发查询() {
         service.fillProgressCounts(List.of());
         verify(episodeService, never()).countStatesBySubscriptions(any());
+    }
+
+    // ---------- 多台媒体服务器：都启用 = 都查，任一命中即算入库 ----------
+    //
+    // 这一组钉住的是一个「删掉不会让任何东西变红」的行为。此前 getActive() 取的是
+    // enabled='1' ORDER BY id LIMIT 1，而配置页能添任意多台、每台一个独立启用开关——
+    // 用户配上两台、两台都显示启用、两台都能测试连接成功，实际只有 id 最小的那台生效，
+    // 页面上没有任何一处看得出来。退回单台语义时下面四条会立刻失败。
+
+    private PtMediaServerPlus mediaServer(int id, String name) {
+        PtMediaServerPlus server = new PtMediaServerPlus();
+        server.setId(id);
+        server.setName(name);
+        server.setType("EMBY");
+        return server;
+    }
+
+    /**
+     * 两台服务器要用 same() 按引用区分，不能靠默认 equals。
+     * PtMediaServerPlus 只有 @Getter/@Setter，继承的是 BaseEntity(@Data) 那个只比较
+     * createTime/updateTime/params 的浅层 equals——两个未落库实例会被判成"相等"，
+     * 第二次 when() 会直接覆盖第一次的桩。
+     */
+    private IMediaServerClient stubClientFor(PtMediaServerPlus server) {
+        IMediaServerClient client = mock(IMediaServerClient.class);
+        when(mediaServerClientFactory.get(same(server))).thenReturn(client);
+        return client;
+    }
+
+    private void stubTvDetail(int episodeCount, int assignedId) {
+        when(tmdbSearchService.getDetail(anyString(), anyString())).thenReturn(detail("剧", "2020"));
+        when(tmdbSearchService.getSeasonEpisodeCount(anyString(), anyInt())).thenReturn(episodeCount);
+        stubSaveAssignsId(assignedId);
+    }
+
+    private List<String> savedEpisodeStates() {
+        ArgumentCaptor<List<PtSubscriptionEpisodePlus>> captor = ArgumentCaptor.forClass(List.class);
+        verify(episodeService).saveBatch(captor.capture());
+        return captor.getValue().stream().map(PtSubscriptionEpisodePlus::getState).toList();
+    }
+
+    @Test
+    void 两台媒体服务器都启用时都要查_命中结果取并集() throws Exception {
+        PtMediaServerPlus emby = mediaServer(1, "Emby");
+        PtMediaServerPlus jellyfin = mediaServer(2, "Jellyfin");
+        when(mediaServerService.listActive()).thenReturn(List.of(emby, jellyfin));
+        IMediaServerClient embyClient = stubClientFor(emby);
+        IMediaServerClient jellyfinClient = stubClientFor(jellyfin);
+        when(embyClient.listEpisodes(same(emby), anyString(), anyInt())).thenReturn(Set.of(1));
+        when(jellyfinClient.listEpisodes(same(jellyfin), anyString(), anyInt())).thenReturn(Set.of(3));
+        stubTvDetail(3, 50);
+
+        service.subscribe(tvRequest());
+
+        // 只查第一台的话第 3 集会是 MISSING
+        assertEquals(List.of("IN_LIBRARY", "MISSING", "IN_LIBRARY"), savedEpisodeStates());
+    }
+
+    @Test
+    void 第一台已覆盖全部集时不再查第二台() throws Exception {
+        PtMediaServerPlus emby = mediaServer(1, "Emby");
+        PtMediaServerPlus jellyfin = mediaServer(2, "Jellyfin");
+        when(mediaServerService.listActive()).thenReturn(List.of(emby, jellyfin));
+        IMediaServerClient embyClient = stubClientFor(emby);
+        IMediaServerClient jellyfinClient = stubClientFor(jellyfin);
+        when(embyClient.listEpisodes(same(emby), anyString(), anyInt())).thenReturn(Set.of(1, 2, 3));
+        stubTvDetail(3, 51);
+
+        service.subscribe(tvRequest());
+
+        assertEquals(List.of("IN_LIBRARY", "IN_LIBRARY", "IN_LIBRARY"), savedEpisodeStates());
+        verify(jellyfinClient, never()).listEpisodes(any(), anyString(), anyInt());
+    }
+
+    @Test
+    void 一台不通不影响另一台_且两台的连通状态都被记录() throws Exception {
+        PtMediaServerPlus emby = mediaServer(1, "Emby");
+        PtMediaServerPlus jellyfin = mediaServer(2, "Jellyfin");
+        when(mediaServerService.listActive()).thenReturn(List.of(emby, jellyfin));
+        IMediaServerClient embyClient = stubClientFor(emby);
+        IMediaServerClient jellyfinClient = stubClientFor(jellyfin);
+        when(embyClient.listEpisodes(same(emby), anyString(), anyInt()))
+                .thenThrow(new IOException("connection refused"));
+        when(jellyfinClient.listEpisodes(same(jellyfin), anyString(), anyInt())).thenReturn(Set.of(1, 2, 3));
+        stubTvDetail(3, 52);
+
+        service.subscribe(tvRequest());
+
+        assertEquals(List.of("IN_LIBRARY", "IN_LIBRARY", "IN_LIBRARY"), savedEpisodeStates());
+        verify(healthRecorder).recordFailure(eq(1), anyString());
+        verify(healthRecorder).recordSuccess(2);
+    }
+
+    /** 失败原因要落进健康状态，它是配置页上唯一的解释来源，不能是空串 */
+    @Test
+    void 查询失败的原因写进连通状态() throws Exception {
+        PtMediaServerPlus emby = mediaServer(1, "Emby");
+        when(mediaServerService.listActive()).thenReturn(List.of(emby));
+        IMediaServerClient embyClient = stubClientFor(emby);
+        when(embyClient.listEpisodes(same(emby), anyString(), anyInt()))
+                .thenThrow(new IOException("媒体服务器返回 HTTP 401"));
+        stubTvDetail(2, 53);
+
+        service.subscribe(tvRequest());
+
+        verify(healthRecorder).recordFailure(1, "媒体服务器返回 HTTP 401");
+    }
+
+    /** 异常没有 message 时不能给页面留一个空白的失败原因 */
+    @Test
+    void 异常无message时用类名兜底() throws Exception {
+        PtMediaServerPlus emby = mediaServer(1, "Emby");
+        when(mediaServerService.listActive()).thenReturn(List.of(emby));
+        IMediaServerClient embyClient = stubClientFor(emby);
+        when(embyClient.listEpisodes(same(emby), anyString(), anyInt())).thenThrow(new NullPointerException());
+        stubTvDetail(2, 54);
+
+        service.subscribe(tvRequest());
+
+        verify(healthRecorder).recordFailure(1, "NullPointerException");
+    }
+
+    @Test
+    void 电影_第一台没有第二台有_算已入库() throws Exception {
+        PtMediaServerPlus emby = mediaServer(1, "Emby");
+        PtMediaServerPlus jellyfin = mediaServer(2, "Jellyfin");
+        when(mediaServerService.listActive()).thenReturn(List.of(emby, jellyfin));
+        IMediaServerClient embyClient = stubClientFor(emby);
+        IMediaServerClient jellyfinClient = stubClientFor(jellyfin);
+        when(embyClient.hasMovie(same(emby), anyString())).thenReturn(false);
+        when(jellyfinClient.hasMovie(same(jellyfin), anyString())).thenReturn(true);
+        when(tmdbSearchService.getDetail(anyString(), anyString())).thenReturn(detail("片", "2020"));
+        stubSaveAssignsId(55);
+
+        service.subscribe(movieRequest());
+
+        assertEquals(List.of("IN_LIBRARY"), savedEpisodeStates());
+    }
+
+    /** 一台都没启用时，既不该抛也不该去 factory 要客户端 */
+    @Test
+    void 一台都没启用时全部按缺失处理() throws Exception {
+        when(mediaServerService.listActive()).thenReturn(List.of());
+        stubTvDetail(3, 56);
+
+        service.subscribe(tvRequest());
+
+        assertEquals(List.of("MISSING", "MISSING", "MISSING"), savedEpisodeStates());
+        verify(mediaServerClientFactory, never()).get(any());
+        verify(healthRecorder, never()).recordSuccess(any());
     }
 }
