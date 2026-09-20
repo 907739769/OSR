@@ -7,6 +7,8 @@
     >
       <template #actions>
         <span v-if="lastLoadedText" class="last-loaded">{{ lastLoadedText }}</span>
+        <!-- 标签写成一句话时（「为 1 条订阅开启自动补搜」）这颗实心按钮会把整个页头撑满，
+             比页面标题还抢眼；范围（全部还是筛选出的）挪进 title，标签只留动作与条数 -->
         <v-btn
           v-if="autoSearchOffIds.length > 0"
           color="primary"
@@ -19,7 +21,7 @@
             : '对列表里全部未开启自动补搜的订阅生效'"
           @click="handleEnableAutoSearch()"
         >
-          为{{ filtering ? '筛选出的' : '' }} {{ autoSearchOffIds.length }} 条订阅开启自动补搜
+          开启自动补搜（{{ filtering ? '筛选出 ' : '' }}{{ autoSearchOffIds.length }}）
         </v-btn>
         <v-btn variant="outlined" prepend-icon="refresh-cw" :loading="loading" :disabled="anyActing" @click="load">刷新</v-btn>
       </template>

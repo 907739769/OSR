@@ -45,19 +45,23 @@
       </v-chip>
     </div>
 
-    <v-btn
-      v-if="autoSearchOffIds.length > 0"
-      block
-      color="primary"
-      variant="flat"
-      class="enable-all-btn"
-      prepend-icon="scan-search"
-      :loading="batchActing"
-      :disabled="anyActing"
-      @click="handleEnableAutoSearch()"
-    >
-      为{{ filtering ? '筛选出的' : '' }} {{ autoSearchOffIds.length }} 条订阅开启自动补搜
-    </v-btn>
+    <!-- 批量入口原先是整句文案的全宽实心按钮，只剩 1 条订阅时那一大块比列表本身还抢眼，
+         而那条订阅自己的卡片上就有同一颗「开启补搜」。改成与上面筛选 chip 同一行高的小按钮，
+         范围与条数都写进标签，不再占满整屏宽 -->
+    <div v-if="autoSearchOffIds.length > 0" class="enable-all-row">
+      <v-btn
+        size="small"
+        color="primary"
+        variant="flat"
+        class="enable-all-btn"
+        prepend-icon="scan-search"
+        :loading="batchActing"
+        :disabled="anyActing"
+        @click="handleEnableAutoSearch()"
+      >
+        开启自动补搜（{{ filtering ? '筛选出 ' : '' }}{{ autoSearchOffIds.length }}）
+      </v-btn>
+    </div>
 
     <!-- 忽略必须配一个能找回来的入口，否则它就是个不可撤销的操作 -->
     <div v-if="report.ignoredCount > 0 || includeIgnored" class="ignored-bar">
@@ -331,9 +335,13 @@ const expandEpisodes = (subId: number) => {
   flex: none;
 }
 
+.enable-all-row {
+  display: flex;
+  padding: 0 12px 8px;
+}
+
 .enable-all-btn {
-  width: calc(100% - 24px);
-  margin: 0 12px 8px;
+  flex: none;
 }
 
 .poster {
