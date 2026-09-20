@@ -17,7 +17,7 @@ src/
 ├── components/             # 公共组件 (SearchPanel, PageHeader, DirectoryTreeSelect, ChangePasswordDialog,
 │                           #           StatusChip, ThemeSwitch, MiniTrend, AnimatedNumber, mobile/*)
 │   └── dialogs/            # ★ PC 与移动端<共用>的表单弹窗 (FormDialogShell + 各页 XxxFormDialog)
-├── composables/            # 组合式函数 (useTaskList, useRecordList, useDataTable, useSearchPanel, useSidebarGroups, useBreadcrumb, useCurrentUser, useThemeMode, usePageTransition, useMenuLinks, useActionSheet, useMobileTabs, useMobileChrome, useMobilePageAction, useRecentPages 等)
+├── composables/            # 组合式函数 (useTaskList, useRecordList, useDataTable, useSearchPanel, usePtStats, useEchart, useSidebarGroups, useBreadcrumb, useCurrentUser, useThemeMode, usePageTransition, useMenuLinks, useActionSheet, useMobileTabs, useMobileChrome, useMobilePageAction, useRecentPages 等)
 ├── layouts/                # 布局组件 (DesktopLayout, MobileLayout)
 ├── router/                 # 路由配置 (动态路由)
 │   └── index.ts
@@ -53,6 +53,7 @@ src/
 | PWA 配置 | `vite.config.ts` | VitePWA 插件配置 |
 | 动效 / 深度 / 排版令牌 | `src/styles/tokens.scss` + `motion.scss` + `surface.scss` | 见下方「动效系统」「深度系统」「排版」 |
 | 图表配色 | `src/plugins/echartsTheme.ts` | `chartBase()` / `lineSeries()` / `barSeries()` / `chartEmptyOption()` |
+| PT 统计仪表盘 | `src/composables/usePtStats.ts` + `useEchart.ts` | 取数与图表选项两端共用，页面只负责容器与布局 |
 
 ## CONVENTIONS
 - **自动导入**: vite-plugin-vuetify (autoImport) + unplugin-auto-import + unplugin-vue-components，`vue`/`vue-router`/`pinia` 与 `v-*` 组件无需手动 import

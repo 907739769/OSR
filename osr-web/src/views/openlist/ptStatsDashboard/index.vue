@@ -3,31 +3,45 @@
     <PageHeader
       icon="chart-column"
       title="PT 统计仪表盘"
-      desc="下载量趋势、索引器命中率与失败原因分布"
+      desc="下载量趋势、索引器命中率与失败/淘汰原因分布"
     />
 
     <div class="toolbar">
       <span class="toolbar-label">统计范围</span>
       <v-btn-toggle v-model="rangeDays" color="primary" density="comfortable" variant="outlined" mandatory @update:model-value="onRangeChange">
-        <v-btn :value="7">近7天</v-btn>
-        <v-btn :value="30">近30天</v-btn>
-        <v-btn :value="90">近90天</v-btn>
+        <v-btn v-for="r in PT_STATS_RANGES" :key="r.value" :value="r.value">{{ r.label }}</v-btn>
       </v-btn-toggle>
-      <v-btn prepend-icon="refresh-cw" variant="outlined" class="refresh-btn" @click="loadAll">刷新</v-btn>
+      <span v-if="lastLoadedAt" class="toolbar-stamp">数据截止 {{ lastLoadedAt }}</span>
+      <v-btn prepend-icon="refresh-cw" variant="outlined" class="refresh-btn" :loading="refreshing" @click="loadAll">刷新</v-btn>
     </div>
 
+    <!-- 取数失败要明说。退化成一排 0 会被读成「系统很干净」，与首页统计卡同一条规矩 -->
+    <v-alert v-if="anyFailed && !loading" type="error" variant="tonal" density="compact" class="mb-3">
+      部分统计数据加载失败，相关图表显示为「加载失败」。
+      <template #append>
+        <v-btn size="small" variant="text" @click="loadAll">重试</v-btn>
+      </template>
+    </v-alert>
+
     <v-row class="stat-row">
-      <v-col cols="12" md="4" v-for="(stat, index) in statCards" :key="index">
-        <v-card class="stat-card osr-enter" :class="stat.type" :style="{ '--osr-i': index }">
-          <div class="stat-icon">
-            <v-icon :icon="stat.icon" size="28" />
-          </div>
-          <div class="stat-info">
-            <div class="stat-value"><AnimatedNumber :value="stat.value" /></div>
-            <div class="stat-label">{{ stat.label }}</div>
-          </div>
-        </v-card>
-      </v-col>
+      <template v-if="loading">
+        <v-col cols="12" sm="6" md="4" v-for="i in 6" :key="'sk-' + i">
+          <v-skeleton-loader type="list-item-avatar" class="stat-skeleton" />
+        </v-col>
+      </template>
+      <template v-else>
+        <v-col cols="12" sm="6" md="4" v-for="(stat, index) in statCards" :key="stat.key">
+          <v-card class="stat-card osr-enter" :class="stat.type" :style="{ '--osr-i': index }">
+            <div class="stat-icon">
+              <v-icon :icon="stat.icon" size="28" />
+            </div>
+            <div class="stat-info">
+              <div class="stat-value"><AnimatedNumber :value="stat.value" /></div>
+              <div class="stat-label">{{ stat.label }}</div>
+            </div>
+          </v-card>
+        </v-col>
+      </template>
     </v-row>
 
     <v-row class="chart-row">
@@ -35,9 +49,13 @@
         <v-card class="chart-card">
           <v-card-title class="chart-header">
             <span class="chart-title">下载量趋势</span>
+            <span class="chart-subtitle">推送按推送日、完成与平均耗时按完成日、失败按失败日统计</span>
           </v-card-title>
           <v-card-text>
-            <div ref="trendContainer" class="echarts-container trend-container" />
+            <div class="chart-wrap">
+              <div ref="trendContainer" class="echarts-container trend-container" />
+              <v-skeleton-loader v-if="loading" type="image" class="chart-skeleton" height="300" />
+            </div>
           </v-card-text>
         </v-card>
       </v-col>
@@ -48,10 +66,13 @@
         <v-card class="chart-card">
           <v-card-title class="chart-header">
             <span class="chart-title">索引器命中率</span>
-            <span class="chart-subtitle">基于每订阅最近 200 条匹配记录</span>
+            <span class="chart-subtitle">基于保留的匹配日志，不受时间范围影响</span>
           </v-card-title>
           <v-card-text>
-            <div ref="indexerContainer" class="echarts-container" />
+            <div class="chart-wrap">
+              <div ref="indexerContainer" class="echarts-container" />
+              <v-skeleton-loader v-if="loading" type="image" class="chart-skeleton" height="260" />
+            </div>
             <div v-if="noDataIndexerNames.length" class="no-data-indexers">
               暂无数据：{{ noDataIndexerNames.join('、') }}
             </div>
@@ -62,9 +83,13 @@
         <v-card class="chart-card">
           <v-card-title class="chart-header">
             <span class="chart-title">失败原因分布</span>
+            <span class="chart-subtitle">按失败分类聚合，统计区间内失败的记录</span>
           </v-card-title>
           <v-card-text>
-            <div ref="failReasonContainer" class="echarts-container" />
+            <div class="chart-wrap">
+              <div ref="failReasonContainer" class="echarts-container" />
+              <v-skeleton-loader v-if="loading" type="image" class="chart-skeleton" height="260" />
+            </div>
           </v-card-text>
         </v-card>
       </v-col>
@@ -75,10 +100,13 @@
         <v-card class="chart-card">
           <v-card-title class="chart-header">
             <span class="chart-title">搜索淘汰原因分布</span>
-            <span class="chart-subtitle">候选在推送前被过滤规则挡掉的分布，占比过高说明规则可能过严</span>
+            <span class="chart-subtitle">候选在推送前被过滤规则挡掉的分布，不受时间范围影响；占比过高说明规则可能过严</span>
           </v-card-title>
           <v-card-text>
-            <div ref="rejectReasonContainer" class="echarts-container" />
+            <div class="chart-wrap">
+              <div ref="rejectReasonContainer" class="echarts-container" />
+              <v-skeleton-loader v-if="loading" type="image" class="chart-skeleton" height="260" />
+            </div>
           </v-card-text>
         </v-card>
       </v-col>
@@ -89,6 +117,12 @@
         <v-card class="chart-card">
           <v-card-title class="chart-header">
             <span class="chart-title">Top 活跃订阅</span>
+            <div class="chart-actions">
+              <span class="chart-subtitle">按统计区间内的下载次数排行，点表头可换排序</span>
+              <v-btn-toggle v-model="topLimit" color="primary" density="compact" variant="outlined" mandatory @update:model-value="onTopLimitChange">
+                <v-btn v-for="n in PT_STATS_TOP_LIMITS" :key="n" :value="n" size="small">{{ n }}</v-btn>
+              </v-btn-toggle>
+            </div>
           </v-card-title>
           <v-data-table
             :headers="topSubHeaders"
@@ -125,42 +159,42 @@
 <script setup lang="ts">
 import PageHeader from '@/components/PageHeader.vue'
 import AnimatedNumber from '@/components/AnimatedNumber.vue'
-import { ref, onMounted, onUnmounted, nextTick } from 'vue'
-import { osrCssVar } from '@/composables/useThemeMode'
-import { barSeries, chartBase, chartEmptyOption, lineSeries } from '@/plugins/echartsTheme'
+import { onMounted, ref } from 'vue'
+import { PT_STATS_RANGES, PT_STATS_TOP_LIMITS, usePtStats } from '@/composables/usePtStats'
+import { useEchart } from '@/composables/useEchart'
 // 按需引入：本页只用到 line/bar/pie，避免全量引入 echarts 拖大打包体积
 import * as echarts from 'echarts/core'
 import { LineChart, BarChart, PieChart } from 'echarts/charts'
 import { TitleComponent, TooltipComponent, LegendComponent, GridComponent } from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
-import {
-  getPtStatsOverviewApi,
-  getPtStatsTrendApi,
-  getPtStatsIndexerHitRateApi,
-  getPtStatsFailReasonsApi,
-  getPtStatsRejectReasonsApi,
-  getPtStatsTopSubscriptionsApi,
-  type PtStatsActiveSubscription
-} from '@/api/openlist/ptStats'
 
 echarts.use([LineChart, BarChart, PieChart, TitleComponent, TooltipComponent, LegendComponent, GridComponent, CanvasRenderer])
 
-interface StatCard {
-  label: string
-  value: number | string
-  icon: string
-  type: 'primary' | 'success' | 'warning' | 'info'
-}
+const {
+  rangeDays,
+  topLimit,
+  loading,
+  refreshing,
+  anyFailed,
+  lastLoadedAt,
+  statCards,
+  trendOption,
+  indexerOption,
+  failReasonOption,
+  rejectReasonOption,
+  noDataIndexerNames,
+  topSubscriptions,
+  topSubscriptionsLoading,
+  loadAll,
+  onRangeChange,
+  onTopLimitChange
+} = usePtStats()
 
-const rangeDays = ref(30)
-const statCards = ref<StatCard[]>([])
-const topSubscriptions = ref<PtStatsActiveSubscription[]>([])
-const topSubscriptionsLoading = ref(false)
-const noDataIndexerNames = ref<string[]>([])
-
+// 合成列（季/类型）不是数据库字段，排序键传过去无处可落，标 sortable:false；
+// 其余列由 v-data-table 在本页数据上客户端排序（本表只有 10 行，不走后端）
 const topSubHeaders = [
   { title: '订阅标题', key: 'title', minWidth: '180' },
-  { title: '季/类型', key: 'seasonType', width: '100' },
+  { title: '季/类型', key: 'seasonType', width: '100', sortable: false },
   { title: '下载次数', key: 'downloadCount', width: '100' },
   { title: '完成数', key: 'completedCount', width: '100' },
   { title: '失败数', key: 'failedCount', width: '100' },
@@ -172,252 +206,12 @@ const indexerContainer = ref<HTMLElement | null>(null)
 const failReasonContainer = ref<HTMLElement | null>(null)
 const rejectReasonContainer = ref<HTMLElement | null>(null)
 
-let trendChart: any = null
-let indexerChart: any = null
-let failReasonChart: any = null
-let rejectReasonChart: any = null
-let resizeHandler: (() => void) | null = null
+useEchart(trendContainer, trendOption)
+useEchart(indexerContainer, indexerOption)
+useEchart(failReasonContainer, failReasonOption)
+useEchart(rejectReasonContainer, rejectReasonOption)
 
-const defaultColors = ['#B4690E', '#3F8F5F', '#C98A1E', '#C0362C', '#4C6C93', '#8A5A9E', '#D98A2B', '#3B4B6B']
-
-// 失败原因分布的配色：照抄 views/dashboard/desktop.vue 的 colorMap/getColor 实现思路
-// （同色系映射：名字里带"失败"字样的用红色，其余落到 defaultColors 轮转），
-// 设计文档6.1节明确"直接照抄这段逻辑到本页面"，两处各自独立演化更简单，不抽公共 util。
-const failReasonColorMap: Record<string, string> = {
-  '成功': '#3F8F5F',
-  '失败': '#C0362C',
-  '未知': '#C98A1E',
-  '处理中': '#B4690E'
-}
-
-function getFailReasonColor(name: string): string {
-  if (failReasonColorMap[name]) return failReasonColorMap[name]
-  const idx = Object.keys(failReasonColorMap).findIndex(k => name.includes(k))
-  return idx >= 0
-    ? failReasonColorMap[Object.keys(failReasonColorMap)[idx]]
-    : defaultColors[(Object.keys(failReasonColorMap).length + idx) % defaultColors.length]
-}
-
-/** 空态转发到统一实现（plugins/echartsTheme），本页四个图表共用这一个调用点 */
-function emptyOption(text: string) {
-  return chartEmptyOption(text)
-}
-
-async function loadOverview() {
-  try {
-    const data = await getPtStatsOverviewApi()
-    statCards.value = [
-      { label: '总订阅数', value: data.totalSubscriptions, icon: 'file-text', type: 'primary' },
-      { label: '活跃订阅数', value: data.activeSubscriptions, icon: 'network', type: 'success' },
-      { label: '下载记录总数', value: data.totalDownloadRecords, icon: 'download', type: 'info' },
-      { label: '成功率', value: data.totalDownloadRecords > 0 ? data.successRate + '%' : '--', icon: 'circle-check', type: 'success' },
-      { label: '平均下载耗时', value: data.avgDurationMinutes > 0 ? Math.round(data.avgDurationMinutes) + ' 分钟' : '--', icon: 'clock', type: 'warning' }
-    ]
-  } catch (e) {
-    console.error('[PtStatsDashboard] Failed to load overview:', e)
-    statCards.value = [
-      { label: '总订阅数', value: '0', icon: 'file-text', type: 'primary' },
-      { label: '活跃订阅数', value: '0', icon: 'network', type: 'success' },
-      { label: '下载记录总数', value: '0', icon: 'download', type: 'info' },
-      { label: '成功率', value: '--', icon: 'circle-check', type: 'success' },
-      { label: '平均下载耗时', value: '--', icon: 'clock', type: 'warning' }
-    ]
-  }
-}
-
-async function loadTrend() {
-  if (!trendContainer.value) return
-  if (!trendChart) trendChart = echarts.init(trendContainer.value)
-  try {
-    const data = await getPtStatsTrendApi(rangeDays.value)
-    if (!data || data.length === 0) {
-      trendChart.clear()
-      trendChart.setOption(emptyOption('暂无数据'), true)
-      return
-    }
-    const base = chartBase()
-    trendChart.setOption({
-      ...base,
-      legend: { ...base.legend, data: ['推送', '完成', '失败'], top: 0 },
-      grid: { ...base.grid, top: 40, bottom: 30 },
-      xAxis: { ...base.xAxis, data: data.map(p => p.date) },
-      series: [
-        lineSeries({ name: '推送', data: data.map(p => p.pushedCount), tone: 'primary' }),
-        lineSeries({ name: '完成', data: data.map(p => p.completedCount), tone: 'success' }),
-        lineSeries({ name: '失败', data: data.map(p => p.failedCount), tone: 'error' })
-      ]
-    }, true)
-  } catch (e) {
-    console.error('[PtStatsDashboard] Failed to load trend:', e)
-    if (trendChart) {
-      trendChart.clear()
-      trendChart.setOption(emptyOption('加载失败'), true)
-    }
-  }
-}
-
-async function loadIndexerHitRate() {
-  if (!indexerContainer.value) return
-  if (!indexerChart) indexerChart = echarts.init(indexerContainer.value)
-  try {
-    const data = await getPtStatsIndexerHitRateApi()
-    noDataIndexerNames.value = (data || []).filter(i => !i.hasData).map(i => i.indexerName)
-    const withData = (data || []).filter(i => i.hasData)
-    if (withData.length === 0) {
-      indexerChart.clear()
-      indexerChart.setOption(emptyOption('暂无数据'), true)
-      return
-    }
-    // 横向条形图：x/y 轴的角色与折线图相反，所以两条轴的样式要**互换着**取。
-    // 直接铺 base.xAxis / base.yAxis 的话，虚线网格会画在分类轴那一侧（每个索引器
-    // 名字后面拖一条线），而数值轴反倒没有刻度参考
-    const base = chartBase()
-    indexerChart.setOption({
-      ...base,
-      tooltip: { ...base.tooltip, axisPointer: { type: 'shadow' } },
-      legend: { ...base.legend, data: ['通过', '淘汰'], top: 0 },
-      grid: { ...base.grid, left: 100, right: 20, top: 40, bottom: 20 },
-      xAxis: { ...base.yAxis, type: 'value', max: 100, axisLabel: { ...base.yAxis.axisLabel, formatter: '{value}%' } },
-      yAxis: { ...base.xAxis, type: 'category', data: withData.map(i => i.indexerName), splitLine: { show: false } },
-      series: [
-        barSeries({ name: '通过', tone: 'success', stack: 'total', data: withData.map(i => Math.round(i.hitRate * 1000) / 10) }),
-        barSeries({ name: '淘汰', tone: 'error', stack: 'total', data: withData.map(i => Math.round((1 - i.hitRate) * 1000) / 10) })
-      ]
-    }, true)
-  } catch (e) {
-    console.error('[PtStatsDashboard] Failed to load indexer hit rate:', e)
-    if (indexerChart) {
-      indexerChart.clear()
-      indexerChart.setOption(emptyOption('加载失败'), true)
-    }
-  }
-}
-
-async function loadFailReasons() {
-  if (!failReasonContainer.value) return
-  if (!failReasonChart) failReasonChart = echarts.init(failReasonContainer.value)
-  try {
-    const data = await getPtStatsFailReasonsApi(rangeDays.value)
-    if (!data || data.length === 0) {
-      failReasonChart.clear()
-      failReasonChart.setOption(emptyOption('暂无数据'), true)
-      return
-    }
-    failReasonChart.setOption({
-      tooltip: { ...chartBase().tooltip, trigger: 'item', formatter: '{b}: {c} ({d}%)' },
-      series: [{
-        type: 'pie',
-        radius: ['35%', '65%'],
-        center: ['50%', '55%'],
-        avoidLabelOverlap: false,
-        itemStyle: { borderRadius: 6, borderColor: osrCssVar('--osr-surface') || '#fff', borderWidth: 3 },
-        label: { show: true, formatter: '{b}\n{c}', fontSize: 11 },
-        labelLine: { length: 15, length2: 10 },
-        minAngle: 5,
-        data: data.map(item => ({
-          value: item.count,
-          name: item.reason,
-          itemStyle: { color: getFailReasonColor(item.reason) }
-        }))
-      }]
-    }, true)
-  } catch (e) {
-    console.error('[PtStatsDashboard] Failed to load fail reasons:', e)
-    if (failReasonChart) {
-      failReasonChart.clear()
-      failReasonChart.setOption(emptyOption('加载失败'), true)
-    }
-  }
-}
-
-async function loadRejectReasons() {
-  if (!rejectReasonContainer.value) return
-  if (!rejectReasonChart) rejectReasonChart = echarts.init(rejectReasonContainer.value)
-  try {
-    const data = await getPtStatsRejectReasonsApi()
-    if (!data || data.length === 0) {
-      rejectReasonChart.clear()
-      rejectReasonChart.setOption(emptyOption('暂无数据'), true)
-      return
-    }
-    // 用横向柱状而不是饼图：淘汰原因多达 15 类且标签较长，饼图的标签会挤成一团；
-    // 而且这里要看的是"哪一条规则最能挡"的排序，柱状比扇形更好比较
-    const sorted = [...data].sort((a, b) => a.count - b.count)
-    rejectReasonChart.setOption({
-      tooltip: { ...chartBase().tooltip, axisPointer: { type: 'shadow' }, formatter: '{b}: {c}' },
-      grid: { left: 8, right: 24, top: 12, bottom: 8, containLabel: true },
-      xAxis: { type: 'value', minInterval: 1 },
-      yAxis: { type: 'category', data: sorted.map(i => i.reason), axisLabel: { fontSize: 11 } },
-      series: [{
-        type: 'bar',
-        barMaxWidth: 18,
-        itemStyle: { borderRadius: [0, 4, 4, 0], color: osrCssVar('--osr-warning') || '#f0a020' },
-        label: { show: true, position: 'right', fontSize: 11 },
-        data: sorted.map(i => i.count)
-      }]
-    }, true)
-  } catch (e) {
-    console.error('[PtStatsDashboard] Failed to load reject reasons:', e)
-    if (rejectReasonChart) {
-      rejectReasonChart.clear()
-      rejectReasonChart.setOption(emptyOption('加载失败'), true)
-    }
-  }
-}
-
-async function loadTopSubscriptions() {
-  topSubscriptionsLoading.value = true
-  try {
-    const data = await getPtStatsTopSubscriptionsApi(rangeDays.value, 10)
-    topSubscriptions.value = data || []
-  } catch (e) {
-    console.error('[PtStatsDashboard] Failed to load top subscriptions:', e)
-    topSubscriptions.value = []
-  } finally {
-    topSubscriptionsLoading.value = false
-  }
-}
-
-async function loadAll() {
-  await Promise.all([loadOverview(), loadTrend(), loadIndexerHitRate(), loadFailReasons(), loadRejectReasons(), loadTopSubscriptions()])
-}
-
-async function onRangeChange() {
-  // 索引器命中率(2.4)和总览(2.1)不受时间挡位影响，只重新加载 trend/failReasons/topSubscriptions
-  await Promise.all([loadTrend(), loadFailReasons(), loadTopSubscriptions()])
-}
-
-onMounted(async () => {
-  await nextTick()
-  await loadAll()
-
-  resizeHandler = () => {
-    trendChart?.resize()
-    indexerChart?.resize()
-    failReasonChart?.resize()
-    rejectReasonChart?.resize()
-  }
-  window.addEventListener('resize', resizeHandler)
-
-  // 主题切换后重绘图表（canvas 无法用 CSS 变量）
-  themeChangeHandler = () => {
-    loadTrend()
-    loadIndexerHitRate()
-    loadFailReasons()
-    loadRejectReasons()
-  }
-  document.addEventListener('osr-theme-change', themeChangeHandler)
-})
-
-let themeChangeHandler: (() => void) | null = null
-
-onUnmounted(() => {
-  resizeHandler && window.removeEventListener('resize', resizeHandler)
-  themeChangeHandler && document.removeEventListener('osr-theme-change', themeChangeHandler)
-  trendChart?.dispose()
-  indexerChart?.dispose()
-  failReasonChart?.dispose()
-})
+onMounted(loadAll)
 </script>
 
 <style scoped lang="scss">
@@ -441,6 +235,11 @@ onUnmounted(() => {
     color: var(--osr-text-secondary);
   }
 
+  .toolbar-stamp {
+    font-size: 12px;
+    color: var(--osr-text-secondary);
+  }
+
   .refresh-btn {
     margin-left: auto;
   }
@@ -448,6 +247,10 @@ onUnmounted(() => {
 
 .stat-row {
   margin-bottom: 24px;
+}
+
+.stat-skeleton {
+  border-radius: var(--osr-radius-lg);
 }
 
 .stat-card {
@@ -512,6 +315,10 @@ onUnmounted(() => {
     background-color: var(--osr-info-light);
     color: var(--osr-info);
   }
+  &.error .stat-icon {
+    background-color: var(--osr-error-light);
+    color: var(--osr-error);
+  }
 }
 
 .chart-row {
@@ -540,17 +347,38 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
+
+  .chart-actions {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
 
   .chart-title {
     font-size: 15px;
     font-weight: 600;
     color: var(--osr-text-primary);
+    white-space: nowrap;
   }
 
   .chart-subtitle {
     font-size: 12px;
     color: var(--osr-text-secondary);
+    text-align: right;
   }
+}
+
+/* 骨架屏盖在图表容器上而不是替换它：容器要一直在 DOM 里，
+   否则 ECharts 挂载时拿到的是 0 宽高，数据到达后画出一张空图 */
+.chart-wrap {
+  position: relative;
+}
+
+.chart-skeleton {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--osr-radius-md);
 }
 
 .echarts-container {

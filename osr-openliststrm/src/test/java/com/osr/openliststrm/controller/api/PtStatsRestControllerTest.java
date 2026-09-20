@@ -1,30 +1,59 @@
 package com.osr.openliststrm.controller.api;
 
 import com.osr.common.core.domain.Result;
+import com.osr.common.utils.CurrentUserService;
+import com.osr.openliststrm.pt.stats.PtStatsScope;
 import com.osr.openliststrm.pt.stats.PtStatsService;
 import com.osr.openliststrm.pt.stats.dto.PtStatsTrendPointDTO;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
-import org.mockito.junit.jupiter.MockitoExtension;
-import org.mockito.junit.jupiter.MockitoSettings;
-import org.mockito.quality.Strictness;
+import org.mockito.MockitoAnnotations;
 
+import java.lang.reflect.Field;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-@ExtendWith(MockitoExtension.class)
-@MockitoSettings(strictness = Strictness.LENIENT)
 class PtStatsRestControllerTest {
 
     @Mock
     private PtStatsService statsService;
 
-    private PtStatsRestController controller() {
-        return new PtStatsRestController(statsService);
+    @Mock
+    private CurrentUserService currentUserService;
+
+    private PtStatsRestController controller;
+
+    @BeforeEach
+    void setUp() throws Exception {
+        MockitoAnnotations.openMocks(this);
+        controller = new PtStatsRestController(statsService);
+        inject("currentUserService", currentUserService);
+        when(currentUserService.getUserId()).thenReturn(9L);
+    }
+
+    /** 逐级向上找字段：currentUserService 声明在 BaseController 上，不在控制器自身 */
+    private void inject(String fieldName, Object value) throws Exception {
+        for (Class<?> type = controller.getClass(); type != null; type = type.getSuperclass()) {
+            try {
+                Field field = type.getDeclaredField(fieldName);
+                field.setAccessible(true);
+                field.set(controller, value);
+                return;
+            } catch (NoSuchFieldException ignored) {
+                // 继续往父类找
+            }
+        }
+        throw new NoSuchFieldException(fieldName);
     }
 
     @Test
@@ -56,47 +85,75 @@ class PtStatsRestControllerTest {
 
     @Test
     void trend_非法days参数按30转调service() {
-        when(statsService.trend(30)).thenReturn(List.of());
+        when(statsService.trend(anyInt(), any())).thenReturn(List.of());
 
-        Result<List<PtStatsTrendPointDTO>> result = controller().trend(999);
+        Result<List<PtStatsTrendPointDTO>> result = controller.trend(999);
 
         assertEquals(200, result.getCode());
-        verify(statsService).trend(30);
+        verify(statsService).trend(eq(30), any(PtStatsScope.class));
     }
 
     @Test
     void topSubscriptions_limit超过50被截断转调service() {
-        when(statsService.topSubscriptions(30, 50)).thenReturn(List.of());
+        when(statsService.topSubscriptions(anyInt(), anyInt(), any())).thenReturn(List.of());
 
-        controller().topSubscriptions(null, 999);
+        controller.topSubscriptions(null, 999);
 
-        verify(statsService).topSubscriptions(30, 50);
+        verify(statsService).topSubscriptions(eq(30), eq(50), any(PtStatsScope.class));
     }
 
     @Test
     void failReasons_合法days原样转调service() {
-        when(statsService.failReasons(7)).thenReturn(List.of());
+        when(statsService.failReasons(anyInt(), any())).thenReturn(List.of());
 
-        controller().failReasons(7);
+        controller.failReasons(7);
 
-        verify(statsService).failReasons(7);
+        verify(statsService).failReasons(eq(7), any(PtStatsScope.class));
     }
 
     @Test
     void overview_直接转调service() {
-        when(statsService.overview()).thenReturn(new com.osr.openliststrm.pt.stats.dto.PtStatsOverviewDTO());
+        when(statsService.overview(any())).thenReturn(new com.osr.openliststrm.pt.stats.dto.PtStatsOverviewDTO());
 
-        Result<com.osr.openliststrm.pt.stats.dto.PtStatsOverviewDTO> result = controller().overview();
+        Result<com.osr.openliststrm.pt.stats.dto.PtStatsOverviewDTO> result = controller.overview();
 
         assertEquals(200, result.getCode());
     }
 
     @Test
     void indexerHitRate_直接转调service() {
-        when(statsService.indexerHitRate()).thenReturn(List.of());
+        when(statsService.indexerHitRate(any())).thenReturn(List.of());
 
-        Result<List<com.osr.openliststrm.pt.stats.dto.PtStatsIndexerHitRateDTO>> result = controller().indexerHitRate();
+        Result<List<com.osr.openliststrm.pt.stats.dto.PtStatsIndexerHitRateDTO>> result = controller.indexerHitRate();
 
         assertEquals(200, result.getCode());
+    }
+
+    /**
+     * 普通用户拿到的是受限范围。这条断言是归属隔离在统计侧唯一的守卫——
+     * 把 scope() 改回恒定 ALL 不会让任何功能报错，只是别人的剧名重新出现在 Top 活跃订阅里。
+     */
+    @Test
+    void 普通用户_scope限定到自己的订阅() {
+        when(statsService.indexerHitRate(any())).thenReturn(List.of());
+
+        controller.indexerHitRate();
+
+        ArgumentCaptor<PtStatsScope> captor = ArgumentCaptor.forClass(PtStatsScope.class);
+        verify(statsService).indexerHitRate(captor.capture());
+        assertFalse(captor.getValue().all());
+        assertEquals(9L, captor.getValue().userId());
+    }
+
+    @Test
+    void 管理员_scope放行全站() {
+        when(currentUserService.getUserId()).thenReturn(1L);
+        when(statsService.indexerHitRate(any())).thenReturn(List.of());
+
+        controller.indexerHitRate();
+
+        ArgumentCaptor<PtStatsScope> captor = ArgumentCaptor.forClass(PtStatsScope.class);
+        verify(statsService).indexerHitRate(captor.capture());
+        assertTrue(captor.getValue().all());
     }
 }
