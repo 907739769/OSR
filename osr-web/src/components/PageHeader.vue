@@ -78,7 +78,12 @@ defineProps<{
     color: var(--osr-text-secondary);
   }
 
+  /* 不给 flex 的话，多个操作之间只剩标签间的空白符当间距，行内文字（如「上次加载」）
+     还会按基线与按钮错开半行——缺集体检页头是第一个同时放文字与两颗按钮的 */
   .page-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
     flex-shrink: 0;
   }
 }
