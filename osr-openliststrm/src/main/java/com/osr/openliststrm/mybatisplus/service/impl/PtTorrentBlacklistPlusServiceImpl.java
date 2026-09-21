@@ -13,9 +13,12 @@ import com.osr.openliststrm.rename.MediaParser;
 import com.osr.openliststrm.rename.model.MediaInfo;
 import org.springframework.stereotype.Service;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.function.Predicate;
+import java.util.stream.Collectors;
 
 /**
  * <p>
@@ -73,12 +76,11 @@ public class PtTorrentBlacklistPlusServiceImpl extends ServiceImpl<PtTorrentBlac
         if (StringUtils.isBlank(record.getTitle())) {
             throw new IllegalArgumentException("该下载记录没有标题，无法解析发布组");
         }
-        MediaInfo info = mediaParser.parseLocal(record.getTitle());
-        String group = info.getReleaseGroup();
-        if (StringUtils.isBlank(group)) {
+        String group = releaseGroupOf(record.getTitle());
+        if (group == null) {
             throw new IllegalArgumentException("无法从标题解析出发布组");
         }
-        String normalized = group.trim().toUpperCase(Locale.ROOT);
+        String normalized = normalizeReleaseGroup(group);
         if (existsByTypeAndValue(PtTorrentBlacklistPlus.TYPE_RELEASE_GROUP, normalized)) {
             return false;
         }
@@ -151,6 +153,35 @@ public class PtTorrentBlacklistPlusServiceImpl extends ServiceImpl<PtTorrentBlac
             }
             entity.setValue(raw.toUpperCase(Locale.ROOT));
         }
+    }
+
+    @Override
+    public String releaseGroupOf(String title) {
+        if (StringUtils.isBlank(title)) {
+            return null;
+        }
+        MediaInfo info = mediaParser.parseLocal(title);
+        String group = info.getReleaseGroup();
+        return StringUtils.isBlank(group) ? null : group.trim();
+    }
+
+    @Override
+    public String normalizeReleaseGroup(String group) {
+        return group.trim().toUpperCase(Locale.ROOT);
+    }
+
+    @Override
+    public Set<String> findBlockedValues(String type, Collection<String> values) {
+        if (values == null || values.isEmpty()) {
+            return Set.of();
+        }
+        return list(new LambdaQueryWrapper<PtTorrentBlacklistPlus>()
+                .select(PtTorrentBlacklistPlus::getValue)
+                .eq(PtTorrentBlacklistPlus::getType, type)
+                .in(PtTorrentBlacklistPlus::getValue, values))
+                .stream()
+                .map(PtTorrentBlacklistPlus::getValue)
+                .collect(Collectors.toSet());
     }
 
     private boolean existsByTypeAndValue(String type, String value) {

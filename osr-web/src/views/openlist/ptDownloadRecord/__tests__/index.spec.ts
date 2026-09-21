@@ -1,4 +1,5 @@
-import { describe, it, expect, vi } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { setActivePinia, createPinia } from 'pinia'
 import { mount } from '@vue/test-utils'
 import { ref, reactive, computed } from 'vue'
 
@@ -8,8 +9,16 @@ vi.mock('@/composables/usePtDownloadRecord', () => ({
   usePtDownloadRecord: vi.fn()
 }))
 
+// 订阅链接的 path 按组件反查；真实 router 模块会连带整套路由表，这里给个固定值
+vi.mock('@/router', () => ({
+  getRoutePathForComponent: () => '/openlist/ptSubscription'
+}))
+
 import { usePtDownloadRecord } from '@/composables/usePtDownloadRecord'
 import PtDownloadRecordPage from '../index.vue'
+
+// 拉黑 / 清理弹窗套的 FormDialogShell 要读 app store 判断设备
+beforeEach(() => { setActivePinia(createPinia()) })
 
 // composable 返回值的最小可用默认值，测试用例按需覆盖字段
 function baseComposable(overrides: Record<string, any> = {}) {
@@ -35,9 +44,22 @@ function baseComposable(overrides: Record<string, any> = {}) {
     handleBatchRetry: vi.fn(),
     handleBatchBlacklistGuid: vi.fn(),
     handleBatchBlacklistReleaseGroup: vi.fn(),
-    blacklistingIds: reactive(new Set<number>()),
     handleBlacklistGuid: vi.fn(),
     handleBlacklistReleaseGroup: vi.fn(),
+    blacklistDialog: reactive({ visible: false, title: '', message: '', reason: '', submitting: false }),
+    submitBlacklist: vi.fn(),
+    copyTorrentHash: vi.fn(),
+    stats: ref(null),
+    dateStart: ref(''),
+    dateEnd: ref(''),
+    indexerOptions: ref([]),
+    downloaderOptions: ref([]),
+    subFilterLabel: computed(() => ''),
+    clearSubFilter: vi.fn(),
+    cleanupDialog: reactive({ visible: false, days: 180, count: null, loading: false, submitting: false }),
+    cleanupDayOptions: [30, 90, 180, 365],
+    openCleanup: vi.fn(),
+    submitCleanup: vi.fn(),
     ...overrides
   }
 }
@@ -294,7 +316,7 @@ describe('PtDownloadRecord 批量重试', () => {
 describe('PtDownloadRecord 拉黑操作', () => {
   it('非 FAILED 状态的卡片也显示拉黑按钮，不显示立即重试按钮', () => {
     (usePtDownloadRecord as any).mockReturnValue(baseComposable({
-      taskList: ref([{ id: 1, title: 'A', state: 'COMPLETED' }])
+      taskList: ref([{ id: 1, title: 'A', state: 'COMPLETED', releaseGroup: 'GRP' }])
     }))
     const wrapper = mount(PtDownloadRecordPage)
     expect(wrapper.find('.blacklist-guid-btn').exists()).toBe(true)
@@ -316,11 +338,98 @@ describe('PtDownloadRecord 拉黑操作', () => {
   it('点击拉黑该发布组按钮调用 handleBlacklistReleaseGroup', async () => {
     const handleBlacklistReleaseGroup = vi.fn()
     ;(usePtDownloadRecord as any).mockReturnValue(baseComposable({
-      taskList: ref([{ id: 1, title: 'A', state: 'COMPLETED' }]),
+      taskList: ref([{ id: 1, title: 'A', state: 'COMPLETED', releaseGroup: 'GRP' }]),
       handleBlacklistReleaseGroup
     }))
     const wrapper = mount(PtDownloadRecordPage)
     await wrapper.find('.blacklist-group-btn').trigger('click')
     expect(handleBlacklistReleaseGroup).toHaveBeenCalled()
+  })
+
+  it('标题里解析不出发布组时不给「拉黑发布组」按钮', () => {
+    (usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      taskList: ref([{ id: 1, title: 'A', state: 'COMPLETED', releaseGroup: null }])
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    expect(wrapper.find('.blacklist-group-btn').exists()).toBe(false)
+  })
+
+  it('已拉黑的种子 / 发布组按钮禁用并改成「已拉黑」', () => {
+    (usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      taskList: ref([{
+        id: 1, title: 'A', state: 'COMPLETED', releaseGroup: 'GRP',
+        guidBlacklisted: true, releaseGroupBlacklisted: true
+      }])
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    const guid = wrapper.find('.blacklist-guid-btn')
+    const group = wrapper.find('.blacklist-group-btn')
+    expect(guid.text()).toBe('种子已拉黑')
+    expect(guid.attributes('disabled')).toBeDefined()
+    expect(group.text()).toBe('GRP 已拉黑')
+    expect(group.attributes('disabled')).toBeDefined()
+  })
+})
+
+describe('PtDownloadRecord 接替与筛选条', () => {
+  it('已被后续推送接替的失败记录：标出接替者，不给重试，也不再标红', () => {
+    (usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      taskList: ref([{ id: 1, title: 'A', state: 'FAILED', failReason: 'boom', supersededById: 42 }])
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    expect(wrapper.find('.record-superseded').text()).toContain('#42')
+    expect(wrapper.text()).not.toContain('立即重试')
+    expect(wrapper.find('.item-card').classes()).not.toContain('item-card--failed')
+  })
+
+  it('下载中的记录在进度条旁显示百分比', () => {
+    (usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      taskList: ref([{ id: 1, title: 'A', state: 'DOWNLOADING', progress: 0.456 }])
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    expect(wrapper.find('.record-progress-text').text()).toBe('46%')
+  })
+
+  it('有种子 hash 时可以复制', async () => {
+    const copyTorrentHash = vi.fn()
+    ;(usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      taskList: ref([{ id: 1, title: 'A', state: 'COMPLETED', torrentHash: 'abcdef0123456789' }]),
+      copyTorrentHash
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    await wrapper.find('.hash-copy-btn').trigger('click')
+    expect(copyTorrentHash).toHaveBeenCalled()
+  })
+
+  it('带订阅筛选时显示可关闭的筛选条', async () => {
+    const clearSubFilter = vi.fn()
+    ;(usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      subFilterLabel: computed(() => '《某剧》'),
+      clearSubFilter
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    const chip = wrapper.find('.sub-filter-chip')
+    expect(chip.text()).toContain('《某剧》')
+    await chip.find('.v-chip__close').trigger('click')
+    expect(clearSubFilter).toHaveBeenCalled()
+  })
+
+  it('订阅已删除时不渲染成链接', () => {
+    (usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      taskList: ref([{ id: 1, title: 'A', state: 'COMPLETED', subId: 9, subTitle: null }])
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    expect(wrapper.find('.record-sub-link').exists()).toBe(false)
+    expect(wrapper.find('.record-sub').text()).toContain('订阅已删除')
+  })
+})
+
+describe('PtDownloadRecord 清理旧记录', () => {
+  it('点「清理旧记录」打开清理弹窗', async () => {
+    const openCleanup = vi.fn()
+    ;(usePtDownloadRecord as any).mockReturnValue(baseComposable({ openCleanup }))
+    const wrapper = mount(PtDownloadRecordPage)
+    await wrapper.find('.cleanup-btn').trigger('click')
+    expect(openCleanup).toHaveBeenCalled()
   })
 })

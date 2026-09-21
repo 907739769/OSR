@@ -126,6 +126,32 @@ public class PtStatusWebSocket {
         if (failReason != null) {
             json.put("failReason", failReason);
         }
+        // 以下三项取自 record 本身：调用方在推送前把刚落库的值写回了 record。
+        // 不带的话页面原地更新后「完成时间」一直是空、失败卡片没有分类标签，得刷新才对得上
+        if (record.getFailReasonCode() != null && "FAILED".equals(state)) {
+            json.put("failReasonCode", record.getFailReasonCode());
+        }
+        if (record.getCompletedTime() != null) {
+            json.put("completedTime", DateUtils.parseDateToStr(DateUtils.YYYY_MM_DD_HH_MM_SS, record.getCompletedTime()));
+        }
+        if (record.getHrState() != null) {
+            json.put("hrState", record.getHrState());
+        }
+        broadcast(json.toJSONString());
+    }
+
+    /**
+     * 推送后台批量重试的结果。{@code batchId} 由提交接口返回给发起的那个页面，
+     * 页面只认自己提交的那一批——广播是全体连接都收得到的，不认 id 的话别人点的批量重试
+     * 也会在你的页面上弹一条结果提示。只含计数，不含任何订阅或种子信息。
+     */
+    public static void pushBatchRetryEvent(String batchId, int total, int pushedCount, int skippedCount) {
+        JSONObject json = new JSONObject();
+        json.put("type", "batchRetry");
+        json.put("batchId", batchId);
+        json.put("total", total);
+        json.put("pushedCount", pushedCount);
+        json.put("skippedCount", skippedCount);
         broadcast(json.toJSONString());
     }
 

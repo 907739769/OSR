@@ -4,7 +4,9 @@ import com.baomidou.mybatisplus.extension.service.IService;
 import com.osr.openliststrm.mybatisplus.domain.PtTorrentBlacklistPlus;
 import com.osr.openliststrm.pt.task.dto.BatchBlacklistResult;
 
+import java.util.Collection;
 import java.util.List;
+import java.util.Set;
 
 /**
  * <p>
@@ -48,4 +50,21 @@ public interface IPtTorrentBlacklistPlusService extends IService<PtTorrentBlackl
      * </p>
      */
     BatchBlacklistResult blockRecordReleaseGroupBatch(List<Integer> recordIds, String reason);
+
+    /**
+     * 从种子标题本地解析出发布组（原样大小写，已去首尾空白）；标题为空或解析不出时返回 {@code null}。
+     * 与 {@link #blockRecordReleaseGroup} 用的是同一套解析，下载记录页据此判断「这个组拉黑过没有」。
+     */
+    String releaseGroupOf(String title);
+
+    /** 发布组落库前的归一化（去空白 + 大写），{@code value} 列存的就是它 */
+    String normalizeReleaseGroup(String group);
+
+    /**
+     * 一次查出 {@code values} 里哪些已在指定类型的黑名单中。
+     *
+     * @param type   {@link PtTorrentBlacklistPlus#TYPE_GUID} 或 {@link PtTorrentBlacklistPlus#TYPE_RELEASE_GROUP}
+     * @param values GUID 类型传 guid_hash，发布组类型传 {@link #normalizeReleaseGroup} 之后的值
+     */
+    Set<String> findBlockedValues(String type, Collection<String> values);
 }

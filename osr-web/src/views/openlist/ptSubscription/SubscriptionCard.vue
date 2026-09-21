@@ -227,7 +227,8 @@ const shortTime = (value?: string) => {
 
 const goDownloadRecords = (row: any) => {
   const path = getRoutePathForComponent('openlist/ptDownloadRecord/index')
-  if (path) router.push({ path, query: { subId: row.id } })
+  // 剧名一并带过去：下载记录页的订阅筛选条要写出是哪部剧，列表为空时它从记录里取不到
+  if (path) router.push({ path, query: { subId: row.id, subTitle: row.title } })
 }
 
 /** "更多"下拉菜单 command → 现有函数的分发，纯路由不新增业务逻辑 */

@@ -20,7 +20,7 @@
       />
       <v-select
         v-model="queryParams.state"
-        :items="stateOptions"
+        :items="DOWNLOAD_STATE_OPTIONS"
         label="状态"
         placeholder="全部状态"
         clearable
@@ -29,24 +29,107 @@
         hide-details
         class="status-select"
       />
+      <v-select
+        v-model="queryParams.failReasonCode"
+        :items="FAIL_REASON_OPTIONS"
+        label="失败原因"
+        placeholder="全部"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        class="status-select"
+      />
+      <v-select
+        v-model="queryParams.hrState"
+        :items="HR_STATE_OPTIONS"
+        label="H&R 保种"
+        placeholder="全部"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        class="status-select"
+      />
+      <v-select
+        v-model="queryParams.indexerId"
+        :items="indexerOptions"
+        label="来源索引器"
+        placeholder="全部"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        class="status-select"
+      />
+      <v-select
+        v-model="queryParams.downloaderId"
+        :items="downloaderOptions"
+        label="下载器"
+        placeholder="全部"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        class="status-select"
+      />
+      <div class="date-range-fields">
+        <v-text-field
+          v-model="dateStart"
+          label="推送开始日期"
+          type="date"
+          density="compact"
+          variant="outlined"
+          hide-details
+          class="date-field"
+        />
+        <span class="date-range-sep">-</span>
+        <v-text-field
+          v-model="dateEnd"
+          label="推送结束日期"
+          type="date"
+          density="compact"
+          variant="outlined"
+          hide-details
+          class="date-field"
+        />
+      </div>
     </SearchPanel>
 
     <!-- 列表 -->
     <v-card class="table-card">
       <div class="action-bar">
         <div class="action-left">
+          <RecordStatusBar v-model="queryParams.state" :options="DOWNLOAD_STATE_OPTIONS" :stats="stats" />
+          <!-- 从订阅页跳过来时带的订阅筛选：搜索区没有这个控件，不摆出来的话用户看不见也关不掉 -->
+          <v-chip
+            v-if="subFilterLabel"
+            size="small"
+            color="primary"
+            variant="tonal"
+            closable
+            class="sub-filter-chip"
+            @click:close="clearSubFilter"
+          >
+            订阅：{{ subFilterLabel }}
+          </v-chip>
+        </div>
+        <div class="action-right">
           <v-btn variant="text" size="small" class="selection-mode-btn" @click="toggleSelectionMode">
             {{ selectionMode ? '退出批量操作' : '批量操作' }}
           </v-btn>
+          <v-btn variant="text" size="small" prepend-icon="trash-2" class="cleanup-btn" @click="openCleanup">
+            清理旧记录
+          </v-btn>
+          <v-btn variant="text" size="small" prepend-icon="funnel" @click="showSearch = !showSearch">
+            {{ showSearch ? '隐藏搜索' : '显示搜索' }}
+          </v-btn>
         </div>
-        <v-btn variant="text" size="small" prepend-icon="funnel" @click="showSearch = !showSearch">
-          {{ showSearch ? '隐藏搜索' : '显示搜索' }}
-        </v-btn>
       </div>
 
       <div class="batch-toolbar" v-if="selectionMode">
         已选 {{ selectedIds.length }} 项
-        <!-- 重试只对失败记录成立，按钮上直接标出生效条数，免得点完才发现大半被跳过 -->
+        <!-- 重试只对还没被接替的失败记录成立，按钮上直接标出生效条数，免得点完才发现大半被跳过 -->
         <v-btn
           variant="text"
           color="primary"
@@ -78,7 +161,7 @@
           :key="item.id"
           class="item-card item-card--compact"
           :class="{
-            'item-card--failed': item.state === 'FAILED',
+            'item-card--failed': item.state === 'FAILED' && !item.supersededById,
             'item-card--selectable': selectionMode
           }"
           @click="selectionMode && handleCardClick($event, item.id)"
@@ -97,23 +180,25 @@
           </div>
           <div class="record-sub">
             <router-link
-              v-if="item.subId"
-              :to="{ path: '/openlist/ptSubscription', query: { id: item.subId } }"
+              v-if="item.subTitle && subscriptionPath"
+              :to="{ path: subscriptionPath, query: { id: item.subId } }"
               class="record-sub-link"
             >
-              {{ item.subTitle || '订阅已删除' }}
+              {{ item.subTitle }}
             </router-link>
             <span v-else>{{ item.subTitle || '订阅已删除' }}</span>
             <span v-if="item.episodeLabel" class="record-episode">· {{ item.episodeLabel }}</span>
           </div>
-          <v-progress-linear
-            v-if="item.state === 'DOWNLOADING' || item.state === 'COMPLETED'"
-            :model-value="Math.round((item.progress || 0) * 100)"
-            :color="item.state === 'COMPLETED' ? 'success' : 'primary'"
-            :class="{ 'osr-progress--active': item.state === 'DOWNLOADING' }"
-            height="6"
-            rounded
-          />
+          <div v-if="hasProgress(item)" class="record-progress">
+            <v-progress-linear
+              :model-value="progressPercent(item)"
+              :color="item.state === 'COMPLETED' ? 'success' : 'primary'"
+              :class="{ 'osr-progress--active': item.state === 'DOWNLOADING' }"
+              height="6"
+              rounded
+            />
+            <span class="record-progress-text">{{ progressPercent(item) }}%</span>
+          </div>
           <div class="card-row">
             <span class="label">来源索引器</span>
             <span class="value">{{ item.indexerName || '-' }}</span>
@@ -123,8 +208,8 @@
             <span class="value">{{ item.downloaderName || '-' }}</span>
           </div>
           <div class="card-row">
-            <span class="label">体积 / 做种</span>
-            <span class="value">{{ formatSize(item.size) }} / {{ item.seeders ?? '-' }}</span>
+            <span class="label" :title="SEEDERS_HINT">体积 / 推送时做种</span>
+            <span class="value">{{ formatFileSize(item.size) }} / {{ item.seeders ?? '-' }}</span>
           </div>
           <div class="card-row">
             <span class="label">推送时间</span>
@@ -134,6 +219,20 @@
             <span class="label">完成时间</span>
             <span class="value">{{ item.completedTime || '-' }}</span>
           </div>
+          <div class="card-row" v-if="item.torrentHash">
+            <span class="label">种子 hash</span>
+            <span class="value hash-value">
+              <span class="hash-text" :title="item.torrentHash">{{ item.torrentHash.slice(0, 12) }}…</span>
+              <v-btn
+                variant="text"
+                size="x-small"
+                icon="copy"
+                class="hash-copy-btn"
+                title="复制种子 hash"
+                @click.stop="copyTorrentHash(item)"
+              />
+            </span>
+          </div>
           <div class="card-row" v-if="item.hrState">
             <span class="label">H&amp;R 保种</span>
             <span class="value hr-value">
@@ -141,14 +240,19 @@
               <span class="hr-progress">{{ hrProgress(item) }}</span>
             </span>
           </div>
-          <div class="record-fail" v-if="item.state === 'FAILED'">
+          <div class="record-fail" :class="{ 'record-fail--superseded': item.supersededById }" v-if="item.state === 'FAILED'">
             <v-icon icon="circle-alert" size="16" />
             <StatusChip v-if="item.failReasonCode" :type="failReasonTagType(item.failReasonCode)" :text="failReasonCodeLabel(item.failReasonCode)" />
             <span>{{ item.failReason || '未知原因' }}</span>
           </div>
+          <!-- 失败之后同一集已经有了新的推送：该看的是后面那条，这条不再给重试 -->
+          <div class="record-superseded" v-if="item.state === 'FAILED' && item.supersededById">
+            <v-icon icon="circle-check" size="14" />
+            已由后续推送 #{{ item.supersededById }} 接替
+          </div>
           <div class="card-footer">
             <v-btn
-              v-if="item.state === 'FAILED'"
+              v-if="canRetry(item)"
               variant="text"
               color="primary"
               size="small"
@@ -162,20 +266,22 @@
               color="warning"
               size="small"
               class="blacklist-guid-btn"
-              :loading="blacklistingIds.has(item.id)"
+              :disabled="item.guidBlacklisted"
               @click="handleBlacklistGuid(item)"
             >
-              拉黑该种子
+              {{ item.guidBlacklisted ? '种子已拉黑' : '拉黑该种子' }}
             </v-btn>
+            <!-- 标题里解析不出发布组时后端也拉黑不了，按钮不给 -->
             <v-btn
+              v-if="item.releaseGroup"
               variant="text"
               color="error"
               size="small"
               class="blacklist-group-btn"
-              :loading="blacklistingIds.has(item.id)"
+              :disabled="item.releaseGroupBlacklisted"
               @click="handleBlacklistReleaseGroup(item)"
             >
-              拉黑该发布组
+              {{ item.releaseGroupBlacklisted ? `${item.releaseGroup} 已拉黑` : `拉黑发布组 ${item.releaseGroup}` }}
             </v-btn>
           </div>
         </div>
@@ -201,17 +307,45 @@
         />
       </div>
     </v-card>
+
+    <PtBlacklistDialog
+      v-model="blacklistDialog.visible"
+      v-model:reason="blacklistDialog.reason"
+      :title="blacklistDialog.title"
+      :message="blacklistDialog.message"
+      :submitting="blacklistDialog.submitting"
+      @submit="submitBlacklist"
+    />
+    <PtDownloadRecordCleanupDialog
+      v-model="cleanupDialog.visible"
+      v-model:days="cleanupDialog.days"
+      :day-options="cleanupDayOptions"
+      :count="cleanupDialog.count"
+      :loading="cleanupDialog.loading"
+      :submitting="cleanupDialog.submitting"
+      @submit="submitCleanup"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import PageHeader from '@/components/PageHeader.vue'
 import StatusChip from '@/components/StatusChip.vue'
+import RecordStatusBar from '@/components/RecordStatusBar.vue'
+import PtBlacklistDialog from '@/components/dialogs/PtBlacklistDialog.vue'
+import PtDownloadRecordCleanupDialog from '@/components/dialogs/PtDownloadRecordCleanupDialog.vue'
 import { ref, onMounted, onUnmounted } from 'vue'
 import { usePtDownloadRecord } from '@/composables/usePtDownloadRecord'
+import {
+  DOWNLOAD_STATE_OPTIONS, FAIL_REASON_OPTIONS, HR_STATE_OPTIONS, SEEDERS_HINT,
+  stateLabel, stateTagType, failReasonCodeLabel, failReasonTagType, hrStateLabel, hrTagType,
+  hrProgress, progressPercent, hasProgress, canRetry
+} from '@/composables/ptDownloadRecordLabels'
+import { formatFileSize } from '@/composables/useRecordList'
 import { useGridPageSize } from '@/composables/useGridPageSize'
 import { useSearchPanel } from '@/composables/useSearchPanel'
 import SearchPanel from '@/components/SearchPanel.vue'
+import { getRoutePathForComponent } from '@/router'
 
 const { showSearch } = useSearchPanel()
 
@@ -226,16 +360,23 @@ function updateSkeletonCount() {
 onMounted(() => { updateSkeletonCount(); window.addEventListener('resize', updateSkeletonCount) })
 onUnmounted(() => { window.removeEventListener('resize', updateSkeletonCount) })
 
+// 订阅页的路由 path 按组件反查，不写死：菜单 path 历史上有 /openlist 与 /openliststrm 两种前缀
+const subscriptionPath = getRoutePathForComponent('openlist/ptSubscription/index')
+
 // 首次加载交给 useGridPageSize（autoLoad: false）：每页条数要按网格实际列数取整到整行，
 // 列数得挂载后才量得准，先按兜底值发一次再改口是白跑一趟请求
 const {
-  taskList, loading, total, queryParams, getList, handleQuery, resetQuery, queryRef,
+  taskList, loading, total, queryParams, stats, getList, handleQuery, resetQuery, queryRef,
+  dateStart, dateEnd, indexerOptions, downloaderOptions,
+  subFilterLabel, clearSubFilter,
   retryingIds, handleRetry,
   selectionMode, toggleSelectionMode, selectedIds, toggleRecordSelect, handleCardClick,
   isAllPageSelected, toggleSelectAllPage,
   retryableSelectedIds, handleBatchRetry,
   handleBatchBlacklistGuid, handleBatchBlacklistReleaseGroup,
-  blacklistingIds, handleBlacklistGuid, handleBlacklistReleaseGroup
+  handleBlacklistGuid, handleBlacklistReleaseGroup, blacklistDialog, submitBlacklist,
+  copyTorrentHash,
+  cleanupDialog, cleanupDayOptions, openCleanup, submitCleanup
 } = usePtDownloadRecord({ autoLoad: false })
 
 // 每页条数按网格实际列数取整到整行，窗口宽度变了跟着重算
@@ -244,84 +385,6 @@ const { gridRef, pageSizeOptions, setPageSize } = useGridPageSize((size) => {
   queryParams.pageNum = 1
   getList()
 })
-
-const stateOptions = [
-  { title: '已推送', value: 'PUSHED' },
-  { title: '下载中', value: 'DOWNLOADING' },
-  { title: '已完成', value: 'COMPLETED' },
-  { title: '失败', value: 'FAILED' }
-]
-
-const stateLabel = (state: string) => {
-  switch (state) {
-    case 'PUSHED': return '已推送'
-    case 'DOWNLOADING': return '下载中'
-    case 'COMPLETED': return '已完成'
-    case 'FAILED': return '失败'
-    default: return state
-  }
-}
-
-const stateTagType = (state: string): 'success' | 'warning' | 'error' | 'info' => {
-  switch (state) {
-    case 'COMPLETED': return 'success'
-    case 'DOWNLOADING': return 'warning'
-    case 'FAILED': return 'error'
-    default: return 'info'
-  }
-}
-
-const hrStateLabel = (state: string) => {
-  switch (state) {
-    case 'PENDING': return '保种中'
-    case 'SATISFIED': return '已达标'
-    case 'VIOLATED': return '可能已 H&R'
-    default: return state
-  }
-}
-const hrTagType = (state: string): 'success' | 'warning' | 'error' => {
-  switch (state) {
-    case 'SATISFIED': return 'success'
-    case 'VIOLATED': return 'error'
-    default: return 'warning'
-  }
-}
-
-/**
- * 保种进度摘要。要求是「做满 N 小时 或 分享率达到 R」的或关系，两项都展示，
- * 让用户自己看哪一项先够；站点没配的那一项（阈值 0）不显示目标值。
- */
-const hrProgress = (item: any) => {
-  const hours = ((item.hrSeedSeconds ?? 0) / 3600).toFixed(1)
-  const ratio = (item.hrRatio ?? 0).toFixed(2)
-  const parts: string[] = []
-  parts.push(item.hrSeedHoursRequired > 0 ? `做种 ${hours}/${item.hrSeedHoursRequired}h` : `做种 ${hours}h`)
-  parts.push(item.hrRatioRequired > 0 ? `分享率 ${ratio}/${item.hrRatioRequired}` : `分享率 ${ratio}`)
-  return parts.join('，')
-}
-
-const failReasonCodeLabel = (code: string) => {
-  switch (code) {
-    case 'TORRENT_NOT_FOUND': return '种子丢失'
-    case 'ZOMBIE_TIMEOUT': return '下载超时'
-    case 'NO_TARGET_EPISODE': return '无目标集'
-    case 'METADATA_TIMEOUT': return '种子无响应'
-    default: return '其他原因'
-  }
-}
-// 这三类都不是错误：超时、包选错、种子没人做种，占位集都已退回并会继续搜索，不该用红色吓人
-const WARNING_FAIL_CODES = ['ZOMBIE_TIMEOUT', 'NO_TARGET_EPISODE', 'METADATA_TIMEOUT']
-const failReasonTagType = (code: string): 'warning' | 'error' => {
-  return WARNING_FAIL_CODES.includes(code) ? 'warning' : 'error'
-}
-
-const formatSize = (bytes: number): string => {
-  if (!bytes) return '0 B'
-  const k = 1024
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(k))
-  return (bytes / Math.pow(k, i)).toFixed(2) + ' ' + sizes[i]
-}
 </script>
 
 <style scoped lang="scss">
@@ -336,6 +399,11 @@ const formatSize = (bytes: number): string => {
   padding: 14px;
   border: 1px solid var(--osr-border-light);
   border-radius: var(--osr-radius-md);
+}
+
+/* 按钮上带着发布组名，三个按钮一行放不下时换行，不要把卡片撑宽 */
+.card-footer {
+  flex-wrap: wrap;
 }
 
 /* 所属订阅 */
@@ -357,7 +425,32 @@ const formatSize = (bytes: number): string => {
   }
 }
 
-/* 失败原因块 */
+/* 进度条右侧带百分比：光看一根条读不出是 40% 还是 60% */
+.record-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.record-progress-text {
+  min-width: 36px;
+  text-align: right;
+  font-size: 12px;
+  color: var(--osr-text-secondary);
+}
+
+.hash-value {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+.hash-text {
+  font-family: var(--osr-font-mono);
+  font-size: 12px;
+}
+
 /* 保种状态徽章与进度文字同行，窄屏时进度换到下一行而不是把徽章挤变形 */
 .hr-value {
   display: flex;
@@ -372,6 +465,7 @@ const formatSize = (bytes: number): string => {
   color: var(--osr-text-secondary);
 }
 
+/* 失败原因块 */
 .record-fail {
   display: flex;
   align-items: center;
@@ -383,6 +477,20 @@ const formatSize = (bytes: number): string => {
   font-size: 12px;
   font-weight: 500;
   line-height: 1.5;
+}
+
+/* 已被接替的失败记录退成次要信息，不再用红底抢眼 */
+.record-fail--superseded {
+  background: rgba(var(--v-theme-on-surface), 0.05);
+  color: var(--osr-text-secondary);
+}
+
+.record-superseded {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: rgb(var(--v-theme-success));
 }
 
 @media (max-width: 768px) {

@@ -150,7 +150,8 @@ const posterErrorIds = reactive(new Set<number>())
 
 const goDownloadRecords = (row: any) => {
   const path = getRoutePathForComponent('openlist/ptDownloadRecord/index')
-  if (path) router.push({ path, query: { subId: row.id } })
+  // 剧名一并带过去：下载记录页的订阅筛选条要写出是哪部剧，列表为空时它从记录里取不到
+  if (path) router.push({ path, query: { subId: row.id, subTitle: row.title } })
 }
 
 /** 该订阅是否配了自己的过滤规则覆盖。空字符串同样算「没有覆盖」，与后端一致 */
