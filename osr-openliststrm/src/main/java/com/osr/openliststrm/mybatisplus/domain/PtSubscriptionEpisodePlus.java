@@ -82,6 +82,17 @@ public class PtSubscriptionEpisodePlus extends BaseEntity {
     @TableField("upgrade_state")
     private String upgradeState;
 
+    /**
+     * 上次为这一集发起洗版搜索的时间；null 表示还没搜过。
+     * 扫描按它升序轮转，每轮搜索次数有上限时不会永远只搜排在前面的那几集
+     */
+    @TableField("upgrade_searched_at")
+    private Date upgradeSearchedAt;
+
+    /** 连续没搜到更好版本的次数，洗版扫描按它做指数退避，见 {@code UpgradeBackoff} */
+    @TableField("upgrade_miss_count")
+    private Integer upgradeMissCount;
+
     /** 关联的下载记录ID */
     @TableField("download_id")
     private Integer downloadId;

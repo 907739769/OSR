@@ -1,6 +1,7 @@
 package com.osr.openliststrm.pt.upgrade;
 
 import com.osr.openliststrm.pt.filter.FilterCriteria;
+import com.osr.openliststrm.pt.filter.MediaSource;
 import com.osr.openliststrm.pt.filter.PriorityRanker;
 import lombok.extern.slf4j.Slf4j;
 
@@ -39,7 +40,7 @@ public enum UpgradeDimension {
     SOURCE {
         @Override
         public int rank(QualityProfile profile, UpgradeCriteria criteria) {
-            return PriorityRanker.rankOf(profile.source(), criteria.sourcePriority());
+            return MediaSource.rank(profile.source(), criteria.sourcePriority());
         }
     },
 

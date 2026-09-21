@@ -70,6 +70,16 @@ public class PtUpgradeConfigPlus extends BaseEntity {
     @TableField("max_concurrent")
     private Integer maxConcurrent;
 
+    /**
+     * 每轮最多发起的洗版搜索次数。
+     * <p>
+     * {@link #maxConcurrent} 只限推送数：找不到更好版本的集不占名额，没有这道上限的话
+     * 每一轮都会把全部待洗版的集挨个对所有索引器搜一遍。
+     * </p>
+     */
+    @TableField("max_searches_per_round")
+    private Integer maxSearchesPerRound;
+
     /** 洗版扫描周期(小时) */
     @TableField("scan_interval_hours")
     private Integer scanIntervalHours;

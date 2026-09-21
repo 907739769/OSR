@@ -27,6 +27,7 @@ import com.osr.openliststrm.pt.downloader.DownloaderClientFactory;
 import com.osr.openliststrm.pt.filter.EpisodeCountResolver;
 import com.osr.openliststrm.pt.filter.FilterCriteria;
 import com.osr.openliststrm.pt.filter.FilterCriteriaFactory;
+import com.osr.openliststrm.pt.filter.MediaSource;
 import com.osr.openliststrm.pt.filter.RejectCode;
 import com.osr.openliststrm.pt.filter.TorrentBlacklist;
 import com.osr.openliststrm.pt.filter.TorrentFilterEngine;
@@ -845,9 +846,10 @@ public class SubscriptionEngine {
         applySeasonPackRange(torrent);
         applyDescriptionEpisode(torrent);
         torrent.setParsedResolution(info.getResolution());
-        torrent.setParsedSource(info.getSource());
         torrent.setParsedReleaseGroup(info.getReleaseGroup());
         torrent.setParsedTags(collectTags(info));
+        // 解析器把 REMUX 记成标签、来源只写 BluRay，PT 侧要把它还原成来源，见 MediaSource
+        torrent.setParsedSource(MediaSource.effective(info.getSource(), torrent.getParsedTags()));
     }
 
     /**

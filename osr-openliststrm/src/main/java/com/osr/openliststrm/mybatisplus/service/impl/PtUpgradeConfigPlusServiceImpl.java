@@ -36,6 +36,7 @@ public class PtUpgradeConfigPlusServiceImpl extends ServiceImpl<PtUpgradeConfigP
         fallback.setTargetResolution("2160p");
         fallback.setTargetSources("REMUX,BluRay");
         fallback.setMaxConcurrent(2);
+        fallback.setMaxSearchesPerRound(20);
         fallback.setScanIntervalHours(6);
         return fallback;
     }

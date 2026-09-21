@@ -4,9 +4,13 @@ import com.osr.common.core.controller.BaseController;
 import com.osr.common.core.domain.Result;
 import com.osr.openliststrm.mybatisplus.domain.PtFilterConfigPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtFilterConfigPlusService;
+import com.osr.common.utils.StringUtils;
+import com.osr.openliststrm.pt.filter.FilterConfigAdminService;
+import com.osr.openliststrm.pt.filter.FilterVocabulary;
 import com.osr.openliststrm.pt.filter.SortDimension;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -31,6 +35,9 @@ public class PtFilterConfigRestController extends BaseController {
     @Autowired
     private IPtFilterConfigPlusService filterConfigService;
 
+    @Autowired
+    private FilterConfigAdminService adminService;
+
     /**
      * 读取全局过滤规则。种子数据被误删时服务层会返回内置默认值，不会为 null。
      */
@@ -48,12 +55,36 @@ public class PtFilterConfigRestController extends BaseController {
     }
 
     /**
-     * 保存全局过滤规则。强制写 id=1，避免前端漏传主键导致插出第二行。
+     * 分辨率 / 来源 / 质量标签的可选值。这三类字段后端按全等比对，前端从这里选而不是手打。
+     */
+    @GetMapping("/vocabulary")
+    public Result<FilterVocabulary.Options> vocabulary() {
+        return Result.success(FilterVocabulary.options());
+    }
+
+    /**
+     * 规则试算：拿一条种子标题过一遍（可能尚未保存的）过滤规则。只读，不落库，不限管理员。
+     */
+    @PostMapping("/preview")
+    public Result<FilterConfigAdminService.PreviewResult> preview(
+            @RequestBody FilterConfigAdminService.PreviewRequest request) {
+        if (request == null || StringUtils.isBlank(request.title())) {
+            return Result.error("请输入种子标题");
+        }
+        return Result.success(adminService.preview(request));
+    }
+
+    /**
+     * 保存全局过滤规则，仅管理员。强制写 id=1，避免前端漏传主键导致插出第二行。
+     * 校验不通过时把原因原样返回，见 {@link FilterConfigAdminService#save}。
      */
     @PutMapping
     public Result<Void> save(@RequestBody PtFilterConfigPlus config) {
-        config.setId(PtFilterConfigPlus.SINGLETON_ID);
-        boolean ok = filterConfigService.saveOrUpdate(config);
-        return ok ? Result.success() : Result.error("保存失败");
+        Result<Void> denied = denyIfNotAdmin();
+        if (denied != null) {
+            return denied;
+        }
+        List<String> errors = adminService.save(config);
+        return errors.isEmpty() ? Result.success() : Result.error(String.join("；", errors));
     }
 }

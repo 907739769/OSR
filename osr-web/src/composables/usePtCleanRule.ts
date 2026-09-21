@@ -1,5 +1,6 @@
 import { ref } from 'vue'
 import { message } from '@/composables/useMessage'
+import { formatSize } from '@/composables/sizeUnits'
 import {
   getPtCleanRuleListApi,
   addPtCleanRuleApi,
@@ -180,12 +181,4 @@ export function usePtCleanRule() {
     load, openFor, startAdd, startEdit, cancelEdit, submitRule, removeRule,
     handlePreview, handleRun
   }
-}
-
-/** 字节数转人类可读，规则弹窗与预览列表共用 */
-export function formatSize(bytes: number): string {
-  if (!bytes || bytes < 0) return '0 B'
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
-  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
 }

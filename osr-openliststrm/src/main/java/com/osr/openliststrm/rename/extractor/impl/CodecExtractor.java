@@ -43,9 +43,11 @@ public class CodecExtractor implements Extractor {
     }
 
     private String normalizeAudio(String raw) {
-        String r = raw.toLowerCase().replace("-", "").replace(" ", "").replace(".", "");
-        // 移除末尾的数字（声道），只保留编码名称
-        r = r.replaceAll("\\d+$", "");
+        // 先按 AUDIO 正则里那段可选的声道格式（"5.1"、" 2.0"、"7 1"）摘掉声道，再去分隔符。
+        // 曾经是先去分隔符、再削掉末尾全部数字，于是编码名自带的数字也被一并削掉：
+        // AC3 → AC、EAC3 → EAC，既进了重命名的文件名，也让「必需标签 AC3」永远命不中
+        String r = raw.toLowerCase().replaceAll("[ .]?\\d[ .]\\d$", "")
+                .replace("-", "").replace(" ", "").replace(".", "");
 
         if (r.contains("ddp") || r.contains("dd+") || r.equals("eac3")) return "EAC3";
         if (r.contains("truehd")) return "TrueHD";

@@ -47,7 +47,7 @@ public enum SortDimension {
             if (priority.isEmpty()) {
                 return NO_PREFERENCE;
             }
-            return Comparator.comparingInt(t -> rankOf(t.getParsedSource(), priority));
+            return Comparator.comparingInt(t -> MediaSource.rank(t.getParsedSource(), priority));
         }
     },
 

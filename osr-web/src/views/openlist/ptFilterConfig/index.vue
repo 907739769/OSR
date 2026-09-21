@@ -9,7 +9,7 @@
     <v-card :loading="loading" class="table-card">
       <v-card-text>
         <v-form ref="formRef" class="filter-form">
-          <div class="section-divider"><span>硬性过滤（不满足即淘汰）</span></div>
+          <SectionDivider>硬性过滤（不满足即淘汰）</SectionDivider>
 
           <FormField>
             <v-text-field
@@ -20,7 +20,7 @@
               density="comfortable"
               variant="outlined"
               class="field-num-lg"
-              :rules="minSeedersRules"
+              :rules="toRuleFns(rules.minSeeders)"
             />
             <template #tip>
               做种数低于此值的种子直接淘汰
@@ -40,39 +40,42 @@
             </template>
           </FormField>
 
-          <FormField>
-            <v-text-field
-              v-model.number="form.minSize"
-              label="体积下限"
-              type="number"
-              min="0"
-              step="0.01"
-              max="999"
-              density="comfortable"
-              variant="outlined"
-              class="field-num"
-            />
-            <template #tip>
-              GB，0 表示不限{{ form.sizePerEpisode === '1' ? '；当前按每集判定' : '' }}
-            </template>
-          </FormField>
-
-          <FormField>
-            <v-text-field
-              v-model.number="form.maxSize"
-              label="体积上限"
-              type="number"
-              min="0"
-              step="0.01"
-              max="999"
-              density="comfortable"
-              variant="outlined"
-              class="field-num"
-            />
-            <template #tip>
-              GB，0 表示不限{{ form.sizePerEpisode === '1' ? '；当前按每集判定' : '' }}
-            </template>
-          </FormField>
+          <div class="size-row">
+            <FormField>
+              <v-text-field
+                v-model.number="form.minSize"
+                label="体积下限"
+                type="number"
+                min="0"
+                step="0.01"
+                max="999"
+                suffix="GB"
+                density="comfortable"
+                variant="outlined"
+                class="field-num"
+                :rules="toRuleFns(rules.size)"
+                :error-messages="sizeRangeError"
+              />
+            </FormField>
+            <FormField>
+              <v-text-field
+                v-model.number="form.maxSize"
+                label="体积上限"
+                type="number"
+                min="0"
+                step="0.01"
+                max="999"
+                suffix="GB"
+                density="comfortable"
+                variant="outlined"
+                class="field-num"
+                :rules="toRuleFns(rules.size)"
+              />
+            </FormField>
+          </div>
+          <div class="size-tip">
+            0 表示不限{{ form.sizePerEpisode === '1' ? '；当前按每集判定' : '' }}
+          </div>
 
           <FormField label="仅要免费种">
             <v-radio-group v-model="form.freeOnly" inline hide-details density="comfortable">
@@ -94,19 +97,6 @@
             </template>
           </FormField>
 
-          <FormField>
-            <v-text-field
-              v-model="form.resolutionWhitelist"
-              label="分辨率白名单"
-              placeholder="如 2160p,1080p；留空表示不限"
-              density="comfortable"
-              variant="outlined"
-            />
-            <template #tip>
-              <strong>硬性过滤</strong>：不在白名单内的分辨率直接淘汰。解析不出分辨率的种子在白名单非空时也会被淘汰
-            </template>
-          </FormField>
-
           <FormField label="规避 H&R 站点">
             <v-radio-group v-model="form.avoidHitAndRun" inline hide-details density="comfortable">
               <v-radio label="否" value="0" />
@@ -120,38 +110,49 @@
           </FormField>
 
           <FormField>
-            <v-text-field
+            <CsvSelect
+              v-model="form.resolutionWhitelist"
+              :options="vocabulary.resolutions"
+              label="分辨率白名单"
+              placeholder="留空表示不限"
+            />
+            <template #tip>
+              <strong>硬性过滤</strong>：不在白名单内的分辨率直接淘汰。解析不出分辨率的种子在白名单非空时也会被淘汰
+            </template>
+          </FormField>
+
+          <FormField>
+            <CsvSelect
               v-model="form.sourceWhitelist"
+              :options="vocabulary.sources"
               label="媒介来源白名单"
-              placeholder="如 REMUX,BluRay,WEBDL；留空表示不限"
-              density="comfortable"
-              variant="outlined"
+              placeholder="留空表示不限"
             />
             <template #tip>
-              <strong>硬性过滤</strong>：不在白名单内的来源直接淘汰。与分辨率白名单同理，解析不出来源的种子在白名单非空时也会被淘汰。可用值为解析后的归一化形式：REMUX、BluRay、WEBDL、WEBRip、HDTV、BDRip、DVDRip
+              <strong>硬性过滤</strong>：不在白名单内的来源直接淘汰，解析不出来源的种子在白名单非空时也会被淘汰。
+              REMUX 单独算一种来源；白名单里没写 REMUX 但写了 BluRay 时，REMUX 按 BluRay 放行
             </template>
           </FormField>
 
           <FormField>
-            <v-text-field
+            <CsvSelect
               v-model="form.requiredTags"
+              :options="vocabulary.tags"
               label="必需质量标签"
-              placeholder="如 HDR10,Atmos；留空表示不限"
-              density="comfortable"
-              variant="outlined"
+              placeholder="留空表示不限"
             />
             <template #tip>
-              逗号分隔，种子须<strong>全部具备</strong>（AND 语义）才放行。整词匹配，配 HDR 不会命中 HDR10。可用值：HDR10、HDR10+、HDR、Dolby Vision、Atmos、TrueHD、DTS-HD、10bit、60fps、IMAX、H265、H264 等。要表达「任选其一」请改用下面的标题包含词
+              种子须<strong>全部具备</strong>（AND 语义）才放行。整词匹配，选 HDR 不会命中 HDR10。
+              要表达「任选其一」请改用下面的标题包含词
             </template>
           </FormField>
 
           <FormField>
-            <v-text-field
+            <CsvSelect
               v-model="form.excludeTags"
+              :options="vocabulary.tags"
               label="排除质量标签"
-              placeholder="逗号分隔，命中任一即淘汰"
-              density="comfortable"
-              variant="outlined"
+              placeholder="命中任一即淘汰"
             />
           </FormField>
 
@@ -188,41 +189,40 @@
             </template>
           </FormField>
 
-          <div class="section-divider"><span>择优排序（从存活的候选里挑一个）</span></div>
+          <SectionDivider>择优排序（从存活的候选里挑一个）</SectionDivider>
 
-          <FormField>
-            <v-text-field
+          <FormField label="分辨率优先级">
+            <PriorityListField
               v-model="form.resolutionPriority"
-              label="分辨率优先级"
-              placeholder="如 2160p,1080p,720p"
-              density="comfortable"
-              variant="outlined"
+              :options="vocabulary.resolutions"
+              label="分辨率"
+              empty-text="未设置：分辨率不参与排序"
             />
             <template #tip>
-              <strong>只影响排序</strong>，不做过滤——不在此列表内的分辨率只是排在最后，仍可能被下载。要过滤请用上面的白名单
+              <strong>只影响排序</strong>，不做过滤——不在此列表内的分辨率只是排在最后，仍可能被下载。要过滤请用上面的白名单。
+              洗版规则也按这里判断分辨率的高低
             </template>
           </FormField>
 
-          <FormField>
-            <v-text-field
+          <FormField label="媒介来源优先级">
+            <PriorityListField
               v-model="form.sourcePriority"
-              label="媒介来源优先级"
-              placeholder="如 REMUX,BluRay,WEBDL,HDTV"
-              density="comfortable"
-              variant="outlined"
+              :options="vocabulary.sources"
+              label="来源"
+              empty-text="未设置：来源不参与排序，洗版也分不出来源高低"
             />
             <template #tip>
-              <strong>只影响排序</strong>，不做过滤。同分辨率下 Remux 与 HDTV 的观感差距远大于做种数差距，通常应把下方的「媒介来源优先级」维度排在「做种数」之前
+              <strong>只影响排序</strong>，不做过滤。同分辨率下 Remux 与 HDTV 的观感差距远大于做种数差距，
+              通常应把下方的「媒介来源优先级」维度排在「做种数」之前。洗版规则也按这里判断来源的高低
             </template>
           </FormField>
 
-          <FormField>
-            <v-text-field
+          <FormField label="发布组优先级">
+            <PriorityListField
               v-model="form.releaseGroupPriority"
-              label="发布组优先级"
-              placeholder="如 CHDBits,FRDS,CMCT"
-              density="comfortable"
-              variant="outlined"
+              allow-custom
+              label="发布组"
+              empty-text="未设置：发布组不参与排序"
             />
             <template #tip>
               <strong>只影响排序</strong>：不在列表内的发布组只是排最后，仍可能被下载。要彻底排除某个发布组请用「种子黑名单」
@@ -237,84 +237,146 @@
               min="0"
               step="0.01"
               max="999"
+              suffix="GB"
               density="comfortable"
               variant="outlined"
               class="field-num"
+              :rules="toRuleFns(rules.size)"
             />
             <template #tip>
-              GB，0 表示体积不参与择优比较{{ form.sizePerEpisode === '1' ? '；当前按每集判定' : '' }}
+              0 表示体积不参与择优比较{{ form.sizePerEpisode === '1' ? '；当前按每集判定' : '' }}
             </template>
           </FormField>
 
           <FormField label="维度优先顺序">
-            <div class="dimension-list">
-              <div v-for="(dimension, index) in sortOrder" :key="dimension" class="dimension-row">
-                <span class="dimension-index">{{ index + 1 }}</span>
-                <span class="dimension-label">{{ labelOf(dimension) }}</span>
-                <v-btn variant="text" size="small" :disabled="index === 0" @click="moveUp(index)">上移</v-btn>
-                <v-btn variant="text" size="small" :disabled="index === sortOrder.length - 1" @click="moveDown(index)">下移</v-btn>
-              </div>
-            </div>
+            <OrderedList v-model="sortOrder" :label-of="labelOf" />
             <template #tip>
               排在前面的维度先比较。例如把「促销优先」放到「分辨率优先级」之前，就表示宁可要免费的 1080p，也不要收费的 4K
             </template>
           </FormField>
-
-          <div class="form-actions">
-            <v-btn color="primary" :loading="saving" @click="save">保存</v-btn>
-            <v-btn variant="outlined" @click="load">重置</v-btn>
-          </div>
         </v-form>
       </v-card-text>
     </v-card>
+
+    <v-card class="table-card preview-card">
+      <v-card-text>
+        <SectionDivider>规则试算</SectionDivider>
+        <p class="preview-desc">
+          粘贴一条种子标题，看它会被解析成什么、按<strong>当前页面上</strong>的规则（含未保存的修改）会不会被淘汰。黑名单按已保存的算。
+        </p>
+        <v-text-field
+          v-model="previewForm.title"
+          label="种子标题"
+          placeholder="如 Some.Show.S01E01.2160p.WEB-DL.H265.DDP5.1-GRP"
+          density="comfortable"
+          variant="outlined"
+          @keydown.enter.prevent="runPreview"
+        />
+        <v-textarea
+          v-model="previewForm.description"
+          label="种子描述（可选）"
+          rows="2"
+          auto-grow
+          density="comfortable"
+          variant="outlined"
+        />
+        <div class="inline-fields preview-fields">
+          <v-text-field
+            v-model="previewForm.sizeGb"
+            label="体积"
+            type="number"
+            min="0"
+            step="0.01"
+            suffix="GB"
+            density="comfortable"
+            variant="outlined"
+            hide-details
+            class="field-num"
+          />
+          <v-text-field
+            v-model="previewForm.seeders"
+            label="做种数"
+            type="number"
+            min="0"
+            density="comfortable"
+            variant="outlined"
+            hide-details
+            class="field-num"
+          />
+          <v-checkbox-btn v-model="previewForm.free" label="免费" />
+          <v-checkbox-btn v-model="previewForm.hitAndRun" label="H&R 站点" />
+          <v-checkbox-btn v-model="previewForm.foreignMovie" label="按外语电影判定" />
+        </div>
+        <v-btn color="primary" variant="flat" prepend-icon="flask-conical" :loading="previewing" @click="runPreview">
+          试算
+        </v-btn>
+
+        <div v-if="previewResult" class="preview-result">
+          <v-alert
+            :type="previewResult.accepted ? 'success' : 'error'"
+            variant="tonal"
+            density="comfortable"
+          >
+            <template v-if="previewResult.accepted">通过全部硬性过滤</template>
+            <template v-else>
+              <strong>被淘汰：{{ previewResult.rejectLabel }}</strong>
+              <div class="preview-reason">{{ previewResult.rejectReason }}</div>
+            </template>
+          </v-alert>
+          <div class="preview-parsed">
+            <div v-for="row in parsedRows" :key="row.label" class="preview-row">
+              <span class="preview-label">{{ row.label }}</span>
+              <span class="preview-value">{{ row.value }}</span>
+            </div>
+          </div>
+        </div>
+      </v-card-text>
+    </v-card>
+
+    <ConfigSaveBar v-if="!loading" :dirty="isDirty" :saving="saving" @save="save" @discard="discard" />
   </div>
 </template>
 
 <script setup lang="ts">
 import PageHeader from '@/components/PageHeader.vue'
 import FormField from '@/components/FormField.vue'
+import SectionDivider from '@/components/SectionDivider.vue'
+import OrderedList from '@/components/OrderedList.vue'
+import CsvSelect from '@/components/CsvSelect.vue'
+import PriorityListField from '@/components/PriorityListField.vue'
+import ConfigSaveBar from '@/components/ConfigSaveBar.vue'
 import { usePtFilterConfig } from '@/composables/usePtFilterConfig'
+import { toRuleFns } from '@/composables/formRules'
+import { formatSize } from '@/composables/sizeUnits'
 
-const { loading, saving, formRef, form, rules, sortOrder, labelOf, moveUp, moveDown, load, save } =
-  usePtFilterConfig()
+const {
+  loading, saving, formRef, form, rules, sizeRangeError, sortOrder, vocabulary,
+  labelOf, save, discard, isDirty,
+  previewForm, previewing, previewResult, runPreview
+} = usePtFilterConfig()
 
-// 表单规则是 { required, message, trigger } 对象格式（composable 返回），
-// Vuetify 的 v-text-field :rules 需要函数格式，这里就地转换，不改动 composable
-const minSeedersRules = (rules.minSeeders || []).map((rule: any) => {
-  return (value: any) => {
-    if (rule.required && (value === null || value === undefined || value === '')) {
-      return rule.message || '不能为空'
-    }
-    return true
-  }
+/** 解析结果只列有值的项，缺失的整行不写 */
+const parsedRows = computed(() => {
+  const r = previewResult.value
+  if (!r) return []
+  const episode = r.episode == null
+    ? (r.season != null ? `第 ${r.season} 季整季` : '')
+    : `S${r.season ?? '?'}E${r.episode}${r.episodeEnd && r.episodeEnd > r.episode ? `-E${r.episodeEnd}` : ''}`
+  return [
+    { label: '标题', value: r.title },
+    { label: '年份', value: r.year },
+    { label: '季集', value: episode },
+    { label: '覆盖集数', value: r.episodeCount > 1 ? String(r.episodeCount) : '' },
+    { label: '分辨率', value: r.resolution },
+    { label: '来源', value: r.source },
+    { label: '发布组', value: r.releaseGroup },
+    { label: '质量标签', value: r.tags?.join(' / ') },
+    { label: '判定体积', value: r.effectiveSize > 0 ? formatSize(r.effectiveSize) : '' }
+  ].filter((row) => row.value)
 })
 </script>
 
 <style scoped>
-.section-divider {
-  display: flex;
-  align-items: center;
-  margin: 20px 0 16px;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--osr-text-primary);
-
-  span {
-    padding-right: 12px;
-  }
-
-  &::after {
-    content: '';
-    flex: 1;
-    height: 1px;
-    background: var(--osr-border-light);
-  }
-}
-
-.section-divider:first-child {
-  margin-top: 4px;
-}
-
 /* 数字输入框限宽，避免「最低做种数」这类两三位数的框拉满整行 */
 .field-num-lg {
   max-width: 200px;
@@ -324,43 +386,68 @@ const minSeedersRules = (rules.minSeeders || []).map((rule: any) => {
   max-width: 160px;
 }
 
-.form-actions {
+.size-row {
   display: flex;
-  gap: 12px;
+  gap: 16px;
+}
+
+.size-tip {
+  margin: -8px 0 16px;
+  font-size: var(--osr-fs-xs);
+  color: var(--osr-text-secondary);
+}
+
+.preview-card {
   margin-top: 16px;
 }
 
-.dimension-list {
-  width: 100%;
-}
-
-.dimension-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 4px 0;
-}
-
-.dimension-index {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
-  background: var(--osr-bg-page);
-  font-size: 12px;
-}
-
-.dimension-label {
-  min-width: 100px;
-  flex: 1;
-}
-
-.form-tip {
-  font-size: 12px;
+.preview-desc {
+  margin-bottom: 12px;
+  font-size: var(--osr-fs-sm);
   color: var(--osr-text-secondary);
-  line-height: 1.5;
+}
+
+.preview-fields {
+  align-items: center;
+  margin-bottom: 12px;
+
+  /* v-checkbox-btn 默认 flex: 1，会把三个勾选框摊满整行 */
+  :deep(.v-selection-control) {
+    flex: 0 0 auto;
+  }
+}
+
+.preview-result {
+  margin-top: 16px;
+}
+
+.preview-reason {
+  margin-top: 2px;
+  font-size: var(--osr-fs-sm);
+}
+
+.preview-parsed {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 4px 16px;
+  margin-top: 12px;
+}
+
+.preview-row {
+  display: flex;
+  gap: 8px;
+  font-size: var(--osr-fs-sm);
+}
+
+.preview-label {
+  flex-shrink: 0;
+  width: 64px;
+  color: var(--osr-text-secondary);
+}
+
+.preview-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 @media (max-width: 768px) {
@@ -377,15 +464,9 @@ const minSeedersRules = (rules.minSeeders || []).map((rule: any) => {
     max-width: 100%;
   }
 
-  .dimension-row {
-    flex-wrap: wrap;
-    gap: 6px;
-  }
-
-  .dimension-label {
-    min-width: 0;
-    width: auto;
-    flex: 1;
+  .size-row {
+    flex-direction: column;
+    gap: 0;
   }
 }
 </style>
