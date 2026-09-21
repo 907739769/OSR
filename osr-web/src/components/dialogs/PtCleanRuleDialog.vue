@@ -159,7 +159,8 @@
 import { computed, ref, watch } from 'vue'
 import StatusChip from '@/components/StatusChip.vue'
 import FormField from '@/components/FormField.vue'
-import { usePtCleanRule, formatSize } from '@/composables/usePtCleanRule'
+import { usePtCleanRule } from '@/composables/usePtCleanRule'
+import { formatSize } from '@/composables/sizeUnits'
 import type { PtCleanRule } from '@/api/openlist/ptCleanRule'
 
 const props = defineProps<{

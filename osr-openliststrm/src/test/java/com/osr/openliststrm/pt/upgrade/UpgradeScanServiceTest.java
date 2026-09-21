@@ -155,7 +155,7 @@ class UpgradeScanServiceTest {
     void 总开关关闭_不做任何事() {
         when(upgradeConfigService.getConfig()).thenReturn(upgradeConfig("0"));
 
-        assertEquals(0, service.run());
+        assertEquals(0, service.run().pushed());
         verify(searchSupplementService, never()).searchAcrossIndexers(anyString());
     }
 
@@ -168,7 +168,7 @@ class UpgradeScanServiceTest {
         c.setTargetTags(null);
         when(upgradeConfigService.getConfig()).thenReturn(c);
 
-        assertEquals(0, service.run());
+        assertEquals(0, service.run().pushed());
         verify(searchSupplementService, never()).searchAcrossIndexers(anyString());
     }
 
@@ -177,7 +177,7 @@ class UpgradeScanServiceTest {
         // 缺集是刚需，洗版是锦上添花，不能把新剧的更新堵在门外
         when(episodeService.count(any(Wrapper.class))).thenReturn(2L);
 
-        assertEquals(0, service.run());
+        assertEquals(0, service.run().pushed());
         verify(searchSupplementService, never()).searchAcrossIndexers(anyString());
     }
 
@@ -185,7 +185,7 @@ class UpgradeScanServiceTest {
     void 已达目标质量_标记REACHED且不再搜索() {
         givenEpisodes(episode("{\"resolution\":\"2160p\",\"source\":\"REMUX\"}"));
 
-        assertEquals(0, service.run());
+        assertEquals(0, service.run().pushed());
 
         verify(searchSupplementService, never()).searchAcrossIndexers(anyString());
         org.mockito.ArgumentCaptor<PtSubscriptionEpisodePlus> captor =
@@ -199,7 +199,7 @@ class UpgradeScanServiceTest {
         // 不知道库里躺的是什么货色，盲目升级可能把好版本换成差版本
         givenEpisodes(episode(null));
 
-        assertEquals(0, service.run());
+        assertEquals(0, service.run().pushed());
 
         verify(searchSupplementService, never()).searchAcrossIndexers(anyString());
         org.mockito.ArgumentCaptor<PtSubscriptionEpisodePlus> captor =
@@ -215,7 +215,7 @@ class UpgradeScanServiceTest {
                 .thenReturn(List.of(torrent("Some.Show.S01E01.2160p.BluRay-CHDBits")));
         when(subscriptionEngine.pushUpgrade(any(), anyInt(), anyList())).thenReturn(true);
 
-        assertEquals(1, service.run());
+        assertEquals(1, service.run().pushed());
         verify(subscriptionEngine).pushUpgrade(any(), org.mockito.ArgumentMatchers.eq(1), anyList());
     }
 
@@ -225,7 +225,7 @@ class UpgradeScanServiceTest {
         when(searchSupplementService.searchAcrossIndexers(anyString()))
                 .thenReturn(List.of(torrent("Some.Show.S01E01.1080p.BluRay-CHDBits")));
 
-        assertEquals(0, service.run());
+        assertEquals(0, service.run().pushed());
         verify(subscriptionEngine, never()).pushUpgrade(any(), anyInt(), anyList());
     }
 
@@ -237,7 +237,7 @@ class UpgradeScanServiceTest {
                 torrent("Some.Show.S01.2160p.BluRay-CHDBits"),
                 torrent("Some.Show.S01E01-E06.2160p.BluRay-CHDBits")));
 
-        assertEquals(0, service.run());
+        assertEquals(0, service.run().pushed());
         verify(subscriptionEngine, never()).pushUpgrade(any(), anyInt(), anyList());
     }
 
@@ -247,7 +247,7 @@ class UpgradeScanServiceTest {
         when(searchSupplementService.searchAcrossIndexers(anyString()))
                 .thenReturn(List.of(torrent("Some.Show.S02E01.2160p.BluRay-CHDBits")));
 
-        assertEquals(0, service.run());
+        assertEquals(0, service.run().pushed());
         verify(subscriptionEngine, never()).pushUpgrade(any(), anyInt(), anyList());
     }
 
@@ -260,7 +260,7 @@ class UpgradeScanServiceTest {
         when(episodeService.count(any(Wrapper.class))).thenReturn(0L);
         when(subscriptionService.getById(10)).thenReturn(paused);
 
-        assertEquals(0, service.run());
+        assertEquals(0, service.run().pushed());
         verify(searchSupplementService, never()).searchAcrossIndexers(anyString());
     }
 
@@ -277,7 +277,7 @@ class UpgradeScanServiceTest {
                 .thenReturn(List.of(torrent("Some.Show.S01E01.2160p.BluRay-CHDBits")));
         when(subscriptionEngine.pushUpgrade(any(), anyInt(), anyList())).thenReturn(true);
 
-        assertEquals(1, service.run());
+        assertEquals(1, service.run().pushed());
     }
 
     @Test
@@ -289,7 +289,7 @@ class UpgradeScanServiceTest {
         when(episodeService.count(any(Wrapper.class))).thenReturn(0L);
         when(subscriptionService.getById(10)).thenReturn(off);
 
-        assertEquals(0, service.run());
+        assertEquals(0, service.run().pushed());
         verify(searchSupplementService, never()).searchAcrossIndexers(anyString());
     }
 
@@ -307,7 +307,7 @@ class UpgradeScanServiceTest {
                 .thenReturn(List.of(torrent("Some.Show.S01E01.2160p.BluRay-CHDBits")));
         when(subscriptionEngine.pushUpgrade(any(), anyInt(), anyList())).thenReturn(true);
 
-        assertEquals(1, service.run());
+        assertEquals(1, service.run().pushed());
         verify(subscriptionEngine).pushUpgrade(any(), anyInt(), anyList());
     }
 
@@ -325,6 +325,82 @@ class UpgradeScanServiceTest {
                 .thenReturn(List.of(torrent("Some.Show.S01E02.2160p.BluRay-CHDBits")));
         when(subscriptionEngine.pushUpgrade(any(), anyInt(), anyList())).thenReturn(true);
 
-        assertEquals(1, service.run());
+        assertEquals(1, service.run().pushed());
+    }
+
+    @Test
+    void 搜索名额用尽_其余到期的集留待下一轮() {
+        // 找不到更好版本的集不占推送名额；没有搜索上限的话每轮会把全部待洗版的集都搜一遍
+        PtUpgradeConfigPlus c = upgradeConfig("1");
+        c.setMaxSearchesPerRound(1);
+        when(upgradeConfigService.getConfig()).thenReturn(c);
+        PtSubscriptionEpisodePlus e1 = episode("{\"resolution\":\"1080p\",\"source\":\"WEBDL\"}");
+        PtSubscriptionEpisodePlus e2 = episode("{\"resolution\":\"1080p\",\"source\":\"WEBDL\"}");
+        e2.setId(502);
+        e2.setEpisode(2);
+        givenEpisodes(e1, e2);
+        when(searchSupplementService.searchAcrossIndexers(anyString())).thenReturn(List.of());
+
+        UpgradeScanService.ScanOutcome outcome = service.run();
+
+        assertEquals(1, outcome.searched());
+        assertEquals(true, outcome.exhausted());
+        verify(searchSupplementService, org.mockito.Mockito.times(1)).searchAcrossIndexers(anyString());
+    }
+
+    @Test
+    void 退避期内的集不搜索() {
+        PtSubscriptionEpisodePlus ep = episode("{\"resolution\":\"1080p\",\"source\":\"WEBDL\"}");
+        ep.setUpgradeSearchedAt(new java.util.Date(System.currentTimeMillis() - 3600_000L * 7));
+        ep.setUpgradeMissCount(2);
+        givenEpisodes(ep);
+
+        UpgradeScanService.ScanOutcome outcome = service.run();
+
+        assertEquals(1, outcome.backedOff());
+        verify(searchSupplementService, never()).searchAcrossIndexers(anyString());
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void 落空时累加计数_推送成功时清零() {
+        PtSubscriptionEpisodePlus ep = episode("{\"resolution\":\"1080p\",\"source\":\"WEBDL\"}");
+        ep.setUpgradeMissCount(2);
+        givenEpisodes(ep);
+        when(searchSupplementService.searchAcrossIndexers(anyString())).thenReturn(List.of());
+
+        service.run();
+
+        org.mockito.ArgumentCaptor<Wrapper<PtSubscriptionEpisodePlus>> captor =
+                org.mockito.ArgumentCaptor.forClass(Wrapper.class);
+        verify(episodeService).update(captor.capture());
+        assertEquals(true, ((com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<?>) captor.getValue())
+                .getParamNameValuePairs().containsValue(3));
+
+        org.mockito.Mockito.clearInvocations(episodeService);
+        when(searchSupplementService.searchAcrossIndexers(anyString()))
+                .thenReturn(List.of(torrent("Some.Show.S01E01.2160p.BluRay-CHDBits")));
+        when(subscriptionEngine.pushUpgrade(any(), anyInt(), anyList())).thenReturn(true);
+
+        service.run();
+
+        verify(episodeService).update(captor.capture());
+        assertEquals(true, ((com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper<?>) captor.getValue())
+                .getParamNameValuePairs().containsValue(0));
+    }
+
+    @Test
+    void 库里的REMUX不会被另一个REMUX升级() {
+        // 存量基线是 source=BluRay + 标签 REMUX；不还原成 REMUX 的话，来源优先级 REMUX,BluRay
+        // 会把库里这份判成压制版，被一个同样是 REMUX 的种子"升级"掉
+        PtUpgradeConfigPlus c = upgradeConfig("1");
+        c.setTargetSources("REMUX");
+        c.setTargetResolution("2160p");
+        when(upgradeConfigService.getConfig()).thenReturn(c);
+        givenEpisodes(episode("{\"resolution\":\"2160p\",\"source\":\"BluRay\",\"tags\":[\"REMUX\"]}"));
+
+        service.run();
+
+        verify(searchSupplementService, never()).searchAcrossIndexers(anyString());
     }
 }

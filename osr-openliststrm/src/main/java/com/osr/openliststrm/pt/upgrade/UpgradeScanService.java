@@ -26,7 +26,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Date;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 洗版扫描：找出已入库但质量未达目标的集，搜索更好的版本并推送。
@@ -77,15 +80,19 @@ public class UpgradeScanService {
 
     /**
      * 跑一轮洗版扫描。顶层不抛异常：单集失败不影响其它集，整轮失败不影响调度器。
-     *
-     * @return 本轮成功推送的洗版下载数
+     * <p>
+     * 两道预算：{@code maxConcurrent} 限推送数（在途洗版不能挤占补缺集的下载名额），
+     * {@code maxSearchesPerRound} 限搜索次数（找不到更好版本的集不占推送名额，只靠前者的话
+     * 每轮会把全部待洗版的集都搜一遍）。待评估的集按上次搜索时间升序轮转、连续落空的按
+     * {@link UpgradeBackoff} 退避，搜索名额因此总是花在最久没搜过的那批上。
+     * </p>
      */
-    public int run() {
+    public ScanOutcome run() {
         UpgradeCriteria criteria = UpgradeCriteriaFactory.build(
                 upgradeConfigService.getConfig(), filterConfigService.getConfig());
         if (!criteria.active()) {
             log.debug("洗版未启用或未配置目标质量，跳过本轮扫描");
-            return 0;
+            return ScanOutcome.INACTIVE;
         }
 
         // 全局在途洗版闸门：缺集是刚需，洗版是锦上添花。没有这道闸，一次大规模洗版会把
@@ -94,61 +101,96 @@ public class UpgradeScanService {
         int budget = criteria.maxConcurrent() - inFlight;
         if (budget <= 0) {
             log.debug("在途洗版 {} 个已达上限 {}，跳过本轮扫描", inFlight, criteria.maxConcurrent());
-            return 0;
+            return new ScanOutcome(true, 0, 0, 0, 0, true);
         }
 
         List<PtSubscriptionEpisodePlus> candidates = listUpgradableEpisodes();
         if (candidates.isEmpty()) {
-            return 0;
+            return new ScanOutcome(true, 0, 0, 0, 0, false);
         }
-        log.info("洗版扫描：{} 个已入库集待评估，本轮可用名额 {}", candidates.size(), budget);
+        log.info("洗版扫描：{} 个已入库集待评估，本轮推送名额 {}、搜索名额 {}",
+                candidates.size(), budget, criteria.maxSearchesPerRound());
 
+        long now = System.currentTimeMillis();
+        Map<Integer, PtSubscriptionPlus> subs = new HashMap<>();
         int pushed = 0;
+        int searched = 0;
+        int backedOff = 0;
+        boolean exhausted = false;
         for (PtSubscriptionEpisodePlus episode : candidates) {
             if (pushed >= budget) {
-                log.info("本轮洗版名额已用尽（{}），其余集留待下一轮", budget);
+                log.info("本轮洗版推送名额已用尽（{}），其余集留待下一轮", budget);
+                exhausted = true;
                 break;
             }
             try {
-                if (tryUpgrade(episode, criteria)) {
+                QualityProfile current = QualityProfile.fromJson(episode.getQuality());
+                if (current == null) {
+                    markUpgradeState(episode, UpgradeState.NO_BASELINE);
+                    continue;
+                }
+                if (evaluator.reachedTarget(current, criteria)) {
+                    markUpgradeState(episode, UpgradeState.REACHED);
+                    // 这里还没加载订阅，而「已达目标」是最常见的分支，
+                    // 为一条 DEBUG 多打一次库不划算——格式统一成 订阅[#id]，显式表示此处没有剧名
+                    log.debug("{} 第 {} 集已达目标质量（{}），不再参与洗版",
+                            PtLogText.subject(episode.getSubId()), episode.getEpisode(), current.describe());
+                    continue;
+                }
+                if (!UpgradeBackoff.isDue(episode.getUpgradeSearchedAt(), episode.getUpgradeMissCount(),
+                        criteria.scanIntervalHours(), now)) {
+                    backedOff++;
+                    continue;
+                }
+                if (searched >= criteria.maxSearchesPerRound()) {
+                    // 搜索名额用完后仍把剩下的集判一遍达标/无基线：那两步不发请求，
+                    // 改了目标质量之后能一轮就把分类刷完，而不是按搜索名额一批批地爬
+                    exhausted = true;
+                    continue;
+                }
+                PtSubscriptionPlus sub = subs.computeIfAbsent(episode.getSubId(), subscriptionService::getById);
+                if (sub == null || !upgradable(sub)) {
+                    continue;
+                }
+                searched++;
+                boolean ok = tryUpgrade(sub, episode, current, criteria);
+                recordSearch(episode, ok);
+                if (ok) {
                     pushed++;
                 }
             } catch (Exception e) {
                 log.warn("{} 第 {} 集洗版失败：{}",
-                        PtLogText.subject(episode.getSubId()), episode.getEpisode(), e.getMessage());
+                        PtLogText.subject(episode.getSubId()), episode.getEpisode(), e.getMessage(), e);
             }
         }
-        return pushed;
+        if (exhausted && searched >= criteria.maxSearchesPerRound()) {
+            log.info("本轮洗版搜索名额已用尽（{}），其余到期的集留待下一轮", criteria.maxSearchesPerRound());
+        }
+        return new ScanOutcome(true, candidates.size(), searched, pushed, backedOff, exhausted);
     }
 
     /**
-     * 评估并尝试升级一集。
-     * <p>
-     * 三道关卡依次是：有没有基线 → 是不是已经够好了 → 搜到的候选里有没有严格更优的。
-     * 前两关的结论会写回 {@code upgrade_state}，让下一轮扫描能直接跳过，
-     * 不必每轮都对全部已入库集重新判一遍。
-     * </p>
+     * 一轮扫描的结果，供调度日志、心跳与洗版规则页的「上次扫描」展示。
+     *
+     * @param active     洗版是否处于激活状态（总开关 + 目标质量 + 维度）；false 时其余字段均为 0
+     * @param evaluated  本轮待评估的集数
+     * @param searched   实际发起的搜索次数
+     * @param pushed     成功推送的洗版下载数
+     * @param backedOff  处于退避期、本轮跳过的集数
+     * @param exhausted  是否因推送或搜索名额用尽而提前收手
      */
-    private boolean tryUpgrade(PtSubscriptionEpisodePlus episode, UpgradeCriteria criteria) {
-        QualityProfile current = QualityProfile.fromJson(episode.getQuality());
-        if (current == null) {
-            markUpgradeState(episode, UpgradeState.NO_BASELINE);
-            return false;
-        }
-        if (evaluator.reachedTarget(current, criteria)) {
-            markUpgradeState(episode, UpgradeState.REACHED);
-            // 这里还没加载订阅（下面几行才查），而「已达目标」是最常见的分支，
-            // 为一条 DEBUG 多打一次库不划算——格式统一成 订阅[#id]，显式表示此处没有剧名
-            log.debug("{} 第 {} 集已达目标质量（{}），不再参与洗版",
-                    PtLogText.subject(episode.getSubId()), episode.getEpisode(), current.describe());
-            return false;
-        }
+    public record ScanOutcome(boolean active, int evaluated, int searched, int pushed, int backedOff,
+                              boolean exhausted) {
+        public static final ScanOutcome INACTIVE = new ScanOutcome(false, 0, 0, 0, 0, false);
+    }
 
-        PtSubscriptionPlus sub = subscriptionService.getById(episode.getSubId());
-        if (sub == null || !upgradable(sub)) {
-            return false;
-        }
-
+    /**
+     * 为一集搜索并推送更好的版本。调用方已确认：有基线、未达标、订阅参与洗版、退避已到期。
+     *
+     * @return 是否推送成功
+     */
+    private boolean tryUpgrade(PtSubscriptionPlus sub, PtSubscriptionEpisodePlus episode,
+                               QualityProfile current, UpgradeCriteria criteria) {
         List<TorrentInfo> better = findBetterCandidates(sub, episode, current, criteria);
         if (better.isEmpty()) {
             return false;
@@ -284,9 +326,30 @@ public class UpgradeScanService {
      * </p>
      */
     private List<PtSubscriptionEpisodePlus> listUpgradableEpisodes() {
+        // 订阅级开关与暂停状态在 SQL 里先筛掉：否则这些集每轮都会被捞出来、逐条回查订阅再丢弃。
+        // 按上次搜索时间升序（MySQL 升序时 NULL 在前，从没搜过的最先轮到），同时间按 id 保证稳定
         return episodeService.list(new QueryWrapper<PtSubscriptionEpisodePlus>()
                 .eq("state", STATE_IN_LIBRARY)
-                .and(w -> w.isNull("upgrade_state").or().eq("upgrade_state", UpgradeState.PENDING.value())));
+                .and(w -> w.isNull("upgrade_state").or().eq("upgrade_state", UpgradeState.PENDING.value()))
+                .inSql("sub_id", UPGRADABLE_SUB_IDS_SQL)
+                .orderByAsc("upgrade_searched_at", "id"));
+    }
+
+    /** 参与洗版的订阅：订阅级开关没关、也没暂停。与 {@link #upgradable} 同一口径 */
+    static final String UPGRADABLE_SUB_IDS_SQL = "SELECT id FROM pt_subscription WHERE "
+            + "(upgrade_enabled IS NULL OR upgrade_enabled <> '0') AND status <> '"
+            + SubscriptionService.STATUS_PAUSED + "'";
+
+    /**
+     * 记下这次搜索：推送成功清零落空计数，否则加一，退避据此拉长。
+     * 只动这两列，不带 state 条件——推送成功时这一集已被 pushUpgrade 改成 UPGRADING。
+     */
+    private void recordSearch(PtSubscriptionEpisodePlus episode, boolean pushed) {
+        int misses = episode.getUpgradeMissCount() == null ? 0 : episode.getUpgradeMissCount();
+        episodeService.update(new UpdateWrapper<PtSubscriptionEpisodePlus>()
+                .set("upgrade_searched_at", new Date())
+                .set("upgrade_miss_count", pushed ? 0 : misses + 1)
+                .eq("id", episode.getId()));
     }
 
     private void markUpgradeState(PtSubscriptionEpisodePlus episode, UpgradeState state) {

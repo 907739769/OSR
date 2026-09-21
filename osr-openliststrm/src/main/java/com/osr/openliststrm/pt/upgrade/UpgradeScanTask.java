@@ -1,5 +1,6 @@
 package com.osr.openliststrm.pt.upgrade;
 
+import com.osr.common.utils.FaultThrottle;
 import com.osr.common.utils.RoundHeartbeat;
 import com.osr.common.utils.Threads;
 import com.osr.common.utils.ThreadTraceIdUtil;
@@ -16,6 +17,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Date;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -65,30 +67,85 @@ public class UpgradeScanTask {
     /** 无变化时最多半小时报一次平安：不打的话「一切正常」和「调度器死了」在日志上一模一样 */
     private final RoundHeartbeat heartbeat = new RoundHeartbeat();
 
+    /** 持续性故障（数据库、索引器全挂）只报开始与恢复，不按心跳每小时刷一条 */
+    private final FaultThrottle faults = new FaultThrottle();
+    private static final String FAULT_KEY = "upgrade-scan";
+
+    /** 最近一次真正跑过的扫描，供洗版规则页展示；null 表示本次启动后还没跑过 */
+    private volatile LastScan lastScan;
+
+    /**
+     * 最近一次扫描的快照。
+     *
+     * @param finishedAt 结束时间
+     * @param manual     是否由页面上的「立即扫描」触发
+     * @param outcome    扫描结果；出错时为 null
+     * @param error      出错时的异常信息；成功时为 null
+     */
+    public record LastScan(Date finishedAt, boolean manual, UpgradeScanService.ScanOutcome outcome, String error) {
+    }
+
+    public LastScan lastScan() {
+        return lastScan;
+    }
+
+    public boolean isRunning() {
+        return running.get();
+    }
+
+    /**
+     * 立即跑一轮（不看是否到期），在后台线程执行、立即返回。
+     *
+     * @return false 表示已有一轮在跑，本次没有发起
+     */
+    public boolean triggerNow() {
+        if (running.get()) {
+            return false;
+        }
+        scheduler.schedule(Threads.wrap(() -> runGuarded(true)), Instant.now());
+        return true;
+    }
+
     private void poll() {
+        runGuarded(false);
+    }
+
+    private void runGuarded(boolean manual) {
         if (!running.compareAndSet(false, true)) {
             log.debug("UpgradeScanTask 上一轮尚未结束，跳过本次触发");
             return;
         }
         try {
-            if (!isDue()) {
+            if (!manual && !isDue()) {
                 // 未到期不算一轮：它不代表扫描跑过，拿它喂心跳会让「洗版其实一直没扫」
                 // 看起来一切正常
                 return;
             }
             lastRunMillis = System.currentTimeMillis();
-            int pushed = upgradeScanService.run();
-            if (pushed > 0) {
+            UpgradeScanService.ScanOutcome outcome = upgradeScanService.run();
+            lastScan = new LastScan(new Date(), manual, outcome, null);
+            if (faults.onSuccess(FAULT_KEY)) {
+                log.info("洗版扫描已恢复正常");
+            }
+            if (outcome.pushed() > 0) {
                 heartbeat.active();
-                log.info("洗版扫描完成：推送了 {} 个升级下载", pushed);
+                log.info("洗版扫描完成{}：搜索 {} 次，推送了 {} 个升级下载",
+                        manual ? "（手动触发）" : "", outcome.searched(), outcome.pushed());
             } else {
                 RoundHeartbeat.Beat beat = heartbeat.quiet();
-                if (beat.shouldReport()) {
-                    log.info("洗版扫描完成：无可升级的集（最近 {} 轮均无）", beat.quietRounds());
+                if (manual || beat.shouldReport()) {
+                    log.info("洗版扫描完成{}：{}，无可升级的集（最近 {} 轮均无）", manual ? "（手动触发）" : "",
+                            outcome.active() ? "搜索 " + outcome.searched() + " 次、退避中 " + outcome.backedOff() + " 集"
+                                    : "洗版未激活",
+                            beat.quietRounds());
                 }
             }
         } catch (Exception e) {
-            log.error("UpgradeScanTask poll error", e);
+            lastScan = new LastScan(new Date(), manual, null, e.getMessage());
+            FaultThrottle.Decision decision = faults.onFailure(FAULT_KEY);
+            if (decision.shouldReport()) {
+                log.error("洗版扫描失败（连续 {} 次）：{}", decision.consecutiveFailures(), e.getMessage(), e);
+            }
         } finally {
             running.set(false);
         }
@@ -102,8 +159,20 @@ public class UpgradeScanTask {
         if (lastRunMillis == 0L) {
             return true;
         }
+        return System.currentTimeMillis() - lastRunMillis >= intervalHours() * 3600_000L;
+    }
+
+    /**
+     * 预计下一轮的最早时间：上一轮开始 + 周期。实际由整点心跳触发，最多再晚一小时。
+     * 本次启动后还没跑过时为 null（首轮在启动 5 分钟后）。
+     */
+    public Date nextScanAt() {
+        long last = lastRunMillis;
+        return last == 0L ? null : new Date(last + intervalHours() * 3600_000L);
+    }
+
+    private int intervalHours() {
         Integer hours = upgradeConfigService.getConfig().getScanIntervalHours();
-        int interval = (hours == null || hours <= 0) ? 6 : hours;
-        return System.currentTimeMillis() - lastRunMillis >= interval * 3600_000L;
+        return (hours == null || hours <= 0) ? 6 : hours;
     }
 }

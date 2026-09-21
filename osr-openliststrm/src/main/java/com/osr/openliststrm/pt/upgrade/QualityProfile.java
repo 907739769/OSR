@@ -2,6 +2,7 @@ package com.osr.openliststrm.pt.upgrade;
 
 import com.alibaba.fastjson2.JSONObject;
 import com.osr.common.utils.StringUtils;
+import com.osr.openliststrm.pt.filter.MediaSource;
 import com.osr.openliststrm.pt.model.TorrentInfo;
 import com.osr.openliststrm.rename.model.MediaInfo;
 import lombok.extern.slf4j.Slf4j;
@@ -43,9 +44,11 @@ public record QualityProfile(String resolution, String source, String releaseGro
 
     public QualityProfile {
         resolution = StringUtils.trimToNull(resolution);
-        source = StringUtils.trimToNull(source);
         releaseGroup = StringUtils.trimToNull(releaseGroup);
         tags = tags == null ? List.of() : List.copyOf(tags);
+        // 与候选侧（SubscriptionEngine#fillParsed）同一口径；存量基线里 source=BluRay + 标签 REMUX
+        // 的也在这里被还原成 REMUX，否则库里的 REMUX 会被当成压制版、被另一个 REMUX "升级"掉
+        source = MediaSource.effective(StringUtils.trimToNull(source), tags);
     }
 
     /** 从候选种子的本地解析结果构造。调用方须先跑过 {@code SubscriptionEngine#fillParsed} */

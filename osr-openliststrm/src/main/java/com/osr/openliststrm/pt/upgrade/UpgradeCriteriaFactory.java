@@ -17,6 +17,8 @@ import lombok.extern.slf4j.Slf4j;
 @Slf4j
 public final class UpgradeCriteriaFactory {
 
+    static final int DEFAULT_SEARCHES_PER_ROUND = 20;
+
     private UpgradeCriteriaFactory() {
     }
 
@@ -45,6 +47,9 @@ public final class UpgradeCriteriaFactory {
                 .targetSources(FilterCriteria.splitCsv(upgrade.getTargetSources()))
                 .targetTags(FilterCriteria.splitCsv(upgrade.getTargetTags()))
                 .maxConcurrent(upgrade.getMaxConcurrent() == null ? 0 : upgrade.getMaxConcurrent())
+                // 旧数据没有这一列时取默认 20，而不是 0：0 会让洗版静默停摆
+                .maxSearchesPerRound(upgrade.getMaxSearchesPerRound() == null || upgrade.getMaxSearchesPerRound() <= 0
+                        ? DEFAULT_SEARCHES_PER_ROUND : upgrade.getMaxSearchesPerRound())
                 .scanIntervalHours(upgrade.getScanIntervalHours() == null ? 6 : upgrade.getScanIntervalHours())
                 .build();
     }

@@ -38,3 +38,11 @@ export const gbToBytes = (gb?: number | null): number => {
   if (!Number.isFinite(value) || value <= 0) return 0
   return Math.round(value * GB)
 }
+
+/** 字节数转人类可读（删种规则弹窗、过滤规则试算共用） */
+export function formatSize(bytes: number): string {
+  if (!bytes || bytes < 0) return '0 B'
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+  return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`
+}

@@ -49,3 +49,51 @@ export function updatePtFilterConfigApi(data: PtFilterConfig) {
 export function getSortDimensionsApi() {
   return request.get<any, string[]>('/openliststrm/pt-filter-config/sort-dimensions')
 }
+
+/** 分辨率 / 来源 / 质量标签的可选值（后端按全等比对，前端只许从这里选） */
+export interface FilterVocabulary {
+  resolutions: string[]
+  sources: string[]
+  tags: string[]
+}
+
+export function getFilterVocabularyApi() {
+  return request.get<any, FilterVocabulary>('/openliststrm/pt-filter-config/vocabulary')
+}
+
+/** 规则试算的输入：一条种子 + 待试算的（可能未保存的）规则 */
+export interface FilterPreviewRequest {
+  title: string
+  description?: string
+  /** 字节 */
+  size?: number
+  seeders?: number
+  free?: boolean
+  hitAndRun?: boolean
+  /** 按外语电影判定（影响「外语电影需中字」） */
+  foreignMovie?: boolean
+  config?: PtFilterConfig
+}
+
+export interface FilterPreviewResult {
+  title?: string
+  year?: string
+  season?: number
+  episode?: number
+  episodeEnd?: number
+  episodeCount: number
+  resolution?: string
+  source?: string
+  releaseGroup?: string
+  tags: string[]
+  /** 参与体积判定的体积（字节），按每集判定时已折算 */
+  effectiveSize: number
+  accepted: boolean
+  rejectCode?: string
+  rejectLabel?: string
+  rejectReason?: string
+}
+
+export function previewPtFilterApi(data: FilterPreviewRequest) {
+  return request.post<any, FilterPreviewResult>('/openliststrm/pt-filter-config/preview', data)
+}

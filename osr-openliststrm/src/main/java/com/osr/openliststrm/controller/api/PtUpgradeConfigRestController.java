@@ -4,9 +4,11 @@ import com.osr.common.core.controller.BaseController;
 import com.osr.common.core.domain.Result;
 import com.osr.openliststrm.mybatisplus.domain.PtUpgradeConfigPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtUpgradeConfigPlusService;
+import com.osr.openliststrm.pt.upgrade.UpgradeConfigAdminService;
 import com.osr.openliststrm.pt.upgrade.UpgradeDimension;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -32,6 +34,9 @@ public class PtUpgradeConfigRestController extends BaseController {
     @Autowired
     private IPtUpgradeConfigPlusService upgradeConfigService;
 
+    @Autowired
+    private UpgradeConfigAdminService adminService;
+
     /** 读取洗版规则。种子数据被误删时服务层返回内置默认值（总开关关闭），不会为 null */
     @GetMapping
     public Result<PtUpgradeConfigPlus> get() {
@@ -44,11 +49,40 @@ public class PtUpgradeConfigRestController extends BaseController {
         return Result.success(Arrays.stream(UpgradeDimension.values()).map(Enum::name).toList());
     }
 
-    /** 保存洗版规则。强制写 id=1，避免前端漏传主键导致插出第二行 */
+    /** 洗版状态概览：各状态集数、上次/下次扫描、沿用的过滤优先级、一致性问题 */
+    @GetMapping("/overview")
+    public Result<UpgradeConfigAdminService.Overview> overview() {
+        return Result.success(adminService.overview());
+    }
+
+    /** 对一份尚未保存的洗版规则做一致性诊断（对照已保存的过滤规则），供页面边改边提示 */
+    @PostMapping("/check")
+    public Result<List<String>> check(@RequestBody PtUpgradeConfigPlus draft) {
+        return Result.success(adminService.check(draft));
+    }
+
+    /** 立即扫描一轮，后台执行、立即返回，仅管理员 */
+    @PostMapping("/scan")
+    public Result<Void> scan() {
+        Result<Void> denied = denyIfNotAdmin();
+        if (denied != null) {
+            return denied;
+        }
+        String refused = adminService.triggerScan();
+        return refused == null ? Result.success() : Result.error(refused);
+    }
+
+    /**
+     * 保存洗版规则，仅管理员。强制写 id=1，避免前端漏传主键导致插出第二行。
+     * 校验不通过时把原因原样返回，见 {@link UpgradeConfigAdminService#save}。
+     */
     @PutMapping
     public Result<Void> save(@RequestBody PtUpgradeConfigPlus config) {
-        config.setId(PtUpgradeConfigPlus.SINGLETON_ID);
-        boolean ok = upgradeConfigService.saveOrUpdate(config);
-        return ok ? Result.success() : Result.error("保存失败");
+        Result<Void> denied = denyIfNotAdmin();
+        if (denied != null) {
+            return denied;
+        }
+        List<String> errors = adminService.save(config);
+        return errors.isEmpty() ? Result.success() : Result.error(String.join("；", errors));
     }
 }

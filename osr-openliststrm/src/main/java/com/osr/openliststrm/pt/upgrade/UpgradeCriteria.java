@@ -24,6 +24,7 @@ import java.util.List;
  * @param targetSources      目标媒介来源(cutoff)，命中其一即满足；空表示不约束
  * @param targetTags         目标质量标签(cutoff)，须全部具备；空表示不约束
  * @param maxConcurrent      洗版同时在途的下载数上限
+ * @param maxSearchesPerRound 每轮最多发起的洗版搜索次数
  * @param scanIntervalHours  扫描周期(小时)
  * @author Jack
  */
@@ -38,6 +39,7 @@ public record UpgradeCriteria(
         List<String> targetSources,
         List<String> targetTags,
         int maxConcurrent,
+        int maxSearchesPerRound,
         int scanIntervalHours) {
 
     public UpgradeCriteria {

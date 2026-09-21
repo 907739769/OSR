@@ -1,6 +1,7 @@
 package com.osr.openliststrm.pt.upgrade;
 
 import com.osr.common.utils.StringUtils;
+import com.osr.openliststrm.pt.filter.MediaSource;
 import com.osr.openliststrm.pt.filter.PriorityRanker;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
@@ -40,7 +41,7 @@ public class UpgradeEvaluator {
                 return false;
             }
         }
-        if (!criteria.targetSources().isEmpty() && !containsIgnoreCase(criteria.targetSources(), profile.source())) {
+        if (!criteria.targetSources().isEmpty() && !MediaSource.in(criteria.targetSources(), profile.source())) {
             return false;
         }
         for (String tag : criteria.targetTags()) {
@@ -127,17 +128,5 @@ public class UpgradeEvaluator {
 
     private String displayTags(QualityProfile profile) {
         return profile.tags().isEmpty() ? "无" : String.join("+", profile.tags());
-    }
-
-    private boolean containsIgnoreCase(List<String> candidates, String value) {
-        if (StringUtils.isBlank(value)) {
-            return false;
-        }
-        for (String candidate : candidates) {
-            if (candidate != null && candidate.equalsIgnoreCase(value.trim())) {
-                return true;
-            }
-        }
-        return false;
     }
 }

@@ -240,7 +240,7 @@ public class TorrentFilterEngine {
         List<String> sourceWhitelist = criteria.sourceWhitelist();
         if (!sourceWhitelist.isEmpty()) {
             String source = torrent.getParsedSource();
-            if (StringUtils.isBlank(source) || !containsIgnoreCase(sourceWhitelist, source.trim())) {
+            if (StringUtils.isBlank(source) || !MediaSource.in(sourceWhitelist, source)) {
                 String actual = StringUtils.isBlank(source) ? "(未知)" : source;
                 return new Rejection(RejectCode.SOURCE_NOT_ALLOWED,
                         "媒介来源 " + actual + " 不在白名单 " + sourceWhitelist + " 内");
