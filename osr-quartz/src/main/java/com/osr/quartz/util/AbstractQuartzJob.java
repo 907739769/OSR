@@ -53,7 +53,8 @@ public abstract class AbstractQuartzJob implements Job
         }
         catch (Exception e)
         {
-            log.error("任务执行异常  - ：", e);
+            log.error("定时任务执行异常：jobId={}, jobName={}, 调用目标={}, 原因={}",
+                    sysJob.getJobId(), sysJob.getJobName(), sysJob.getInvokeTarget(), e.getMessage(), e);
             after(context, sysJob, e);
         }
     }
@@ -75,6 +76,8 @@ public abstract class AbstractQuartzJob implements Job
     protected void before(JobExecutionContext context, SysJob sysJob)
     {
         threadLocal.set(new Date());
+        // 登记到执行中列表：页面上的「执行」按钮据此置灰，避免定时触发正跑着又被手动触发一次
+        SpringUtils.getBean(JobRunningRegistry.class).markRunning(sysJob.getJobId());
     }
 
     /**
@@ -87,6 +90,7 @@ public abstract class AbstractQuartzJob implements Job
     {
         Date startTime = threadLocal.get();
         threadLocal.remove();
+        SpringUtils.getBean(JobRunningRegistry.class).markFinished(sysJob.getJobId());
 
         final SysJobLog sysJobLog = new SysJobLog();
         sysJobLog.setJobName(sysJob.getJobName());

@@ -59,13 +59,10 @@
             <StatusChip :type="item.status === '0' ? 'success' : 'error'" :text="item.status === '0' ? '成功' : '失败'" />
           </template>
           <template #item.duration="{ item }">
-            <span v-if="item.startTime && item.endTime">
-              {{ formatDuration(item.startTime, item.endTime) }}
-            </span>
-            <span v-else>-</span>
+            {{ formatDuration(item.startTime, item.endTime) }}
           </template>
           <template #item.startTime="{ item }">
-            {{ formatTime(item.startTime) }}
+            {{ formatDateTime(startOf(item)) }}
           </template>
           <template #item.actions="{ item }">
             <v-btn variant="text" color="primary" size="small" prepend-icon="eye" @click="handleViewLogDetail(item)">
@@ -103,7 +100,7 @@
               </div>
               <div class="mobile-card-row">
                 <span class="mobile-card-label">开始时间</span>
-                <span class="mobile-card-value mobile-card-value-light">{{ formatTime(item.startTime) }}</span>
+                <span class="mobile-card-value mobile-card-value-light">{{ formatDateTime(startOf(item)) }}</span>
               </div>
               <div class="mobile-card-row" v-if="item.startTime && item.endTime">
                 <span class="mobile-card-label">耗时</span>
@@ -176,11 +173,11 @@
             </tr>
             <tr>
               <td class="detail-label">开始时间</td>
-              <td class="detail-value" colspan="3">{{ formatTime(logDetail.startTime) }}</td>
+              <td class="detail-value" colspan="3">{{ formatDateTime(startOf(logDetail)) }}</td>
             </tr>
             <tr>
               <td class="detail-label">结束时间</td>
-              <td class="detail-value" colspan="3">{{ formatTime(logDetail.endTime) }}</td>
+              <td class="detail-value" colspan="3">{{ formatDateTime(logDetail.endTime) }}</td>
             </tr>
             <tr v-if="logDetail.startTime && logDetail.endTime">
               <td class="detail-label">耗时</td>
@@ -204,6 +201,7 @@ import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import { useAppStore } from '@/stores/app'
 import StatusChip from '@/components/StatusChip.vue'
 import type { SearchParams, PageResult } from '@/types'
+import { formatDateTime, formatDuration } from '@/composables/dateTime'
 
 /**
  * 定时任务的执行日志弹窗（连同「日志详情」二级弹窗）。
@@ -260,26 +258,12 @@ const handleViewLogDetail = async (row: any) => {
   }
 }
 
-const formatTime = (time: string | null): string => {
-  if (!time) return '-'
-  const date = new Date(time)
-  if (isNaN(date.getTime())) return time
-  const pad = (n: number) => n.toString().padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
-}
-
-const formatDuration = (start: string | null, end: string | null): string => {
-  if (!start || !end) return '-'
-  const s = new Date(start).getTime()
-  const e = new Date(end).getTime()
-  const diff = Math.abs(e - s)
-  const ms = diff % 1000
-  const sec = Math.floor(diff / 1000) % 60
-  const min = Math.floor(diff / 60000)
-  if (min > 0) return `${min}分${sec}秒`
-  if (sec > 0) return `${sec}.${ms.toString().padStart(3, '0').slice(0, 1)}秒`
-  return `${diff}毫秒`
-}
+/**
+ * 开始时间：start_time 是 20260798 迁移之后才有的列，此前的存量记录为 NULL，
+ * 回落到 create_time（写日志那一刻，约等于结束时间）——总比一片 '-' 有用。
+ * 这类记录没有真实的开始时间，「耗时」列只能留空，真实耗时在「日志信息」那句里。
+ */
+const startOf = (row: any): string | null => row?.startTime || row?.createTime || null
 
 const logHeaders = [
   { title: 'ID', key: 'jobLogId', width: '70', align: 'center' as const },

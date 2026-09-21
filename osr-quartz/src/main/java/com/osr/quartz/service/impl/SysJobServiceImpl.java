@@ -7,7 +7,9 @@ import com.osr.common.core.text.Convert;
 import com.osr.common.exception.job.TaskException;
 import com.osr.common.utils.ExceptionUtil;
 import com.osr.common.utils.StringUtils;
+import com.osr.common.utils.Threads;
 import com.osr.common.utils.spring.SpringUtils;
+import com.osr.quartz.domain.JobRunResult;
 import com.osr.quartz.domain.SysJob;
 import com.osr.quartz.domain.SysJobLog;
 import com.osr.quartz.mapper.SysJobMapper;
@@ -15,6 +17,7 @@ import com.osr.quartz.service.ISysJobLogService;
 import com.osr.quartz.service.ISysJobService;
 import com.osr.quartz.util.CronUtils;
 import com.osr.quartz.util.JobInvokeUtil;
+import com.osr.quartz.util.JobRunningRegistry;
 import com.osr.quartz.util.ScheduleUtils;
 import org.quartz.JobKey;
 import org.quartz.Scheduler;
@@ -23,10 +26,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
 import java.util.Date;
 import java.util.List;
 
@@ -40,11 +46,29 @@ public class SysJobServiceImpl implements ISysJobService
 {
     private static final Logger log = LoggerFactory.getLogger(SysJobServiceImpl.class);
 
+    /** sys_job.concurrent 的「允许并发」取值（0允许 1禁止） */
+    private static final String CONCURRENT_ALLOW = "0";
+
     @Autowired
     private Scheduler scheduler;
 
     @Autowired
     private SysJobMapper jobMapper;
+
+    /** 虚拟线程调度器，手动执行的任务体跑在它上面而不是 HTTP 请求线程上 */
+    @Autowired
+    @Qualifier("virtualScheduledExecutor")
+    private TaskScheduler taskScheduler;
+
+    /**
+     * 执行中登记簿，与 Quartz 定时触发那条路径共用。
+     *
+     * 手动执行走的是 executeJobDirectly()，它绕开了 Quartz，因此实体上的 concurrent
+     * （0允许 1禁止）对这条路径完全不起作用——在这里自己把它实现出来，否则用户连点两次
+     * 「执行」就会真的并发跑两遍复制/STRM 生成。列表接口也读它来置灰按钮。
+     */
+    @Autowired
+    private JobRunningRegistry runningRegistry;
 
     /**
      * 项目启动时，初始化定时器 
@@ -207,22 +231,21 @@ public class SysJobServiceImpl implements ISysJobService
      * @param job 调度信息
      */
     @Override
-    @Transactional(rollbackFor = Exception.class)
-    public boolean run(SysJob job) throws SchedulerException
+    public JobRunResult run(SysJob job) throws SchedulerException
     {
         Long jobId = job.getJobId();
-        SysJob tmpObj = selectJobById(job.getJobId());
+        SysJob tmpObj = selectJobById(jobId);
         if (tmpObj == null)
         {
-            log.warn("任务不存在，jobId: {}", jobId);
-            return false;
+            log.warn("手动执行定时任务失败：任务不存在，jobId={}", jobId);
+            return JobRunResult.NOT_FOUND;
         }
         JobKey jobKey = ScheduleUtils.getJobKey(jobId, tmpObj.getJobGroup());
 
         // 如果任务不在 Scheduler 中，先重新注册
         if (!scheduler.checkExists(jobKey))
         {
-            log.warn("任务不在 Scheduler 中，尝试重新注册: jobId={}, jobName={}, jobGroup={}",
+            log.warn("任务不在调度器中，尝试重新注册：jobId={}, jobName={}, jobGroup={}",
                     jobId, tmpObj.getJobName(), tmpObj.getJobGroup());
             try
             {
@@ -230,18 +253,68 @@ public class SysJobServiceImpl implements ISysJobService
             }
             catch (TaskException e)
             {
-                log.error("重新注册定时任务失败，jobId: {}", jobId, e);
-                return false;
+                log.error("重新注册定时任务失败，jobId={}, jobName={}, 原因={}",
+                        jobId, tmpObj.getJobName(), e.getMessage(), e);
+                return JobRunResult.REGISTER_FAILED;
             }
         }
-        // 直接执行任务（绕过Quartz trigger数据map合并问题）
-        executeJobDirectly(tmpObj);
-        log.info("定时任务已触发执行: jobId={}, jobName={}", jobId, tmpObj.getJobName());
-        return true;
+
+        // 禁止并发的任务（concurrent=1，四个内置任务都是）上一轮没跑完就不再受理
+        boolean forbidConcurrent = !CONCURRENT_ALLOW.equals(tmpObj.getConcurrent());
+        if (forbidConcurrent && !runningRegistry.tryMarkRunning(jobId))
+        {
+            log.warn("任务正在执行中，忽略本次手动触发：jobId={}, jobName={}", jobId, tmpObj.getJobName());
+            return JobRunResult.ALREADY_RUNNING;
+        }
+
+        // 丢到虚拟线程上执行。任务体（如 openListStrmTask.copy()）是整盘遍历，分钟级起步，
+        // 留在请求线程上跑必然撞上前端 15s 超时：用户看到红字报错，任务其实还在后台跑，
+        // 于是再点一次——这正是上面那把并发锁要挡的场景。Threads.wrap 是为了 traceId 不断链。
+        try
+        {
+            taskScheduler.schedule(Threads.wrap(() -> {
+                try
+                {
+                    executeJobDirectly(tmpObj);
+                }
+                finally
+                {
+                    if (forbidConcurrent)
+                    {
+                        runningRegistry.markFinished(jobId);
+                    }
+                }
+            }), Instant.now());
+        }
+        catch (RuntimeException e)
+        {
+            // 提交失败时必须把闸门放开：漏掉的话这个任务会永远停在「执行中」，
+            // 按钮一直是灰的，重启之前再也手动执行不了
+            if (forbidConcurrent)
+            {
+                runningRegistry.markFinished(jobId);
+            }
+            log.error("提交定时任务到后台执行失败：jobId={}, jobName={}, 原因={}",
+                    jobId, tmpObj.getJobName(), e.getMessage(), e);
+            return JobRunResult.REGISTER_FAILED;
+        }
+
+        log.info("定时任务已提交后台执行：jobId={}, jobName={}", jobId, tmpObj.getJobName());
+        return JobRunResult.TRIGGERED;
+    }
+
+    @Override
+    public boolean isRunning(Long jobId)
+    {
+        return runningRegistry.isRunning(jobId);
     }
 
     /**
-     * 直接执行任务（绕过Quartz trigger数据map问题）
+     * 直接执行任务（绕过Quartz trigger数据map问题）。
+     *
+     * 已经跑在后台线程上，异常不再往外抛：抛出去只会落到调度器的 errorHandler，
+     * 而那里是 System.err，本项目 stdout 只有启动 banner，等于没人看得到。
+     * 失败信息该去的地方是 sys_job_log 与 sys-error.log，下面两件都做了。
      */
     private void executeJobDirectly(SysJob sysJob)
     {
@@ -249,32 +322,36 @@ public class SysJobServiceImpl implements ISysJobService
         try
         {
             JobInvokeUtil.invokeMethod(sysJob);
-            long runMs = System.currentTimeMillis() - startTime.getTime();
-            saveJobLog(sysJob, Constants.SUCCESS, runMs, null);
+            saveJobLog(sysJob, Constants.SUCCESS, startTime, null);
         }
         catch (Exception e)
         {
-            long runMs = System.currentTimeMillis() - startTime.getTime();
-            saveJobLog(sysJob, Constants.FAIL, runMs, ExceptionUtil.getExceptionMessage(e));
-            log.error("定时任务执行失败，jobId: {}", sysJob.getJobId(), e);
-            throw new RuntimeException("定时任务执行失败", e);
+            saveJobLog(sysJob, Constants.FAIL, startTime, ExceptionUtil.getExceptionMessage(e));
+            log.error("手动执行定时任务失败：jobId={}, jobName={}, 调用目标={}, 原因={}",
+                    sysJob.getJobId(), sysJob.getJobName(), sysJob.getInvokeTarget(), e.getMessage(), e);
         }
     }
 
     /**
-     * 保存任务执行日志
+     * 保存任务执行日志。
+     *
+     * startTime 必须是调用方在**执行前**取的那个时刻。原先这里写的是 startTime()——
+     * 一个返回 new Date() 的私有方法，也就是「现在」，于是 start_time 与 end_time 相等，
+     * 界面上算出来的耗时恒为 0。
      */
-    private void saveJobLog(SysJob sysJob, String status, long runMs, String exceptionInfo)
+    private void saveJobLog(SysJob sysJob, String status, Date startTime, String exceptionInfo)
     {
         try
         {
             ISysJobLogService jobLogService = SpringUtils.getBean(ISysJobLogService.class);
+            Date endTime = new Date();
+            long runMs = endTime.getTime() - startTime.getTime();
             SysJobLog jobLog = new SysJobLog();
             jobLog.setJobName(sysJob.getJobName());
             jobLog.setJobGroup(sysJob.getJobGroup());
             jobLog.setInvokeTarget(sysJob.getInvokeTarget());
-            jobLog.setStartTime(startTime());
-            jobLog.setEndTime(new Date());
+            jobLog.setStartTime(startTime);
+            jobLog.setEndTime(endTime);
             jobLog.setJobMessage(sysJob.getJobName() + " 总共耗时：" + runMs + "毫秒");
             jobLog.setStatus(status);
             if (StringUtils.isNotEmpty(exceptionInfo))
@@ -285,13 +362,8 @@ public class SysJobServiceImpl implements ISysJobService
         }
         catch (Exception e)
         {
-            log.error("保存任务日志失败", e);
+            log.error("保存任务执行日志失败：jobName={}, 原因={}", sysJob.getJobName(), e.getMessage(), e);
         }
-    }
-
-    private Date startTime()
-    {
-        return new Date();
     }
 
     /**

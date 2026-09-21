@@ -23,23 +23,39 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 		</where>
 	</select>
 
+	<!--
+		列表页额外带出「上次执行时间 / 上次执行结果」：sys_job_log 没有 job_id 列（RuoYi 原设计），
+		只能按 job_name + job_group 回查，索引 idx_job_log_name_group_time 就是为这两个子查询建的。
+		用相关子查询而不是 row_number() 窗口函数：后者要把整张只增不减的日志表物化一遍，而这里
+		每行走一次索引取 1 条即可；分页插件推导 count 时会把整个 select 列表换成 count(*)，
+		子查询不参与计数。where 条件必须带 j. 前缀——join 进来的日志表同样有 job_name/job_group/status。
+	-->
 	<select id="selectJobListPage" resultType="SysJob">
-		select job_id, job_name, job_group, invoke_target, cron_expression, misfire_policy, concurrent, status, create_by, create_time, remark 
-		from sys_job
+		select j.job_id, j.job_name, j.job_group, j.invoke_target, j.cron_expression, j.misfire_policy,
+		       j.concurrent, j.status, j.create_by, j.create_time, j.remark,
+		       (select coalesce(l.start_time, l.create_time) from sys_job_log l
+		         where l.job_name = j.job_name and l.job_group = j.job_group
+		         order by l.create_time desc, l.job_log_id desc limit 1) as last_run_time,
+		       (select l.status from sys_job_log l
+		         where l.job_name = j.job_name and l.job_group = j.job_group
+		         order by l.create_time desc, l.job_log_id desc limit 1) as last_run_status
+		from sys_job j
 		<where>
 			<if test="arg1.jobName != null and arg1.jobName != ''">
-				AND job_name like concat('%', #{arg1.jobName}, '%')
+				AND j.job_name like concat('%', #{arg1.jobName}, '%')
 			</if>
 			<if test="arg1.jobGroup != null and arg1.jobGroup != ''">
-				AND job_group = #{arg1.jobGroup}
+				AND j.job_group = #{arg1.jobGroup}
 			</if>
 			<if test="arg1.status != null and arg1.status != ''">
-				AND status = #{arg1.status}
+				AND j.status = #{arg1.status}
 			</if>
 			<if test="arg1.invokeTarget != null and arg1.invokeTarget != ''">
-				AND invoke_target like concat('%', #{arg1.invokeTarget}, '%')
+				AND j.invoke_target like concat('%', #{arg1.invokeTarget}, '%')
 			</if>
 		</where>
+		<!-- 不写 order by 时分页顺序由 MySQL 决定，翻页会看到重复/漏掉的行 -->
+		order by j.job_id
 	</select>
 	
 	<select id="selectJobAll" resultType="SysJob">

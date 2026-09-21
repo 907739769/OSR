@@ -6,6 +6,7 @@ import jakarta.validation.constraints.*;
 import org.apache.commons.lang3.builder.ToStringBuilder;
 import org.apache.commons.lang3.builder.ToStringStyle;
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import com.osr.common.constant.ScheduleConstants;
@@ -47,6 +48,18 @@ public class SysJob extends BaseEntity implements Serializable
 
     /** 任务状态（0正常 1暂停） */
     private String status;
+
+    /** 上次执行时间（列表查询时由 sys_job_log 回查，非本表字段） */
+    @TableField(exist = false)
+    private Date lastRunTime;
+
+    /** 上次执行结果（0成功 1失败，同上，非本表字段） */
+    @TableField(exist = false)
+    private String lastRunStatus;
+
+    /** 是否正在手动执行中（内存态，非本表字段） */
+    @TableField(exist = false)
+    private Boolean running;
 
     public Long getJobId()
     {
@@ -104,13 +117,57 @@ public class SysJob extends BaseEntity implements Serializable
         this.cronExpression = cronExpression;
     }
 
+    /**
+     * 下次执行时间。没有对应的库表字段，靠 cron 现算，序列化时一并发给前端。
+     *
+     * 这里必须吞掉非法表达式的异常：getNextExecution 解析失败会抛 IllegalArgumentException，
+     * 而本方法在列表接口序列化每一行时都会被调用——库里只要有一条被手工改坏的 cron，
+     * 整个定时任务列表就会 500，而不是那一行显示不出下次时间。
+     */
     public Date getNextValidTime()
     {
-        if (StringUtils.isNotEmpty(cronExpression))
+        if (StringUtils.isEmpty(cronExpression))
+        {
+            return null;
+        }
+        try
         {
             return CronUtils.getNextExecution(cronExpression);
         }
-        return null;
+        catch (IllegalArgumentException e)
+        {
+            return null;
+        }
+    }
+
+    public Date getLastRunTime()
+    {
+        return lastRunTime;
+    }
+
+    public void setLastRunTime(Date lastRunTime)
+    {
+        this.lastRunTime = lastRunTime;
+    }
+
+    public String getLastRunStatus()
+    {
+        return lastRunStatus;
+    }
+
+    public void setLastRunStatus(String lastRunStatus)
+    {
+        this.lastRunStatus = lastRunStatus;
+    }
+
+    public Boolean getRunning()
+    {
+        return running;
+    }
+
+    public void setRunning(Boolean running)
+    {
+        this.running = running;
     }
 
     public String getMisfirePolicy()

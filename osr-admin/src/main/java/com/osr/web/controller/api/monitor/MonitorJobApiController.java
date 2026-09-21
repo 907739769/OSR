@@ -21,6 +21,7 @@ import com.osr.common.core.page.PageDomain;
 import com.osr.common.core.page.TableSupport;
 import com.osr.common.exception.job.TaskException;
 import com.osr.common.utils.StringUtils;
+import com.osr.quartz.domain.JobRunResult;
 import com.osr.quartz.domain.SysJob;
 import com.osr.quartz.service.ISysJobService;
 import com.osr.quartz.util.CronUtils;
@@ -47,6 +48,8 @@ public class MonitorJobApiController extends BaseController
         PageDomain pageDomain = TableSupport.buildPageRequest();
         Page<SysJob> page = new Page<>(pageDomain.getPageNum(), pageDomain.getPageSize());
         List<SysJob> list = jobService.selectJobListPage(page, job);
+        // 「是否执行中」是内存态，查不到库里，在这里逐行补上
+        list.forEach(item -> item.setRunning(jobService.isRunning(item.getJobId())));
         return Result.success(PageResult.of(list, page.getTotal(), (int) page.getCurrent(), (int) page.getSize()));
     }
 
@@ -162,13 +165,19 @@ public class MonitorJobApiController extends BaseController
     }
 
     /**
-     * 立即执行一次定时任务
+     * 立即执行一次定时任务。
+     *
+     * 只负责把任务提交到后台：像 openListStrmTask.copy() 这类要整盘遍历，几分钟起步，
+     * 同步等它跑完必然撞上前端超时。执行结果去「执行记录」里看。
      */
     @PostMapping("/run/{jobId}")
-    public Result<Boolean> run(@PathVariable("jobId") Long jobId) throws SchedulerException
+    public Result<String> run(@PathVariable("jobId") Long jobId) throws SchedulerException
     {
-        SysJob job = jobService.selectJobById(jobId);
-        boolean result = jobService.run(job);
-        return result ? Result.success(true) : Result.error("任务不存在或已过期！");
+        SysJob job = new SysJob();
+        job.setJobId(jobId);
+        JobRunResult result = jobService.run(job);
+        return result == JobRunResult.TRIGGERED
+                ? Result.success(result.getMessage())
+                : Result.error(result.getMessage());
     }
 }

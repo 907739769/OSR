@@ -32,7 +32,7 @@
 | 企业微信 | `osr-openliststrm/src/main/java/com/osr/openliststrm/wecom/` | 自建应用 API、回调加解密、订阅指令交互 |
 | 通知渠道 | `osr-openliststrm/src/main/java/com/osr/openliststrm/notify/` | INotifier 抽象 + TG/Webhook/企微/Bark/Gotify 五个实现；路由由 `notify_route` 表决定 |
 | 刮削 | `osr-openliststrm/src/main/java/com/osr/openliststrm/scrape/` + `tmdb/` | TMDb 刮削、文件删除 |
-| 定时任务 | `osr-openliststrm/src/main/java/com/osr/openliststrm/task/` + `osr-quartz/` | 自定义 task + job |
+| 定时任务 | `osr-openliststrm/src/main/java/com/osr/openliststrm/task/` + `osr-quartz/` | 自定义 task + job；调度/手动执行/执行记录见 `osr-quartz/AGENTS.md` |
 | 重命名一致性检查 | `osr-openliststrm/src/main/java/com/osr/openliststrm/orphan/` | 双向孤儿扫描、清理、忽略 |
 | 重命名产物清理 | `osr-openliststrm/src/main/java/com/osr/openliststrm/rename/cleanup/` | 删主文件+刮削+回收空目录，重命名换位时清旧位置 |
 | PT 订阅管理 | `osr-openliststrm/src/main/java/com/osr/openliststrm/pt/` | downloader/indexer/subscription/media server |
@@ -89,6 +89,7 @@
 | `…/openliststrm/controller/` | REST 端点：继承来的增删改开放范围、统计接口、批量删除 |
 | `…/openliststrm/mybatisplus/` | 数据层 Wrapper 的陷阱 |
 | `…/openliststrm/wecom/` | 企业微信回调鉴权 |
+| `osr-quartz/AGENTS.md` | 定时任务：两条执行路径、手动执行异步化与并发闸门、执行记录的时间列 |
 | `osr-framework/AGENTS.md` | 接口授权、JWT 失效、Filter 注册、访问日志、全局异常、Actuator |
 | `osr-common/AGENTS.md` | SQL 迁移注册、分页上下文、日志节流三件套、traceId 封顶 |
 | `osr-admin/AGENTS.md` | logback 配置、MyBatis SQL 日志开关、实时日志页 |

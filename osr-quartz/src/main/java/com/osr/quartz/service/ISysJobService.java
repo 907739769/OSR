@@ -4,6 +4,7 @@ import java.util.List;
 import org.quartz.SchedulerException;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.osr.common.exception.job.TaskException;
+import com.osr.quartz.domain.JobRunResult;
 import com.osr.quartz.domain.SysJob;
 
 /**
@@ -79,12 +80,20 @@ public interface ISysJobService
     public int changeStatus(SysJob job) throws SchedulerException;
 
     /**
-     * 立即运行任务
+     * 立即运行任务（异步提交，方法本身立刻返回）
      * 
      * @param job 调度信息
-     * @return 结果
+     * @return 受理结果，仅表示是否提交成功，执行结果见 sys_job_log
      */
-    public boolean run(SysJob job) throws SchedulerException;
+    public JobRunResult run(SysJob job) throws SchedulerException;
+
+    /**
+     * 该任务当前是否正在手动执行中
+     * 
+     * @param jobId 任务ID
+     * @return 是否执行中
+     */
+    public boolean isRunning(Long jobId);
 
     /**
      * 新增任务

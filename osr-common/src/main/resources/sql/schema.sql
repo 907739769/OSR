@@ -105,8 +105,11 @@ CREATE TABLE IF NOT EXISTS `sys_job_log`  (
     `job_message` varchar(500)  NULL DEFAULT NULL COMMENT '日志信息',
     `status` char(1)  NULL DEFAULT '0' COMMENT '执行状态（0正常 1失败）',
     `exception_info` varchar(2000)  NULL DEFAULT '' COMMENT '异常信息',
+    `start_time` datetime(0) NULL DEFAULT NULL COMMENT '任务开始时间',
+    `end_time` datetime(0) NULL DEFAULT NULL COMMENT '任务结束时间',
     `create_time` datetime(0) NULL DEFAULT NULL COMMENT '创建时间',
-    PRIMARY KEY (`job_log_id`) USING BTREE
+    PRIMARY KEY (`job_log_id`) USING BTREE,
+    INDEX `idx_job_log_name_group_time` (`job_name`, `job_group`, `create_time`) USING BTREE
     ) COMMENT = '定时任务调度日志表' ROW_FORMAT = Dynamic;
 
 -- ----------------------------

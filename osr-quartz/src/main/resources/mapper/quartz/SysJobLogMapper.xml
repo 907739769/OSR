@@ -5,7 +5,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 <mapper namespace="com.osr.quartz.mapper.SysJobLogMapper">
 	
 	<select id="selectJobLogList" parameterType="SysJobLog" resultType="SysJobLog">
-		select job_log_id, job_name, job_group, invoke_target, job_message, status, exception_info, create_time 
+		select job_log_id, job_name, job_group, invoke_target, job_message, status, exception_info, start_time, end_time, create_time 
 		from sys_job_log
 		<where>
 			<if test="jobName != null and jobName != ''">
@@ -31,7 +31,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	</select>
 
 	<select id="selectJobLogListPage" resultType="SysJobLog">
-		select job_log_id, job_name, job_group, invoke_target, job_message, status, exception_info, create_time 
+		select job_log_id, job_name, job_group, invoke_target, job_message, status, exception_info, start_time, end_time, create_time 
 		from sys_job_log
 		<where>
 			<if test="arg1.jobName != null and arg1.jobName != ''">
@@ -51,12 +51,12 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
 	</select>
 	
 	<select id="selectJobLogAll" resultType="SysJobLog">
-		select job_log_id, job_name, job_group, invoke_target, job_message, status, exception_info, create_time 
+		select job_log_id, job_name, job_group, invoke_target, job_message, status, exception_info, start_time, end_time, create_time 
 		from sys_job_log
 	</select>
   	
   	<select id="selectJobLogById" parameterType="Long" resultType="SysJobLog">
-  		select job_log_id, job_name, job_group, invoke_target, job_message, status, exception_info, create_time
+  		select job_log_id, job_name, job_group, invoke_target, job_message, status, exception_info, start_time, end_time, create_time
   		from sys_job_log
   		where job_log_id = #{jobLogId}
   	</select>
@@ -85,6 +85,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
   			<if test="jobMessage != null and jobMessage != ''">job_message,</if>
   			<if test="status != null and status != ''">status,</if>
   			<if test="exceptionInfo != null and exceptionInfo != ''">exception_info,</if>
+  			<if test="startTime != null">start_time,</if>
+  			<if test="endTime != null">end_time,</if>
   			create_time
   		)values(
   			<if test="jobLogId != null and jobLogId != 0">#{jobLogId},</if>
@@ -94,6 +96,8 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
   			<if test="jobMessage != null and jobMessage != ''">#{jobMessage},</if>
   			<if test="status != null and status != ''">#{status},</if>
   			<if test="exceptionInfo != null and exceptionInfo != ''">#{exceptionInfo},</if>
+  			<if test="startTime != null">#{startTime},</if>
+  			<if test="endTime != null">#{endTime},</if>
   			sysdate()
   		)
   	</insert>

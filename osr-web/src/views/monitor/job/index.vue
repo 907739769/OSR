@@ -52,6 +52,22 @@
         hide-default-footer
         class="modern-table"
       >
+        <template #item.nextValidTime="{ item }">
+          <span v-if="item.status === '1'" class="job-muted">已暂停</span>
+          <span v-else>{{ formatDateTime(item.nextValidTime, '-', false) }}</span>
+        </template>
+        <template #item.lastRunTime="{ item }">
+          <div v-if="item.lastRunTime" class="job-last-run">
+            <StatusChip
+              :type="item.lastRunStatus === '0' ? 'success' : 'error'"
+              :text="item.lastRunStatus === '0' ? '成功' : '失败'"
+            />
+            <span class="job-muted" :title="formatDateTime(item.lastRunTime)">
+              {{ formatRelativeTime(item.lastRunTime) }}
+            </span>
+          </div>
+          <span v-else class="job-muted">从未执行</span>
+        </template>
         <template #item.status="{ item }">
           <v-switch
             v-model="item.status"
@@ -67,8 +83,15 @@
           <v-btn variant="text" color="primary" size="small" prepend-icon="square-pen" @click="handleUpdate(item, '修改定时任务')">
             修改
           </v-btn>
-          <v-btn variant="text" color="primary" size="small" prepend-icon="play" @click="handleRun(item)">
-            执行
+          <v-btn
+            variant="text"
+            color="primary"
+            size="small"
+            :prepend-icon="item.running ? 'loader-circle' : 'play'"
+            :disabled="item.running"
+            @click="handleRun(item)"
+          >
+            {{ item.running ? '执行中' : '执行' }}
           </v-btn>
           <v-btn variant="text" color="secondary" size="small" prepend-icon="list" @click="handleViewLogs(item)">
             记录
@@ -97,13 +120,39 @@
               <span class="mobile-card-label">Cron</span>
               <span class="mobile-card-value mobile-card-value-clip">{{ item.cronExpression }}</span>
             </div>
+            <div class="mobile-card-row">
+              <span class="mobile-card-label">下次执行</span>
+              <span class="mobile-card-value mobile-card-value-light">
+                {{ item.status === '1' ? '已暂停' : formatDateTime(item.nextValidTime, '-', false) }}
+              </span>
+            </div>
+            <div class="mobile-card-row">
+              <span class="mobile-card-label">上次执行</span>
+              <span class="mobile-card-value">
+                <template v-if="item.lastRunTime">
+                  <StatusChip
+                    :type="item.lastRunStatus === '0' ? 'success' : 'error'"
+                    :text="item.lastRunStatus === '0' ? '成功' : '失败'"
+                  />
+                  <span class="job-muted ml-2">{{ formatRelativeTime(item.lastRunTime) }}</span>
+                </template>
+                <span v-else class="job-muted">从未执行</span>
+              </span>
+            </div>
           </div>
           <div class="mobile-card-actions">
             <v-btn variant="text" color="primary" size="small" prepend-icon="square-pen" @click="handleUpdate(item, '修改定时任务')">
               修改
             </v-btn>
-            <v-btn variant="text" color="primary" size="small" prepend-icon="play" @click="handleRun(item)">
-              执行
+            <v-btn
+              variant="text"
+              color="primary"
+              size="small"
+              :prepend-icon="item.running ? 'loader-circle' : 'play'"
+              :disabled="item.running"
+              @click="handleRun(item)"
+            >
+              {{ item.running ? '执行中' : '执行' }}
             </v-btn>
             <v-btn variant="text" color="secondary" size="small" prepend-icon="list" @click="handleViewLogs(item)">
               记录
@@ -214,6 +263,9 @@ import { getJobListApi, addJobApi, updateJobApi, deleteJobApi, changeJobStatusAp
 import { useAppStore } from '@/stores/app'
 import MobilePager from '@/components/mobile/MobilePager.vue'
 import { useTaskList } from '@/composables/useTaskList'
+import StatusChip from '@/components/StatusChip.vue'
+import { formatDateTime } from '@/composables/dateTime'
+import { formatRelativeTime } from '@/composables/relativeTime'
 import type { SearchParams } from '@/types'
 import { useSearchPanel } from '@/composables/useSearchPanel'
 import SearchPanel from '@/components/SearchPanel.vue'
@@ -225,6 +277,8 @@ const { showSearch } = useSearchPanel()
 const jobHeaders = [
   { title: '任务名称', key: 'jobName', minWidth: '140' },
   { title: 'cron执行表达式', key: 'cronExpression', width: '140', align: 'center' as const },
+  { title: '下次执行', key: 'nextValidTime', width: '150', align: 'center' as const, sortable: false },
+  { title: '上次执行', key: 'lastRunTime', width: '170', align: 'center' as const, sortable: false },
   { title: '状态', key: 'status', align: 'center' as const, width: '90' },
   { title: '操作', key: 'actions', align: 'center' as const, width: '240', sortable: false }
 ]
@@ -293,23 +347,29 @@ const handleSwitchChange = async (row: any) => {
     await confirm({ message: `是否确认${text}任务"${row.jobName}"？`, title: '警告', type: 'info' })
     await changeJobStatusApi(row.jobId, newStatus)
     message.success(`${text}成功`)
+    // 重查一次：启停会改变「下次执行」，暂停的任务那一列要变成「已暂停」
+    getList()
   } catch (e) {
-    if (e !== 'cancel') {
-      // Revert status on API failure
-      row.status = row.status === '0' ? '1' : '0'
-      console.error(e)
-    } else {
-      // User cancelled - revert status
-      row.status = row.status === '0' ? '1' : '0'
-    }
+    // 取消与失败都要把开关拨回去——v-model 已经先把界面改掉了。
+    // 两种情况的收尾完全一样，只有失败时多打一行日志（取消不是异常）
+    row.status = row.status === '0' ? '1' : '0'
+    if (e !== 'cancel') console.error(e)
   }
 }
 
 const handleRun = async (row: any) => {
   try {
-    await confirm({ message: `是否确认执行任务"${row.jobName}"？`, title: '警告', type: 'warning' })
-    await runJobApi(row.jobId)
-    message.success('执行成功')
+    await confirm({
+      message: `是否确认执行任务"${row.jobName}"？任务将在后台运行，结果请查看执行记录。`,
+      title: '警告',
+      type: 'warning'
+    })
+    // 后端只受理不等待：像复制/STRM 这类任务要跑几分钟，等它返回必然撞上 15s 超时。
+    // 提示文案用后端给的那句，别在这里写死「执行成功」——它其实还没跑完
+    const msg = await runJobApi(row.jobId) as unknown as string
+    message.success(msg || '已触发执行，结果请查看执行记录')
+    // 立刻刷新，让按钮进入「执行中」态
+    getList()
   } catch (e) { if (e !== 'cancel') console.error(e) }
 }
 
@@ -331,6 +391,17 @@ getList()
 </script>
 
 <style scoped lang="scss">
+.job-last-run {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.job-muted {
+  color: var(--osr-text-secondary);
+  font-size: 12px;
+}
+
 .cron-field {
   display: flex;
   align-items: flex-start;

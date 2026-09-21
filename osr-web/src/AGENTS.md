@@ -786,6 +786,16 @@ index.html 与静态资源都打了 `no-store`、镜像里的旧 chunk 文件已
   而 0 在过滤规则里的语义是「不限」——用户一保存，阈值不是变粗了，是静默失效了。
   step 的粒度（`0.01`）与 `bytesToGb` 的小数位必须一致，否则回填的值不满足 step 约束，
   浏览器会把一个刚刚存进去的合法值标成非法。提交侧必须 `Math.round` 到整数字节：后端字段是 Long。
+- **时间格式化只有两份，按「说什么」分工，不要在页面里再写第三份**：
+  `composables/relativeTime.ts` 说「多久以前」，`composables/dateTime.ts` 说「几点几分」
+  （`formatDateTime`）与「跑了多久」（`formatDuration`）。定时任务页与它的执行记录弹窗
+  原先各自私有一份，而**只有一份记得处理 Safari**：`new Date('2026-09-20 03:00:00')` 在
+  iOS Safari 上是 Invalid Date，必须先把中间那个空格换成 `T`。漏掉这条不报错、不告警——
+  时间在手机上原样显示成后端那串、耗时变成 `-`，而这是个装到手机上用的 PWA。
+  后端 Jackson 按 `yyyy-MM-dd HH:mm:ss` + GMT+8 序列化（`application.yml`），
+  两份实现都按这个格式假设输入。`dateTime.spec.ts` 里那条 Safari 用例的判据刻意用
+  **不带年份**的形态：带年份时「真的解析了」与「解析失败原样返回」的输出恰好一模一样，
+  分不出来，等于一条永远通过的空检查。
 - **规则对象 → Vuetify `:rules` 函数的转换只有一份：`composables/formRules.ts` 的 `toRuleFns`**。
   收口前它在 14 个页面里各写一份，还分化成 4 种实现：只判 required（ptAutoAddRule /
   ptTorrentBlacklist / wecomUser 六份）、required + pattern（ptMediaServer / ptTransferRule
