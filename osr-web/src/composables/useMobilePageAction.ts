@@ -96,6 +96,14 @@ export function provideMobilePageChrome(): MobilePageChrome {
   return chrome
 }
 
+/**
+ * 当前组件是否渲染在 MobileLayout 里。外壳已经画了「图标 + 大标题」，
+ * PageHeader 靠它判断要不要再画一遍标题（不读 device store：单元测试直接挂载页面时没有 Pinia）
+ */
+export function useInMobileLayout(): boolean {
+  return inject(KEY, null) !== null
+}
+
 /** 在组件「处于激活状态」期间保持登记，见文件头第 2 条 */
 function bindWhileActive(bind: () => void, unbind: () => void) {
   onMounted(bind)

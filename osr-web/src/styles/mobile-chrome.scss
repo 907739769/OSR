@@ -445,10 +445,37 @@
    「让它自然滚走」几乎无异。
    ============================================ */
 .mobile-bigtitle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
   padding: 2px 2px 8px;
   font-size: var(--osr-fs-3xl);
   font-weight: 700;
   line-height: 1.2;
   letter-spacing: -0.01em;
   color: var(--osr-text-primary);
+}
+
+/* 图标底块与 PC 端 PageHeader 的 .page-header-icon 同一套样式（主色渐变 + 辉光），
+   两端的页面标题看起来是同一个东西 */
+.mobile-bigtitle-icon {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--osr-radius-base);
+  background: linear-gradient(135deg, rgb(var(--v-theme-primary)), rgb(var(--v-theme-primary-darken-1)));
+  color: rgb(var(--v-theme-on-primary));
+  font-size: 18px;
+  box-shadow: 0 2px 8px rgba(var(--v-theme-primary), 0.35);
+}
+
+.mobile-bigtitle-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }

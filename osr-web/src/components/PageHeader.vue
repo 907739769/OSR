@@ -1,6 +1,8 @@
 <template>
-  <div class="page-header">
-    <div class="page-header-left">
+  <!-- 移动端外壳（MobileLayout）已经给每页画了「图标 + 大标题」，这里再画一遍就是双标题。
+       所以移动端只保留操作区；没有操作区时整块不渲染，免得留一截空白 -->
+  <div v-if="!isMobile || $slots.actions" class="page-header" :class="{ 'page-header--mobile': isMobile }">
+    <div v-if="!isMobile" class="page-header-left">
       <div v-if="icon" class="page-header-icon">
         <v-icon :icon="icon" />
       </div>
@@ -20,6 +22,10 @@
 </template>
 
 <script setup lang="ts">
+import { useInMobileLayout } from '@/composables/useMobilePageAction'
+
+const isMobile = useInMobileLayout()
+
 defineProps<{
   title: string
   desc?: string
@@ -85,6 +91,18 @@ defineProps<{
     align-items: center;
     gap: 8px;
     flex-shrink: 0;
+  }
+}
+
+/* 移动端只剩操作区：靠右排，放不下时折行 */
+.page-header--mobile {
+  justify-content: flex-end;
+
+  .page-header-actions {
+    flex-shrink: 1;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    min-width: 0;
   }
 }
 
