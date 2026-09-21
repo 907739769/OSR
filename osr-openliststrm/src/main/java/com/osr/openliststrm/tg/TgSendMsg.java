@@ -28,17 +28,24 @@ public class TgSendMsg extends TelegramLongPollingBot {
         if (StringUtils.isBlank(adminUserId) || StringUtils.isBlank(botToken)) {
             return;
         }
+        try {
+            sendMsgOrThrow(msg);
+        } catch (TelegramApiException e) {
+            // 不打 msg 本身：通知正文里带着剧名、路径等内容，而且可能很长。
+            log.error("Telegram 消息发送失败, chatId={}：{}", adminUserId, e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 与 {@link #sendMsg} 相同，但失败时把异常抛给调用方——配置页的「发送测试」
+     * 要把失败原因（chat not found / Unauthorized）原样带回给用户。
+     */
+    public void sendMsgOrThrow(String msg) throws TelegramApiException {
         SendMessage message = new SendMessage();
         message.setChatId(adminUserId);
         message.setText(msg);
         message.setParseMode(ParseMode.HTML); // HTML 解析模式：仅 & < > 需要转义，比 MarkdownV2 更不容易被动态内容炸掉
-
-        try {
-            execute(message);
-        } catch (TelegramApiException e) {
-            // 不打 msg 本身：通知正文里带着剧名、路径等内容，而且可能很长。
-            log.error("Telegram 消息发送失败, chatId={}", adminUserId, e);
-        }
+        execute(message);
     }
 
     @Override

@@ -123,8 +123,23 @@ public class WeComApiClient {
      * @return 是否发送成功（失败只记日志，不抛异常——通知失败不该影响业务主流程）
      */
     public boolean sendText(String toUser, String content) {
-        if (!isConfigured() || StringUtils.isAnyBlank(toUser, content)) {
-            return false;
+        return sendTextDetailed(toUser, content) == null;
+    }
+
+    /**
+     * 同 {@link #sendText}，但把失败原因带回来（配置页的「发送测试」要展示给用户）。
+     *
+     * @return null 表示发送成功，否则是失败原因
+     */
+    public String sendTextDetailed(String toUser, String content) {
+        if (!isConfigured()) {
+            return "企业微信未配置完整（需要 corpid、Secret、AgentId）";
+        }
+        if (StringUtils.isBlank(toUser)) {
+            return "没有接收人：请在「参数设置」里填写企业微信默认接收人";
+        }
+        if (StringUtils.isBlank(content)) {
+            return "消息内容为空";
         }
         JSONObject body = new JSONObject();
         body.put("touser", toUser);
@@ -223,24 +238,31 @@ public class WeComApiClient {
 
     /**
      * POST /message/send，带一次 token 失效重试。
+     *
+     * @return null 表示发送成功，否则是失败原因
      */
-    private boolean sendMessage(JSONObject body) {
+    private String sendMessage(JSONObject body) {
         JSONObject result = postWithToken("message/send", body, true);
         if (result == null) {
-            return false;
+            return "调用企业微信接口失败（获取 access_token 失败或网络不通），请检查 corpid、Secret 与「API代理地址」配置";
         }
         int errcode = result.getIntValue("errcode", -1);
         if (errcode != 0) {
-            log.warn("企业微信消息发送失败，errcode={} errmsg={}", errcode, result.getString("errmsg"));
-            return false;
+            String errmsg = result.getString("errmsg");
+            log.warn("企业微信消息发送失败，errcode={} errmsg={}", errcode, errmsg);
+            return "企业微信返回错误 " + errcode + "：" + errmsg;
         }
         // 部分接收人不在应用可见范围时企微仍返回 errcode=0，只在这些字段里给出名单，
         // 不打出来的话表现为「接口成功但对方没收到」，无从排查
         String invalidUser = result.getString("invaliduser");
         if (StringUtils.isNotBlank(invalidUser)) {
             log.warn("企业微信消息部分接收人无效（不在应用可见范围内）：{}", invalidUser);
+            // 全部接收人都无效时其实一个人也没收到，不能报成功
+            if (invalidUser.equals(body.getString("touser"))) {
+                return "接收人不在应用可见范围内：" + invalidUser;
+            }
         }
-        return true;
+        return null;
     }
 
     /**

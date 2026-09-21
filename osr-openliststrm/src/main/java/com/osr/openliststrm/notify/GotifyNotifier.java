@@ -63,15 +63,31 @@ public class GotifyNotifier implements INotifier {
 
     @Override
     public void send(NotificationType type, String message) {
+        if (!isConfigured() || StringUtils.isBlank(message)) {
+            return;
+        }
+        String reason = deliver(type, message);
+        if (reason != null) {
+            log.warn("Gotify 通知{}", reason);
+        }
+    }
+
+    @Override
+    public String sendTest(String message) {
+        String reason = deliver(NotificationType.GENERAL, message);
+        return reason == null ? null : "Gotify " + reason;
+    }
+
+    /** @return null 表示成功，否则是失败原因 */
+    private String deliver(NotificationType type, String message) {
         String base = config.getNotifyGotifyUrl();
         String token = config.getNotifyGotifyToken();
-        if (StringUtils.isAnyBlank(base, token) || StringUtils.isBlank(message)) {
-            return;
+        if (StringUtils.isAnyBlank(base, token)) {
+            return "未配置服务地址或应用 Token";
         }
         HttpUrl parsed = HttpUrl.parse(StringUtils.removeEnd(base.trim(), "/"));
         if (parsed == null) {
-            log.warn("Gotify 服务地址不是合法 URL，已跳过：{}", base);
-            return;
+            return "服务地址不是合法 URL，已跳过：" + base;
         }
         HttpUrl url = parsed.newBuilder()
                 .addPathSegment("message")
@@ -91,11 +107,15 @@ public class GotifyNotifier implements INotifier {
                 .post(RequestBody.create(JSON_MEDIA_TYPE, body.toJSONString()))
                 .build();
         try (Response response = httpClient.newCall(request).execute()) {
-            if (!response.isSuccessful()) {
-                log.warn("Gotify 通知发送失败，HTTP {}", response.code());
+            if (response.isSuccessful()) {
+                return null;
             }
+            // 401 几乎总是 token 填错（或填成了 client token），直接点明省得用户去翻 Gotify 文档
+            return response.code() == 401
+                    ? "发送失败，HTTP 401：应用 Token 无效（注意要填 application token 而不是 client token）"
+                    : "发送失败，HTTP " + response.code();
         } catch (IOException e) {
-            log.warn("Gotify 通知发送异常：{}", e.getMessage());
+            return "发送异常：" + e.getMessage();
         }
     }
 }

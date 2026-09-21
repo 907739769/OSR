@@ -120,7 +120,8 @@ public class MysqlDdl extends SimpleDdl {
                 "sql/20260795-copy-strm-size-reason.sql",
                 "sql/20260796-pt-stats-index.sql",
                 "sql/20260797-pt-media-server-health.sql",
-                "sql/20260798-job-log-exec-time.sql"
+                "sql/20260798-job-log-exec-time.sql",
+                "sql/20260799-notify-route-backfill.sql"
         );
     }
 }

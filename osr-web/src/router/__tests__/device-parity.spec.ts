@@ -71,10 +71,7 @@ const EQUIVALENT: Array<[string, string]> = [
  * 新增条目请写清为什么这一端不需要 —— 这份清单就是差异的评审记录。
  */
 const ALLOWED_GAPS: Record<string, string> = {
-  'ptSubscription:handleMoreCommand': 'PC 用「更多」下拉分发，移动端是底部操作抽屉直接调用各动作，功能等价',
-  'notifyRoute:toggleChannel': 'PC 是「类型×渠道」矩阵，每列一个渠道，故有整列开关；'
-    + '移动端横向放不下矩阵，改成一个通知类型一张卡、卡内逐渠道列出，没有「列」这个概念。'
-    + '按类型整行开关(toggleType)两端都有'
+  'ptSubscription:handleMoreCommand': 'PC 用「更多」下拉分发，移动端是底部操作抽屉直接调用各动作，功能等价'
 }
 
 function readPage(kind: 'views' | 'views-mobile', name: string): string | null {

@@ -8,8 +8,9 @@
     <template #head>
       <div class="action-bar">
         <div class="action-left">
-          <v-btn variant="text" size="small" prepend-icon="refresh-cw" :disabled="loading" @click="load">重新加载</v-btn>
+          <v-btn variant="text" size="small" prepend-icon="refresh-cw" :disabled="loading" @click="reload">重新加载</v-btn>
         </div>
+        <span v-if="isDirty" class="dirty-hint">{{ dirtyCount }} 处未保存</span>
       </div>
 
       <v-alert
@@ -20,7 +21,74 @@
         class="notice"
       >
         未配置的渠道即使开启也不会发送：{{ unconfiguredChannels.map(c => c.name).join('、') }}
+        <div class="notice-actions">
+          <v-btn
+            v-if="canHideUnconfigured"
+            variant="text"
+            size="x-small"
+            @click="showUnconfigured = !showUnconfigured"
+          >
+            {{ showUnconfigured ? '收起未配置的渠道' : '显示未配置的渠道' }}
+          </v-btn>
+          <v-btn v-if="configPath" variant="text" size="x-small" append-icon="arrow-right" @click="goConfig">
+            去参数设置
+          </v-btn>
+        </div>
       </v-alert>
+
+      <!-- 渠道总览：矩阵的「列」在移动端没有位置，整列开关与发送测试收在这张卡里 -->
+      <v-card v-if="visibleChannels.length" class="task-card">
+        <div class="card-content">
+          <div class="card-top">
+            <div class="card-title-row">
+              <v-icon class="card-title-icon" icon="send" size="18" />
+              <span class="card-title">渠道</span>
+            </div>
+          </div>
+          <div
+            v-for="c in visibleChannels"
+            :key="c.key"
+            class="channel-row"
+            :class="{ 'channel-row--off': !c.configured }"
+          >
+            <v-checkbox-btn
+              :model-value="channelState(c.key) === 'all'"
+              :indeterminate="channelState(c.key) === 'some'"
+              density="compact"
+              class="toggle-all"
+              :aria-label="`${c.name}：所有类型开关`"
+              @update:model-value="toggleChannel(c.key)"
+            />
+            <div class="channel-label">
+              <span class="channel-name">
+                <v-icon :icon="channelIcon(c.key)" size="14" />
+                {{ c.name }}
+                <v-icon v-if="!c.configured" icon="circle-alert" size="13" color="warning" />
+              </span>
+              <span
+                v-if="testResults[c.key]"
+                class="test-result"
+                :class="testResults[c.key].ok ? 'test-result--ok' : 'test-result--fail'"
+              >
+                {{ testResults[c.key].ok ? '✓' : '✗' }} {{ testResults[c.key].text }}
+              </span>
+              <span v-else class="channel-hint">
+                {{ c.configured ? (c.supportsDirectDelivery ? '可按人投递' : '单一接收人') : '未配置' }}
+              </span>
+            </div>
+            <v-btn
+              variant="outlined"
+              size="small"
+              prepend-icon="send"
+              :loading="testingChannel === c.key"
+              :disabled="!c.configured || (!!testingChannel && testingChannel !== c.key)"
+              @click="testChannel(c.key)"
+            >
+              测试
+            </v-btn>
+          </div>
+        </div>
+      </v-card>
 
       <v-progress-linear v-if="loading" indeterminate color="primary" />
 
@@ -31,22 +99,31 @@
       <div class="card-content">
         <div class="card-top">
           <div class="card-title-row">
-            <v-icon class="card-title-icon" icon="bell" size="18" />
+            <v-checkbox-btn
+              :model-value="typeState(t.code) === 'all'"
+              :indeterminate="typeState(t.code) === 'some'"
+              density="compact"
+              class="toggle-all"
+              :aria-label="`${t.label}：整组开关`"
+              @update:model-value="toggleType(t.code)"
+            />
             <span class="card-title">{{ t.label }}</span>
-          </div>
-          <div class="type-toggle">
-            <v-btn variant="text" size="x-small" @click="toggleType(t.code, true)">全开</v-btn>
-            <v-btn variant="text" size="x-small" @click="toggleType(t.code, false)">全关</v-btn>
+            <v-chip v-if="t.urgent" size="x-small" color="warning" variant="tonal" label>高优先级</v-chip>
           </div>
         </div>
+        <div class="type-desc">{{ t.description }}</div>
 
-        <div v-for="c in channels" :key="c.key" class="channel-row">
+        <div
+          v-for="c in visibleChannels"
+          :key="c.key"
+          class="channel-row"
+          :class="{ 'channel-row--dirty': isCellDirty(t.code, c.key), 'channel-row--off': !c.configured }"
+        >
           <div class="channel-label">
-            <span>
+            <span class="channel-name">
+              <v-icon :icon="channelIcon(c.key)" size="14" />
               {{ c.name }}
-              <v-icon v-if="!c.configured" icon="circle-alert" size="13" color="warning" />
             </span>
-            <span v-if="!c.supportsDirectDelivery" class="channel-hint">单一接收人</span>
           </div>
           <template v-if="cellOf(t.code, c.key)">
             <v-select
@@ -74,27 +151,33 @@
     <template #foot>
       <p class="footer-note">
         「仅订阅人」在通知没有归属人时（系统告警、历史订阅）会回退给该渠道的默认接收人，不会丢失。
+        「测试」不受开关影响，直接向该渠道的默认接收人发一条测试消息。
+        「高优先级」的通知在 Bark 上会响铃、在 Gotify 上会弹窗。
       </p>
     </template>
   </MobileListPage>
 </template>
 
 <script setup lang="ts">
-import { useNotifyRoute, RECIPIENT_SCOPES } from '@/composables/useNotifyRoute'
+import { useNotifyRoute, RECIPIENT_SCOPES, channelIcon } from '@/composables/useNotifyRoute'
 import MobileListPage from '@/components/mobile/MobileListPage.vue'
 import { useMobilePageAction } from '@/composables/useMobilePageAction'
 
 const {
-  loading, saving, types, channels,
-  cellOf, load, save, toggleType, unconfiguredChannels
+  loading, saving, types, cellOf, reload, save,
+  dirtyCount, isDirty, isCellDirty,
+  unconfiguredChannels, showUnconfigured, canHideUnconfigured, visibleChannels,
+  channelState, typeState, toggleChannel, toggleType,
+  testingChannel, testResults, testChannel,
+  configPath, goConfig
 } = useNotifyRoute()
 
 // 保存并在悬浮底栏右侧：这页是「通知类型 × 渠道」的长列表，改完最底下几项后
 // 原先要滚回顶部才点得到保存。「重新加载」刻意留在顶部——它会丢掉未保存的修改，
-// 不能放在一点就触发的位置
+// 不能放在一点就触发的位置（有改动时它还会先确认）
 useMobilePageAction(() => ({
   icon: 'save',
-  label: '保存通知路由',
+  label: isDirty.value ? `保存通知路由（${dirtyCount.value} 处未保存）` : '保存通知路由',
   loading: saving.value,
   onClick: () => save()
 }))
@@ -105,9 +188,27 @@ useMobilePageAction(() => ({
   margin-bottom: 10px;
 }
 
-.type-toggle {
+.notice-actions {
   display: flex;
-  gap: 2px;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 4px 0 0 -8px;
+}
+
+.dirty-hint {
+  align-self: center;
+  font-size: var(--osr-fs-sm);
+  color: var(--osr-warning);
+}
+
+.toggle-all {
+  flex: none;
+}
+
+.type-desc {
+  font-size: var(--osr-fs-xs);
+  line-height: 1.5;
+  color: var(--osr-text-secondary);
 }
 
 .channel-row {
@@ -116,6 +217,15 @@ useMobilePageAction(() => ({
   gap: 10px;
   padding: 8px 0;
   border-top: 1px solid var(--osr-border-light);
+  transition: background-color var(--osr-transition-fast);
+}
+
+.channel-row--dirty {
+  background: var(--osr-primary-subtle);
+}
+
+.channel-row--off {
+  opacity: 0.55;
 }
 
 .channel-label {
@@ -123,13 +233,33 @@ useMobilePageAction(() => ({
   min-width: 0;
   display: flex;
   flex-direction: column;
-  font-size: 13px;
+  font-size: var(--osr-fs-base);
   color: var(--osr-text-primary);
 }
 
+.channel-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .channel-hint {
-  font-size: 11px;
+  font-size: var(--osr-fs-xs);
   color: var(--osr-text-secondary);
+}
+
+/* 失败原因要读得全（token 错了还是接收人不对），手机上没有 title 悬浮可看，允许折行 */
+.test-result {
+  font-size: var(--osr-fs-xs);
+  word-break: break-all;
+}
+
+.test-result--ok {
+  color: var(--osr-success);
+}
+
+.test-result--fail {
+  color: var(--osr-error);
 }
 
 .channel-scope {
@@ -144,7 +274,7 @@ useMobilePageAction(() => ({
 
 .footer-note {
   margin: 12px 4px 0;
-  font-size: 12px;
+  font-size: var(--osr-fs-sm);
   line-height: 1.7;
   color: var(--osr-text-secondary);
 }

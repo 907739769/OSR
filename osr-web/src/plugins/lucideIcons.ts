@@ -35,11 +35,11 @@ import {
   Network, Option, Palette, PanelLeftClose, Paperclip, Pause,
   Pencil, Pipette, Play, Plug, Plus, RefreshCw, Regex, Replace,
   Rss, Save, ScanSearch, ScrollText, Search, Send,
-  Server, Settings, Settings2, ShieldCheck, SlidersHorizontal, Space,
+  Server, Settings, Settings2, ShieldCheck, SlidersHorizontal, Smartphone, Space,
   Square, SquareArrowUp, SquareCheck, SquareMinus, SquarePen, Star,
   StarHalf, Stethoscope, Sun, SunMoon, TextCursorInput, Timer,
   Trash2, TriangleAlert, Tv, User, UserRoundX, UserX,
-  Video, Volume, Volume1, Volume2, VolumeX, WandSparkles,
+  Video, Volume, Volume1, Volume2, VolumeX, WandSparkles, Webhook,
   Wrench, X, Zap, ZoomIn
 } from 'lucide-vue-next'
 
@@ -199,6 +199,7 @@ const icons: Record<string, Component> = {
   'settings-2': Settings2,
   'shield-check': ShieldCheck,
   'sliders-horizontal': SlidersHorizontal,
+  'smartphone': Smartphone,
   'space': Space,
   'square': Square,
   'square-arrow-up': SquareArrowUp,
@@ -224,6 +225,7 @@ const icons: Record<string, Component> = {
   'volume-2': Volume2,
   'volume-x': VolumeX,
   'wand-sparkles': WandSparkles,
+  'webhook': Webhook,
   'wrench': Wrench,
   'x': X,
   'zap': Zap,

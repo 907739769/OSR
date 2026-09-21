@@ -4,6 +4,7 @@ import com.osr.openliststrm.config.OpenlistConfig;
 import com.osr.openliststrm.tg.TgSendMsg;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.telegram.telegrambots.meta.exceptions.TelegramApiRequestException;
 import org.springframework.stereotype.Component;
 
 /**
@@ -58,6 +59,25 @@ public class TgNotifier implements INotifier {
             getBot(token, userId).sendMsg(message);
         } catch (Exception e) {
             log.warn("Telegram 通知发送失败：{}", e.getMessage());
+        }
+    }
+
+    @Override
+    public String sendTest(String message) {
+        String token = config.getOpenListTgToken();
+        String userId = config.getOpenListTgUserId();
+        if (StringUtils.isAnyBlank(token, userId)) {
+            return "Telegram 未配置 Bot Token 或用户 ID";
+        }
+        try {
+            getBot(token, userId).sendMsgOrThrow(message);
+            return null;
+        } catch (TelegramApiRequestException e) {
+            // getMessage() 只有一句 "Error sending message"，真正有用的
+            // （Unauthorized / chat not found）在 apiResponse 里
+            return "Telegram 发送失败：[" + e.getErrorCode() + "] " + e.getApiResponse();
+        } catch (Exception e) {
+            return "Telegram 发送失败：" + e.getMessage();
         }
     }
 

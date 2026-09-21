@@ -56,14 +56,31 @@ public class BarkNotifier implements INotifier {
 
     @Override
     public void send(NotificationType type, String message) {
-        String base = config.getNotifyBarkUrl();
-        if (StringUtils.isBlank(base) || StringUtils.isBlank(message)) {
+        if (StringUtils.isBlank(config.getNotifyBarkUrl()) || StringUtils.isBlank(message)) {
             return;
+        }
+        String reason = deliver(type, message);
+        if (reason != null) {
+            log.warn("Bark 通知{}", reason);
+        }
+    }
+
+    @Override
+    public String sendTest(String message) {
+        String reason = deliver(NotificationType.GENERAL, message);
+        return reason == null ? null : "Bark " + reason;
+    }
+
+    /** @return null 表示成功，否则是失败原因 */
+    private String deliver(NotificationType type, String message) {
+        String base = config.getNotifyBarkUrl();
+        if (StringUtils.isBlank(base)) {
+            return "未配置推送地址";
         }
         HttpUrl parsed = HttpUrl.parse(StringUtils.removeEnd(base.trim(), "/"));
         if (parsed == null) {
-            log.warn("Bark 推送地址不是合法 URL，已跳过：{}", base);
-            return;
+            // 不打地址原文：Bark 的 Key 就在路径里，打出来等于把推送凭据写进日志
+            return "推送地址不是合法 URL，已跳过";
         }
         // 用 addPathSegment 而不是字符串拼接：消息里的 / # ? 会被正确转义，
         // 否则一条带路径的通知（"复制失败 /电影/xxx"）会把 URL 结构撑断
@@ -82,11 +99,9 @@ public class BarkNotifier implements INotifier {
         HttpUrl url = builder.build();
         Request request = new Request.Builder().url(url).get().build();
         try (Response response = httpClient.newCall(request).execute()) {
-            if (!response.isSuccessful()) {
-                log.warn("Bark 通知发送失败，HTTP {}", response.code());
-            }
+            return response.isSuccessful() ? null : "发送失败，HTTP " + response.code();
         } catch (IOException e) {
-            log.warn("Bark 通知发送异常：{}", e.getMessage());
+            return "发送异常：" + e.getMessage();
         }
     }
 

@@ -6,8 +6,18 @@
       desc="配置每种通知发送到哪些渠道、发给谁。渠道本身的地址与密钥在「参数设置」里配"
     >
       <template #actions>
-        <v-btn variant="outlined" prepend-icon="refresh-cw" :disabled="loading" @click="load">重新加载</v-btn>
-        <v-btn color="primary" prepend-icon="save" :loading="saving" @click="save">保存</v-btn>
+        <span v-if="isDirty" class="dirty-hint">{{ dirtyCount }} 处未保存</span>
+        <v-btn variant="outlined" prepend-icon="refresh-cw" :disabled="loading" @click="reload">重新加载</v-btn>
+        <v-btn
+          color="primary"
+          variant="flat"
+          prepend-icon="save"
+          :loading="saving"
+          :disabled="!isDirty"
+          @click="save"
+        >
+          保存
+        </v-btn>
       </template>
     </PageHeader>
 
@@ -18,7 +28,25 @@
       density="comfortable"
       class="notice"
     >
-      以下渠道尚未配置，即使在这里开启也不会发送：{{ unconfiguredChannels.map(c => c.name).join('、') }}
+      <div class="notice-body">
+        <span>
+          以下渠道尚未配置，即使在这里开启也不会发送：{{ unconfiguredChannels.map(c => c.name).join('、') }}
+          <template v-if="canHideUnconfigured && !showUnconfigured">（已收起）</template>
+        </span>
+        <span class="notice-actions">
+          <v-btn
+            v-if="canHideUnconfigured"
+            variant="text"
+            size="small"
+            @click="showUnconfigured = !showUnconfigured"
+          >
+            {{ showUnconfigured ? '收起未配置的渠道' : '显示未配置的渠道' }}
+          </v-btn>
+          <v-btn v-if="configPath" variant="text" size="small" append-icon="arrow-right" @click="goConfig">
+            去参数设置
+          </v-btn>
+        </span>
+      </div>
     </v-alert>
 
     <v-card class="table-card">
@@ -29,17 +57,49 @@
           <thead>
             <tr>
               <th class="col-type">通知类型</th>
-              <th v-for="c in channels" :key="c.key" class="col-channel">
+              <th
+                v-for="c in visibleChannels"
+                :key="c.key"
+                class="col-channel"
+                :class="{ 'col-channel--off': !c.configured }"
+              >
                 <div class="channel-head">
                   <span class="channel-name">
+                    <v-icon :icon="channelIcon(c.key)" size="16" />
                     {{ c.name }}
                     <v-icon v-if="!c.configured" icon="circle-alert" size="14" color="warning" />
                   </span>
-                  <span v-if="!c.supportsDirectDelivery" class="channel-hint">单一接收人</span>
-                  <div class="channel-toggle">
-                    <v-btn variant="text" size="x-small" @click="toggleChannel(c.key, true)">全开</v-btn>
-                    <v-btn variant="text" size="x-small" @click="toggleChannel(c.key, false)">全关</v-btn>
+                  <span class="channel-hint">
+                    {{ c.configured ? (c.supportsDirectDelivery ? '可按人投递' : '单一接收人') : '未配置' }}
+                  </span>
+                  <div class="channel-tools">
+                    <v-checkbox-btn
+                      :model-value="channelState(c.key) === 'all'"
+                      :indeterminate="channelState(c.key) === 'some'"
+                      density="compact"
+                      label="整列"
+                      class="toggle-all"
+                      @update:model-value="toggleChannel(c.key)"
+                    />
+                    <v-btn
+                      variant="text"
+                      size="x-small"
+                      prepend-icon="send"
+                      :loading="testingChannel === c.key"
+                      :disabled="!c.configured || (!!testingChannel && testingChannel !== c.key)"
+                      @click="testChannel(c.key)"
+                    >
+                      测试
+                    </v-btn>
                   </div>
+                  <span
+                    v-if="testResults[c.key]"
+                    class="test-result"
+                    :class="testResults[c.key].ok ? 'test-result--ok' : 'test-result--fail'"
+                    :title="testResults[c.key].text"
+                  >
+                    {{ testResults[c.key].ok ? '✓' : '✗' }} {{ testResults[c.key].text }}
+                  </span>
                 </div>
               </th>
             </tr>
@@ -47,14 +107,30 @@
           <tbody>
             <tr v-for="t in types" :key="t.code">
               <td class="col-type">
-                <div class="type-name">{{ t.label }}</div>
-                <code class="type-code">{{ t.code }}</code>
-                <div class="type-toggle">
-                  <v-btn variant="text" size="x-small" @click="toggleType(t.code, true)">全开</v-btn>
-                  <v-btn variant="text" size="x-small" @click="toggleType(t.code, false)">全关</v-btn>
+                <div class="type-head">
+                  <v-checkbox-btn
+                    :model-value="typeState(t.code) === 'all'"
+                    :indeterminate="typeState(t.code) === 'some'"
+                    density="compact"
+                    class="toggle-all"
+                    :aria-label="`${t.label}：整行开关`"
+                    @update:model-value="toggleType(t.code)"
+                  />
+                  <span class="type-name">{{ t.label }}</span>
+                  <v-tooltip v-if="t.urgent" location="top" text="Bark 以「时效性通知」响铃、Gotify 以高优先级弹窗；其余渠道无区别">
+                    <template #activator="{ props: tip }">
+                      <v-chip v-bind="tip" size="x-small" color="warning" variant="tonal" label>高优先级</v-chip>
+                    </template>
+                  </v-tooltip>
                 </div>
+                <div class="type-desc">{{ t.description }}</div>
               </td>
-              <td v-for="c in channels" :key="c.key" class="cell">
+              <td
+                v-for="c in visibleChannels"
+                :key="c.key"
+                class="cell"
+                :class="{ 'cell--dirty': isCellDirty(t.code, c.key), 'col-channel--off': !c.configured }"
+              >
                 <template v-if="cellOf(t.code, c.key)">
                   <v-switch
                     v-model="cellOf(t.code, c.key)!.enabled"
@@ -87,6 +163,9 @@
         <p>
           标注「单一接收人」的渠道只有一个全局收件地址，无法按人投递，因此不提供收件人选项。
         </p>
+        <p>
+          「测试」不受上面的开关影响，直接向该渠道的默认接收人发一条测试消息。
+        </p>
       </div>
     </v-card>
   </div>
@@ -94,17 +173,40 @@
 
 <script setup lang="ts">
 import PageHeader from '@/components/PageHeader.vue'
-import { useNotifyRoute, RECIPIENT_SCOPES } from '@/composables/useNotifyRoute'
+import { useNotifyRoute, RECIPIENT_SCOPES, channelIcon } from '@/composables/useNotifyRoute'
 
 const {
-  loading, saving, types, channels,
-  cellOf, load, save, toggleChannel, toggleType, unconfiguredChannels
+  loading, saving, types, cellOf, reload, save,
+  dirtyCount, isDirty, isCellDirty,
+  unconfiguredChannels, showUnconfigured, canHideUnconfigured, visibleChannels,
+  channelState, typeState, toggleChannel, toggleType,
+  testingChannel, testResults, testChannel,
+  configPath, goConfig
 } = useNotifyRoute()
 </script>
 
 <style scoped>
 .notice {
   margin-bottom: 12px;
+}
+
+.notice-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+
+.notice-actions {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.dirty-hint {
+  align-self: center;
+  font-size: var(--osr-fs-sm);
+  color: var(--osr-warning);
 }
 
 /* 渠道多起来后横向放不下，让表格自己滚动而不是把整页撑出横向滚动条 */
@@ -127,17 +229,23 @@ const {
 
 .matrix thead th {
   background: var(--osr-bg-page);
-  font-size: 13px;
+  font-size: var(--osr-fs-base);
   font-weight: 600;
   white-space: nowrap;
 }
 
 .col-type {
-  min-width: 150px;
+  min-width: 220px;
+  max-width: 300px;
 }
 
 .col-channel {
-  min-width: 150px;
+  min-width: 160px;
+}
+
+/* 未配置的渠道展开时淡化：开关照样能改（先配好路由再去填密钥是正常顺序），但一眼看得出它现在不发 */
+.col-channel--off {
+  opacity: 0.55;
 }
 
 .channel-head {
@@ -149,35 +257,72 @@ const {
 .channel-name {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   color: var(--osr-text-primary);
 }
 
 .channel-hint {
-  font-size: 11px;
+  font-size: var(--osr-fs-xs);
   font-weight: 400;
   color: var(--osr-text-secondary);
 }
 
-.channel-toggle,
-.type-toggle {
+.channel-tools {
   display: flex;
-  gap: 2px;
+  align-items: center;
+  gap: 4px;
+  margin-left: -8px;
+}
+
+.toggle-all {
+  flex: none;
+  font-weight: 400;
+}
+
+.test-result {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: var(--osr-fs-xs);
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.test-result--ok {
+  color: var(--osr-success);
+}
+
+.test-result--fail {
+  color: var(--osr-error);
+}
+
+.type-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin-left: -8px;
 }
 
 .type-name {
-  font-size: 14px;
+  font-size: var(--osr-fs-md);
   color: var(--osr-text-primary);
 }
 
-.type-code {
-  font-size: 11px;
+.type-desc {
+  margin-top: 2px;
+  font-size: var(--osr-fs-xs);
+  line-height: 1.5;
   color: var(--osr-text-secondary);
 }
 
 .cell {
-  min-width: 150px;
+  min-width: 160px;
+  transition: background-color var(--osr-transition-fast);
+}
+
+/* 改过但还没保存的格子：与「N 处未保存」对上号，用户知道那几处在哪 */
+.cell--dirty {
+  background: var(--osr-primary-subtle);
 }
 
 .cell-switch {
@@ -190,7 +335,7 @@ const {
 
 .matrix-footer {
   padding: 12px 16px;
-  font-size: 12px;
+  font-size: var(--osr-fs-sm);
   line-height: 1.7;
   color: var(--osr-text-secondary);
 

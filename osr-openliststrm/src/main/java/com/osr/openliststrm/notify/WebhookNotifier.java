@@ -51,9 +51,26 @@ public class WebhookNotifier implements INotifier {
 
     @Override
     public void send(NotificationType type, String message) {
+        if (StringUtils.isBlank(config.getNotifyWebhookUrl())) {
+            return;
+        }
+        String reason = deliver(type, message);
+        if (reason != null) {
+            log.warn("Webhook 通知{}", reason);
+        }
+    }
+
+    @Override
+    public String sendTest(String message) {
+        String reason = deliver(NotificationType.GENERAL, message);
+        return reason == null ? null : "Webhook " + reason;
+    }
+
+    /** @return null 表示成功，否则是失败原因 */
+    private String deliver(NotificationType type, String message) {
         String url = config.getNotifyWebhookUrl();
         if (StringUtils.isBlank(url)) {
-            return;
+            return "未配置地址";
         }
         // text 是纯文本：文案本身是按 Telegram 的 HTML parse_mode 写的，直接透传的话
         // 下游收到的是带标签、且 & 已被转成 &amp; 的串（见 WeComNotifier#toPlainText）。
@@ -63,16 +80,20 @@ public class WebhookNotifier implements INotifier {
         body.put("text", WeComNotifier.toPlainText(message));
         body.put("type", type.name());
         body.put("typeLabel", type.getLabel());
-        Request request = new Request.Builder()
-                .url(url)
-                .post(RequestBody.create(JSON_MEDIA_TYPE, body.toJSONString()))
-                .build();
+        Request request;
+        try {
+            request = new Request.Builder()
+                    .url(url)
+                    .post(RequestBody.create(JSON_MEDIA_TYPE, body.toJSONString()))
+                    .build();
+        } catch (IllegalArgumentException e) {
+            // 不打地址原文：不少 Webhook 服务把密钥放在 URL 里
+            return "地址不是合法 URL，已跳过";
+        }
         try (Response response = httpClient.newCall(request).execute()) {
-            if (!response.isSuccessful()) {
-                log.warn("Webhook 通知发送失败，HTTP {}", response.code());
-            }
+            return response.isSuccessful() ? null : "发送失败，HTTP " + response.code();
         } catch (IOException e) {
-            log.warn("Webhook 通知发送异常：{}", e.getMessage());
+            return "发送异常：" + e.getMessage();
         }
     }
 

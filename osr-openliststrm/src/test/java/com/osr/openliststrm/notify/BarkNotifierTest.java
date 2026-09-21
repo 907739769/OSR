@@ -189,4 +189,33 @@ class BarkNotifierTest {
         assertEquals("BARK", notifier.channelKey());
         assertFalse(notifier.supportsDirectDelivery());
     }
+
+    // ---------- 发送测试：失败要如实带回原因 ----------
+
+    @Test
+    void 发送测试_成功返回null() {
+        givenUrl("/mykey");
+        server.enqueue(new MockResponse().setResponseCode(200));
+
+        assertNull(notifier.sendTest("测试"));
+        assertEquals(1, server.getRequestCount());
+    }
+
+    @Test
+    void 发送测试_服务端报错_带回HTTP状态码() {
+        givenUrl("/mykey");
+        server.enqueue(new MockResponse().setResponseCode(400));
+
+        String reason = notifier.sendTest("测试");
+        assertTrue(reason != null && reason.contains("HTTP 400"), reason);
+    }
+
+    /** Bark 的 Key 就在地址路径里，失败原因（会进日志）不能带出地址原文 */
+    @Test
+    void 发送测试_地址非法_原因里不带地址原文() {
+        when(config.getNotifyBarkUrl()).thenReturn("not a url/secretKey");
+
+        String reason = notifier.sendTest("测试");
+        assertTrue(reason != null && !reason.contains("secretKey"), reason);
+    }
 }

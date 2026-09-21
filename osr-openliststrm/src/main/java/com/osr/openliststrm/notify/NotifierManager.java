@@ -53,7 +53,8 @@ public class NotifierManager {
                 }
                 notifier.send(type, message, applyScope(route, origin, notifier));
             } catch (Exception e) {
-                log.warn("通知渠道[{}]发送失败：{}", notifier.getClass().getSimpleName(), e.getMessage());
+                // 渠道实现按契约自己吞异常，走到这里的是契约之外的意外（查路由、改写目标出错），堆栈要留
+                log.warn("通知渠道[{}]发送[{}]失败：{}", notifier.channelKey(), type, e.getMessage(), e);
             }
         }
     }

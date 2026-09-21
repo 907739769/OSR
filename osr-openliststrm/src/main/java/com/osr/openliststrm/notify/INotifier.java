@@ -4,9 +4,10 @@ package com.osr.openliststrm.notify;
  * 通知渠道抽象。新增一个通知渠道时，只需新增一个实现本接口的 {@code @Component}，
  * Spring 会自动被 {@link NotifierManager} 收集，不需要改动任何分发逻辑或调用点。
  * <p>
- * 契约：实现类必须自行判断"是否已配置"（未配置时 no-op，不发送）以及"该类型是否被
- * 本渠道启用"（见各实现类的 {@code openlist.notify.*.types} 配置），
- * 且绝不能向外抛出异常——发送失败只记录日志，不能影响调用方，也不能影响其余渠道。
+ * 契约：实现类必须自行判断"是否已配置"（未配置时 no-op，不发送），且 {@code send}
+ * 绝不能向外抛出异常——发送失败只记录日志，不能影响调用方，也不能影响其余渠道。
+ * "该类型要不要走本渠道、发给谁"<b>不归渠道管</b>，由 {@link NotifierManager} 查
+ * {@code notify_route} 决定（早期各渠道自己读的 {@code openlist.notify.*.types} 已删除）。
  *
  * @author Jack
  */
@@ -41,7 +42,7 @@ public interface INotifier {
 
     /**
      * 发送一条通知消息。
-     * 实现类必须保证：未配置（如 token/url 为空）或该类型未被本渠道启用时静默跳过；
+     * 实现类必须保证：未配置（如 token/url 为空）时静默跳过；
      * 发送失败时内部吞掉异常，只记录 warn 日志。
      */
     void send(NotificationType type, String message);
@@ -58,4 +59,16 @@ public interface INotifier {
     default void send(NotificationType type, String message, NotifyTarget target) {
         send(type, message);
     }
+
+    /**
+     * 发一条测试消息，<b>如实返回结果</b>，供配置页的「发送测试」使用。
+     * <p>
+     * 与 {@link #send} 的区别只在失败时：{@code send} 吞掉失败只记日志（通知不能影响业务），
+     * 这里要把原因带回给页面——「发送失败」四个字不帮用户判断是 token 错了还是网络不通。
+     * 调用前已确认 {@link #isConfigured()}。支持分人的渠道发给默认接收人。
+     * </p>
+     *
+     * @return null 表示发送成功，否则是给用户看的失败原因
+     */
+    String sendTest(String message);
 }

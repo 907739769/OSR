@@ -14,15 +14,15 @@ package com.osr.openliststrm.notify;
 public enum NotificationType {
 
     /** 未分类的历史通知（索引器告警、复制任务失败/超时等旧调用点），过渡期默认值 */
-    GENERAL("系统告警"),
+    GENERAL("系统告警", "索引器连续失败、复制任务失败或超时等与具体订阅无关的故障"),
     /** 订阅命中候选种子，已推送下载器 */
-    SUBSCRIPTION_HIT("订阅命中"),
+    SUBSCRIPTION_HIT("订阅命中", "订阅匹配到候选种子并已推送到下载器"),
     /** 下载完成 */
-    DOWNLOAD_COMPLETE("下载完成"),
+    DOWNLOAD_COMPLETE("下载完成", "下载器里的种子下载完成"),
     /** 下载失败 */
-    DOWNLOAD_FAILED("下载失败"),
+    DOWNLOAD_FAILED("下载失败", "种子下载失败或被判定为僵尸种，附失败原因"),
     /** Emby/Jellyfin 对账检测到新集数入库 */
-    EMBY_LIBRARY_SYNC("媒体库入库"),
+    EMBY_LIBRARY_SYNC("媒体库入库", "媒体服务器对账发现新的剧集已入库"),
     /**
      * H&amp;R 保种状态变化：达标可安全删除、或达标前种子就消失了。
      * <p>
@@ -31,7 +31,7 @@ public enum NotificationType {
      * 一块能腾出来的磁盘，以及一份能卸下的保种义务。
      * </p>
      */
-    HR_STATE("H&R 保种"),
+    HR_STATE("H&R 保种", "H&R 做种达标可以安全删种，或达标前种子就消失了"),
     /**
      * 补搜连续落空。
      * <p>
@@ -39,7 +39,7 @@ public enum NotificationType {
      * 的事，处置方向也不同（去调过滤规则或关键词），混在一起时用户想单独关掉它做不到。
      * </p>
      */
-    SUBSCRIPTION_SEARCH("补搜落空"),
+    SUBSCRIPTION_SEARCH("补搜落空", "开了自动补搜的订阅连续多次搜不到可用资源"),
     /**
      * 文件已下好、却迟迟没进媒体库。
      * <p>
@@ -48,7 +48,7 @@ public enum NotificationType {
      * 卡的是上传网盘或 STRM/刮削那一段，重下解决不了问题。
      * </p>
      */
-    LIBRARY_STUCK("入库卡住"),
+    LIBRARY_STUCK("入库卡住", "文件已下好，却卡在上传网盘或 STRM/刮削，迟迟没进媒体库"),
     /**
      * 有集播出多日仍未匹配到资源。
      * <p>
@@ -63,17 +63,30 @@ public enum NotificationType {
      * 这条是"根本没下到"，处置方向是去看搜索链路。
      * </p>
      */
-    EPISODE_OVERDUE("缺集逾期");
+    EPISODE_OVERDUE("缺集逾期", "已播出多日仍未匹配到资源的集，每日聚合提醒一次");
 
     private final String label;
+    private final String description;
 
-    NotificationType(String label) {
+    NotificationType(String label, String description) {
         this.label = label;
+        this.description = description;
     }
 
     /** 页面展示名。放在枚举上而不是前端字典：新增类型时只改一处，前端自动跟上 */
     public String getLabel() {
         return label;
+    }
+
+    /**
+     * 一句话说明「什么时候会收到这类通知」，配置页展示在类型名下方。
+     * <p>
+     * 页面原先在这里显示枚举名（{@code EPISODE_OVERDUE}），那是给落库用的，不是给人看的；
+     * 而几个相近类型（补搜落空 / 缺集逾期 / 入库卡住）的区别恰恰决定了用户该关哪一个。
+     * </p>
+     */
+    public String getDescription() {
+        return description;
     }
 
     /**

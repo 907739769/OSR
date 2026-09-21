@@ -74,6 +74,11 @@ public class WeComNotifier implements INotifier {
         }
     }
 
+    @Override
+    public String sendTest(String message) {
+        return apiClient.sendTextDetailed(config.getWeComToUser(), toPlainText(message));
+    }
+
     /**
      * 把投递目标翻译成企微的 touser 参数（多个成员用 | 分隔）。
      * <p>

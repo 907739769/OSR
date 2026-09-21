@@ -18,6 +18,7 @@ import java.io.IOException;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
 
@@ -98,5 +99,34 @@ class WebhookNotifierTest {
         when(config.getNotifyWebhookUrl()).thenReturn(url);
 
         assertDoesNotThrow(() -> notifier.send(NotificationType.GENERAL, "hello"));
+    }
+
+    // ---------- 发送测试：失败要如实带回原因 ----------
+
+    @Test
+    void 发送测试_成功返回null() {
+        when(config.getNotifyWebhookUrl()).thenReturn(server.url("/hook").toString());
+        server.enqueue(new MockResponse().setResponseCode(204));
+
+        assertNull(notifier.sendTest("测试"));
+    }
+
+    @Test
+    void 发送测试_服务端报错_带回HTTP状态码() {
+        when(config.getNotifyWebhookUrl()).thenReturn(server.url("/hook").toString());
+        server.enqueue(new MockResponse().setResponseCode(502));
+
+        String reason = notifier.sendTest("测试");
+        assertTrue(reason != null && reason.contains("HTTP 502"), reason);
+    }
+
+    /** 原先非法地址会让 Request.Builder 抛 IllegalArgumentException 穿出 send，违反「不得抛异常」的契约 */
+    @Test
+    void 地址非法_send不抛异常_发送测试给出原因() {
+        when(config.getNotifyWebhookUrl()).thenReturn("not a url?token=secret");
+
+        assertDoesNotThrow(() -> notifier.send(NotificationType.GENERAL, "hi"));
+        String reason = notifier.sendTest("测试");
+        assertTrue(reason != null && !reason.contains("secret"), reason);
     }
 }

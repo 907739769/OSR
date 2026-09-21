@@ -7,17 +7,19 @@ import java.util.List;
  *
  * @param types    通知类型清单（后端枚举是唯一真相，前端不要再抄一份）
  * @param channels 渠道清单，含「是否支持分人」「是否已配置」这两个页面要用的能力位
- * @param routes   现有路由行
+ * @param routes   完整的「类型 × 渠道」路由，表里缺行的格子已由后端按实际发送行为补上默认值
  *
  * @author Jack
  */
 public record NotifyMatrix(List<TypeMeta> types, List<ChannelMeta> channels, List<RouteItem> routes) {
 
     /**
-     * @param code  枚举名，落库用
-     * @param label 中文名，展示用
+     * @param code        枚举名，落库用
+     * @param label       中文名，展示用
+     * @param description 什么时候会收到这类通知
+     * @param urgent      是否按高优先级推送（Bark 响铃、Gotify 弹窗），见 {@code NotificationType#urgent()}
      */
-    public record TypeMeta(String code, String label) {
+    public record TypeMeta(String code, String label, String description, boolean urgent) {
     }
 
     /**

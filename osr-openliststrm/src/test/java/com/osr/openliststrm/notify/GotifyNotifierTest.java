@@ -19,6 +19,7 @@ import java.io.IOException;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
@@ -159,5 +160,25 @@ class GotifyNotifierTest {
     void 渠道元信息_token对应应用而非用户所以不支持分人() {
         assertEquals("GOTIFY", notifier.channelKey());
         assertFalse(notifier.supportsDirectDelivery());
+    }
+
+    // ---------- 发送测试：失败要如实带回原因 ----------
+
+    @Test
+    void 发送测试_成功返回null() {
+        givenConfigured();
+        server.enqueue(new MockResponse().setResponseCode(200));
+
+        assertNull(notifier.sendTest("测试"));
+    }
+
+    /** 401 几乎总是 token 填错，原因里直接点明，省得用户去翻 Gotify 文档 */
+    @Test
+    void 发送测试_401_提示token无效() {
+        givenConfigured();
+        server.enqueue(new MockResponse().setResponseCode(401));
+
+        String reason = notifier.sendTest("测试");
+        assertTrue(reason != null && reason.contains("Token"), reason);
     }
 }
