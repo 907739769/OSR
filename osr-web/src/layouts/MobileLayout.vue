@@ -28,8 +28,13 @@
   <v-main>
     <div ref="contentRef" class="mobile-content">
       <!-- 大标题：随内容一起滚走，滚过之后顶栏里那个小标题才淡入（iOS 的做法）。
-           刻意不做「高度收缩」动画，理由见 mobile-chrome.scss 的 .mobile-bigtitle -->
-      <h1 class="mobile-bigtitle">{{ pageTitle }}</h1>
+           刻意不做「高度收缩」动画，理由见 mobile-chrome.scss 的 .mobile-bigtitle。
+           全站 H5 页面的标题只有这一处（图标 + 标题），页面自己不要再写标题；
+           退回 PC 实现的页面里那个 PageHeader 在移动端只保留操作区，见 PageHeader.vue -->
+      <h1 class="mobile-bigtitle">
+        <span class="mobile-bigtitle-icon"><v-icon :icon="pageIcon" /></span>
+        <span class="mobile-bigtitle-text">{{ pageTitle }}</span>
+      </h1>
 
       <!-- 同 DesktopLayout：原先的 <transition name="fade"> 既没有配套 CSS，
            又会让旧页面残留在新页面下方，这里一并去掉，原因见 DesktopLayout 的注释 -->
@@ -70,6 +75,7 @@ import ThemeSwitch from '@/components/ThemeSwitch.vue'
 import { usePageTransition } from '@/composables/usePageTransition'
 import { useMobileChrome } from '@/composables/useMobileChrome'
 import { useRecentPages } from '@/composables/useRecentPages'
+import { getIconComponent, FALLBACK_ICON } from '@/composables/useMenuIcon'
 
 const route = useRoute()
 const router = useRouter()
@@ -92,6 +98,9 @@ const { action: pageAction } = provideMobilePageChrome()
 const { record } = useRecentPages()
 
 const pageTitle = computed(() => (route.meta?.title as string) || 'OSR')
+// 取菜单配置的图标（sys_menu.icon），与侧边栏/更多面板同一来源；没配的退化成通用图标，
+// 保证每页标题前都有图标、样式一致
+const pageIcon = computed(() => getIconComponent(route.meta?.icon as string) || FALLBACK_ICON)
 
 watch(
   () => route.path,
