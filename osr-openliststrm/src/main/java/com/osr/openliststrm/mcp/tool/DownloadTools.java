@@ -8,6 +8,7 @@ import com.osr.openliststrm.mcp.McpResults;
 import com.osr.openliststrm.mcp.McpToolGroup;
 import com.osr.openliststrm.mcp.McpToolSpec;
 import com.osr.openliststrm.req.BlacklistReq;
+import com.osr.openliststrm.req.PtDownloadRecordQueryReq;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -52,8 +53,13 @@ public class DownloadTools implements McpToolGroup {
                         List.of("PUSHED", "DOWNLOADING", "COMPLETED", "FAILED"))
                 .param("title", "string", "按种子标题模糊筛选")
                 .paging()
-                .handle(args -> records.list(args.getInt("subscriptionId"),
-                        args.getString("state"), args.getString("title")));
+                .handle(args -> {
+                    PtDownloadRecordQueryReq query = new PtDownloadRecordQueryReq();
+                    query.setSubId(args.getInt("subscriptionId"));
+                    query.setState(args.getString("state"));
+                    query.setTitle(args.getString("title"));
+                    return records.list(query);
+                });
     }
 
     private McpToolSpec retryDownload() {

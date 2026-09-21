@@ -12,6 +12,8 @@ import com.osr.openliststrm.mybatisplus.service.IPtDownloaderPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtIndexerPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
+import com.osr.openliststrm.mybatisplus.service.IPtTorrentBlacklistPlusService;
+import com.osr.openliststrm.pt.stats.PtStatsScope;
 import com.osr.openliststrm.pt.subscription.SearchSupplementService;
 import com.osr.openliststrm.pt.subscription.dto.SupplementResult;
 import com.osr.openliststrm.pt.task.dto.BatchRetryResult;
@@ -24,8 +26,12 @@ import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
 import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -46,10 +52,11 @@ class DownloadRecordAdminServiceTest {
     @Mock private IPtDownloaderPlusService downloaderService;
     @Mock private IPtSubscriptionEpisodePlusService episodeService;
     @Mock private SearchSupplementService searchSupplementService;
+    @Mock private IPtTorrentBlacklistPlusService blacklistService;
 
     private DownloadRecordAdminService service() {
         return new DownloadRecordAdminService(recordService, subscriptionService, indexerService,
-                downloaderService, episodeService, searchSupplementService);
+                downloaderService, episodeService, searchSupplementService, blacklistService);
     }
 
     private PtDownloadRecordPlus record(int id, int subId, int episode, String state, Integer indexerId, Integer downloaderId) {
@@ -234,76 +241,59 @@ class DownloadRecordAdminServiceTest {
 
     // ---------- retry 时重置 BLOCKED 集 ----------
 
-    private PtSubscriptionEpisodePlus blockedEpisode(int id, int episode) {
-        PtSubscriptionEpisodePlus ep = new PtSubscriptionEpisodePlus();
-        ep.setId(id);
-        ep.setEpisode(episode);
-        ep.setState("BLOCKED");
-        ep.setFailCount(3);
-        return ep;
-    }
-
     @Test
-    void retry_普通集已熔断BLOCKED_重置回MISSING并清零失败计数再搜索() {
+    void retry_重置BLOCKED集_一条条件更新_置MISSING并清零失败计数() {
         PtDownloadRecordPlus r = record(1, 10, 5, "FAILED", 20, 30);
         when(recordService.getById(1)).thenReturn(r);
         when(subscriptionService.getById(10)).thenReturn(tvSub(10, "某剧", 1, "ACTIVE"));
-        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of(blockedEpisode(500, 5)));
         when(searchSupplementService.supplement(eq(10), eq(5), eq("某剧 S01E05")))
                 .thenReturn(new SupplementResult(true, 1));
 
         service().retry(1);
 
         ArgumentCaptor<PtSubscriptionEpisodePlus> captor = ArgumentCaptor.forClass(PtSubscriptionEpisodePlus.class);
-        verify(episodeService).update(captor.capture(), any(Wrapper.class));
+        ArgumentCaptor<Wrapper> where = ArgumentCaptor.forClass(Wrapper.class);
+        verify(episodeService, times(1)).update(captor.capture(), where.capture());
         assertEquals("MISSING", captor.getValue().getState());
         assertEquals(0, captor.getValue().getFailCount());
+        String sql = where.getValue().getSqlSegment();
+        assertTrue(sql.contains("state"), sql);
+        assertTrue(sql.contains("episode ="), sql);
+        // 不再先 list 再逐条改
+        verify(episodeService, never()).list(any(Wrapper.class));
     }
 
     @Test
-    void retry_季包重试_清空该订阅下所有BLOCKED集() {
+    void retry_季包重试_不限集号清空该订阅下所有BLOCKED集() {
         PtDownloadRecordPlus r = record(1, 10, -1, "FAILED", 20, 30);
         when(recordService.getById(1)).thenReturn(r);
         when(subscriptionService.getById(10)).thenReturn(tvSub(10, "某剧", 1, "ACTIVE"));
-        when(episodeService.list(any(Wrapper.class))).thenReturn(
-                List.of(blockedEpisode(501, 1), blockedEpisode(502, 2)));
         when(searchSupplementService.supplement(eq(10), eq(-1), eq("某剧 S01")))
                 .thenReturn(new SupplementResult(false, 0));
 
         service().retry(1);
 
-        verify(episodeService, org.mockito.Mockito.times(2)).update(any(), any(Wrapper.class));
+        ArgumentCaptor<Wrapper> where = ArgumentCaptor.forClass(Wrapper.class);
+        verify(episodeService, times(1)).update(any(), where.capture());
+        assertFalse(where.getValue().getSqlSegment().contains("episode"), where.getValue().getSqlSegment());
     }
 
     @Test
-    void retry_区间匹配记录_重置区间内所有BLOCKED集() {
+    void retry_区间匹配记录_按区间重置BLOCKED集() {
         // 原下载记录覆盖 S01E01-E02（episode=1, episodeEnd=2），重试时第 2 集也该被解除熔断，不能只重置第 1 集
         PtDownloadRecordPlus r = record(1, 10, 1, "FAILED", 20, 30);
         r.setEpisodeEnd(2);
         when(recordService.getById(1)).thenReturn(r);
         when(subscriptionService.getById(10)).thenReturn(tvSub(10, "某剧", 1, "ACTIVE"));
-        when(episodeService.list(any(Wrapper.class))).thenReturn(
-                List.of(blockedEpisode(500, 1), blockedEpisode(501, 2)));
         when(searchSupplementService.supplement(eq(10), eq(1), eq("某剧 S01E01")))
                 .thenReturn(new SupplementResult(true, 1));
 
         service().retry(1);
 
-        verify(episodeService, org.mockito.Mockito.times(2)).update(any(), any(Wrapper.class));
-    }
-
-    @Test
-    void retry_没有BLOCKED集_不触发重置更新() {
-        PtDownloadRecordPlus r = record(1, 10, 5, "FAILED", 20, 30);
-        when(recordService.getById(1)).thenReturn(r);
-        when(subscriptionService.getById(10)).thenReturn(tvSub(10, "某剧", 1, "ACTIVE"));
-        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of());
-        when(searchSupplementService.supplement(eq(10), eq(5), eq("某剧 S01E05")))
-                .thenReturn(new SupplementResult(true, 1));
-
-        service().retry(1);
-
-        verify(episodeService, never()).update(any(), any(Wrapper.class));
+        ArgumentCaptor<Wrapper> where = ArgumentCaptor.forClass(Wrapper.class);
+        verify(episodeService, times(1)).update(any(), where.capture());
+        String sql = where.getValue().getSqlSegment();
+        assertTrue(sql.contains("episode >=") && sql.contains("episode <="), sql);
     }
 
     // ---------- retryBatch ----------
@@ -361,5 +351,137 @@ class DownloadRecordAdminServiceTest {
         assertEquals(1, result.getTotal());
         assertEquals(0, result.getPushedCount());
         assertEquals(1, result.getSkippedCount());
+    }
+
+    // ---------- 归属 ----------
+
+    private PtSubscriptionPlus owned(int id, Long owner) {
+        PtSubscriptionPlus sub = tvSub(id, "某剧", 1, "ACTIVE");
+        sub.setOwnerUserId(owner);
+        return sub;
+    }
+
+    @Test
+    void canAccess_管理员不查库直接放行() {
+        assertTrue(service().canAccess(1, PtStatsScope.ALL));
+        verify(recordService, never()).getById(anyInt());
+    }
+
+    @Test
+    void canAccess_自己的订阅与公共订阅放行_别人的与已删除订阅拒绝() {
+        PtStatsScope me = PtStatsScope.of(false, 7L);
+        when(recordService.getById(1)).thenReturn(record(1, 10, 5, "FAILED", 20, 30));
+        when(recordService.getById(2)).thenReturn(record(2, 11, 5, "FAILED", 20, 30));
+        when(recordService.getById(3)).thenReturn(record(3, 12, 5, "FAILED", 20, 30));
+        when(recordService.getById(4)).thenReturn(record(4, 13, 5, "FAILED", 20, 30));
+        when(subscriptionService.getById(10)).thenReturn(owned(10, 7L));
+        when(subscriptionService.getById(11)).thenReturn(owned(11, null));
+        when(subscriptionService.getById(12)).thenReturn(owned(12, 8L));
+        when(subscriptionService.getById(13)).thenReturn(null);
+
+        assertTrue(service().canAccess(1, me));
+        assertTrue(service().canAccess(2, me));
+        assertFalse(service().canAccess(3, me));
+        assertFalse(service().canAccess(4, me));
+        assertFalse(service().canAccess(999, me));
+    }
+
+    @Test
+    void filterAccessible_只留下有权操作的记录并保持原顺序() {
+        PtStatsScope me = PtStatsScope.of(false, 7L);
+        when(recordService.listByIds(List.of(3, 1, 2))).thenReturn(List.of(
+                record(1, 10, 5, "FAILED", 20, 30),
+                record(2, 12, 5, "FAILED", 20, 30),
+                record(3, 11, 5, "FAILED", 20, 30)));
+        when(subscriptionService.listByIds(any())).thenReturn(List.of(owned(10, 7L), owned(11, null), owned(12, 8L)));
+
+        assertEquals(List.of(3, 1), service().filterAccessible(List.of(3, 1, 2), me));
+    }
+
+    // ---------- enrich：拉黑标记与接替者 ----------
+
+    @Test
+    void enrich_标出种子与发布组是否已拉黑() {
+        PtDownloadRecordPlus r = record(1, 10, 5, "COMPLETED", 20, 30);
+        r.setGuidHash("h1");
+        r.setTitle("Some.Show.S01E05-GRP");
+        when(subscriptionService.listByIds(List.of(10))).thenReturn(List.of(tvSub(10, "某剧", 1, "ACTIVE")));
+        when(blacklistService.releaseGroupOf("Some.Show.S01E05-GRP")).thenReturn("Grp");
+        when(blacklistService.normalizeReleaseGroup("Grp")).thenReturn("GRP");
+        when(blacklistService.findBlockedValues(eq("GUID"), any())).thenReturn(Set.of("h1"));
+        when(blacklistService.findBlockedValues(eq("RELEASE_GROUP"), any())).thenReturn(Set.of());
+
+        var view = service().enrich(PageResult.of(List.of(r), 1, 1, 10)).getRecords().get(0);
+
+        assertEquals("Grp", view.getReleaseGroup());
+        assertTrue(view.getGuidBlacklisted());
+        assertFalse(view.getReleaseGroupBlacklisted());
+    }
+
+    @Test
+    void enrich_失败记录之后同集有新推送_标出接替者() {
+        PtDownloadRecordPlus failed = record(5, 10, 3, "FAILED", 20, 30);
+        PtDownloadRecordPlus otherEp = record(6, 10, 4, "PUSHED", 20, 30);
+        PtDownloadRecordPlus range = record(8, 10, 2, "COMPLETED", 20, 30);
+        range.setEpisodeEnd(3);
+        PtDownloadRecordPlus sameEp = record(9, 10, 3, "DOWNLOADING", 20, 30);
+        when(subscriptionService.listByIds(List.of(10))).thenReturn(List.of(tvSub(10, "某剧", 1, "ACTIVE")));
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(sameEp, otherEp, range));
+
+        var views = service().enrich(PageResult.of(List.of(failed), 1, 1, 10)).getRecords();
+
+        // 取 id 最小的那条覆盖者：区间 E02-E03 的 #8 早于单集的 #9
+        assertEquals(8, views.get(0).getSupersededById());
+    }
+
+    @Test
+    void enrich_失败的季包不被后续单集当成接替() {
+        PtDownloadRecordPlus failed = record(5, 10, -1, "FAILED", 20, 30);
+        when(subscriptionService.listByIds(List.of(10))).thenReturn(List.of(tvSub(10, "某剧", 1, "ACTIVE")));
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(record(6, 10, 1, "COMPLETED", 20, 30)));
+
+        var views = service().enrich(PageResult.of(List.of(failed), 1, 1, 10)).getRecords();
+
+        assertNull(views.get(0).getSupersededById());
+    }
+
+    @Test
+    void enrich_没有失败记录_不查接替者() {
+        when(subscriptionService.listByIds(List.of(10))).thenReturn(List.of(tvSub(10, "某剧", 1, "ACTIVE")));
+
+        service().enrich(PageResult.of(List.of(record(1, 10, 5, "COMPLETED", 20, 30)), 1, 1, 10));
+
+        verify(recordService, never()).list(any(Wrapper.class));
+    }
+
+    // ---------- 清理 ----------
+
+    @Test
+    void cleanup_保留天数不在白名单_拒绝() {
+        assertThrows(IllegalArgumentException.class, () -> service().cleanup(1));
+        verify(recordService, never()).remove(any(Wrapper.class));
+    }
+
+    @Test
+    void cleanup_条件含终态_保种中除外_未被集引用() {
+        when(recordService.count(any(Wrapper.class))).thenReturn(3L);
+
+        assertEquals(3, service().cleanup(90));
+
+        ArgumentCaptor<Wrapper> where = ArgumentCaptor.forClass(Wrapper.class);
+        verify(recordService).remove(where.capture());
+        String sql = where.getValue().getSqlSegment();
+        assertTrue(sql.contains("state IN"), sql);
+        assertTrue(sql.contains("pushed_time <"), sql);
+        assertTrue(sql.contains("hr_state IS NULL"), sql);
+        assertTrue(sql.contains("NOT EXISTS"), sql);
+    }
+
+    @Test
+    void cleanup_没有可清理的_不发删除() {
+        when(recordService.count(any(Wrapper.class))).thenReturn(0L);
+
+        assertEquals(0, service().cleanup(180));
+        verify(recordService, never()).remove(any(Wrapper.class));
     }
 }

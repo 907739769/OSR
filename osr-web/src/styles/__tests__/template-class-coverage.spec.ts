@@ -45,7 +45,7 @@ const TEST_HOOK_ONLY = new Set([
   'batch-pause-btn', 'batch-resume-btn', 'batch-delete-btn',
   'batch-select-all-btn', 'batch-cancel-btn', 'batch-clear-btn',
   'batch-retry-btn', 'batch-blacklist-guid-btn', 'batch-blacklist-group-btn',
-  'blacklist-guid-btn', 'blacklist-group-btn',
+  'blacklist-guid-btn', 'blacklist-group-btn', 'hash-copy-btn', 'cleanup-btn', 'sub-filter-chip',
   'more-actions-trigger', 'sort-select'
 ])
 

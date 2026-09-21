@@ -1084,6 +1084,9 @@ public class DownloadTrackService {
         if (!changed) {
             return; // 并发/重叠轮询已处理过，避免重复通知
         }
+        // 刚落库的完成时间与保种状态回写到 record 上，状态推送要带着它们，页面才不用整页刷新
+        record.setCompletedTime(completedAt);
+        record.setHrState(set.getHrState());
         PtStatusWebSocket.pushDownloadEvent(record, STATE_COMPLETED, 1.0, null);
         boolean upgraded = finishUpgrade(record);
         // 首行是「哪部作品的哪一集」而不是种子标题：国内站的标题常带一长串站点前缀，
@@ -1204,6 +1207,7 @@ public class DownloadTrackService {
         if (!changed) {
             return; // 已被并发轮次置为终态，避免重复通知
         }
+        record.setFailReasonCode(code.value());
         PtStatusWebSocket.pushDownloadEvent(record, STATE_FAILED, null, reason);
         PtSubscriptionPlus sub = subOf(record);
         // 熔断提示拼进同一条而不是紧跟着再发一条：它们讲的是同一次失败，分两条发既让用户

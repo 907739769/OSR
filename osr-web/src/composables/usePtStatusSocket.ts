@@ -12,6 +12,21 @@ export interface PtDownloadStatusEvent {
   state: string
   progress?: number
   failReason?: string
+  /** 仅 FAILED 时带 */
+  failReasonCode?: string
+  /** 仅 COMPLETED 时带，格式同列表接口 yyyy-MM-dd HH:mm:ss */
+  completedTime?: string
+  /** 来源站点有 H&R 考核时，完成那一刻进入 PENDING */
+  hrState?: string
+}
+
+/** 后台批量重试跑完的结果推送：按 batchId 认领，只有发起那一批的页面才提示 */
+export interface PtBatchRetryEvent {
+  type: 'batchRetry'
+  batchId: string
+  total: number
+  pushedCount: number
+  skippedCount: number
 }
 
 /** 订阅命中时间推送事件：SubscriptionEngine.handleGroup 推送成功后追加一条 */
@@ -24,6 +39,7 @@ export interface PtSubscriptionStatusEvent {
 export interface PtStatusSocketHandlers {
   onDownload?: (event: PtDownloadStatusEvent) => void
   onSubscription?: (event: PtSubscriptionStatusEvent) => void
+  onBatchRetry?: (event: PtBatchRetryEvent) => void
 }
 
 /**
@@ -86,6 +102,8 @@ export function usePtStatusSocket(handlers: PtStatusSocketHandlers) {
         handlers.onDownload?.(data)
       } else if (data.type === 'subscription') {
         handlers.onSubscription?.(data)
+      } else if (data.type === 'batchRetry') {
+        handlers.onBatchRetry?.(data)
       }
     }
 
