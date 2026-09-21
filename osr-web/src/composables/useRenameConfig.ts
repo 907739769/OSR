@@ -1,4 +1,4 @@
-import { ref, reactive } from 'vue'
+import { ref, reactive, getCurrentScope, onScopeDispose } from 'vue'
 import { message } from '@/composables/useMessage'
 import {
   getRenameTemplateApi,
@@ -31,27 +31,53 @@ export function useRenameConfig() {
       template.value = data.template
       await doPreview()
     } catch (e) {
+      // 具体错误文案已由 request.ts 的响应拦截器统一 toast 过了，这里不重复弹一次
       console.error('[重命名规则设置] 加载模板失败:', e)
-      message.error('加载模板失败')
     } finally {
       templateLoading.value = false
     }
   }
 
   let previewTimer: ReturnType<typeof setTimeout> | undefined
-  const doPreview = async () => {
+  /** 最近一次真正发出去的预览请求的序号，只有它的结果能写进 ref（防抖之外仍可能有两个请求在途） */
+  let previewSeq = 0
+  /** 上一次 doPreview 返回的 Promise 的 resolve：被防抖取消时必须放它走 */
+  let pendingResolve: (() => void) | undefined
+
+  const doPreview = () => {
     if (previewTimer) clearTimeout(previewTimer)
+    // 被这一次调用取消掉的那次预览，请求根本没发出去，没有结果可等——不放行的话
+    // 它的 Promise 永远不 resolve，await 它的 loadTemplate 会把 templateLoading 卡在 true
+    pendingResolve?.()
     return new Promise<void>((resolve) => {
+      pendingResolve = resolve
       previewTimer = setTimeout(async () => {
+        const seq = ++previewSeq
         try {
-          previewResult.value = await previewRenameTemplateApi(template.value) as any
-          previewError.value = ''
+          const rendered = await previewRenameTemplateApi(template.value) as any
+          if (seq === previewSeq) {
+            previewResult.value = rendered
+            previewError.value = ''
+          }
         } catch (e: any) {
-          previewResult.value = ''
-          previewError.value = e?.message || '预览失败'
+          if (seq === previewSeq) {
+            previewResult.value = ''
+            previewError.value = e?.message || '预览失败'
+          }
         }
+        pendingResolve = undefined
         resolve()
       }, 300)
+    })
+  }
+
+  // 页面卸载后不要再发预览、也不要把在途结果写进没人看的 ref
+  if (getCurrentScope()) {
+    onScopeDispose(() => {
+      if (previewTimer) clearTimeout(previewTimer)
+      previewSeq++
+      pendingResolve?.()
+      pendingResolve = undefined
     })
   }
 
@@ -72,22 +98,27 @@ export function useRenameConfig() {
   const movieRules = ref<CategoryRule[]>([])
   const tvRules = ref<CategoryRule[]>([])
   const rulesLoading = ref(false)
-  const rulesSaving = ref(false)
+  /** 正在保存的是哪一侧（'movie' / 'tv'），空串表示空闲——两个保存按钮各转各的圈 */
+  const savingRulesType = ref('')
+
+  const listRef = (mediaType: string) => (mediaType === 'movie' ? movieRules : tvRules)
+
+  /** 只拉一侧，供保存后回填使用 */
+  const loadRulesFor = async (mediaType: string) => {
+    listRef(mediaType).value = await getCategoryRulesApi(mediaType) as any
+  }
 
   const loadRules = async () => {
     rulesLoading.value = true
     try {
-      movieRules.value = await getCategoryRulesApi('movie') as any
-      tvRules.value = await getCategoryRulesApi('tv') as any
+      await Promise.all([loadRulesFor('movie'), loadRulesFor('tv')])
     } catch (e) {
+      // 具体错误文案已由 request.ts 的响应拦截器统一 toast 过了，这里不重复弹一次
       console.error('[重命名规则设置] 加载分类规则失败:', e)
-      message.error('加载分类规则失败')
     } finally {
       rulesLoading.value = false
     }
   }
-
-  const listRef = (mediaType: string) => (mediaType === 'movie' ? movieRules : tvRules)
 
   const addRule = (mediaType: string) => {
     const list = listRef(mediaType)
@@ -119,16 +150,18 @@ export function useRenameConfig() {
   }
 
   const saveRules = async (mediaType: string) => {
-    rulesSaving.value = true
+    savingRulesType.value = mediaType
     try {
       await saveCategoryRulesApi(mediaType, listRef(mediaType).value)
       message.success('分类规则保存成功')
-      await loadRules()
+      // 只回填刚保存的这一侧。整份重载会把另一侧尚未保存的编辑静默冲掉——
+      // 「先改剧集、再改电影、点保存电影」是这页最自然的操作顺序，必然踩到
+      await loadRulesFor(mediaType)
     } catch (e) {
       // 具体错误文案（如"必须保留且只能保留一条兜底规则"）已经由 request.ts 的响应拦截器统一 toast 过了，这里不重复弹一次
       console.error('[重命名规则设置] 保存分类规则失败:', e)
     } finally {
-      rulesSaving.value = false
+      savingRulesType.value = ''
     }
   }
 
@@ -147,8 +180,9 @@ export function useRenameConfig() {
       testResult.value = await testParseRenameApi(testForm.filename, testForm.template || undefined) as any
       message.success('分析成功')
     } catch (e) {
+      // 后端返回的「解析失败: xxx」带着原因，已由 request.ts 的响应拦截器 toast 过，
+      // 这里再弹一句无信息量的「请求失败」只会把它盖掉
       console.error('[重命名规则设置] 测试解析失败:', e)
-      message.error('请求失败')
     } finally {
       testLoading.value = false
     }
@@ -160,7 +194,7 @@ export function useRenameConfig() {
   return {
     template, templateLoading, templateSaving, previewResult, previewError,
     doPreview, saveTemplate,
-    movieRules, tvRules, rulesLoading, rulesSaving,
+    movieRules, tvRules, rulesLoading, savingRulesType,
     addRule, removeRule, moveRule, saveRules,
     testLoading, testResult, testForm, doTest
   }

@@ -55,14 +55,14 @@
               :rules="movieRules" media-type="movie"
               @add="addRule" @remove="removeRule" @move="moveRule"
             />
-            <v-btn color="primary" block :loading="rulesSaving" class="rules-save-btn" @click="saveRules('movie')">保存电影分类规则</v-btn>
+            <v-btn color="primary" block :loading="savingRulesType === 'movie'" class="rules-save-btn" @click="saveRules('movie')">保存电影分类规则</v-btn>
 
             <div class="section-divider">剧集</div>
             <RuleTable
               :rules="tvRules" media-type="tv"
               @add="addRule" @remove="removeRule" @move="moveRule"
             />
-            <v-btn color="primary" block :loading="rulesSaving" class="rules-save-btn" @click="saveRules('tv')">保存剧集分类规则</v-btn>
+            <v-btn color="primary" block :loading="savingRulesType === 'tv'" class="rules-save-btn" @click="saveRules('tv')">保存剧集分类规则</v-btn>
           </div>
         </div>
       </v-window-item>
@@ -123,7 +123,7 @@ const templateInputRef = ref()
 const {
   template, templateLoading, templateSaving, previewResult, previewError,
   doPreview, saveTemplate,
-  movieRules, tvRules, rulesLoading, rulesSaving,
+  movieRules, tvRules, rulesLoading, savingRulesType,
   addRule, removeRule, moveRule, saveRules,
   testLoading, testResult, testForm, doTest
 } = useRenameConfig()

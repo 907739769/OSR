@@ -19,7 +19,7 @@
       </div>
 
       <FormField label="类型（Genre）">
-        <v-combobox
+        <v-select
           :model-value="toArray(row.genreIds)"
           :items="genreOptions"
           item-title="label"
@@ -31,12 +31,12 @@
           density="compact"
           variant="outlined"
           hide-details
-          @update:model-value="(v: any[]) => { row.genreIds = toCsv(normalize(v)) }"
+          @update:model-value="(v: string[]) => { row.genreIds = toCsv(v) }"
         />
       </FormField>
 
       <FormField label="原始语言">
-        <v-combobox
+        <v-select
           :model-value="toArray(row.originalLanguages)"
           :items="LANGUAGE_OPTIONS"
           item-title="label"
@@ -48,12 +48,12 @@
           density="compact"
           variant="outlined"
           hide-details
-          @update:model-value="(v: any[]) => { row.originalLanguages = toCsv(normalize(v)) }"
+          @update:model-value="(v: string[]) => { row.originalLanguages = toCsv(v) }"
         />
       </FormField>
 
       <FormField label="国家/地区">
-        <v-combobox
+        <v-select
           :model-value="toArray(row.originCountries)"
           :items="COUNTRY_OPTIONS"
           item-title="label"
@@ -65,7 +65,7 @@
           density="compact"
           variant="outlined"
           hide-details
-          @update:model-value="(v: any[]) => { row.originCountries = toCsv(normalize(v)) }"
+          @update:model-value="(v: string[]) => { row.originCountries = toCsv(v) }"
         />
       </FormField>
 
@@ -101,16 +101,16 @@ defineEmits<{
 /** 电影和剧集的 TMDB genre 编号含义不同，按 mediaType 选对应的可选项列表 */
 const genreOptions = computed(() => (props.mediaType === 'tv' ? TV_GENRE_OPTIONS : MOVIE_GENRE_OPTIONS))
 
-/** 数据库存的是逗号分隔字符串，下拉多选组件需要数组，两边转换 */
+/**
+ * 数据库存的是逗号分隔字符串，下拉多选组件需要数组，两边转换。
+ *
+ * 这三个下拉**必须是 v-select 而不是 v-combobox**：combobox 允许自由输入，用户手打一个
+ * 「动画」或「cn-CN」会被原样存进 CSV，而 CategoryRule 是按 TMDb genre id / ISO 语言码
+ * 全等比对的，这种值永远命不中——界面上不报错、不告警，只表现为「这条规则好像没生效」。
+ * 库里已有的、不在选项表里的历史值 v-select 照样保留并原样显示，不会被吃掉。
+ */
 const toArray = (value?: string) => (value ? value.split(',').map(s => s.trim()).filter(Boolean) : [])
 const toCsv = (arr: string[]) => arr.join(',')
-
-/**
- * v-combobox 允许自由创建条目时，model-value 里既可能是选项对象 { label, value }
- * 也可能是用户直接输入的字符串，统一转成字符串值数组再落到 CSV。
- */
-const normalize = (arr: any[]): string[] =>
-  (arr || []).map(v => (typeof v === 'string' ? v : v?.value ?? String(v)))
 </script>
 
 <style scoped lang="scss">

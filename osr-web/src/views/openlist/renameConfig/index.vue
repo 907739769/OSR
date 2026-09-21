@@ -67,7 +67,7 @@
                 @add="addRule" @remove="removeRule" @move="moveRule"
               />
               <div class="rules-actions">
-                <v-btn color="primary" :loading="rulesSaving" @click="saveRules('movie')">保存电影分类规则</v-btn>
+                <v-btn color="primary" :loading="savingRulesType === 'movie'" @click="saveRules('movie')">保存电影分类规则</v-btn>
               </div>
 
               <div class="section-divider">剧集</div>
@@ -76,7 +76,7 @@
                 @add="addRule" @remove="removeRule" @move="moveRule"
               />
               <div class="rules-actions">
-                <v-btn color="primary" :loading="rulesSaving" @click="saveRules('tv')">保存剧集分类规则</v-btn>
+                <v-btn color="primary" :loading="savingRulesType === 'tv'" @click="saveRules('tv')">保存剧集分类规则</v-btn>
               </div>
             </div>
           </div>
@@ -142,7 +142,7 @@ const templateInputRef = ref()
 const {
   template, templateLoading, templateSaving, previewResult, previewError,
   doPreview, saveTemplate,
-  movieRules, tvRules, rulesLoading, rulesSaving,
+  movieRules, tvRules, rulesLoading, savingRulesType,
   addRule, removeRule, moveRule, saveRules,
   testLoading, testResult, testForm, doTest
 } = useRenameConfig()
