@@ -35,19 +35,17 @@
                 </div>
                 <v-alert v-if="previewError" :text="previewError" type="error" variant="tonal" class="preview-alert" />
                 <v-alert v-else type="success" variant="tonal" class="preview-alert">
-                  <div class="preview-text">{{ previewResult || '（预览为空）' }}</div>
+                  <div class="preview-row">
+                    <span class="preview-kind">电影</span>
+                    <span class="preview-text">{{ previewSamples.movie || '（空）' }}</span>
+                  </div>
+                  <div class="preview-row">
+                    <span class="preview-kind">剧集</span>
+                    <span class="preview-text">{{ previewSamples.tv || '（空）' }}</span>
+                  </div>
                 </v-alert>
               </div>
-              <div class="template-variables">
-                <div class="variables-title">可用变量（点击插入）</div>
-                <v-chip
-                  v-for="v in TEMPLATE_VARIABLES"
-                  :key="v"
-                  class="variable-tag"
-                  size="small"
-                  @click="insertVariable(v)"
-                >{{ v }}</v-chip>
-              </div>
+              <TemplateVariableChips class="template-variables" :variables="templateVariables" @insert="insertVariable" />
             </div>
           </div>
         </v-window-item>
@@ -150,13 +148,14 @@
 import { ref, nextTick } from 'vue'
 import PageHeader from '@/components/PageHeader.vue'
 import RuleTable from './RuleTable.vue'
-import { useRenameConfig, TEMPLATE_VARIABLES } from '@/composables/useRenameConfig'
+import TemplateVariableChips from '@/components/TemplateVariableChips.vue'
+import { useRenameConfig } from '@/composables/useRenameConfig'
 
 const activeTab = ref('template')
 const templateInputRef = ref()
 
 const {
-  template, defaultTemplate, templateLoading, templateSaving, previewResult, previewError,
+  template, defaultTemplate, templateLoading, templateSaving, previewSamples, previewError, templateVariables,
   doPreview, saveTemplate, restoreDefaultTemplate,
   movieRules, tvRules, rulesLoading, savingRulesType,
   addRule, removeRule, moveRule, saveRules,
@@ -209,19 +208,8 @@ const insertVariable = (varName: string) => {
   }
 
   .template-variables {
-    width: 220px;
+    width: 260px;
     flex-shrink: 0;
-
-    .variables-title {
-      font-size: 13px;
-      color: var(--osr-text-secondary);
-      margin-bottom: 8px;
-    }
-
-    .variable-tag {
-      margin: 0 6px 6px 0;
-      cursor: pointer;
-    }
   }
 }
 
@@ -232,6 +220,22 @@ const insertVariable = (varName: string) => {
     font-family: var(--osr-font-mono);
     word-break: break-all;
     white-space: pre-wrap;
+  }
+
+  .preview-row {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+
+    & + .preview-row {
+      margin-top: 4px;
+    }
+  }
+
+  .preview-kind {
+    flex: 0 0 auto;
+    font-size: var(--osr-fs-xs);
+    opacity: 0.75;
   }
 }
 
@@ -362,10 +366,10 @@ const insertVariable = (varName: string) => {
 
   .template-tab {
     flex-direction: column;
-  }
 
-  .template-variables {
-    width: 100% !important;
+    .template-variables {
+      width: 100%;
+    }
   }
 }
 </style>

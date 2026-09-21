@@ -29,24 +29,25 @@ public class RenameTemplateConfigRestController {
      * （20260753 把它从 sys_config 里删掉了），用户把模板改坏之后原先没有任何界面途径改得回来。
      */
     @GetMapping("/template")
-    public Result<Map<String, String>> getTemplate() {
-        Map<String, String> data = new HashMap<>();
+    public Result<Map<String, Object>> getTemplate() {
+        Map<String, Object> data = new HashMap<>();
         data.put("template", templateConfigService.getTemplate());
         data.put("defaultTemplate", IRenameTemplateConfigService.DEFAULT_TEMPLATE);
+        data.put("variables", templateConfigService.templateVariables());
         return Result.success(data);
     }
 
     /**
-     * 试渲染预览（不落库），供页面实时预览
+     * 试渲染预览（不落库），供页面实时预览；电影样例与剧集样例各渲染一份
      */
     @PostMapping("/template/preview")
-    public Result<String> preview(@RequestBody Map<String, String> body) {
+    public Result<Map<String, String>> preview(@RequestBody Map<String, String> body) {
         String template = body.get("template");
         if (StringUtils.isEmpty(template)) {
             return Result.error("模板不能为空");
         }
         try {
-            return Result.success(templateConfigService.previewRender(template));
+            return Result.success(templateConfigService.previewSamples(template));
         } catch (IllegalArgumentException e) {
             return Result.error(e.getMessage());
         }

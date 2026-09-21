@@ -8,15 +8,20 @@ import {
   updateRenameTemplateApi,
   getCategoryRulesApi,
   saveCategoryRulesApi,
-  type CategoryRule
+  type CategoryRule,
+  type TemplatePreview,
+  type TemplateVariable
 } from '@/api/openlist/renameConfig'
 import { testParseRenameApi } from '@/api/openlist/renameTask'
 
-/** 模板里可用的变量参考，点击插入到文本框光标处 */
-export const TEMPLATE_VARIABLES = [
+/**
+ * 后端没有返回变量清单时（只升级了前端镜像）退回的最小清单。
+ * 正常情况下清单由后端从 MediaInfo 的渲染上下文生成，不在这里维护。
+ */
+const FALLBACK_VARIABLES: TemplateVariable[] = [
   'title', 'year', 'season', 'episode', 'resolution',
   'source', 'videoCodec', 'audioCodec', 'tags', 'releaseGroup', 'extension'
-]
+].map(name => ({ name, label: null, sample: '', common: true }))
 
 /** 与后端 CategoryRuleValidator.MAX_TARGET_DIR_LENGTH、rename_category_rule.target_dir 列宽一致 */
 export const TARGET_DIR_MAX = 128
@@ -55,8 +60,10 @@ export function useRenameConfig() {
   const defaultTemplate = ref('')
   const templateLoading = ref(false)
   const templateSaving = ref(false)
-  const previewResult = ref('')
+  /** 电影样例与剧集样例各一份：模板里全是 {% if season %} 分支，只看一份永远预览不到另一半 */
+  const previewSamples = ref<TemplatePreview>({ movie: '', tv: '' })
   const previewError = ref('')
+  const templateVariables = ref<TemplateVariable[]>(FALLBACK_VARIABLES)
   /** 最近一次与服务端一致的模板，用来判断编辑框里有没有没保存的改动 */
   const savedTemplate = ref('')
 
@@ -67,6 +74,7 @@ export function useRenameConfig() {
       template.value = data.template
       savedTemplate.value = data.template
       defaultTemplate.value = data.defaultTemplate || ''
+      if (Array.isArray(data.variables) && data.variables.length) templateVariables.value = data.variables
       await doPreview()
     } catch (e) {
       // 具体错误文案已由 request.ts 的响应拦截器统一 toast 过了，这里不重复弹一次
@@ -94,12 +102,12 @@ export function useRenameConfig() {
         try {
           const rendered = await previewRenameTemplateApi(template.value) as any
           if (seq === previewSeq) {
-            previewResult.value = rendered
+            previewSamples.value = { movie: rendered?.movie ?? '', tv: rendered?.tv ?? '' }
             previewError.value = ''
           }
         } catch (e: any) {
           if (seq === previewSeq) {
-            previewResult.value = ''
+            previewSamples.value = { movie: '', tv: '' }
             previewError.value = e?.message || '预览失败'
           }
         }
@@ -333,7 +341,7 @@ export function useRenameConfig() {
   loadRules()
 
   return {
-    template, defaultTemplate, templateLoading, templateSaving, previewResult, previewError,
+    template, defaultTemplate, templateLoading, templateSaving, previewSamples, previewError, templateVariables,
     doPreview, saveTemplate, restoreDefaultTemplate,
     movieRules, tvRules, rulesLoading, savingRulesType,
     addRule, removeRule, moveRule, saveRules,

@@ -37,7 +37,7 @@ const flush = () => new Promise((r) => setTimeout(r, 0))
 beforeEach(() => {
   vi.clearAllMocks()
   ;(getRenameTemplateApi as any).mockResolvedValue({ template: '{{ title }}.{{ extension }}' })
-  ;(previewRenameTemplateApi as any).mockResolvedValue('示例电影.mkv')
+  ;(previewRenameTemplateApi as any).mockResolvedValue({ movie: '示例电影.mkv', tv: '示例剧集 S1E3.mkv' })
   ;(updateRenameTemplateApi as any).mockResolvedValue(undefined)
   ;(saveCategoryRulesApi as any).mockResolvedValue(undefined)
   ;(getCategoryRulesApi as any).mockImplementation(async (mediaType: string) =>
@@ -133,7 +133,7 @@ describe('useRenameConfig 模板预览', () => {
 
     expect(c.templateLoading.value).toBe(false)
     expect(c.template.value).toBe('{{ title }}.{{ extension }}')
-    expect(c.previewResult.value).toBe('示例电影.mkv')
+    expect(c.previewSamples.value).toEqual({ movie: '示例电影.mkv', tv: '示例剧集 S1E3.mkv' })
   })
 
   /**
@@ -144,9 +144,9 @@ describe('useRenameConfig 模板预览', () => {
     vi.useFakeTimers()
     let releaseOld: (v: string) => void = () => {}
     ;(previewRenameTemplateApi as any)
-      .mockReturnValueOnce(Promise.resolve('初始'))
-      .mockReturnValueOnce(new Promise<string>((r) => { releaseOld = r }))
-      .mockReturnValueOnce(Promise.resolve('新结果'))
+      .mockReturnValueOnce(Promise.resolve({ movie: '初始', tv: '初始' }))
+      .mockReturnValueOnce(new Promise((r) => { releaseOld = (v: string) => r({ movie: v, tv: v }) }))
+      .mockReturnValueOnce(Promise.resolve({ movie: '新结果', tv: '新结果' }))
 
     const c = useRenameConfig()
     await vi.advanceTimersByTimeAsync(400)
@@ -155,12 +155,12 @@ describe('useRenameConfig 模板预览', () => {
     await vi.advanceTimersByTimeAsync(400)   // 第二次请求发出，挂着不回
     c.doPreview()
     await vi.advanceTimersByTimeAsync(400)   // 第三次请求发出并立即回
-    expect(c.previewResult.value).toBe('新结果')
+    expect(c.previewSamples.value.movie).toBe('新结果')
 
     releaseOld('过期结果')
     await tick()
     await tick()
-    expect(c.previewResult.value).toBe('新结果')
+    expect(c.previewSamples.value.movie).toBe('新结果')
   })
 
   /** 页面卸载后不该再发预览请求，也不该往没人看的 ref 上写值 */
@@ -324,5 +324,27 @@ describe('未保存的修改', () => {
 
     c.movieRules.value[0].genreIds = ''
     expect(c.movieRulesDirty.value).toBe(false)
+  })
+})
+
+describe('模板变量清单', () => {
+  it('用后端给的清单', async () => {
+    (getRenameTemplateApi as any).mockResolvedValue({
+      template: '{{ title }}',
+      defaultTemplate: '{{ title }}',
+      variables: [{ name: 'episodeName', label: '单集标题', sample: '第三集的标题', common: false }]
+    })
+    const c = useRenameConfig()
+    await flush()
+
+    expect(c.templateVariables.value.map(v => v.name)).toEqual(['episodeName'])
+  })
+
+  /** 只升级了前端镜像、后端还是旧版时，面板不能是空的 */
+  it('后端没给清单时退回最小清单', async () => {
+    const c = useRenameConfig()
+    await flush()
+
+    expect(c.templateVariables.value.map(v => v.name)).toContain('title')
   })
 })
