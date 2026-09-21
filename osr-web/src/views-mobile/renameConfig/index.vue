@@ -79,16 +79,20 @@
           <v-textarea
             v-model="testForm.template"
             label="重命名模板"
-            placeholder="留空则使用默认配置"
+            placeholder="留空则使用已保存的模板"
             rows="4"
             density="compact"
             variant="outlined"
-            hint="留空则使用默认配置"
+            hint="留空则使用已保存的模板"
             persistent-hint
           />
-          <v-btn color="primary" block prepend-icon="wand-sparkles" :loading="testLoading" class="mt-3" @click="doTest">
-            开始分析
-          </v-btn>
+          <div class="test-actions">
+            <v-btn color="primary" block prepend-icon="wand-sparkles" :loading="testLoading" @click="doTest">
+              开始分析
+            </v-btn>
+            <v-btn v-if="templateDirty" variant="outlined" block @click="fillTestTemplate">填入编辑中的模板</v-btn>
+          </div>
+          <div class="test-cost-hint">会实际请求 TMDb 识别；识别不出时还会调用 AI 补全（如已配置），均消耗对应配额。</div>
 
           <div v-if="testResult" class="test-result">
             <v-alert type="success" variant="tonal" density="compact" class="mb-3">
@@ -142,7 +146,7 @@ const {
   movieRules, tvRules, rulesLoading, savingRulesType,
   addRule, removeRule, moveRule, saveRules,
   templateDirty, movieRulesDirty, tvRulesDirty, rulesDirty,
-  testLoading, testResult, testForm, testPlacement, testInfoRows, doTest
+  testLoading, testResult, testForm, testPlacement, testInfoRows, fillTestTemplate, doTest
 } = useRenameConfig()
 
 /** 插入到光标位置而不是简单追加到末尾，取不到 DOM 时退化为追加到末尾 */
@@ -218,6 +222,19 @@ const insertVariable = (varName: string) => {
     font-size: var(--osr-fs-xs);
     opacity: 0.75;
   }
+}
+
+.test-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.test-cost-hint {
+  margin-top: 6px;
+  font-size: var(--osr-fs-xs);
+  color: var(--osr-text-secondary);
 }
 
 .test-result {

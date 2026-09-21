@@ -19,6 +19,9 @@
         />
         <v-chip v-if="row.isFallback === '1'" color="primary" size="small" variant="tonal" class="fallback-badge">兜底</v-chip>
       </div>
+      <div v-if="shadowed.has(index)" class="shadow-warning">
+        被第 {{ shadowed.get(index)! + 1 }} 条规则完全覆盖，永远不会命中
+      </div>
 
       <FormField label="类型（Genre）">
         <v-select
@@ -89,7 +92,7 @@
 import { computed } from 'vue'
 import FormField from '@/components/FormField.vue'
 import type { CategoryRule } from '@/api/openlist/renameConfig'
-import { targetDirRules, TARGET_DIR_MAX, type RuleMoveDirection } from '@/composables/useRenameConfig'
+import { targetDirRules, TARGET_DIR_MAX, findShadowedRules, type RuleMoveDirection } from '@/composables/useRenameConfig'
 import { MOVIE_GENRE_OPTIONS, TV_GENRE_OPTIONS, LANGUAGE_OPTIONS, COUNTRY_OPTIONS } from '@/constants/categoryRuleOptions'
 
 const props = defineProps<{
@@ -102,6 +105,9 @@ defineEmits<{
   remove: [mediaType: string, index: number]
   move: [mediaType: string, index: number, direction: RuleMoveDirection]
 }>()
+
+/** 被前面更宽的规则完全覆盖、永远命不中的行 */
+const shadowed = computed(() => findShadowedRules(props.rules))
 
 /** 第一条不能再往上挪 */
 const isFirst = (index: number) => index === 0
@@ -169,5 +175,10 @@ const toCsv = (arr: string[]) => arr.join(',')
 
 .add-btn {
   margin-top: 4px;
+}
+.shadow-warning {
+  margin-top: 4px;
+  font-size: var(--osr-fs-xs);
+  color: rgb(var(--v-theme-warning));
 }
 </style>

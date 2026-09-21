@@ -16,7 +16,7 @@ vi.mock('@/api/openlist/renameConfig', () => ({
 
 vi.mock('@/api/openlist/renameTask', () => ({ testParseRenameApi: vi.fn() }))
 
-import { useRenameConfig, targetDirError, TARGET_DIR_MAX } from '../useRenameConfig'
+import { useRenameConfig, targetDirError, TARGET_DIR_MAX, findShadowedRules } from '../useRenameConfig'
 import {
   getRenameTemplateApi, previewRenameTemplateApi, updateRenameTemplateApi,
   getCategoryRulesApi, saveCategoryRulesApi
@@ -417,5 +417,36 @@ describe('识别参数详情', () => {
       { key: 'newField', label: null, value: 'v' },
       { key: 'metadata', label: 'TMDb 元数据', value: '已获取 images、external_ids' }
     ])
+  })
+})
+
+describe('永远命不中的规则', () => {
+  const r = (genreIds = '', originalLanguages = '', originCountries = '', isFallback = '0') =>
+    ({ mediaType: 'tv', targetDir: 'x', genreIds, originalLanguages, originCountries, isFallback })
+
+  it('种子数据里没有任何一条被覆盖', () => {
+    const seed = [
+      r('16', '', 'CN,TW,HK'), r('16', '', 'JP'), r('99'), r('10762'), r('10764,10767'),
+      r('', '', 'CN,TW,HK'), r('', '', 'US,FR,GB'), r('', '', 'JP,KR'), r('', '', '', '1')
+    ]
+    expect(findShadowedRules(seed).size).toBe(0)
+  })
+
+  /** 最常见的一种：一条什么条件都没填的规则被拖到中间，它后面的全部失效，连同兜底 */
+  it('无条件的规则会让后面所有规则失效', () => {
+    const rules = [r('16'), r(), r('99'), r('', '', '', '1')]
+    expect([...findShadowedRules(rules)]).toEqual([[2, 1], [3, 1]])
+  })
+
+  it('前一条是后一条的超集时报覆盖，大小写按后端口径归一', () => {
+    const rules = [r('', 'ZH', 'cn,tw'), r('', 'zh', 'CN'), r('', '', '', '1')]
+    expect(findShadowedRules(rules).get(1)).toBe(0)
+  })
+
+  /** 宁可漏报不误报：只有部分重叠、或后一条在某一维不限而前一条限了，都不算覆盖 */
+  it('部分重叠或更宽的后继规则不算被覆盖', () => {
+    expect(findShadowedRules([r('16', '', 'CN'), r('16', '', 'CN,JP')]).size).toBe(0)
+    expect(findShadowedRules([r('16'), r('', 'ja')]).size).toBe(0)
+    expect(findShadowedRules([r('16', 'ja'), r('16')]).size).toBe(0)
   })
 })

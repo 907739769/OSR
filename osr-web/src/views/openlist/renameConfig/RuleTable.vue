@@ -13,17 +13,17 @@
       <tbody>
         <tr v-for="(row, index) in rules" :key="index" :class="{ 'rule-row--fallback': row.isFallback === '1' }">
           <td class="col-target">
-            <div class="target-cell">
-              <v-text-field
-                v-model="row.targetDir"
-                :placeholder="row.isFallback === '1' ? '兜底目录' : '目录名'"
-                :rules="targetDirRules"
-                :maxlength="TARGET_DIR_MAX"
-                density="compact"
-                variant="outlined"
-                hide-details="auto"
-              />
-              <v-chip v-if="row.isFallback === '1'" color="primary" size="small" variant="tonal" class="fallback-badge">兜底</v-chip>
+            <v-text-field
+              v-model="row.targetDir"
+              :placeholder="row.isFallback === '1' ? '兜底目录' : '目录名'"
+              :rules="targetDirRules"
+              :maxlength="TARGET_DIR_MAX"
+              density="compact"
+              variant="outlined"
+              hide-details="auto"
+            />
+            <div v-if="shadowed.has(index)" class="shadow-warning">
+              被第 {{ shadowed.get(index)! + 1 }} 条规则完全覆盖，永远不会命中
             </div>
           </td>
           <td class="col-genre">
@@ -102,7 +102,11 @@
                 </template>
               </v-tooltip>
             </template>
-            <span v-else class="fallback-note">固定在最后</span>
+            <!-- 兜底标记放在操作列而不是目录名旁：目录名那列很窄，挤进一个标签后「外语电影」只剩「外语」 -->
+            <template v-else>
+              <v-chip color="primary" size="small" variant="tonal" class="fallback-badge">兜底</v-chip>
+              <span class="fallback-note">固定在最后</span>
+            </template>
           </td>
         </tr>
       </tbody>
@@ -116,7 +120,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { CategoryRule } from '@/api/openlist/renameConfig'
-import { targetDirRules, TARGET_DIR_MAX, type RuleMoveDirection } from '@/composables/useRenameConfig'
+import { targetDirRules, TARGET_DIR_MAX, findShadowedRules, type RuleMoveDirection } from '@/composables/useRenameConfig'
 import { MOVIE_GENRE_OPTIONS, TV_GENRE_OPTIONS, LANGUAGE_OPTIONS, COUNTRY_OPTIONS } from '@/constants/categoryRuleOptions'
 
 const props = defineProps<{
@@ -129,6 +133,9 @@ defineEmits<{
   remove: [mediaType: string, index: number]
   move: [mediaType: string, index: number, direction: RuleMoveDirection]
 }>()
+
+/** 被前面更宽的规则完全覆盖、永远命不中的行 */
+const shadowed = computed(() => findShadowedRules(props.rules))
 
 /** 第一条不能再往上挪 */
 const isFirst = (index: number) => index === 0
@@ -191,20 +198,20 @@ const toCsv = (arr: string[]) => arr.join(',')
     background: var(--osr-primary-subtle);
   }
 
-  .target-cell {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
   .fallback-badge {
-    flex-shrink: 0;
+    margin-right: 6px;
   }
 
   .fallback-note {
     font-size: var(--osr-fs-xs);
     color: var(--osr-text-secondary);
   }
+}
+
+.shadow-warning {
+  margin-top: 4px;
+  font-size: var(--osr-fs-xs);
+  color: rgb(var(--v-theme-warning));
 }
 
 .rule-table-actions {

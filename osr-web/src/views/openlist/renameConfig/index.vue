@@ -65,18 +65,12 @@
                 :rules="movieRules" media-type="movie"
                 @add="addRule" @remove="removeRule" @move="moveRule"
               />
-              <div class="rules-actions">
-                <v-btn color="primary" :loading="savingRulesType === 'movie'" @click="saveRules('movie')">保存电影分类规则</v-btn>
-              </div>
 
               <div class="section-divider">剧集<span v-if="tvRulesDirty" class="dirty-tag">未保存</span></div>
               <RuleTable
                 :rules="tvRules" media-type="tv"
                 @add="addRule" @remove="removeRule" @move="moveRule"
               />
-              <div class="rules-actions">
-                <v-btn color="primary" :loading="savingRulesType === 'tv'" @click="saveRules('tv')">保存剧集分类规则</v-btn>
-              </div>
             </div>
           </div>
         </v-window-item>
@@ -95,16 +89,20 @@
               <v-textarea
                 v-model="testForm.template"
                 label="重命名模板"
-                placeholder="留空则使用默认配置"
+                placeholder="留空则使用已保存的模板"
                 rows="4"
                 density="compact"
                 variant="outlined"
-                hint="留空则使用默认配置"
+                hint="留空则使用已保存的模板"
                 persistent-hint
               />
-              <v-btn color="primary" prepend-icon="wand-sparkles" :loading="testLoading" class="mt-3" @click="doTest">
-                开始分析
-              </v-btn>
+              <div class="test-actions">
+                <v-btn color="primary" prepend-icon="wand-sparkles" :loading="testLoading" @click="doTest">
+                  开始分析
+                </v-btn>
+                <v-btn v-if="templateDirty" variant="outlined" @click="fillTestTemplate">填入编辑中的模板</v-btn>
+              </div>
+              <div class="test-cost-hint">会实际请求 TMDb 识别；识别不出时还会调用 AI 补全（如已配置），均消耗对应配额。</div>
 
               <div v-if="testResult" class="test-result">
                 <v-alert type="success" variant="tonal" density="compact" class="mb-3">
@@ -141,11 +139,34 @@
         </v-window-item>
       </v-window>
     </v-card>
+
+    <!--
+      分类规则的保存条放在卡片**外面**、吸在视口底部。放在 tab 内容里是吸不住的：v-card 与 v-window
+      都是 overflow: hidden，sticky 会贴在那个不滚动的祖先上。原先两个保存按钮各跟在一张表后面，
+      剧集表默认 9 行，改完电影规则往下滚去看剧集时，电影那个保存按钮已经在屏幕外了。
+    -->
+    <div v-if="activeTab === 'rules' && !rulesLoading" class="rules-save-bar">
+      <span class="save-bar-status" :class="{ 'save-bar-status--dirty': rulesDirty }">
+        {{ rulesDirty ? `未保存：${rulesDirtyText}分类规则` : '分类规则已全部保存' }}
+      </span>
+      <v-btn
+        color="primary"
+        :variant="movieRulesDirty ? 'flat' : 'outlined'"
+        :loading="savingRulesType === 'movie'"
+        @click="saveRules('movie')"
+      >保存电影分类规则</v-btn>
+      <v-btn
+        color="primary"
+        :variant="tvRulesDirty ? 'flat' : 'outlined'"
+        :loading="savingRulesType === 'tv'"
+        @click="saveRules('tv')"
+      >保存剧集分类规则</v-btn>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick } from 'vue'
+import { ref, computed, nextTick } from 'vue'
 import PageHeader from '@/components/PageHeader.vue'
 import RuleTable from './RuleTable.vue'
 import TemplateVariableChips from '@/components/TemplateVariableChips.vue'
@@ -161,8 +182,12 @@ const {
   movieRules, tvRules, rulesLoading, savingRulesType,
   addRule, removeRule, moveRule, saveRules,
   templateDirty, movieRulesDirty, tvRulesDirty, rulesDirty,
-  testLoading, testResult, testForm, testPlacement, testInfoRows, doTest
+  testLoading, testResult, testForm, testPlacement, testInfoRows, fillTestTemplate, doTest
 } = useRenameConfig()
+
+/** 保存条上说清是哪一侧没存 */
+const rulesDirtyText = computed(() =>
+  [movieRulesDirty.value && '电影', tvRulesDirty.value && '剧集'].filter(Boolean).join('、'))
 
 /**
  * 插入到光标位置而不是简单追加到末尾：VTextarea 把底层 <textarea> DOM
@@ -242,6 +267,19 @@ const insertVariable = (varName: string) => {
 
 .test-tab {
   max-width: 640px;
+}
+
+.test-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.test-cost-hint {
+  margin-top: 6px;
+  font-size: var(--osr-fs-xs);
+  color: var(--osr-text-secondary);
 }
 
 .test-result {
@@ -332,9 +370,32 @@ const insertVariable = (varName: string) => {
   border-left: 3px solid var(--osr-primary);
 }
 
-.template-actions,
-.rules-actions {
+.template-actions {
   margin-top: 12px;
+}
+
+.rules-save-bar {
+  position: sticky;
+  bottom: 12px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: 1px solid var(--osr-border-light);
+  border-radius: var(--osr-radius-md);
+  background: var(--osr-surface);
+  box-shadow: var(--osr-shadow-md);
+}
+
+.save-bar-status {
+  flex: 1;
+  font-size: var(--osr-fs-sm);
+  color: var(--osr-text-secondary);
+
+  &--dirty {
+    color: rgb(var(--v-theme-warning));
+  }
 }
 
 .template-actions {

@@ -45,6 +45,7 @@ declare module 'vue' {
     SidebarMenuItem: typeof import('./components/SidebarMenuItem.vue')['default']
     StatusChip: typeof import('./components/StatusChip.vue')['default']
     StrmTaskFormDialog: typeof import('./components/dialogs/StrmTaskFormDialog.vue')['default']
+    TemplateVariableChips: typeof import('./components/TemplateVariableChips.vue')['default']
     ThemeSwitch: typeof import('./components/ThemeSwitch.vue')['default']
     TmdbLink: typeof import('./components/TmdbLink.vue')['default']
     TreeNodeItem: typeof import('./components/TreeNodeItem.vue')['default']

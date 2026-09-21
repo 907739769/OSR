@@ -45,6 +45,43 @@ export function targetDirError(value?: string | null): string | null {
   return null
 }
 
+/** 条件字段的 CSV → 集合，大小写归一方式与后端 CategoryRule 一致（语言转小写、国家转大写） */
+const conditionSet = (csv: string | null | undefined, norm: (s: string) => string) =>
+  new Set((csv || '').split(',').map(s => norm(s.trim())).filter(Boolean))
+
+/**
+ * 找出永远命不中的规则：返回「被覆盖的下标 → 覆盖它的那条的下标」（都是 0 基）。
+ *
+ * 规则从上到下、命中即停，于是前面一条更宽的规则会让后面的规则彻底失效，而界面上看不出来——
+ * 最常见的是把一条「什么条件都没填」的规则拖到了中间，它后面的所有规则（连同兜底）全死了。
+ *
+ * 判据只认**确定**覆盖的情况，宁可漏报不误报：前一条在三个维度上，每一维要么不限，
+ * 要么是后一条那一维（且后一条那一维确实填了）的超集。这与后端 CategoryRule#matches 的
+ * 语义对应——类型 / 国家是「有交集即命中」、语言是「在集合内即命中」，两者在子集关系下都单调。
+ */
+export function findShadowedRules(rules: CategoryRule[]): Map<number, number> {
+  const dims = rules.map(r => [
+    conditionSet(r.genreIds, s => s),
+    conditionSet(r.originalLanguages, s => s.toLowerCase()),
+    conditionSet(r.originCountries, s => s.toUpperCase())
+  ])
+  const covers = (i: number, j: number) => dims[i].every((wide, d) => {
+    if (wide.size === 0) return true
+    const narrow = dims[j][d]
+    return narrow.size > 0 && [...narrow].every(x => wide.has(x))
+  })
+  const out = new Map<number, number>()
+  for (let j = 1; j < rules.length; j++) {
+    for (let i = 0; i < j; i++) {
+      if (covers(i, j)) {
+        out.set(j, i)
+        break
+      }
+    }
+  }
+  return out
+}
+
 /** 给 v-text-field 的 :rules 用 */
 export const targetDirRules = [(v: string) => targetDirError(v) ?? true]
 
@@ -312,6 +349,14 @@ export function useRenameConfig() {
     return rows
   })
 
+  /**
+   * 把编辑框里（可能还没保存）的模板填进测试的模板框。留空时后端用的是**已保存**的模板，
+   * 原先想试一下手上正在改的模板只能手动复制过去。
+   */
+  const fillTestTemplate = () => {
+    testForm.template = template.value
+  }
+
   const doTest = async () => {
     if (!testForm.filename.trim()) {
       message.warning('请输入文件名')
@@ -384,6 +429,6 @@ export function useRenameConfig() {
     movieRules, tvRules, rulesLoading, savingRulesType,
     addRule, removeRule, moveRule, saveRules,
     templateDirty, movieRulesDirty, tvRulesDirty, rulesDirty, anyDirty,
-    testLoading, testResult, testForm, testPlacement, testInfoRows, doTest
+    testLoading, testResult, testForm, testPlacement, testInfoRows, fillTestTemplate, doTest
   }
 }
