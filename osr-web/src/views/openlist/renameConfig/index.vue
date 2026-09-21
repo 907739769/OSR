@@ -127,11 +127,11 @@
                   </div>
                 </div>
                 <div class="result-info-card">
-                  <div class="result-info-title">识别参数详情</div>
+                  <div class="result-info-title">识别参数详情（空值不列）</div>
                   <div class="result-info-grid">
-                    <template v-for="(value, key) in testResult.info" :key="key">
-                      <div class="info-key">{{ key }}</div>
-                      <div class="info-value">{{ value ?? '—' }}</div>
+                    <template v-for="row in testInfoRows" :key="row.key">
+                      <div class="info-key">{{ row.label || row.key }}<span v-if="row.label" class="info-name">{{ row.key }}</span></div>
+                      <div class="info-value">{{ row.value }}</div>
                     </template>
                   </div>
                 </div>
@@ -150,8 +150,9 @@ import PageHeader from '@/components/PageHeader.vue'
 import RuleTable from './RuleTable.vue'
 import TemplateVariableChips from '@/components/TemplateVariableChips.vue'
 import { useRenameConfig } from '@/composables/useRenameConfig'
+import { useTabQuery } from '@/composables/useTabQuery'
 
-const activeTab = ref('template')
+const activeTab = useTabQuery(['template', 'rules', 'test'] as const, 'template')
 const templateInputRef = ref()
 
 const {
@@ -160,7 +161,7 @@ const {
   movieRules, tvRules, rulesLoading, savingRulesType,
   addRule, removeRule, moveRule, saveRules,
   templateDirty, movieRulesDirty, tvRulesDirty, rulesDirty,
-  testLoading, testResult, testForm, testPlacement, doTest
+  testLoading, testResult, testForm, testPlacement, testInfoRows, doTest
 } = useRenameConfig()
 
 /**
@@ -306,8 +307,12 @@ const insertVariable = (varName: string) => {
   .info-key {
     font-size: 12px;
     color: var(--osr-text-secondary);
+  }
+
+  .info-name {
+    margin-left: 6px;
     font-family: var(--osr-font-mono);
-    white-space: nowrap;
+    opacity: 0.7;
   }
 
   .info-value {

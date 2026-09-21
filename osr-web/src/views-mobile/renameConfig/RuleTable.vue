@@ -72,8 +72,10 @@
       </FormField>
 
       <div class="rule-card-actions">
-        <v-btn variant="text" size="small" icon="arrow-up" :disabled="row.isFallback === '1'" @click="$emit('move', mediaType, index, -1)" />
-        <v-btn variant="text" size="small" icon="arrow-down" :disabled="row.isFallback === '1'" @click="$emit('move', mediaType, index, 1)" />
+        <v-btn variant="text" size="small" icon="arrow-up-to-line" aria-label="置顶" :disabled="row.isFallback === '1' || isFirst(index)" @click="$emit('move', mediaType, index, 'top')" />
+        <v-btn variant="text" size="small" icon="arrow-up" aria-label="上移" :disabled="row.isFallback === '1' || isFirst(index)" @click="$emit('move', mediaType, index, -1)" />
+        <v-btn variant="text" size="small" icon="arrow-down" aria-label="下移" :disabled="row.isFallback === '1' || isLastMovable(index)" @click="$emit('move', mediaType, index, 1)" />
+        <v-btn variant="text" size="small" icon="arrow-down-to-line" aria-label="置底" :disabled="row.isFallback === '1' || isLastMovable(index)" @click="$emit('move', mediaType, index, 'bottom')" />
         <v-spacer />
         <v-btn variant="text" color="error" size="small" prepend-icon="trash-2" :disabled="row.isFallback === '1'" @click="$emit('remove', mediaType, index)">删除</v-btn>
       </div>
@@ -87,7 +89,7 @@
 import { computed } from 'vue'
 import FormField from '@/components/FormField.vue'
 import type { CategoryRule } from '@/api/openlist/renameConfig'
-import { targetDirRules, TARGET_DIR_MAX } from '@/composables/useRenameConfig'
+import { targetDirRules, TARGET_DIR_MAX, type RuleMoveDirection } from '@/composables/useRenameConfig'
 import { MOVIE_GENRE_OPTIONS, TV_GENRE_OPTIONS, LANGUAGE_OPTIONS, COUNTRY_OPTIONS } from '@/constants/categoryRuleOptions'
 
 const props = defineProps<{
@@ -98,8 +100,13 @@ const props = defineProps<{
 defineEmits<{
   add: [mediaType: string]
   remove: [mediaType: string, index: number]
-  move: [mediaType: string, index: number, direction: -1 | 1]
+  move: [mediaType: string, index: number, direction: RuleMoveDirection]
 }>()
+
+/** 第一条不能再往上挪 */
+const isFirst = (index: number) => index === 0
+/** 兜底行之前的最后一条不能再往下挪（兜底行永远在最后） */
+const isLastMovable = (index: number) => props.rules[index + 1]?.isFallback === '1' || index === props.rules.length - 1
 
 /** 电影和剧集的 TMDB genre 编号含义不同，按 mediaType 选对应的可选项列表 */
 const genreOptions = computed(() => (props.mediaType === 'tv' ? TV_GENRE_OPTIONS : MOVIE_GENRE_OPTIONS))

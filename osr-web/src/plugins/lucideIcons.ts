@@ -17,8 +17,8 @@
 import { h, type Component, type FunctionalComponent } from 'vue'
 import type { IconAliases, IconProps, IconSet } from 'vuetify'
 import {
-  Activity, ArrowBigUp, ArrowDown, ArrowLeft, ArrowLeftRight, ArrowRight,
-  ArrowUp, BadgeCheck, Ban, Bell, BellOff, BellRing,
+  Activity, ArrowBigUp, ArrowDown, ArrowDownToLine, ArrowLeft, ArrowLeftRight, ArrowRight,
+  ArrowUp, ArrowUpToLine, BadgeCheck, Ban, Bell, BellOff, BellRing,
   BookOpen, Bookmark, Bot, BrushCleaning, Calendar, Calendar1, Captions,
   CalendarDays, CalendarOff, ChartColumn, ChartLine, Check, ChevronDown,
   ChevronLeft, ChevronRight, ChevronUp, ChevronsLeft, ChevronsRight, ChevronsUpDown,
@@ -81,10 +81,12 @@ const icons: Record<string, Component> = {
   'activity': Activity,
   'arrow-big-up': ArrowBigUp,
   'arrow-down': ArrowDown,
+  'arrow-down-to-line': ArrowDownToLine,
   'arrow-left': ArrowLeft,
   'arrow-left-right': ArrowLeftRight,
   'arrow-right': ArrowRight,
   'arrow-up': ArrowUp,
+  'arrow-up-to-line': ArrowUpToLine,
   'badge-check': BadgeCheck,
   'ban': Ban,
   'bell': Bell,

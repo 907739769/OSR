@@ -348,3 +348,74 @@ describe('模板变量清单', () => {
     expect(c.templateVariables.value.map(v => v.name)).toContain('title')
   })
 })
+
+describe('规则置顶 / 置底', () => {
+  const load = async () => {
+    (getCategoryRulesApi as any).mockResolvedValue([
+      rule('A'), rule('B'), rule('C'), rule('兜底', { isFallback: '1' })
+    ])
+    const c = useRenameConfig()
+    await flush()
+    return c
+  }
+  const names = (c: ReturnType<typeof useRenameConfig>) => c.movieRules.value.map(r => r.targetDir)
+
+  it('置顶挪到第一位', async () => {
+    const c = await load()
+    c.moveRule('movie', 2, 'top')
+    expect(names(c)).toEqual(['C', 'A', 'B', '兜底'])
+  })
+
+  /** 兜底行永远在最后：「置底」是挪到它前面，不能越过它 */
+  it('置底挪到兜底规则之前', async () => {
+    const c = await load()
+    c.moveRule('movie', 0, 'bottom')
+    expect(names(c)).toEqual(['B', 'C', 'A', '兜底'])
+  })
+
+  it('兜底行本身挪不动', async () => {
+    const c = await load()
+    c.moveRule('movie', 3, 'top')
+    expect(names(c)).toEqual(['A', 'B', 'C', '兜底'])
+  })
+})
+
+describe('识别参数详情', () => {
+  /**
+   * 原先把整个 MediaInfo 原样摊开：英文字段名、空值各占一行，还有 metadata——
+   * TMDb 原始响应，一份 images 就 26KB，整块倒在一个格子里。
+   */
+  it('空值不列，中文说明取自变量清单，metadata 只报拉到了哪几份', async () => {
+    (getRenameTemplateApi as any).mockResolvedValue({
+      template: '{{ title }}',
+      defaultTemplate: '{{ title }}',
+      variables: [
+        { name: 'title', label: '标题', sample: '', common: true },
+        { name: 'tags', label: '特效标签', sample: '', common: true }
+      ]
+    })
+    ;(testParseRenameApi as any).mockResolvedValue({
+      renamed: 'x.mkv',
+      info: {
+        title: '进击的巨人',
+        season: null,
+        episode: '',
+        tags: ['HDR', 'DV'],
+        genreIds: [],
+        newField: 'v',
+        metadata: { images: { posters: new Array(500).fill('p') }, external_ids: {} }
+      }
+    })
+    const c = useRenameConfig()
+    await flush()
+    c.testForm.filename = 'x.mkv'
+    await c.doTest()
+
+    expect(c.testInfoRows.value).toEqual([
+      { key: 'title', label: '标题', value: '进击的巨人' },
+      { key: 'tags', label: '特效标签', value: 'HDR, DV' },
+      { key: 'newField', label: null, value: 'v' },
+      { key: 'metadata', label: 'TMDb 元数据', value: '已获取 images、external_ids' }
+    ])
+  })
+})

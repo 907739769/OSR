@@ -23,6 +23,9 @@ const FALLBACK_VARIABLES: TemplateVariable[] = [
   'source', 'videoCodec', 'audioCodec', 'tags', 'releaseGroup', 'extension'
 ].map(name => ({ name, label: null, sample: '', common: true }))
 
+/** 上移 / 下移一位，或置顶 / 置底（置底 = 兜底行之前） */
+export type RuleMoveDirection = -1 | 1 | 'top' | 'bottom'
+
 /** 与后端 CategoryRuleValidator.MAX_TARGET_DIR_LENGTH、rename_category_rule.target_dir 列宽一致 */
 export const TARGET_DIR_MAX = 128
 
@@ -217,8 +220,19 @@ export function useRenameConfig() {
     list.value.splice(index, 1)
   }
 
-  const moveRule = (mediaType: string, index: number, direction: -1 | 1) => {
+  const moveRule = (mediaType: string, index: number, direction: RuleMoveDirection) => {
     const list = listRef(mediaType)
+    if (direction === 'top' || direction === 'bottom') {
+      const arr = list.value
+      if (arr[index]?.isFallback === '1') return
+      // 兜底行永远在最后一位，「置底」是挪到它前面
+      const lastMovable = arr.length - 1 - (arr[arr.length - 1]?.isFallback === '1' ? 1 : 0)
+      const target = direction === 'top' ? 0 : lastMovable
+      if (target === index) return
+      const [row] = arr.splice(index, 1)
+      arr.splice(target, 0, row)
+      return
+    }
     const target = index + direction
     if (target < 0 || target >= list.value.length) return
     // 兜底行必须保持最后一位，禁止把它移走、也禁止把别的行移到它后面
@@ -272,6 +286,30 @@ export function useRenameConfig() {
       category: r.category as string,
       destPath: r.destPath as string
     }
+  })
+
+  /**
+   * 「识别参数详情」要展示的行。原先把整个 MediaInfo 原样摊开：key 全是英文字段名、空值也各占一行，
+   * 还有 metadata——TMDb 原始响应，一份 images 就 26KB，日志侧专门为它做过 @ToString.Exclude，
+   * UI 上却又整块倒了出来。现在：中文说明取自变量清单（字段名与模板变量是同一张表），
+   * 空值不列，metadata 只报拉到了哪几份。
+   */
+  const testInfoRows = computed(() => {
+    const info = testResult.value?.info
+    if (!info || typeof info !== 'object') return []
+    const labels = new Map(templateVariables.value.map(v => [v.name, v.label]))
+    const rows: { key: string; label: string | null; value: string }[] = []
+    for (const [key, value] of Object.entries(info)) {
+      if (key === 'metadata') continue
+      const text = Array.isArray(value) ? value.join(', ') : value == null ? '' : String(value)
+      if (!text) continue
+      rows.push({ key, label: labels.get(key) ?? null, value: text })
+    }
+    const meta = (info as any).metadata
+    if (meta && typeof meta === 'object' && Object.keys(meta).length) {
+      rows.push({ key: 'metadata', label: 'TMDb 元数据', value: `已获取 ${Object.keys(meta).join('、')}` })
+    }
+    return rows
   })
 
   const doTest = async () => {
@@ -346,6 +384,6 @@ export function useRenameConfig() {
     movieRules, tvRules, rulesLoading, savingRulesType,
     addRule, removeRule, moveRule, saveRules,
     templateDirty, movieRulesDirty, tvRulesDirty, rulesDirty, anyDirty,
-    testLoading, testResult, testForm, testPlacement, doTest
+    testLoading, testResult, testForm, testPlacement, testInfoRows, doTest
   }
 }
