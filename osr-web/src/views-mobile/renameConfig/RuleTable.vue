@@ -10,9 +10,11 @@
         <v-text-field
           v-model="row.targetDir"
           :placeholder="row.isFallback === '1' ? '兜底目录' : '目录名'"
+          :rules="targetDirRules"
+          :maxlength="TARGET_DIR_MAX"
           density="compact"
           variant="outlined"
-          hide-details
+          hide-details="auto"
           class="target-input"
         />
         <v-chip v-if="row.isFallback === '1'" color="primary" size="small" variant="tonal" class="fallback-badge">兜底</v-chip>
@@ -85,6 +87,7 @@
 import { computed } from 'vue'
 import FormField from '@/components/FormField.vue'
 import type { CategoryRule } from '@/api/openlist/renameConfig'
+import { targetDirRules, TARGET_DIR_MAX } from '@/composables/useRenameConfig'
 import { MOVIE_GENRE_OPTIONS, TV_GENRE_OPTIONS, LANGUAGE_OPTIONS, COUNTRY_OPTIONS } from '@/constants/categoryRuleOptions'
 
 const props = defineProps<{

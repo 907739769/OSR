@@ -16,7 +16,7 @@ vi.mock('@/api/openlist/renameConfig', () => ({
 
 vi.mock('@/api/openlist/renameTask', () => ({ testParseRenameApi: vi.fn() }))
 
-import { useRenameConfig } from '../useRenameConfig'
+import { useRenameConfig, targetDirError, TARGET_DIR_MAX } from '../useRenameConfig'
 import {
   getRenameTemplateApi, previewRenameTemplateApi, updateRenameTemplateApi,
   getCategoryRulesApi, saveCategoryRulesApi
@@ -212,5 +212,117 @@ describe('useRenameConfig 错误提示', () => {
 
     expect(testParseRenameApi).not.toHaveBeenCalled()
     expect(message.warning).toHaveBeenCalled()
+  })
+})
+
+describe('目标目录名校验', () => {
+  /**
+   * 目录名最终落在 targetRoot.resolve(category) 上：带 / 会静默多建一层目录，
+   * .. 会把整个媒体库写到 targetRoot 之外。口径与后端 CategoryRuleValidator 一致。
+   */
+  it('拦住路径字符、. 与 ..、超长与空值', () => {
+    for (const bad of ['外语/电影', '外语\\电影', 'a:b', 'a*b', 'a?b', 'a"b', 'a<b', 'a>b', 'a|b', '.', '..', ' .. ', '', '   ', null, undefined]) {
+      expect(targetDirError(bad as any), String(bad)).not.toBeNull()
+    }
+    expect(targetDirError('a'.repeat(TARGET_DIR_MAX + 1))).not.toBeNull()
+  })
+
+  it('正常目录名放行，含中文、空格与单个点', () => {
+    for (const ok of ['动画电影', 'Anime Movies', 'a.b', '...b', 'a'.repeat(TARGET_DIR_MAX)]) {
+      expect(targetDirError(ok), ok).toBeNull()
+    }
+  })
+
+  it('有非法目录名时不发请求，并指出是第几条', async () => {
+    const c = useRenameConfig()
+    await flush()
+    c.movieRules.value[0].targetDir = '外语/电影'
+
+    await c.saveRules('movie')
+
+    expect(saveCategoryRulesApi).not.toHaveBeenCalled()
+    expect(message.warning).toHaveBeenCalledWith(expect.stringContaining('第 1 条'))
+    expect(c.savingRulesType.value).toBe('')
+  })
+})
+
+describe('空规则列表', () => {
+  /**
+   * 界面上没有「设为兜底」的入口，后端又要求恰好一条兜底：
+   * 列表为空时按普通规则新增，永远保存不上。
+   */
+  it('列表为空时新增的第一条就是兜底规则', async () => {
+    (getCategoryRulesApi as any).mockResolvedValue([])
+    const c = useRenameConfig()
+    await flush()
+
+    c.addRule('tv')
+    expect(c.tvRules.value).toHaveLength(1)
+    expect(c.tvRules.value[0].isFallback).toBe('1')
+
+    c.addRule('tv')
+    expect(c.tvRules.value[0].isFallback).toBe('0')
+    expect(c.tvRules.value[1].isFallback).toBe('1')
+  })
+})
+
+describe('未保存的修改', () => {
+  it('刚加载完不算有修改', async () => {
+    vi.useFakeTimers()
+    const c = useRenameConfig()
+    await vi.advanceTimersByTimeAsync(400)
+
+    expect(c.anyDirty.value).toBe(false)
+  })
+
+  it('改模板只标记模板，保存后复位', async () => {
+    vi.useFakeTimers()
+    const c = useRenameConfig()
+    await vi.advanceTimersByTimeAsync(400)
+
+    c.template.value = '{{ title }}'
+    expect(c.templateDirty.value).toBe(true)
+    expect(c.rulesDirty.value).toBe(false)
+
+    await c.saveTemplate()
+    expect(c.templateDirty.value).toBe(false)
+  })
+
+  it('保存失败时仍算未保存', async () => {
+    vi.useFakeTimers()
+    ;(updateRenameTemplateApi as any).mockRejectedValue(new Error('模板渲染失败'))
+    const c = useRenameConfig()
+    await vi.advanceTimersByTimeAsync(400)
+
+    c.template.value = '{{ broken'
+    await c.saveTemplate()
+    expect(c.templateDirty.value).toBe(true)
+  })
+
+  it('改剧集规则只标记剧集那一侧，保存后复位', async () => {
+    const c = useRenameConfig()
+    await flush()
+
+    c.tvRules.value[0].targetDir = '日本动画'
+    expect(c.tvRulesDirty.value).toBe(true)
+    expect(c.movieRulesDirty.value).toBe(false)
+
+    ;(getCategoryRulesApi as any).mockImplementation(async (mediaType: string) =>
+      mediaType === 'tv'
+        ? [rule('日本动画', { mediaType: 'tv' }), rule('未分类', { mediaType: 'tv', isFallback: '1' })]
+        : []
+    )
+    await c.saveRules('tv')
+    expect(c.tvRulesDirty.value).toBe(false)
+  })
+
+  /** 库里是 NULL，加一个条件再删掉会变成 ''——两者都是「不限」，不该凭空报一次未保存 */
+  it('条件字段 null 与空串视为相同', async () => {
+    (getCategoryRulesApi as any).mockResolvedValue([rule('外语电影', { isFallback: '1', genreIds: null })])
+    const c = useRenameConfig()
+    await flush()
+
+    c.movieRules.value[0].genreIds = ''
+    expect(c.movieRulesDirty.value).toBe(false)
   })
 })

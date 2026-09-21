@@ -8,8 +8,8 @@
 
     <v-card class="table-card">
       <v-tabs v-model="activeTab" color="primary">
-        <v-tab value="template" prepend-icon="file-pen">文件名模板</v-tab>
-        <v-tab value="rules" prepend-icon="folder-cog">分类规则</v-tab>
+        <v-tab value="template" prepend-icon="file-pen">文件名模板<span v-if="templateDirty" class="dirty-dot" /></v-tab>
+        <v-tab value="rules" prepend-icon="folder-cog">分类规则<span v-if="rulesDirty" class="dirty-dot" /></v-tab>
         <v-tab value="test" prepend-icon="flask-conical">重命名测试</v-tab>
       </v-tabs>
 
@@ -62,7 +62,7 @@
                 规则从上到下依次匹配，命中即用该目录；列表末尾的"兜底"规则在都未命中时生效，无法删除或调整匹配条件，仅目录名可编辑。
               </v-alert>
 
-              <div class="section-divider">电影</div>
+              <div class="section-divider">电影<span v-if="movieRulesDirty" class="dirty-tag">未保存</span></div>
               <RuleTable
                 :rules="movieRules" media-type="movie"
                 @add="addRule" @remove="removeRule" @move="moveRule"
@@ -71,7 +71,7 @@
                 <v-btn color="primary" :loading="savingRulesType === 'movie'" @click="saveRules('movie')">保存电影分类规则</v-btn>
               </div>
 
-              <div class="section-divider">剧集</div>
+              <div class="section-divider">剧集<span v-if="tvRulesDirty" class="dirty-tag">未保存</span></div>
               <RuleTable
                 :rules="tvRules" media-type="tv"
                 @add="addRule" @remove="removeRule" @move="moveRule"
@@ -160,6 +160,7 @@ const {
   doPreview, saveTemplate, restoreDefaultTemplate,
   movieRules, tvRules, rulesLoading, savingRulesType,
   addRule, removeRule, moveRule, saveRules,
+  templateDirty, movieRulesDirty, tvRulesDirty, rulesDirty,
   testLoading, testResult, testForm, testPlacement, doTest
 } = useRenameConfig()
 
@@ -330,6 +331,24 @@ const insertVariable = (varName: string) => {
 .template-actions {
   display: flex;
   gap: 8px;
+}
+
+/* 有未保存修改时挂在 tab 标题与分节标题上的提示 */
+.dirty-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-left: 6px;
+  border-radius: 50%;
+  background: rgb(var(--v-theme-warning));
+  vertical-align: middle;
+}
+
+.dirty-tag {
+  margin-left: 8px;
+  font-size: var(--osr-fs-xs);
+  font-weight: 400;
+  color: rgb(var(--v-theme-warning));
 }
 
 .fallback-hint {

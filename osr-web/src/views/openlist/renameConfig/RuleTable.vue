@@ -16,9 +16,11 @@
             <v-text-field
               v-model="row.targetDir"
               :placeholder="row.isFallback === '1' ? '兜底目录' : '目录名'"
+              :rules="targetDirRules"
+              :maxlength="TARGET_DIR_MAX"
               density="compact"
               variant="outlined"
-              hide-details
+              hide-details="auto"
             />
           </td>
           <td class="col-genre">
@@ -98,6 +100,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { CategoryRule } from '@/api/openlist/renameConfig'
+import { targetDirRules, TARGET_DIR_MAX } from '@/composables/useRenameConfig'
 import { MOVIE_GENRE_OPTIONS, TV_GENRE_OPTIONS, LANGUAGE_OPTIONS, COUNTRY_OPTIONS } from '@/constants/categoryRuleOptions'
 
 const props = defineProps<{

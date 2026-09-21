@@ -1,4 +1,5 @@
-import { ref, reactive, computed, getCurrentScope, onScopeDispose } from 'vue'
+import { ref, reactive, computed, getCurrentInstance, getCurrentScope, onScopeDispose } from 'vue'
+import { onBeforeRouteLeave } from 'vue-router'
 import { message } from '@/composables/useMessage'
 import { confirm } from '@/composables/useConfirm'
 import {
@@ -17,6 +18,36 @@ export const TEMPLATE_VARIABLES = [
   'source', 'videoCodec', 'audioCodec', 'tags', 'releaseGroup', 'extension'
 ]
 
+/** 与后端 CategoryRuleValidator.MAX_TARGET_DIR_LENGTH、rename_category_rule.target_dir 列宽一致 */
+export const TARGET_DIR_MAX = 128
+
+const ILLEGAL_DIR_CHARS = /[\\/:*?"<>|]/
+
+/**
+ * 目标目录名的校验。规则表输入框的即时提示与保存前的拦截共用这一份，口径与后端
+ * CategoryRuleValidator 一致：它必须是**一层**目录名而不是一段路径——带 `/` 会静默多建一层目录，
+ * `..` 会把整个媒体库写到 targetRoot 外面去。
+ */
+export function targetDirError(value?: string | null): string | null {
+  const v = (value || '').trim()
+  if (!v) return '目录名不能为空'
+  if (v.length > TARGET_DIR_MAX) return `最多 ${TARGET_DIR_MAX} 个字符`
+  if (ILLEGAL_DIR_CHARS.test(v)) return '不能包含 \\ / : * ? " < > |'
+  if (v === '.' || v === '..') return '不能是 . 或 ..'
+  return null
+}
+
+/** 给 v-text-field 的 :rules 用 */
+export const targetDirRules = [(v: string) => targetDirError(v) ?? true]
+
+/**
+ * 规则列表的比较快照。null 与空串归一：库里存的是 NULL，用户加一个条件再删掉会变成 ''，
+ * 两者语义都是「不限」，不归一的话会凭空报出一次「有未保存的修改」。
+ */
+const rulesSnapshot = (rules: CategoryRule[]) => JSON.stringify(rules.map(r => [
+  r.targetDir || '', r.genreIds || '', r.originalLanguages || '', r.originCountries || '', r.isFallback
+]))
+
 export function useRenameConfig() {
   // ---- 文件名模板 ----
   const template = ref('')
@@ -26,12 +57,15 @@ export function useRenameConfig() {
   const templateSaving = ref(false)
   const previewResult = ref('')
   const previewError = ref('')
+  /** 最近一次与服务端一致的模板，用来判断编辑框里有没有没保存的改动 */
+  const savedTemplate = ref('')
 
   const loadTemplate = async () => {
     templateLoading.value = true
     try {
       const data = await getRenameTemplateApi() as any
       template.value = data.template
+      savedTemplate.value = data.template
       defaultTemplate.value = data.defaultTemplate || ''
       await doPreview()
     } catch (e) {
@@ -109,7 +143,10 @@ export function useRenameConfig() {
   const saveTemplate = async () => {
     templateSaving.value = true
     try {
-      await updateRenameTemplateApi(template.value)
+      const submitted = template.value
+      await updateRenameTemplateApi(submitted)
+      // 记提交出去的那一份，而不是现在编辑框里的：请求在途时用户可能又改了几个字
+      savedTemplate.value = submitted
       message.success('模板保存成功')
     } catch (e) {
       // 具体错误文案（如"模板渲染失败：..."）已经由 request.ts 的响应拦截器统一 toast 过了，这里不重复弹一次
@@ -128,9 +165,14 @@ export function useRenameConfig() {
 
   const listRef = (mediaType: string) => (mediaType === 'movie' ? movieRules : tvRules)
 
+  /** 最近一次与服务端一致的规则快照，按侧存 */
+  const savedRules = reactive<Record<string, string>>({ movie: rulesSnapshot([]), tv: rulesSnapshot([]) })
+
   /** 只拉一侧，供保存后回填使用 */
   const loadRulesFor = async (mediaType: string) => {
-    listRef(mediaType).value = await getCategoryRulesApi(mediaType) as any
+    const rules = (await getCategoryRulesApi(mediaType) as any) || []
+    listRef(mediaType).value = rules
+    savedRules[mediaType] = rulesSnapshot(rules)
   }
 
   const loadRules = async () => {
@@ -147,6 +189,9 @@ export function useRenameConfig() {
 
   const addRule = (mediaType: string) => {
     const list = listRef(mediaType)
+    // 列表为空时新增的这一条就是兜底规则：界面上没有任何「设为兜底」的入口，
+    // 而后端要求恰好一条兜底——按普通规则建出来的话永远保存不上，是个死局
+    const isFallback = list.value.length === 0 ? '1' : '0'
     const insertIndex = Math.max(list.value.length - 1, 0)
     list.value.splice(insertIndex, 0, {
       mediaType,
@@ -154,7 +199,7 @@ export function useRenameConfig() {
       genreIds: '',
       originalLanguages: '',
       originCountries: '',
-      isFallback: '0'
+      isFallback
     })
   }
 
@@ -175,6 +220,12 @@ export function useRenameConfig() {
   }
 
   const saveRules = async (mediaType: string) => {
+    const rules = listRef(mediaType).value
+    const badIndex = rules.findIndex(r => targetDirError(r.targetDir))
+    if (badIndex >= 0) {
+      message.warning(`第 ${badIndex + 1} 条规则的目标目录名${targetDirError(rules[badIndex].targetDir)}`)
+      return
+    }
     savingRulesType.value = mediaType
     try {
       await saveCategoryRulesApi(mediaType, listRef(mediaType).value)
@@ -233,6 +284,51 @@ export function useRenameConfig() {
     }
   }
 
+  // ---- 未保存的修改 ----
+  const templateDirty = computed(() => template.value !== savedTemplate.value)
+  const movieRulesDirty = computed(() => rulesSnapshot(movieRules.value) !== savedRules.movie)
+  const tvRulesDirty = computed(() => rulesSnapshot(tvRules.value) !== savedRules.tv)
+  const rulesDirty = computed(() => movieRulesDirty.value || tvRulesDirty.value)
+  const anyDirty = computed(() => templateDirty.value || rulesDirty.value)
+
+  /** 说清楚是哪几份没保存，「有未保存的修改」这句话本身不够用户决定要不要回去 */
+  const dirtySummary = computed(() => [
+    templateDirty.value && '文件名模板',
+    movieRulesDirty.value && '电影分类规则',
+    tvRulesDirty.value && '剧集分类规则'
+  ].filter(Boolean).join('、'))
+
+  // 这个页面没有 keep-alive，离开即卸载，没保存的编辑就此丢掉。
+  // 测试里直接调用、不在组件 setup 里时不挂（onBeforeRouteLeave 需要组件实例）
+  if (getCurrentInstance()) {
+    onBeforeRouteLeave(async () => {
+      if (!anyDirty.value) return true
+      try {
+        await confirm({
+          title: '有未保存的修改',
+          message: `${dirtySummary.value}还没有保存，离开后这些修改会丢失。`,
+          confirmText: '仍然离开',
+          cancelText: '留在本页',
+          type: 'warning'
+        })
+        return true
+      } catch {
+        return false
+      }
+    })
+  }
+
+  // 刷新 / 关标签页走的是浏览器自己的确认框，文案由浏览器决定
+  const onBeforeUnload = (e: BeforeUnloadEvent) => {
+    if (!anyDirty.value) return
+    e.preventDefault()
+    e.returnValue = ''
+  }
+  if (getCurrentScope() && typeof window !== 'undefined') {
+    window.addEventListener('beforeunload', onBeforeUnload)
+    onScopeDispose(() => window.removeEventListener('beforeunload', onBeforeUnload))
+  }
+
   loadTemplate()
   loadRules()
 
@@ -241,6 +337,7 @@ export function useRenameConfig() {
     doPreview, saveTemplate, restoreDefaultTemplate,
     movieRules, tvRules, rulesLoading, savingRulesType,
     addRule, removeRule, moveRule, saveRules,
+    templateDirty, movieRulesDirty, tvRulesDirty, rulesDirty, anyDirty,
     testLoading, testResult, testForm, testPlacement, doTest
   }
 }
