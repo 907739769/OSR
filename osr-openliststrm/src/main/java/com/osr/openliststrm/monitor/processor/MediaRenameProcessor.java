@@ -18,6 +18,7 @@ import com.osr.openliststrm.rename.RenameEventListener;
 import com.osr.openliststrm.rename.config.IRenameTemplateConfigService;
 import com.osr.openliststrm.rename.model.MediaInfo;
 import com.osr.openliststrm.rename.rule.CategoryClassifier;
+import com.osr.openliststrm.rename.rule.CategoryPlacement;
 import com.osr.openliststrm.rename.rule.CategoryRuleConverter;
 import com.osr.openliststrm.scrape.ScrapeService;
 import lombok.extern.slf4j.Slf4j;
@@ -267,7 +268,7 @@ public class MediaRenameProcessor implements FileProcessor {
         MediaInfo info = parseMediaInfo(parser, p, title, year, season, episode);
         if (info == null) return;
 
-        String mediaType = (info.getSeason() != null || info.getEpisode() != null) ? "tv" : "movie";
+        String mediaType = CategoryPlacement.inferMediaType(info.getSeason(), info.getEpisode());
         if (info.getTmdbId() == null || info.getTmdbId().trim().isEmpty()) {
             log.info("未找到 tmdbId，跳过文件处理：{} ; parsed info title={}", p, info.getTitle());
             notifyFailed(p, info, mediaType, "tmdbId not found");
@@ -328,10 +329,9 @@ public class MediaRenameProcessor implements FileProcessor {
 
     /** Step 3: 构建目标路径，返回 [finalDestDir, destFile] */
     private Path[] buildDestPath(Path p, MediaInfo info, String mediaType, MediaParser parser) throws IOException {
-        String category = classify(info, mediaType);
-        if (category == null) category = "未分类";
+        String category = CategoryPlacement.categoryOrDefault(classify(info, mediaType));
 
-        String topLevel = "movie".equals(mediaType) ? "电影" : "电视剧";
+        String topLevel = CategoryPlacement.topLevelOf(mediaType);
         Path destDir = targetRoot.resolve(topLevel).resolve(category);
         Files.createDirectories(destDir);
 
@@ -471,10 +471,10 @@ public class MediaRenameProcessor implements FileProcessor {
         List<RenameCategoryRulePlus> rows = categoryRuleService.listEnabledRules(mediaType);
         if (rows.isEmpty()) {
             log.warn("未配置 mediaType={} 的分类规则，使用兜底目录", mediaType);
-            return "未分类";
+            return CategoryPlacement.DEFAULT_CATEGORY;
         }
         String category = CategoryClassifier.classify(CategoryRuleConverter.toCategoryRules(rows), info);
-        return category != null ? category : "未分类";
+        return CategoryPlacement.categoryOrDefault(category);
     }
 
 }

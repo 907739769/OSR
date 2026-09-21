@@ -23,12 +23,16 @@ public class RenameTemplateConfigRestController {
     private IRenameTemplateConfigService templateConfigService;
 
     /**
-     * 获取当前生效的文件名模板
+     * 获取当前生效的文件名模板。
+     * <p>
+     * 连内置默认模板一起返回，供页面上的「恢复默认」用：这个配置项已从参数设置页隐藏
+     * （20260753 把它从 sys_config 里删掉了），用户把模板改坏之后原先没有任何界面途径改得回来。
      */
     @GetMapping("/template")
     public Result<Map<String, String>> getTemplate() {
         Map<String, String> data = new HashMap<>();
         data.put("template", templateConfigService.getTemplate());
+        data.put("defaultTemplate", IRenameTemplateConfigService.DEFAULT_TEMPLATE);
         return Result.success(data);
     }
 

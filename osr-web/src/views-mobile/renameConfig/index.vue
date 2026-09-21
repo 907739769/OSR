@@ -32,6 +32,7 @@
               >{{ v }}</v-chip>
             </div>
             <v-btn color="primary" block :loading="templateSaving" class="mt-2" @click="saveTemplate">保存模板</v-btn>
+            <v-btn v-if="defaultTemplate" variant="outlined" block class="mt-2" @click="restoreDefaultTemplate">恢复默认</v-btn>
             <v-alert v-if="previewError" :text="previewError" type="error" variant="tonal" class="preview-alert" />
             <v-alert v-else type="success" variant="tonal" class="preview-alert">
               <div class="preview-text">{{ previewResult || '（预览为空）' }}</div>
@@ -96,6 +97,21 @@
               <template #title>重命名结果预览</template>
               <div class="result-text">{{ testResult.renamed }}</div>
             </v-alert>
+
+            <div v-if="testPlacement" class="result-placement">
+              <div class="placement-row">
+                <span class="placement-label">判定类型</span>
+                <span class="placement-value">{{ testPlacement.mediaTypeText }}（按解析出的季集号推断）</span>
+              </div>
+              <div class="placement-row">
+                <span class="placement-label">命中规则</span>
+                <span class="placement-value">{{ testPlacement.ruleText }} → {{ testPlacement.category }}</span>
+              </div>
+              <div class="placement-row">
+                <span class="placement-label">目标路径</span>
+                <span class="placement-value placement-path">{{ testPlacement.destPath }}</span>
+              </div>
+            </div>
             <div class="result-info-card">
               <div class="result-info-title">识别参数详情</div>
               <div class="result-info-grid">
@@ -121,11 +137,11 @@ const activeTab = ref('template')
 const templateInputRef = ref()
 
 const {
-  template, templateLoading, templateSaving, previewResult, previewError,
-  doPreview, saveTemplate,
+  template, defaultTemplate, templateLoading, templateSaving, previewResult, previewError,
+  doPreview, saveTemplate, restoreDefaultTemplate,
   movieRules, tvRules, rulesLoading, savingRulesType,
   addRule, removeRule, moveRule, saveRules,
-  testLoading, testResult, testForm, doTest
+  testLoading, testResult, testForm, testPlacement, doTest
 } = useRenameConfig()
 
 /** 插入到光标位置而不是简单追加到末尾，取不到 DOM 时退化为追加到末尾 */
@@ -205,6 +221,35 @@ const insertVariable = (varName: string) => {
     font-family: var(--osr-font-mono);
     word-break: break-all;
     white-space: pre-wrap;
+  }
+}
+
+.result-placement {
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  .placement-row {
+    display: flex;
+    gap: 12px;
+    align-items: baseline;
+  }
+
+  .placement-label {
+    flex: 0 0 auto;
+    font-size: var(--osr-fs-xs);
+    color: var(--osr-text-secondary);
+  }
+
+  .placement-value {
+    font-size: var(--osr-fs-sm);
+    color: var(--osr-text-primary);
+    word-break: break-all;
+  }
+
+  .placement-path {
+    font-family: var(--osr-font-mono);
   }
 }
 

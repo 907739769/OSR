@@ -1,5 +1,6 @@
 package com.osr.openliststrm.rename;
 
+import com.osr.openliststrm.rename.cleanup.ArtifactPaths;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.osr.common.utils.StringUtils;
 import com.osr.common.utils.ThreadTraceIdUtil;
@@ -81,7 +82,7 @@ public class RenameTaskManager {
         Path target = path;
         for (int i = path.getNameCount() - 1; i >= 0; i--) {
             String name = path.getName(i).toString();
-            if (name.equals("电影") || name.equals("电视剧")) {
+            if (ArtifactPaths.MEDIA_TOP_LEVELS.contains(name)) {
                 target = path.getRoot().resolve(path.subpath(0, i));
                 break;
             }

@@ -92,4 +92,34 @@ class CategoryClassifierTest {
         MediaInfo info = new MediaInfo("x.mkv");
         assertNull(CategoryClassifier.classify(List.of(), info));
     }
+
+    /**
+     * classifyIndex 返回的是「第几条」而不是目录名：两条规则配同一个目标目录时，
+     * 只看目录名分不出命中的是哪一条，而「重命名测试」要告诉用户的正是这个。
+     */
+    @Test
+    void classifyIndex_返回命中的下标且同名规则能分得出来() {
+        List<CategoryRule> rules = Arrays.asList(
+                new CategoryRule("合集").withGenreIds("16"),
+                new CategoryRule("合集").withOriginCountry("JP"),
+                new CategoryRule("兜底")
+        );
+
+        MediaInfo japanese = new MediaInfo("x.mkv");
+        japanese.setOriginCountries(Arrays.asList("JP"));
+        assertEquals(1, CategoryClassifier.classifyIndex(rules, japanese));
+        assertEquals("合集", CategoryClassifier.classify(rules, japanese));
+
+        MediaInfo animation = new MediaInfo("y.mkv");
+        animation.setGenreIds(Arrays.asList("16"));
+        assertEquals(0, CategoryClassifier.classifyIndex(rules, animation));
+    }
+
+    @Test
+    void classifyIndex_一条都没命中时返回负一() {
+        List<CategoryRule> rules = Arrays.asList(new CategoryRule("动画电影").withGenreIds("16"));
+        assertEquals(-1, CategoryClassifier.classifyIndex(rules, new MediaInfo("x.mkv")));
+        assertEquals(-1, CategoryClassifier.classifyIndex(null, new MediaInfo("x.mkv")));
+        assertNull(CategoryClassifier.classify(rules, new MediaInfo("x.mkv")));
+    }
 }

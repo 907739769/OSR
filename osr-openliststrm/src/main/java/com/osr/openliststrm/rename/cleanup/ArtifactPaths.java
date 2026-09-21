@@ -1,5 +1,6 @@
 package com.osr.openliststrm.rename.cleanup;
 
+import com.osr.openliststrm.rename.rule.CategoryPlacement;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Set;
@@ -21,7 +22,8 @@ public final class ArtifactPaths {
      * 目标库的顶层目录名。{@code MediaRenameProcessor#buildDestPath} 硬编码只会产出这两种，
      * 因此它一定出现在每条重命名产物的路径里，可以拿来当空目录回收的边界锚点。
      */
-    public static final Set<String> MEDIA_TOP_LEVELS = Set.of("电影", "电视剧");
+    public static final Set<String> MEDIA_TOP_LEVELS =
+            Set.of(CategoryPlacement.MOVIE_TOP_LEVEL, CategoryPlacement.TV_TOP_LEVEL);
 
     /** 剧集根目录 / 电影目录下的共享图片，文件名固定（见 MediaImageDownloader） */
     public static final List<String> SHARED_IMAGES = List.of(

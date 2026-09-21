@@ -12,7 +12,7 @@ export interface CategoryRule {
 }
 
 export function getRenameTemplateApi() {
-  return request.get<any, { template: string }>('/openliststrm/rename-config/template')
+  return request.get<any, { template: string; defaultTemplate: string }>('/openliststrm/rename-config/template')
 }
 
 export function previewRenameTemplateApi(template: string) {

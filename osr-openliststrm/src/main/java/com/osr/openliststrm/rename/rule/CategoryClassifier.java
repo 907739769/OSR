@@ -15,14 +15,23 @@ public final class CategoryClassifier {
     }
 
     public static String classify(List<CategoryRule> rules, MediaInfo info) {
+        int index = classifyIndex(rules, info);
+        return index < 0 ? null : rules.get(index).getName();
+    }
+
+    /**
+     * 同 {@link #classify}，但返回命中的是第几条（0 基，未命中返回 -1）。
+     * 「重命名测试」要告诉用户命中的是哪一条规则——只有目录名的话，两条规则配了同一个目标目录时分不出来。
+     */
+    public static int classifyIndex(List<CategoryRule> rules, MediaInfo info) {
         if (rules == null) {
-            return null;
+            return -1;
         }
-        for (CategoryRule rule : rules) {
-            if (rule.matches(info)) {
-                return rule.getName();
+        for (int i = 0; i < rules.size(); i++) {
+            if (rules.get(i).matches(info)) {
+                return i;
             }
         }
-        return null;
+        return -1;
     }
 }

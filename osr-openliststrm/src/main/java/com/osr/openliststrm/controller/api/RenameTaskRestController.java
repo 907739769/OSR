@@ -4,11 +4,16 @@ import com.osr.common.core.domain.Result;
 import com.osr.common.utils.StringUtils;
 import com.osr.framework.manager.AsyncManager;
 import com.osr.openliststrm.config.OpenlistConfig;
+import com.osr.openliststrm.mybatisplus.domain.RenameCategoryRulePlus;
 import com.osr.openliststrm.mybatisplus.domain.RenameTaskPlus;
+import com.osr.openliststrm.mybatisplus.service.IRenameCategoryRulePlusService;
 import com.osr.openliststrm.mybatisplus.service.IRenameTaskPlusService;
 import com.osr.openliststrm.rename.*;
 import com.osr.openliststrm.rename.config.IRenameTemplateConfigService;
 import com.osr.openliststrm.rename.model.MediaInfo;
+import com.osr.openliststrm.rename.rule.CategoryClassifier;
+import com.osr.openliststrm.rename.rule.CategoryPlacement;
+import com.osr.openliststrm.rename.rule.CategoryRuleConverter;
 import com.osr.openliststrm.tmdb.TMDbClient;
 import com.osr.openliststrm.openai.OpenAIClient;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -38,6 +43,9 @@ public class RenameTaskRestController extends BaseCrudRestController<IRenameTask
 
     @Autowired
     private IRenameTemplateConfigService templateConfigService;
+
+    @Autowired
+    private IRenameCategoryRulePlusService categoryRuleService;
 
     /**
      * 批量删除重命名任务配置
@@ -133,6 +141,7 @@ public class RenameTaskRestController extends BaseCrudRestController<IRenameTask
             result.put("info", info);
             result.put("renamed", renamed);
             result.put("template", renderTemplate);
+            result.putAll(placement(info, filename, renamed));
             return Result.success(result);
         }
         catch (Exception e)
@@ -170,12 +179,47 @@ public class RenameTaskRestController extends BaseCrudRestController<IRenameTask
             result.put("info", info);
             result.put("renamed", renamed);
             result.put("template", renderTemplate);
+            result.putAll(placement(info, filename, renamed));
             return Result.success(result);
         }
         catch (Exception e)
         {
             return Result.error("解析失败: " + e.getMessage());
         }
+    }
+
+    /**
+     * 试跑分类规则：这个文件最后会落到哪个目录。
+     * <p>
+     * 「重命名规则设置」页三个 tab 里有两个在配分类目录，而试跑只输出文件名的话，
+     * 用户最想验证的那件事恰恰验证不了。判定与路径拼装都走真正重命名用的同一份
+     * {@link CategoryClassifier} / {@link CategoryPlacement}，不在这里另写一套，
+     * 否则预览出来的路径与实际落盘的路径会各自漂移——而那正是这个预览存在的全部意义。
+     * <p>
+     * mediaType 按有无季号推断：真正执行时它来自任务配置，测试接口拿不到。
+     */
+    private Map<String, Object> placement(MediaInfo info, String filename, String renamed)
+    {
+        Map<String, Object> out = new LinkedHashMap<>();
+        String mediaType = CategoryPlacement.inferMediaType(info.getSeason(), info.getEpisode());
+        out.put("mediaType", mediaType);
+
+        List<RenameCategoryRulePlus> rows = categoryRuleService.listEnabledRules(mediaType);
+        List<CategoryRule> rules = CategoryRuleConverter.toCategoryRules(rows);
+        int hit = CategoryClassifier.classifyIndex(rules, info);
+
+        out.put("ruleCount", rows.size());
+        out.put("matchedRuleSeq", hit < 0 ? null : hit + 1);
+        out.put("matchedRuleFallback", hit >= 0 && "1".equals(rows.get(hit).getIsFallback()));
+
+        String category = CategoryPlacement.categoryOrDefault(hit < 0 ? null : rules.get(hit).getName());
+        out.put("category", category);
+
+        // 与 MediaRenameProcessor#buildDestPath 一致：渲染结果为空时退回原文件名，
+        // 渲染结果里的反斜杠按目录分隔符处理（模板本来就可以渲染出多级目录）
+        String leaf = StringUtils.isEmpty(renamed) ? filename : renamed.trim().replace('\\', '/');
+        out.put("destPath", CategoryPlacement.topLevelOf(mediaType) + "/" + category + "/" + leaf);
+        return out;
     }
 
     /**

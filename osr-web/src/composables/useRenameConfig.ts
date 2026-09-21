@@ -1,5 +1,6 @@
-import { ref, reactive, getCurrentScope, onScopeDispose } from 'vue'
+import { ref, reactive, computed, getCurrentScope, onScopeDispose } from 'vue'
 import { message } from '@/composables/useMessage'
+import { confirm } from '@/composables/useConfirm'
 import {
   getRenameTemplateApi,
   previewRenameTemplateApi,
@@ -19,6 +20,8 @@ export const TEMPLATE_VARIABLES = [
 export function useRenameConfig() {
   // ---- 文件名模板 ----
   const template = ref('')
+  /** 后端内置的默认模板，供「恢复默认」用；接口拿不到时按空串处理，按钮自己会隐藏 */
+  const defaultTemplate = ref('')
   const templateLoading = ref(false)
   const templateSaving = ref(false)
   const previewResult = ref('')
@@ -29,6 +32,7 @@ export function useRenameConfig() {
     try {
       const data = await getRenameTemplateApi() as any
       template.value = data.template
+      defaultTemplate.value = data.defaultTemplate || ''
       await doPreview()
     } catch (e) {
       // 具体错误文案已由 request.ts 的响应拦截器统一 toast 过了，这里不重复弹一次
@@ -79,6 +83,27 @@ export function useRenameConfig() {
       pendingResolve?.()
       pendingResolve = undefined
     })
+  }
+
+  /**
+   * 把内置默认模板填回编辑框——只填不存，用户确认效果后自己点保存。
+   * 这个配置项已从参数设置页隐藏，在这之前用户把模板改坏后没有任何界面途径改得回来。
+   */
+  const restoreDefaultTemplate = async () => {
+    if (!defaultTemplate.value) return
+    try {
+      await confirm({
+        title: '恢复默认模板',
+        message: '当前编辑框里的模板会被默认模板覆盖，确认后仍需点「保存模板」才会生效。',
+        confirmText: '恢复默认',
+        type: 'warning'
+      })
+    } catch {
+      return
+    }
+    template.value = defaultTemplate.value
+    await doPreview()
+    message.info('已填入默认模板，点「保存模板」后生效')
   }
 
   const saveTemplate = async () => {
@@ -170,6 +195,26 @@ export function useRenameConfig() {
   const testResult = ref<any>(null)
   const testForm = reactive({ filename: '', template: '' })
 
+  /**
+   * 测试结果里与分类规则有关的那一栏：判定类型 / 命中的是第几条 / 完整目标路径。
+   * 文案放在 composable 里，PC 与移动端各写一遍必然漂移。
+   */
+  const testPlacement = computed(() => {
+    const r = testResult.value
+    if (!r || !r.destPath) return null
+    const ruleText = r.matchedRuleSeq
+      ? (r.matchedRuleFallback
+          ? `兜底规则（第 ${r.matchedRuleSeq}/${r.ruleCount} 条）`
+          : `第 ${r.matchedRuleSeq}/${r.ruleCount} 条规则`)
+      : (r.ruleCount ? '一条规则都没命中' : '尚未配置分类规则')
+    return {
+      mediaTypeText: r.mediaType === 'movie' ? '电影' : '剧集',
+      ruleText,
+      category: r.category as string,
+      destPath: r.destPath as string
+    }
+  })
+
   const doTest = async () => {
     if (!testForm.filename.trim()) {
       message.warning('请输入文件名')
@@ -192,10 +237,10 @@ export function useRenameConfig() {
   loadRules()
 
   return {
-    template, templateLoading, templateSaving, previewResult, previewError,
-    doPreview, saveTemplate,
+    template, defaultTemplate, templateLoading, templateSaving, previewResult, previewError,
+    doPreview, saveTemplate, restoreDefaultTemplate,
     movieRules, tvRules, rulesLoading, savingRulesType,
     addRule, removeRule, moveRule, saveRules,
-    testLoading, testResult, testForm, doTest
+    testLoading, testResult, testForm, testPlacement, doTest
   }
 }
