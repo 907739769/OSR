@@ -44,7 +44,7 @@ export interface PtStatusSocketHandlers {
 
 /**
  * PT 订阅/下载记录实时状态推送：封装 WebSocket 连接生命周期，写法与
- * `views/monitor/log/realtime.vue` 的 connectWebSocket 一致——token 鉴权失败（收到
+ * `views/monitor/log/realtime.vue` 的 connect 一致——token 鉴权失败（收到
  * "unauthorized" 文本帧）不重连，普通断线 3 秒后自动重连。
  *
  * 默认在组件 onMounted 时自动连接、onUnmounted 时自动断开；若调用方本身不是在组件

@@ -161,4 +161,32 @@ class RequestLogFilterTest {
         assertTrue(slowElapsed >= 50,
                 "慢请求的耗时应覆盖它自己的完整时长（>=50ms），实际 " + slowElapsed + "ms —— 起点被另一个请求覆盖了");
     }
+
+    @Test
+    @DisplayName("DEBUG 下 WebSocket 握手查询串里的 token 不进日志")
+    void debugLogMasksToken() throws Exception {
+        accessLogger.setLevel(Level.DEBUG);
+        // 开关看的是 access logger，参数那行却是用类自己的 logger 打的，两个都要接住
+        Logger classLogger = (Logger) LoggerFactory.getLogger(RequestLogFilter.class);
+        Level oldLevel = classLogger.getLevel();
+        classLogger.addAppender(appender);
+        classLogger.setLevel(Level.DEBUG);
+        MockHttpServletRequest request = request("/websocket/log/all");
+        request.setQueryString("token=eyJ.secret.sig&v=2");
+        request.addParameter("token", "eyJ.secret.sig");
+        request.addParameter("v", "2");
+
+        try {
+            filter.doFilter(request, new MockHttpServletResponse(), new MockFilterChain());
+        } finally {
+            classLogger.detachAppender(appender);
+            classLogger.setLevel(oldLevel);
+        }
+
+        for (ILoggingEvent e : events()) {
+            assertTrue(!e.getFormattedMessage().contains("eyJ.secret.sig"), "token 泄露进日志: " + e.getFormattedMessage());
+        }
+        assertTrue(events().stream().anyMatch(e -> e.getFormattedMessage().contains("token=***")),
+                "token 应以 *** 出现: " + events());
+    }
 }
