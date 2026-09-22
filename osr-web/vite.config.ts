@@ -97,6 +97,11 @@ export default defineConfig({
         target: 'http://localhost:6895',
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, '/api')
+      },
+      // 实时日志与 PT 状态推送走 WebSocket（后端路径不带 /api 前缀），没有这条的话开发环境下两者都连不上
+      '/websocket': {
+        target: 'ws://localhost:6895',
+        ws: true
       }
     }
   }

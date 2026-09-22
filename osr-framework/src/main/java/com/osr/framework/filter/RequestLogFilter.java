@@ -60,7 +60,11 @@ public class RequestLogFilter implements Filter {
      */
     private static final List<String> NO_LOG_PATHS = Arrays.asList("/api/health");
 
-    private static final List<String> EXCLUDE_PARAMS = Arrays.asList("password");
+    /**
+     * 按「参数名包含」匹配后打成 ***。{@code token} 是 WebSocket 握手带在查询串里的 JWT
+     * （浏览器的 WebSocket API 加不了请求头），access logger 开到 DEBUG 时会连同参数一起打出来。
+     */
+    private static final List<String> EXCLUDE_PARAMS = Arrays.asList("password", "token");
     private static final int MAX_PARAM_LENGTH = 200;
     private static final int MAX_BODY_LENGTH = 1000; // 限制body最大打印长度
     // 静态资源路径排除列表
@@ -139,7 +143,8 @@ public class RequestLogFilter implements Filter {
             Map<String, String> safeParams = getSafeParameters(request);
             String requestBody = getRequestBody(request);
             StringBuilder logMessage = new StringBuilder();
-            logMessage.append("Request => ").append(request.getMethod()).append(" ").append(getRequestUrl(request));
+            // 只打路径不打原始查询串：参数在下面按 EXCLUDE_PARAMS 脱敏后单独输出，拼上查询串等于绕过脱敏
+            logMessage.append("Request => ").append(request.getMethod()).append(" ").append(request.getRequestURI());
 
             if (!safeParams.isEmpty()) {
                 logMessage.append(" [Params: ").append(formatParameters(safeParams)).append("]");
@@ -191,11 +196,6 @@ public class RequestLogFilter implements Filter {
         }
 
         return body;
-    }
-
-    private String getRequestUrl(HttpServletRequest request) {
-        String queryString = request.getQueryString();
-        return request.getRequestURI() + (queryString != null ? "?" + queryString : "");
     }
 
     private Map<String, String> getSafeParameters(HttpServletRequest request) {

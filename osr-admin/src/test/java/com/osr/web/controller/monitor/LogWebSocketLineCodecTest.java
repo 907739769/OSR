@@ -6,6 +6,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -105,5 +106,46 @@ class LogWebSocketLineCodecTest {
 
         JSONObject nul = encode(null);
         assertEquals("", nul.getString("msg"));
+    }
+
+    @Test
+    @DisplayName("批量协议的行对象不带消息类型字段")
+    void parseOmitsMessageType() {
+        JSONObject o = new LogWebSocket.LineCodec().parse("[2026-08-22 10:00:00.123][7f3a][INFO ][Foo] bar");
+        assertNull(o.get("t"));
+        assertEquals("INFO", o.getString("level"));
+    }
+
+    @Test
+    @DisplayName("服务端级别过滤：缺省不过滤，TRACE 跟随 INFO，全部取消勾选时什么都不放行")
+    void levelFilter() {
+        LogWebSocket.LevelFilter all = LogWebSocket.LevelFilter.parse(null);
+        assertTrue(all.acceptsAll());
+        assertTrue(all.accepts("DEBUG"));
+
+        LogWebSocket.LevelFilter noDebug = LogWebSocket.LevelFilter.parse("info,WARN, ERROR");
+        assertFalse(noDebug.acceptsAll());
+        assertFalse(noDebug.accepts("DEBUG"));
+        assertTrue(noDebug.accepts("INFO"));
+        assertTrue(noDebug.accepts("TRACE"));
+
+        LogWebSocket.LevelFilter errorOnly = LogWebSocket.LevelFilter.parse("ERROR");
+        assertFalse(errorOnly.accepts("TRACE"));
+
+        LogWebSocket.LevelFilter none = LogWebSocket.LevelFilter.parse("-");
+        assertFalse(none.accepts("ERROR"));
+        assertFalse(none.accepts("INFO"));
+    }
+
+    @Test
+    @DisplayName("查询串解析")
+    void parseQuery() {
+        var q = LogWebSocket.parseQuery("token=a.b.c&v=2&levels=INFO,ERROR");
+        assertEquals("a.b.c", q.get("token"));
+        assertEquals("2", q.get("v"));
+        assertEquals("INFO,ERROR", q.get("levels"));
+        assertTrue(LogWebSocket.parseQuery(null).isEmpty());
+        // 前端 URLSearchParams 会把逗号编码成 %2C
+        assertEquals("INFO,WARN,ERROR", LogWebSocket.parseQuery("levels=INFO%2CWARN%2CERROR").get("levels"));
     }
 }
