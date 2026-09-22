@@ -28,6 +28,7 @@
             hide-details="auto"
             clearable
             prepend-inner-icon="search"
+            @keydown.enter="historyMode && runSearch()"
           >
             <template #append-inner>
               <v-tooltip text="正则模式" location="top">
@@ -46,7 +47,7 @@
               </v-tooltip>
             </template>
           </v-text-field>
-          <span class="line-counter">{{ view.length }} / {{ lines.length }}</span>
+          <span class="line-counter">{{ historyMode ? `${shown.length} 行` : `${view.length} / ${lines.length}` }}</span>
         </div>
         <div class="header-row header-row-filters">
           <v-checkbox v-model="levelFilters.DEBUG" density="compact" hide-details label="Debug" />
@@ -56,14 +57,63 @@
           <v-spacer class="d-none d-md-block" />
           <v-btn
             size="small"
+            :variant="historyMode ? 'tonal' : 'outlined'"
+            :color="historyMode ? 'primary' : undefined"
+            prepend-icon="history"
+            @click="toggleHistoryMode"
+          >检索历史</v-btn>
+          <v-btn
+            v-if="!historyMode"
+            size="small"
             :variant="paused ? 'tonal' : 'outlined'"
             :color="paused ? 'warning' : undefined"
             :prepend-icon="paused ? 'play' : 'pause'"
             @click="togglePause"
           >{{ paused ? '继续' : '暂停' }}</v-btn>
-          <v-btn size="small" variant="outlined" prepend-icon="download" :disabled="!view.length" @click="exportLog">导出</v-btn>
-          <v-btn size="small" variant="outlined" prepend-icon="trash-2" @click="clearLog">清屏</v-btn>
-          <v-btn size="small" variant="outlined" prepend-icon="refresh-cw" @click="manualReconnect">重连</v-btn>
+          <v-btn size="small" variant="outlined" prepend-icon="download" :disabled="!shown.length" @click="exportLog">导出</v-btn>
+          <template v-if="!historyMode">
+            <v-btn size="small" variant="outlined" prepend-icon="trash-2" @click="clearLog">清屏</v-btn>
+            <v-btn size="small" variant="outlined" prepend-icon="refresh-cw" @click="manualReconnect">重连</v-btn>
+          </template>
+        </div>
+        <!--
+          检索历史：在日志文件（含已滚动的分片）里查，复用上面的关键字、正则、级别与日志源。
+          实时日志只有最近 500 行历史，而排查的起点常是「通知里的 traceId / 时间点，那是半小时前的事」。
+        -->
+        <div v-if="historyMode" class="header-row history-row">
+          <v-text-field
+            v-model="searchFrom"
+            type="datetime-local"
+            label="开始时间"
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="time-field"
+          />
+          <v-text-field
+            v-model="searchTo"
+            type="datetime-local"
+            label="结束时间"
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="time-field"
+          />
+          <v-btn
+            size="small"
+            color="primary"
+            variant="flat"
+            prepend-icon="file-search"
+            :loading="searching"
+            :disabled="regexInvalid"
+            @click="runSearch"
+          >检索</v-btn>
+          <v-btn size="small" variant="outlined" prepend-icon="arrow-left" @click="toggleHistoryMode">返回实时</v-btn>
+          <span v-if="searchSummary" class="search-summary">
+            命中 {{ searchSummary.lines.length }} 行 · 扫描 {{ searchSummary.scannedFiles }} 个文件 /
+            {{ formatBytes(searchSummary.scannedBytes) }} · 用时 {{ (searchSummary.elapsedMs / 1000).toFixed(1) }}s
+            <span v-if="searchSummary.truncated" class="search-truncated">（{{ searchSummary.truncatedReason }}）</span>
+          </span>
         </div>
       </div>
 
@@ -75,7 +125,7 @@
             没有它的话每来一批新行，Vue 都要把已有的几千行重新生成一遍 vnode 再逐个比对。
           -->
           <div
-            v-for="line in view"
+            v-for="line in shown"
             :key="line.id"
             v-memo="[line, highlightRe]"
             class="log-line"
@@ -95,11 +145,11 @@
             v-for="(p, i) in splitParts(line.msg, line.divider ? null : highlightRe)"
             :key="i"
           ><mark v-if="p.hit" class="log-hit">{{ p.text }}</mark><template v-else>{{ p.text }}</template></template></span></div>
-          <div v-if="!view.length" class="log-empty">{{ emptyHint }}</div>
+          <div v-if="!shown.length" class="log-empty">{{ emptyHint }}</div>
         </div>
 
         <v-btn
-          v-if="!atBottom || (paused && heldCount)"
+          v-if="!historyMode && (!atBottom || (paused && heldCount))"
           class="jump-bottom"
           size="small"
           color="primary"
@@ -127,6 +177,7 @@ import {
   formatLine,
   toLogLine,
 } from '@/composables/realtimeLog'
+import { searchLogApi, type LogSearchResult } from '@/api/monitor/log'
 
 /** 缓冲区上限。暂停/上翻期间攒下的新行另有同样的上限 */
 const MAX_LINES = 5000
@@ -168,6 +219,15 @@ const heldCount = ref(0)
 let incoming: LogLine[] = []
 let flushTimer: ReturnType<typeof setTimeout> | null = null
 let nextId = 1
+
+/** 检索历史模式：视图换成检索结果，实时日志在后台照常接收（进 held），返回实时时一次放出 */
+const historyMode = ref(false)
+const searchFrom = ref('')
+const searchTo = ref('')
+const searching = ref(false)
+const searchLines = shallowRef<LogLine[]>([])
+const searchSummary = ref<LogSearchResult | null>(null)
+const shown = computed(() => (historyMode.value ? searchLines.value : view.value))
 
 const connectionState = ref<'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'stopped'>('disconnected')
 const reconnectInSec = ref(0)
@@ -218,6 +278,10 @@ function refilter() {
 }
 
 const emptyHint = computed(() => {
+  if (historyMode.value) {
+    if (searching.value) return '检索中…'
+    return searchSummary.value ? '没有匹配的日志' : '输入关键字、选择时间范围后点「检索」，会在全部日志文件（含已滚动的分片）里查找'
+  }
   if (!lines.value.length) return '暂无日志'
   return '当前过滤条件下没有匹配的日志'
 })
@@ -241,7 +305,7 @@ watch(keyword, (kw) => {
 // 过滤条件一变，内容高度会突变，此时应重新贴到底部而不是停在半空
 watch([appliedKeyword, useRegex], () => {
   refilter()
-  jumpToBottom()
+  if (!historyMode.value) jumpToBottom()
 })
 
 /**
@@ -252,7 +316,11 @@ watch([appliedKeyword, useRegex], () => {
 let levelTimer: ReturnType<typeof setTimeout> | null = null
 watch(() => ({ ...levelFilters }), () => {
   refilter()
-  jumpToBottom()
+  if (historyMode.value) {
+    if (searchSummary.value) runSearch()
+  } else {
+    jumpToBottom()
+  }
   if (levelTimer) clearTimeout(levelTimer)
   levelTimer = setTimeout(() => connect(true), 500)
 })
@@ -264,6 +332,46 @@ function toggleTrace(trace?: string) {
   useRegex.value = false
   keyword.value = next
   appliedKeyword.value = next
+  // 检索历史里点 traceId：直接按它重新检索，跨文件拿到这次调用的全链路
+  if (historyMode.value && next) runSearch()
+}
+
+async function runSearch() {
+  if (regexInvalid.value || searching.value) return
+  searching.value = true
+  try {
+    const kw = keyword.value?.trim() ?? ''
+    const r = await searchLogApi({
+      type: logType.value,
+      keyword: kw || undefined,
+      regex: useRegex.value,
+      levels: levelsParam(levelFilters) ?? undefined,
+      from: searchFrom.value || undefined,
+      to: searchTo.value || undefined,
+    })
+    // 高亮跟随这次检索实际用的关键字，不等输入防抖
+    appliedKeyword.value = kw
+    searchLines.value = r.lines.map(o => toLogLine(o, nextId++))
+    searchSummary.value = r
+    scrollToBottom(true)
+  } catch {
+    // 请求拦截器已经提示过错误
+  } finally {
+    searching.value = false
+  }
+}
+
+function toggleHistoryMode() {
+  historyMode.value = !historyMode.value
+  if (!historyMode.value) {
+    // 回到实时：检索期间攒下的新行一次放出
+    jumpToBottom()
+  }
+}
+
+function formatBytes(n: number): string {
+  if (n >= 1 << 20) return `${(n / (1 << 20)).toFixed(1)} MB`
+  return `${Math.max(1, Math.round(n / 1024))} KB`
 }
 
 /* ------------------------------------------------------------------ 缓冲与提交 */
@@ -284,7 +392,7 @@ function flush() {
   if (!incoming.length) return
   const batch = incoming
   incoming = []
-  if (paused.value || !atBottom.value) {
+  if (paused.value || !atBottom.value || historyMode.value) {
     held = keepLast(held.concat(batch), MAX_LINES)
     heldCount.value = held.length
     return
@@ -315,7 +423,9 @@ function releaseHeld() {
 
 /* ------------------------------------------------------------------ 滚动 */
 
-function scrollToBottom() {
+/** 检索历史模式下实时行不进视图，也就不该去动滚动条；force 给检索结果自己用 */
+function scrollToBottom(force = false) {
+  if (historyMode.value && !force) return
   nextTick(() => {
     const el = logContentRef.value
     if (el) el.scrollTop = el.scrollHeight
@@ -324,7 +434,7 @@ function scrollToBottom() {
 
 function handleScroll() {
   const el = logContentRef.value
-  if (!el) return
+  if (!el || historyMode.value) return
   const bottom = el.scrollHeight - el.scrollTop - el.clientHeight <= 50
   if (bottom === atBottom.value) return
   atBottom.value = bottom
@@ -367,7 +477,7 @@ function clearLog() {
 }
 
 function exportLog() {
-  const text = view.value.map(formatLine).join('\n') + '\n'
+  const text = shown.value.map(formatLine).join('\n') + '\n'
   const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
@@ -376,7 +486,7 @@ function exportLog() {
   const p2 = (n: number) => String(n).padStart(2, '0')
   const stamp = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`
   a.href = url
-  a.download = `osr-${logType.value}-${stamp}.log`
+  a.download = `osr-${logType.value}${historyMode.value ? '-search' : ''}-${stamp}.log`
   a.click()
   // 立即 revoke 会让部分浏览器（Firefox）在下载真正开始前就失去数据源
   setTimeout(() => URL.revokeObjectURL(url), 1000)
@@ -384,6 +494,7 @@ function exportLog() {
 
 function handleLogTypeChange() {
   connect(true)
+  if (historyMode.value && searchSummary.value) runSearch()
 }
 
 function manualReconnect() {
@@ -634,6 +745,25 @@ onUnmounted(() => {
   min-width: 200px;
 }
 
+.history-row {
+  gap: 8px;
+}
+
+.time-field {
+  flex: 0 0 210px;
+  max-width: 210px;
+}
+
+.search-summary {
+  font-size: 12px;
+  color: var(--osr-text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.search-truncated {
+  color: rgb(var(--v-theme-warning));
+}
+
 .line-counter {
   flex-shrink: 0;
   font-family: var(--osr-font-mono);
@@ -778,6 +908,11 @@ onUnmounted(() => {
 
   .keyword-field {
     flex: 1 1 100%;
+  }
+
+  .time-field {
+    flex: 1 1 calc(50% - 4px);
+    max-width: none;
   }
 
   .log-content {
