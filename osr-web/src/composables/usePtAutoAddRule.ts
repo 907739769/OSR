@@ -172,7 +172,12 @@ export function usePtAutoAddRule() {
     runningIds.value.add(row.id)
     try {
       const result = await runPtAutoAddRuleApi(row.id)
-      message.success(`执行完成：新增${result.addedCount} 跳过${result.skippedCount} 失败${result.failedCount}`)
+      // 拉榜失败时三个数都是 0，与「榜上没有新东西」长得一样，必须单独说
+      if (result.fetchError) {
+        message.error(`拉取榜单失败：${result.fetchError}`)
+      } else {
+        message.success(`执行完成：新增${result.addedCount} 跳过${result.skippedCount} 失败${result.failedCount}`)
+      }
       base.getList()
     } catch (e) {
       console.error(e)
@@ -208,9 +213,11 @@ export function usePtAutoAddRule() {
     const map: Record<string, string> = {
       ADDED: '已新增',
       SKIPPED_EXISTS: '已存在跳过',
+      SKIPPED_REMOVED: '已删除不再加回',
       SKIPPED_FILTER: '过滤跳过',
       SKIPPED_NO_MATCH: '未匹配到 TMDb',
-      FAILED: '失败'
+      FAILED: '失败',
+      FETCH_FAILED: '拉取榜单失败'
     }
     return map[result] || result
   }
@@ -222,7 +229,10 @@ export function usePtAutoAddRule() {
       SKIPPED_FILTER: 'warning',
       // 未匹配到 TMDb 不是"过滤掉了"而是"没认出来"，用户多半要去看看是不是该手动订一条
       SKIPPED_NO_MATCH: 'warning',
-      FAILED: 'error'
+      // 用户删过的订阅不再自动加回，是按用户意愿办事，不算异常
+      SKIPPED_REMOVED: 'info',
+      FAILED: 'error',
+      FETCH_FAILED: 'error'
     }
     return map[result] || 'info'
   }

@@ -17,6 +17,7 @@ import com.osr.openliststrm.pt.subscription.PushOutcome;
 import com.osr.openliststrm.pt.subscription.SearchSupplementService;
 import com.osr.openliststrm.pt.subscription.SubscriptionSearchOnCreateTrigger;
 import com.osr.openliststrm.pt.PtLogText;
+import com.osr.openliststrm.pt.calendar.EpisodeAirDateSyncService;
 import com.osr.openliststrm.pt.subscription.SubscriptionService;
 import com.osr.openliststrm.pt.subscription.TmdbSearchService;
 import com.osr.openliststrm.pt.subscription.dto.BatchOperationResult;
@@ -63,6 +64,9 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
     @Autowired
     private IPtSearchLogPlusService searchLogService;
 
+    @Autowired
+    private EpisodeAirDateSyncService airDateSyncService;
+
     /**
      * 当前登录用户是否可以看到/操作所有订阅。管理员可以；其余用户只能碰自己的订阅
      * 和无归属的公共订阅（{@code owner_user_id IS NULL}，即本列上线前建的历史订阅）。
@@ -105,9 +109,25 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
                 .toList();
     }
 
+    /**
+     * 「已播缺集」的判据：缺失或已阻塞、且已经播出（没有播出日期的按已播出算，
+     * 与 {@code SubscriptionService#aired} 同一取向）。未播出的集在库里也是 MISSING，
+     * 算进来的话刚订的新剧会因为「后面 20 集还没播」排到最前。
+     * <p>
+     * 筛选与排序共用这一份，否则「只看有缺集」筛出来的与「按缺集数排」排在前面的不是同一批。
+     * </p>
+     */
+    static String airedMissingSql(String alias) {
+        String p = alias.isEmpty() ? "" : alias + ".";
+        return p + "state IN ('MISSING','BLOCKED') AND (" + p + "air_date IS NULL OR " + p + "air_date <= CURDATE())";
+    }
+
     @Override
     protected Wrapper<PtSubscriptionPlus> buildQueryWrapper(PtSubscriptionPlus entity) {
-        LambdaQueryWrapper<PtSubscriptionPlus> wrapper = new LambdaQueryWrapper<>();
+        // 外层用 QueryWrapper 是为了按缺集数排序时能写一个子查询表达式（lambda 版只收字段引用）；
+        // lambda() 与它共用同一份条件与排序，其余条件照旧用 lambda 写
+        QueryWrapper<PtSubscriptionPlus> query = new QueryWrapper<>();
+        LambdaQueryWrapper<PtSubscriptionPlus> wrapper = query.lambda();
         if (!canAccessAll()) {
             Long currentUserId = getUserId();
             if (currentUserId == null) {
@@ -129,8 +149,15 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
         if (StringUtils.isNotBlank(entity.getStatus())) {
             wrapper.eq(PtSubscriptionPlus::getStatus, entity.getStatus());
         }
-        applySort(wrapper, entity.getSortBy());
-        return wrapper;
+        if (StringUtils.isNotBlank(entity.getAutoSearch())) {
+            wrapper.eq(PtSubscriptionPlus::getAutoSearch, entity.getAutoSearch());
+        }
+        if ("1".equals(entity.getHasMissing())) {
+            wrapper.inSql(PtSubscriptionPlus::getId,
+                    "SELECT sub_id FROM pt_subscription_episode WHERE " + airedMissingSql(""));
+        }
+        applySort(query, wrapper, entity.getSortBy());
+        return query;
     }
 
     /**
@@ -138,13 +165,18 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
      * 同为 NULL 的订阅）在翻页之间顺序稳定，否则同一条记录可能在相邻两页里出现两次、
      * 或者一次都不出现。
      * <p>
-     * 刻意<b>没有</b>「按缺集数排序」：那要 ORDER BY 一个相关子查询，而这个 wrapper
-     * 同时喂给分页的 count 查询（见 {@code BaseController#selectPage}），
-     * 表达式排序在聚合查询里的行为要连着真实 MySQL 一起验证才敢上。
+     * 「按缺集数排序」是 ORDER BY 一个相关子查询。这个 wrapper 同时喂给分页的 count 查询
+     * （见 {@code BaseController#selectPage}），于是 count 那条也带着它——与现有的
+     * {@code ORDER BY id} 一样，MySQL 对单行聚合的 ORDER BY 只是忽略，不报错也不影响结果。
+     * 子查询里的表达式是写死的常量，不含任何用户输入。
      * </p>
      */
-    private void applySort(LambdaQueryWrapper<PtSubscriptionPlus> wrapper, String sortBy) {
-        if ("lastMatchTime".equals(sortBy)) {
+    private void applySort(QueryWrapper<PtSubscriptionPlus> query, LambdaQueryWrapper<PtSubscriptionPlus> wrapper,
+                           String sortBy) {
+        if ("missing".equals(sortBy)) {
+            query.orderByDesc("(SELECT COUNT(*) FROM pt_subscription_episode e WHERE e.sub_id = pt_subscription.id AND "
+                    + airedMissingSql("e") + ")");
+        } else if ("lastMatchTime".equals(sortBy)) {
             wrapper.orderByDesc(PtSubscriptionPlus::getLastMatchTime);
         } else if ("lastSearchTime".equals(sortBy)) {
             wrapper.orderByDesc(PtSubscriptionPlus::getLastSearchTime);
@@ -294,6 +326,9 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
             return denied;
         }
         try {
+            // 先同步播出日期再对账：对账要用落库的 TMDb 集号去查媒体库，日期也是用户点这个按钮时
+            // 常想顺手修的东西（日历上某集日期不对）。周期对账不做这一步，见 syncQuietly 的说明
+            airDateSyncService.syncQuietly(id);
             subscriptionBiz.refresh(id);
             return Result.success();
         } catch (IllegalArgumentException e) {
@@ -428,6 +463,33 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
             return Result.error("没有可操作的订阅");
         }
         return Result.success(subscriptionBiz.resumeBatch(idList));
+    }
+
+    /**
+     * 批量开启/关闭自动补搜。
+     * <p>
+     * 只 set 这一列（见 {@code SubscriptionService#setAutoSearchBatch}），不能逐条 updateById：
+     * 列表页手里那份订阅是查询时刻的快照，整条写回会把补搜链路刚写入的 last_search_time 覆盖掉。
+     * </p>
+     *
+     * @return 实际生效的条数（无权操作的会被过滤掉）
+     */
+    @PostMapping("/batchAutoSearch")
+    public Result<Integer> batchAutoSearch(@RequestParam("ids") String ids,
+                                           @RequestParam("enabled") boolean enabled) {
+        if (StringUtils.isBlank(ids)) {
+            return Result.error("请选择要操作的订阅");
+        }
+        List<Integer> idList;
+        try {
+            idList = filterAccessible(Arrays.stream(Convert.toStrArray(ids)).map(Integer::valueOf).toList());
+        } catch (NumberFormatException e) {
+            return Result.error("订阅ID格式不正确");
+        }
+        if (idList.isEmpty()) {
+            return Result.error("没有可操作的订阅");
+        }
+        return Result.success(subscriptionBiz.setAutoSearchBatch(idList, enabled));
     }
 
     /**

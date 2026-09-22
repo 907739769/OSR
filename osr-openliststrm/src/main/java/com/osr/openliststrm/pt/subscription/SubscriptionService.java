@@ -1,6 +1,7 @@
 package com.osr.openliststrm.pt.subscription;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.helper.TgHelper;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloadRecordPlus;
@@ -540,6 +541,27 @@ public class SubscriptionService {
     }
 
     /**
+     * 批量开启/关闭自动补搜，只写 auto_search 这一列。
+     * <p>
+     * 不走 {@code updateById(实体)}：MyBatis-Plus 默认的 NOT_NULL 策略会把实体上所有非 null 字段
+     * 一并写回，调用方手里的是查询时刻的快照，会把补搜链路刚写入的 last_search_time 覆盖回旧值。
+     * </p>
+     *
+     * @param ids 调用方已校验过归属
+     * @return 生效条数
+     */
+    public int setAutoSearchBatch(List<Integer> ids, boolean enabled) {
+        if (ids == null || ids.isEmpty()) {
+            return 0;
+        }
+        subscriptionService.update(new UpdateWrapper<PtSubscriptionPlus>()
+                .in("id", ids)
+                .set("auto_search", enabled ? "1" : "0"));
+        log.info("批量{}自动补搜，订阅 {} 条：{}", enabled ? "开启" : "关闭", ids.size(), ids);
+        return ids.size();
+    }
+
+    /**
      * 手动把某一集重置为 MISSING。
      * <p>
      * {@link #refresh} 是"只升级不降级"的对账逻辑，这里是打破它的显式人工出口——
@@ -798,8 +820,8 @@ public class SubscriptionService {
      * 取该季的播出日期表，供建订阅/补集时填 air_date。
      * <p>
      * 取不到只影响日历排格，不该让订阅本身建不起来——因此吞掉异常返回空表，
-     * 剩下的交给 {@code EpisodeAirDateSyncTask} 下一轮补。电影的上映日期不走这里
-     * （季端点是 TV 专用），留给同步任务从详情里取。
+     * 剩下的交给 {@code EpisodeAirDateSyncTask} 下一轮补。电影不走这里（季端点是 TV 专用），
+     * 同步任务也不处理电影——电影订阅没有播出日期，不进追剧日历与缺集体检。
      * </p>
      */
     private Map<Integer, TmdbEpisodeAligner.TmdbEpisodeRef> alignTmdbEpisodes(

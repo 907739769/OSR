@@ -18,7 +18,7 @@
           size="small"
           @click="setState('')"
         >
-          全部 {{ entries.length }}
+          全部 {{ monthTotal }}
         </v-chip>
         <v-chip
           v-for="s in LEGEND"
@@ -137,13 +137,23 @@
           <v-btn variant="outlined" @click="entryDialogOpen = false">关闭</v-btn>
           <v-btn color="primary" variant="flat" @click="openSubscription(activeEntry)">查看订阅</v-btn>
         </v-card-actions>
+        <!-- 手机上一行塞不下四个按钮，诊断/搜索另起一行。理由同 PC 端 -->
+        <v-card-actions v-if="canDiagnose(activeEntry) || activeEntry.state === 'MISSING'">
+          <v-spacer />
+          <v-btn v-if="canDiagnose(activeEntry)" variant="text" prepend-icon="stethoscope" @click="openHealth(activeEntry)">
+            查看诊断
+          </v-btn>
+          <v-btn v-if="activeEntry.state === 'MISSING'" variant="text" prepend-icon="search" @click="openSubscription(activeEntry, true)">
+            搜这一集
+          </v-btn>
+        </v-card-actions>
       </v-card>
     </v-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
+import { computed, nextTick, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { usePtCalendar, stateMeta, posterUrl } from '@/composables/usePtCalendar'
 import TmdbLink from '@/components/TmdbLink.vue'
@@ -151,8 +161,8 @@ import { getRoutePathForComponent } from '@/router'
 import type { CalendarEntry } from '@/api/openlist/ptCalendar'
 
 const {
-  loading, loadFailed, entries, monthLabel, agenda, today,
-  activeState, stateCounts, setState,
+  loading, loadFailed, monthLabel, agenda, today,
+  activeState, stateCounts, monthTotal, setState,
   load, goPrevMonth, goNextMonth, goToday
 } = usePtCalendar()
 
@@ -161,7 +171,8 @@ const LEGEND = [
   { key: 'IN_FLIGHT', label: '下载中' },
   { key: 'UPGRADING', label: '洗版中' },
   { key: 'BLOCKED', label: '已阻塞' },
-  { key: 'MISSING', label: '缺失' }
+  { key: 'MISSING', label: '缺失' },
+  { key: 'UNAIRED', label: '待播出' }
 ]
 
 /** stateMeta 给的 default 不是 Vuetify 的合法色名，转成 undefined 让 chip 用默认色 */
@@ -218,9 +229,20 @@ const openEntry = (entry: CalendarEntry) => {
 
 const router = useRouter()
 // query 用 id：订阅页读的是 route.query.id。路径不写死，理由同 PC 端
-const openSubscription = (entry: CalendarEntry) => {
+const openSubscription = (entry: CalendarEntry, search = false) => {
   const path = getRoutePathForComponent('openlist/ptSubscription/index')
-  if (path) router.push({ path, query: { id: String(entry.subId) } })
+  if (!path) return
+  const query: Record<string, string> = { id: String(entry.subId) }
+  if (search) query.episode = String(entry.episode)
+  router.push({ path, query })
+}
+
+/** 缺集体检只收已播出的缺失/在途/阻塞集，理由同 PC 端 */
+const DIAGNOSABLE_STATES = ['MISSING', 'IN_FLIGHT', 'BLOCKED']
+const healthPath = computed(() => getRoutePathForComponent('openlist/ptHealth/index'))
+const canDiagnose = (entry: CalendarEntry) => !!healthPath.value && DIAGNOSABLE_STATES.includes(entry.state)
+const openHealth = (entry: CalendarEntry) => {
+  if (healthPath.value) router.push({ path: healthPath.value, query: { subId: String(entry.subId) } })
 }
 </script>
 

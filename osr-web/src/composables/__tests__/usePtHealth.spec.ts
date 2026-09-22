@@ -379,3 +379,33 @@ describe('usePtHealth 忽略', () => {
     expect(c.isActing(1)).toBe(false)
   })
 })
+
+describe('usePtHealth 只看一条订阅', () => {
+  /** 订阅卡片、追剧日历的「查看诊断」带 ?subId= 过来，问的是这一部，不该给一整页别的订阅 */
+  it('设置 focusSubId 后只保留这一条，且算作筛选态', async () => {
+    (getPtHealthApi as any).mockResolvedValue(report({
+      subscriptionCount: 2,
+      subscriptions: [sub({ subId: 1, title: 'A 剧' }), sub({ subId: 2, title: 'B 剧' })]
+    }))
+    const c = usePtHealth()
+    await flush()
+    expect(c.subscriptions.value).toHaveLength(2)
+
+    c.focusSubId.value = 2
+
+    expect(c.subscriptions.value.map((s: any) => s.subId)).toEqual([2])
+    expect(c.focusTitle.value).toBe('B 剧')
+    expect(c.filtering.value).toBe(true)
+  })
+
+  it('要看的那条不在报告里时列表为空、标题为空', async () => {
+    const c = usePtHealth()
+    await flush()
+
+    c.focusSubId.value = 99
+
+    expect(c.subscriptions.value).toHaveLength(0)
+    expect(c.focusTitle.value).toBe('')
+  })
+})
+

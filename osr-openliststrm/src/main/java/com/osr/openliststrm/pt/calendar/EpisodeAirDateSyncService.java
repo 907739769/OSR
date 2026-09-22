@@ -5,6 +5,7 @@ import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
+import com.osr.openliststrm.pt.PtLogText;
 import com.osr.openliststrm.pt.subscription.SubscriptionService;
 import com.osr.openliststrm.pt.subscription.TmdbSearchService;
 import lombok.extern.slf4j.Slf4j;
@@ -99,6 +100,33 @@ public class EpisodeAirDateSyncService {
                 .map(PtSubscriptionEpisodePlus::getSubId)
                 .filter(Objects::nonNull)
                 .collect(Collectors.toSet());
+    }
+
+    /**
+     * 手动对账时顺带同步这一条订阅的播出日期。
+     * <p>
+     * 只给手动入口用，<b>不要挂到 {@code SubscriptionService#refresh} 里</b>：那个方法也被
+     * {@code LibrarySyncService} 每 10 分钟对全部订阅调一遍，挂进去等于每轮每条订阅多打一次 TMDb。
+     * 失败只记日志不抛：日期同步取不到不该让对账本身报错，12 小时一轮的同步任务会再补。
+     * </p>
+     *
+     * @return 实际更新的集行数；电影、订阅不存在或失败时为 0
+     */
+    public int syncQuietly(Integer subId) {
+        PtSubscriptionPlus sub = subscriptionService.getById(subId);
+        if (sub == null || SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType())) {
+            return 0;
+        }
+        try {
+            int updated = syncOne(sub);
+            if (updated > 0) {
+                log.info("{} 手动对账同步播出日期：更新 {} 集", PtLogText.subject(sub), updated);
+            }
+            return updated;
+        } catch (Exception e) {
+            log.warn("{} 手动对账同步播出日期失败，留待定时同步：{}", PtLogText.subject(sub), e.getMessage());
+            return 0;
+        }
     }
 
     /**

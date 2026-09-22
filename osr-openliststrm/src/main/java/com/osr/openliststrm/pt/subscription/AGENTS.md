@@ -7,7 +7,7 @@ SubscriptionMatcher / SubscriptionEngine / SearchSupplementService / SearchLogSe
 
 ## NOTES
 - **订阅列表页的进度计数与进度弹窗必须共用 `SubscriptionService#hasFileInLibrary`**。卡片上的「12/26」由列表接口一条 `GROUP BY sub_id, state` 聚合出来（`countStatesBySubscriptions` → `fillProgressCounts`），弹窗那份是逐集算的；两处只要有一处忘了「UPGRADING 也算已入库」，同一条订阅就会在卡片上显示 12、点开弹窗显示 11——**比不显示进度更糟**，用户会开始怀疑哪个数是真的。为此 `hasFileInLibrary` 特意做了 `(String state)` 重载给聚合侧用，不要在聚合那边另写一遍状态判断。计数落在 `PtSubscriptionPlus` 的三个 `@TableField(exist = false)` 瞬态列上，查完列表再填，不落库。
-  **排序刻意没有「按缺集数」**：那需要 `ORDER BY (SELECT COUNT(*) …)`，而同一个 wrapper 还要喂给分页的 count 查询（`BaseController#selectPage` 先 `selectCount(wrapper)` 再 `selectPage`），表达式排序在聚合查询里的行为得连着真实 MySQL 验一遍才敢上——排序坏掉是整页打不开，不是少个档位。要加的话先验证 count 路径，`idx_sub_state(sub_id, state)` 本身是够用的。
+  **「按已播缺集数」排序与「只看有缺集」筛选共用 `PtSubscriptionRestController#airedMissingSql` 一份口径**：缺失/阻塞且已播出（`air_date` 为 null 按已播出，与 `SubscriptionService#aired` 同向）。未播集在库里也是 MISSING，算进去的话刚订的 12 集新番会因为「后面 9 集还没播」排到最前。排序是 `ORDER BY (SELECT COUNT(*) …)` 相关子查询，同一个 wrapper 还喂给分页的 `selectCount`（`BaseController#selectPage`），**已在 MySQL 8.0 + `ONLY_FULL_GROUP_BY` 上实测过 count 与分页两条 SQL**：单行聚合里的 ORDER BY 被忽略，不报错。外层因此是 `QueryWrapper`（lambda 版只收字段引用、写不进表达式），其余条件经 `query.lambda()` 共用同一份；改回纯 `LambdaQueryWrapper` 会让这一档直接编不过，而不是静默失效。子查询里只有常量，不拼任何用户输入
 - **集号有三套，别假定它们一致**。这是本项目最容易踩空的一处建模：
   - **OSR 本地** `pt_subscription_episode.episode`：季内相对集号 1..N，由 `episodeNumbers()` 按 `episode_count` 生成
   - **PT 种子**：也是季内相对号（实测 `One Piece S23E13`），与本地一致，所以 `SubscriptionMatcher` 那侧没问题

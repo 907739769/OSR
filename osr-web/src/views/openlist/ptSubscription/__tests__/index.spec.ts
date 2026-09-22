@@ -340,7 +340,8 @@ describe('PtSubscription 按钮收纳', () => {
     await wrapper.find('.more-actions-trigger').trigger('click')
     await new Promise((r) => setTimeout(r, 0))
     const dropdownItemTexts = body().findAll('.v-list-item').map(i => i.text()).filter(Boolean)
-    expect(dropdownItemTexts).toEqual(['暂停', '搜索补齐', '对账', '匹配日志', '过滤规则', '删除'])
+    // 「缺集诊断」只对订阅中的剧集出现（体检页不收电影与非订阅中）
+    expect(dropdownItemTexts).toEqual(['暂停', '搜索补齐', '对账', '缺集诊断', '匹配日志', '过滤规则', '删除'])
   })
 
   it('已暂停的订阅在「更多」里显示恢复而不是暂停', async () => {

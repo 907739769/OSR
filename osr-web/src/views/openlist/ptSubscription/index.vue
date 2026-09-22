@@ -7,8 +7,7 @@
     >
       <template #actions>
         <!-- 缺集体检回答的是「这一格为什么还是灰的」，是这一页的天然去处。
-             放页头而不是每张卡片的「更多」里：体检页按分档列全部订阅，不支持按单条订阅过滤，
-             挂成行操作会点进去看到一整页别的订阅 -->
+             页头这个看全部；只看某一条的入口在卡片「更多」里（体检页读 ?subId=） -->
         <v-btn v-if="healthPath" variant="text" prepend-icon="stethoscope" @click="goHealth">
           缺集体检
         </v-btn>
@@ -43,6 +42,28 @@
         :items="[{ title: '订阅中', value: 'ACTIVE' }, { title: '已完成', value: 'COMPLETED' }, { title: '已暂停', value: 'PAUSED' }]"
         label="状态"
         placeholder="状态"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        class="field-sm"
+      />
+      <v-select
+        v-model="queryParams.autoSearch"
+        :items="AUTO_SEARCH_OPTIONS"
+        label="自动补搜"
+        placeholder="自动补搜"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        class="field-sm"
+      />
+      <v-select
+        v-model="queryParams.hasMissing"
+        :items="HAS_MISSING_OPTIONS"
+        label="缺集"
+        placeholder="缺集"
         clearable
         density="compact"
         variant="outlined"
@@ -85,11 +106,25 @@
         已选 {{ selectedIds.length }} 项
         <v-btn variant="text" color="warning" size="small" class="batch-pause-btn" :disabled="!selectedIds.length" @click="handleBatchPause">批量暂停</v-btn>
         <v-btn variant="text" color="success" size="small" class="batch-resume-btn" :disabled="!selectedIds.length" @click="handleBatchResume">批量恢复</v-btn>
-        <v-btn variant="text" color="error" size="small" class="batch-delete-btn" :disabled="!selectedIds.length" @click="handleDelete()">批量删除</v-btn>
+        <v-btn variant="text" color="primary" size="small" :disabled="!selectedIds.length || batchSearchRunning" @click="handleBatchAutoSearch(true)">开启自动补搜</v-btn>
+        <v-btn variant="text" size="small" :disabled="!selectedIds.length || batchSearchRunning" @click="handleBatchAutoSearch(false)">关闭自动补搜</v-btn>
+        <v-btn variant="text" color="primary" size="small" :disabled="!selectedIds.length || batchSearchRunning" @click="handleBatchSearchMissing">立即补搜</v-btn>
+        <v-btn variant="text" color="error" size="small" class="batch-delete-btn" :disabled="!selectedIds.length || batchSearchRunning" @click="handleDelete()">批量删除</v-btn>
         <v-btn variant="text" size="small" class="batch-select-all-btn" @click="toggleSelectAllPage(!isAllPageSelected)">
           {{ isAllPageSelected ? '取消全选' : '全选' }}
         </v-btn>
-        <v-btn variant="text" size="small" class="batch-cancel-btn" @click="toggleSelectionMode">取消</v-btn>
+        <v-btn variant="text" size="small" class="batch-cancel-btn" :disabled="batchSearchRunning" @click="toggleSelectionMode">取消</v-btn>
+      </div>
+      <!-- 批量立即补搜逐条串行，每条一两分钟，必须看得到进度、停得下来 -->
+      <div v-if="batchSearchRunning" class="batch-search-progress">
+        <v-progress-linear
+          :model-value="batchSearchTotal ? (batchSearchDone / batchSearchTotal) * 100 : 0"
+          color="primary"
+          height="6"
+          rounded
+        />
+        <span class="batch-search-text">正在补搜 {{ batchSearchDone }}/{{ batchSearchTotal }}</span>
+        <v-btn variant="text" size="small" color="warning" @click="abortBatchSearch">中止</v-btn>
       </div>
 
       <div v-if="loading && taskList.length === 0" class="card-grid card-grid--wide" ref="gridRef">
@@ -175,7 +210,9 @@ const {
   taskList, loading, total, queryParams, getList, handleQuery, resetQuery, openSubscribeDialog, showProgressById, handleDelete,
   selectedIds, selectionMode, toggleSelectionMode,
   handleBatchPause, handleBatchResume,
-  isAllPageSelected, toggleSelectAllPage} = usePtSubscriptionProvider({ autoLoad: false })
+  handleBatchAutoSearch, handleBatchSearchMissing, abortBatchSearch,
+  batchSearchRunning, batchSearchDone, batchSearchTotal,
+  isAllPageSelected, toggleSelectAllPage } = usePtSubscriptionProvider({ autoLoad: false })
 
 // 每页条数按网格实际列数取整到整行，窗口宽度变了跟着重算
 const { gridRef, columns, pageSizeOptions, setPageSize } = useGridPageSize((size) => {
@@ -184,9 +221,6 @@ const { gridRef, columns, pageSizeOptions, setPageSize } = useGridPageSize((size
   getList()
 })
 
-
-
-
 /**
  * 骨架屏铺几张。列数直接用 useGridPageSize 量出来的真实值，不再自己按窗口宽度估——
  * 旧算法用 `window.innerWidth - 32 - 32`，把 220px 的侧边栏整个漏掉了，总是多算约一列，
@@ -194,26 +228,22 @@ const { gridRef, columns, pageSizeOptions, setPageSize } = useGridPageSize((size
  */
 const skeletonCount = computed(() => Math.max(3, Math.min(12, columns.value * 2)))
 
-/** 排序档位。缺集数排序需要 ORDER BY 子查询，暂未提供，见后端 applySort 的注释 */
+/** 排序档位。缺集数只算已播出的缺失/阻塞集，未播出的不算（见后端 airedMissingSql） */
 const sortOptions = [
   { title: '默认（最新创建）', value: '' },
+  { title: '已播缺集数', value: 'missing' },
   { title: '上次命中时间', value: 'lastMatchTime' },
   { title: '上次搜索时间', value: 'lastSearchTime' },
   { title: '标题', value: 'title' }
 ]
 
-
-
-
-
-
+const AUTO_SEARCH_OPTIONS = [{ title: '已开启', value: '1' }, { title: '未开启', value: '0' }]
+const HAS_MISSING_OPTIONS = [{ title: '有已播缺集', value: '1' }]
 
 onMounted(() => {
   const subId = Number(route.query.id)
-  if (subId) showProgressById(subId)
+  if (subId) showProgressById(subId, Number(route.query.episode) || undefined)
 })
-
-
 
 /** 缺集体检页的路径。菜单没授权时反查不到，页头那个入口就整个不渲染 */
 const healthPath = computed(() => getRoutePathForComponent('openlist/ptHealth/index'))
@@ -223,7 +253,6 @@ const goHealth = () => {
 </script>
 
 <style scoped lang="scss">
-
 .item-card-skeleton {
   display: flex;
   gap: 12px;
@@ -250,397 +279,22 @@ const goHealth = () => {
   white-space: nowrap;
 }
 
-.picked-bar {
-  margin-top: 12px;
-  padding: 10px 12px;
-  border-radius: var(--osr-radius-sm);
-  background: var(--osr-bg-page);
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.picked-season-hint {
-  font-size: 12px;
-  color: var(--osr-primary);
-}
-
-.field-hint {
-  margin: 4px 0 0;
-  font-size: 12px;
-  color: var(--osr-text-secondary);
-}
-
-.progress-title {
-  margin: 0 0 12px;
-  font-size: 16px;
-  font-weight: 600;
-}
-
-.progress-season {
-  margin-left: 6px;
-  font-size: 13px;
-  font-weight: 400;
-  color: var(--osr-text-secondary);
-}
-
-.all-done {
-  color: var(--osr-success);
-}
-
-/* 缺集串：集号本身就是搜索入口，不再每个集号后面挂一个按钮组件 */
-.missing-list {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin: 8px 0;
-}
-
-.missing-lead {
-  font-size: 13px;
-  color: var(--osr-text-secondary);
-}
-
-.missing-item {
-  min-width: 30px;
-  padding: 2px 6px;
-  border: 1px solid var(--osr-border-light);
-  border-radius: var(--osr-radius-sm);
-  background: transparent;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  color: var(--osr-text-primary);
-  cursor: default;
-
-  &.missing-item--clickable {
-    cursor: pointer;
-
-    &:hover {
-      border-color: var(--osr-primary-accent);
-      color: var(--osr-primary-hover);
-    }
-  }
-}
-
-.missing-more {
-  padding: 2px 6px;
-  border: none;
-  background: transparent;
-  font-size: 12px;
-  color: var(--osr-primary);
-  cursor: pointer;
-}
-
-.episode-detail-toggle {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 12px;
-  padding-top: 8px;
-  border-top: 1px solid var(--osr-border-light);
-  font-size: 13px;
-  color: var(--osr-primary);
-  cursor: pointer;
-
-  .v-icon {
-    transition: transform var(--osr-transition-fast);
-
-    &.is-open {
-      transform: rotate(180deg);
-    }
-  }
-}
-
-.episode-detail-list {
-  margin-top: 8px;
-  max-height: 240px;
-  overflow-y: auto;
-}
-
-.episode-detail-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 6px 0;
-  font-size: 13px;
-  border-bottom: 1px solid var(--osr-border-light);
-
-  .ep-num {
-    width: 60px;
-    flex-shrink: 0;
-    color: var(--osr-text-primary);
-  }
-
-  .ep-date {
-    flex-shrink: 0;
-    font-size: 12px;
-    font-variant-numeric: tabular-nums;
-    color: var(--osr-text-secondary);
-  }
-
-  .ep-unaired {
-    margin-left: 4px;
-    color: var(--osr-text-disabled);
-  }
-
-  .ep-quality {
-    flex: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    font-size: 12px;
-    color: var(--osr-text-secondary);
-  }
-}
-
-/* 补齐跑批时的「3/26」，与旁边的按钮同高 */
+/* 批量立即补搜的进度条：进度 + 「3/26」+ 中止，一行排开 */
 .batch-search-progress {
-  padding: 0 12px;
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-  color: var(--osr-text-secondary);
-}
-
-.log-toolbar {
   display: flex;
   align-items: center;
   gap: 12px;
-  margin-bottom: 8px;
-}
+  padding: 0 16px 8px;
 
-.log-count {
-  font-size: 12px;
-  color: var(--osr-text-secondary);
-}
-
-.override-tip {
-  margin: 0 0 12px;
-  font-size: 12px;
-  color: var(--osr-text-secondary);
-}
-
-/* 勾选框在最左：它是这一行的总开关，夹在标签和输入框中间时扫视都找不到它在哪 */
-.override-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
-  flex-wrap: wrap;
-}
-
-.override-checkbox {
-  flex: none;
-}
-
-.override-label {
-  width: 110px;
-  flex-shrink: 0;
-  font-size: 13px;
-  color: var(--osr-text-secondary);
-}
-
-.override-input {
-  flex: 1;
-  min-width: 150px;
-}
-
-/* 全局取值参照：勾上覆盖那一刻用户得知道自己在把多少改成多少 */
-.override-global {
-  flex-shrink: 0;
-  min-width: 108px;
-  font-size: 12px;
-  color: var(--osr-text-disabled);
-}
-
-.empty-tip {
-  text-align: center;
-  padding: 40px;
-  color: var(--osr-text-secondary);
-}
-
-.search-poster {
-  width: 40px;
-  height: 60px;
-  object-fit: cover;
-  border-radius: var(--osr-radius-sm);
-  display: block;
-  margin: 0 auto;
-}
-
-.search-poster-placeholder {
-  width: 40px;
-  height: 60px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  margin: 0 auto;
-  color: var(--osr-text-disabled);
-  font-size: 18px;
-}
-
-:deep(.row-selected) {
-  background: var(--osr-primary-subtle);
-}</style>
-
-/* 卡片外壳（边框/圆角/hover/可点选/紧凑内距）全部来自 styles/list.scss 的 .item-card，
-   这里只写订阅卡特有的：海报横排、进度条、开关行。 */
-
-.item-card-checkbox {
-  position: absolute;
-  top: 4px;
-  left: 4px;
-  z-index: 1;
-}
-
-.item-card-skeleton {
-  display: flex;
-  gap: 12px;
-  padding: 14px;
-  border: 1px solid var(--osr-border-light);
-  border-radius: var(--osr-radius-md);
-
-  &__poster {
-    flex-shrink: 0;
-    border-radius: var(--osr-radius-sm);
-    overflow: hidden;
-  }
-
-  &__info {
+  .v-progress-linear {
     flex: 1;
-    min-width: 0;
-    padding-top: 2px;
   }
 }
 
-/* 海报 + 信息横排 */
-.sub-main {
-  display: flex;
-  gap: 12px;
-  min-width: 0;
-}
-
-.sub-poster {
-  flex-shrink: 0;
-  width: 72px;
-  height: 108px;
-  border-radius: var(--osr-radius-sm);
-  overflow: hidden;
-  background: var(--osr-bg-page);
-
-  img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
-  }
-
-  .sub-poster-placeholder {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    color: var(--osr-text-disabled);
-    font-size: 22px;
-
-    /* 下面两组渐变是刻意的装饰色：海报占位在明暗主题下都保持深底白字，
-       与主题色无关，因此不走 --osr-* 令牌 */
-    &.placeholder-movie {
-      background:
-        radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.14), transparent 45%),
-        linear-gradient(135deg, #1e3a5f 0%, #2d5a87 50%, #1e3a5f 100%);
-      color: rgba(255, 255, 255, 0.7);
-    }
-
-    &.placeholder-tv {
-      background:
-        radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.14), transparent 45%),
-        linear-gradient(135deg, #3b1f47 0%, #6b3a7a 50%, #3b1f47 100%);
-      color: rgba(255, 255, 255, 0.7);
-    }
-
-    .placeholder-text {
-      font-size: 11px;
-      font-weight: 500;
-      letter-spacing: 1px;
-    }
-  }
-}
-
-.sub-info {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-
-  /* 卡片窄，「上次命中」这类标签用不着 list.scss 里给表格卡准备的 72px */
-  .card-row .label {
-    width: 58px;
-  }
-}
-
-.sub-meta {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px;
-  font-size: 12px;
-  color: var(--osr-text-secondary);
-}
-
-.sub-flag {
-  /* chip 自带的高度在这一行里偏大，压到与旁边的文字同高 */
-  height: 18px;
-}
-
-.sub-progress {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.sub-progress-text {
-  flex-shrink: 0;
-  font-size: 12px;
+.batch-search-text {
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
-  color: var(--osr-text-secondary);
-}
-
-.sub-progress-inflight {
-  color: var(--osr-primary);
-}
-
-/* 两个开关并作一行 */
-.sub-switches {
-  display: flex;
-  gap: 16px;
-  flex-wrap: wrap;
-}
-
-.sub-switch {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 13px;
-
-  .label {
-    color: var(--osr-text-secondary);
-    white-space: nowrap;
-  }
-}
-
-.sort-label {
-  font-size: 13px;
   color: var(--osr-text-secondary);
   white-space: nowrap;
 }
-
-:deep(.row-selected) {
-  background: var(--osr-primary-subtle);
-}
+</style>

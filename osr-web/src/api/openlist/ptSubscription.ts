@@ -139,6 +139,13 @@ export function batchResumeSubscriptionApi(ids: number[]) {
   )
 }
 
+/** 批量开启/关闭自动补搜，返回实际生效的条数（无权操作的会被后端过滤掉） */
+export function batchAutoSearchSubscriptionApi(ids: number[], enabled: boolean) {
+  return request.post<any, number>(
+    '/openliststrm/pt-subscriptions/batchAutoSearch', null, { params: { ids: ids.join(','), enabled } }
+  )
+}
+
 /** 批量删除订阅 */
 export function batchDeletePtSubscriptionApi(ids: number[]) {
   return request.post('/openliststrm/pt-subscriptions/batchDelete', null, { params: { ids: ids.join(',') } })

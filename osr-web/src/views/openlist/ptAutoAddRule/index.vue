@@ -3,7 +3,7 @@
     <PageHeader
       icon="wand-sparkles"
       title="PT 热门自动订阅"
-      desc="按 TMDb 热门榜或评分条件定时自动建订阅"
+      desc="按 TMDb 热门榜或 RSSHub 豆瓣榜单定时自动建订阅；自动订过又被删掉的作品不会再加回"
     />
 
     <SearchPanel ref="queryRef" :visible="showSearch" @search="handleQuery" @reset="resetQuery">

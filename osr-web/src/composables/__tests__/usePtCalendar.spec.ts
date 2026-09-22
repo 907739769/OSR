@@ -208,3 +208,57 @@ describe('usePtCalendar 今天与跳转', () => {
     expect(c.monthLabel.value).toBe(dayjs().format('YYYY 年 M 月'))
   })
 })
+
+describe('usePtCalendar 待播出', () => {
+  /** 未播出的集在库里也是 MISSING；照原样显示成「缺失」，下个月整排未播的集看起来全出了问题 */
+  it('缺失且播出日期在今天之后的显示为待播出', async () => {
+    const tomorrow = dayjs().add(1, 'day').format('YYYY-MM-DD')
+    ;(getPtCalendarApi as any).mockResolvedValue([
+      entry({ episode: 1, airDate: TODAY, state: 'MISSING' }),
+      entry({ episode: 2, airDate: tomorrow, state: 'MISSING' }),
+      entry({ episode: 3, airDate: tomorrow, state: 'IN_FLIGHT' })
+    ])
+    const c = usePtCalendar()
+    await flush()
+
+    const states = Object.fromEntries(c.entries.value.map((e: any) => [e.episode, e.state]))
+    // 当天播出算已播出，与后端 SubscriptionService#aired 同一口径
+    expect(states).toEqual({ 1: 'MISSING', 2: 'UNAIRED', 3: 'IN_FLIGHT' })
+  })
+
+  it('按待播出筛选', async () => {
+    const future = dayjs().add(40, 'day').format('YYYY-MM-DD')
+    ;(getPtCalendarApi as any).mockResolvedValue([entry({ airDate: future, state: 'MISSING' })])
+    const c = usePtCalendar()
+    await flush()
+
+    c.setState('UNAIRED')
+    expect(c.visibleEntries.value).toHaveLength(1)
+  })
+})
+
+describe('usePtCalendar 取数范围与图例计数', () => {
+  /** 网格固定 6 行；只取到「月末所在那一周」的话，只占 5 周的月份第 6 行永远是空的 */
+  it('取数范围覆盖网格全部 42 天', async () => {
+    usePtCalendar()
+    await flush()
+
+    const [start, end] = (getPtCalendarApi as any).mock.calls[0]
+    expect(dayjs(end).diff(dayjs(start), 'day')).toBe(41)
+    expect(start).toBe(dayjs().startOf('month').startOf('week').format('YYYY-MM-DD'))
+  })
+
+  it('图例计数只算本月，不含网格首尾溢出的上下月几天', async () => {
+    const lastMonth = dayjs().startOf('month').subtract(1, 'day').format('YYYY-MM-DD')
+    ;(getPtCalendarApi as any).mockResolvedValue([
+      entry({ episode: 1, state: 'IN_LIBRARY' }),
+      entry({ episode: 2, airDate: lastMonth, state: 'IN_LIBRARY' })
+    ])
+    const c = usePtCalendar()
+    await flush()
+
+    expect(c.stateCounts.value).toEqual({ IN_LIBRARY: 1 })
+    expect(c.monthTotal.value).toBe(1)
+  })
+})
+

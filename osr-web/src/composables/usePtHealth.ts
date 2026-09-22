@@ -148,6 +148,11 @@ export function usePtHealth() {
   /** 当前筛选的诊断；空串=全部。与分档是两个维度，可叠加 */
   const activeDiagnosis = ref('')
   /**
+   * 只看某一条订阅；null=全部。由页面按 route.query.subId 设置——
+   * 订阅卡片与追剧日历跳过来时，用户问的是「这一部为什么还缺」，给一整页别的订阅等于没回答
+   */
+  const focusSubId = ref<number | null>(null)
+  /**
    * 是否把已忽略的订阅也列出来。
    * 忽略必须配一个能找回来的入口，否则它就是个不可撤销的操作——
    * 转移做种那边「停止重试必须配一个解除入口」是同一条教训。
@@ -194,8 +199,10 @@ export function usePtHealth() {
   const subscriptions = computed<SubscriptionHealthItem[]>(() => {
     const bucket = activeBucket.value
     const diagnosis = activeDiagnosis.value
-    if (!bucket && !diagnosis) return report.value.subscriptions
-    return report.value.subscriptions
+    const focus = focusSubId.value
+    const scoped = focus ? report.value.subscriptions.filter((s) => s.subId === focus) : report.value.subscriptions
+    if (!bucket && !diagnosis) return scoped
+    return scoped
       .filter((s) => (!bucket || s.buckets.includes(bucket))
         && (!diagnosis || s.diagnoses.includes(diagnosis)))
       .map((s) => ({
@@ -214,7 +221,11 @@ export function usePtHealth() {
   }))
 
   /** 是否处于筛选态，供页面决定汇总文案说「共」还是「筛出」 */
-  const filtering = computed(() => Boolean(activeBucket.value || activeDiagnosis.value))
+  const filtering = computed(() => Boolean(activeBucket.value || activeDiagnosis.value || focusSubId.value))
+
+  /** 只看的那条订阅的标题；它不在报告里（没有逾期缺集）时为空 */
+  const focusTitle = computed(() =>
+    report.value.subscriptions.find((s) => s.subId === focusSubId.value)?.title || '')
 
   /** 有集在场的分档才做成标签页，空档不显示 */
   const bucketTabs = computed(() =>
@@ -353,7 +364,7 @@ export function usePtHealth() {
 
   return {
     loading, loadFailed, lastLoadedAt, report,
-    activeBucket, activeDiagnosis, subscriptions, filteredCount, filtering,
+    activeBucket, activeDiagnosis, focusSubId, focusTitle, subscriptions, filteredCount, filtering,
     bucketTabs, diagnosisTabs, autoSearchOffIds,
     actingSubId, batchActing, isActing, anyActing,
     includeIgnored, handleSetIgnored, toggleIncludeIgnored,

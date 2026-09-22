@@ -23,10 +23,12 @@ import {
   getSubscriptionSearchLogsApi,
   batchPauseSubscriptionApi,
   batchResumeSubscriptionApi,
+  batchAutoSearchSubscriptionApi,
   batchDeletePtSubscriptionApi,
   getPtSubscriptionByIdApi
 } from '@/api/openlist/ptSubscription'
 import { getPtFilterConfigApi } from '@/api/openlist/ptFilterConfig'
+import { searchMissingApi } from '@/api/openlist/ptHealth'
 import { getPtIndexerListApi } from '@/api/openlist/ptIndexer'
 import type { SearchParams } from '@/types'
 import type { ListLoadOptions } from './useGridPageSize'
@@ -36,6 +38,10 @@ interface PtSubscriptionQuery extends SearchParams {
   mediaType?: string
   status?: string
   sortBy?: string
+  /** '1' 开 / '0' 关，空=不限 */
+  autoSearch?: string
+  /** '1' 只看有已播缺集的 */
+  hasMissing?: string
 }
 
 /**
@@ -51,7 +57,10 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
     idField: 'id',
     initForm: () => ({ id: undefined }),
     rules: {},
-    defaultQuery: { title: undefined, mediaType: undefined, status: 'ACTIVE', sortBy: undefined, pageSize: 12 }
+    defaultQuery: {
+      title: undefined, mediaType: undefined, status: 'ACTIVE', sortBy: undefined,
+      autoSearch: undefined, hasMissing: undefined, pageSize: 12
+    }
   })
 
   // ---------- 实时状态推送：订阅命中时间原地更新，不用整页刷新 ----------
@@ -234,11 +243,16 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
     }
   }
 
-  /** 从下载记录页跳转过来时，按 id 查该条订阅并直接弹出进度，而不是过滤列表 */
-  const showProgressById = async (id: number) => {
+  /**
+   * 从下载记录页/追剧日历跳转过来时，按 id 查该条订阅并直接弹出进度，而不是过滤列表。
+   * 带 episode 时再叠一层「搜这一集」：日历上点一格缺失的集，要的就是去搜它
+   */
+  const showProgressById = async (id: number, episode?: number) => {
     try {
       const row = await getPtSubscriptionByIdApi(id)
-      if (row) await showProgress(row)
+      if (!row) return
+      await showProgress(row)
+      if (episode && row.mediaType !== 'MOVIE') openEpisodeSearch(row, episode)
     } catch (e) {
       console.error(e)
     }
@@ -992,6 +1006,93 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
     }
   }
 
+  /**
+   * 批量开启/关闭自动补搜。
+   * 开启要二次确认，理由同缺集体检页：每条开着的订阅每轮心跳都会向所有索引器发起检索，
+   * 一次开几十条是有持续代价的配置变更
+   */
+  const handleBatchAutoSearch = async (enabled: boolean) => {
+    const ids = [...base.selectedIds.value]
+    if (!ids.length) return
+    try {
+      await confirm({
+        message: enabled
+          ? `确认为选中的 ${ids.length} 个订阅开启自动补搜？开启后它们每轮心跳都会向所有索引器发起检索，直到缺集补齐或手动关掉。`
+          : `确认关闭选中的 ${ids.length} 个订阅的自动补搜？`,
+        title: '提示',
+        type: 'warning'
+      })
+    } catch {
+      return
+    }
+    try {
+      const count = await batchAutoSearchSubscriptionApi(ids, enabled)
+      message.success(`已为 ${count} 个订阅${enabled ? '开启' : '关闭'}自动补搜`)
+      base.selectedIds.value = []
+      base.getList()
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  // ---------- 批量立即补搜 ----------
+  const batchSearchRunning = ref(false)
+  const batchSearchDone = ref(0)
+  const batchSearchTotal = ref(0)
+  const batchSearchAborted = ref(false)
+
+  /**
+   * 对选中的订阅逐条立即补搜全部缺集（与缺集体检「立即补搜」同一个接口）。
+   * <p>
+   * 逐条串行而不是并发：每条都要向全部索引器跑一轮季搜索 + 单集补发，并发几条就是几倍的站点请求，
+   * 容易撞上索引器限流。每条可能跑上一两分钟，所以给进度与中止；单条失败静默（silent），
+   * 最后汇总一句，否则十几条落空会弹十几个错误提示。
+   * </p>
+   */
+  const handleBatchSearchMissing = async () => {
+    const ids = [...base.selectedIds.value]
+    if (!ids.length || batchSearchRunning.value) return
+    try {
+      await confirm({
+        message: `确认对选中的 ${ids.length} 个订阅逐条立即补搜缺集？每条可能要跑一两分钟，期间可以中止。`,
+        title: '提示',
+        type: 'info'
+      })
+    } catch {
+      return
+    }
+    batchSearchRunning.value = true
+    batchSearchAborted.value = false
+    batchSearchDone.value = 0
+    batchSearchTotal.value = ids.length
+    let succeeded = 0
+    const failed: number[] = []
+    try {
+      for (const id of ids) {
+        if (batchSearchAborted.value) break
+        try {
+          await searchMissingApi(id, true)
+          succeeded++
+        } catch (e) {
+          console.error(`订阅 ${id} 补搜失败：`, e)
+          failed.push(id)
+        }
+        batchSearchDone.value++
+      }
+      const stoppedTip = batchSearchAborted.value ? '（已中止）' : ''
+      // 成功里既有「推送了 N 个」也有「没有可搜的缺集」，说不出「有结果」，只报失败的那部分
+      const failedTip = failed.length ? `，其中 ${failed.length} 条未推送任何资源（原因见各自的「匹配日志」）` : ''
+      const text = `批量补搜完成${stoppedTip}：共跑完 ${succeeded + failed.length} 条${failedTip}`
+      if (succeeded > 0 || !failed.length) message.success(text)
+      else message.warning(text)
+      base.getList()
+    } finally {
+      batchSearchRunning.value = false
+    }
+  }
+
+  const abortBatchSearch = () => { batchSearchAborted.value = true }
+
   // ---------- 移动端 - 分页辅助 ----------
   const totalPages = computed(() => Math.ceil(base.total.value / base.queryParams.pageSize) || 1)
 
@@ -1059,6 +1160,8 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
     // 批量操作
     selectionMode, toggleSelectionMode,
     toggleSubSelect, isSubSelected, handleBatchPause, handleBatchResume,
+    handleBatchAutoSearch, handleBatchSearchMissing, abortBatchSearch,
+    batchSearchRunning, batchSearchDone, batchSearchTotal,
     // 移动端分页 & 搜索面板
     totalPages, prevPage, nextPage, handleSizeChange, searchCollapsed
   }

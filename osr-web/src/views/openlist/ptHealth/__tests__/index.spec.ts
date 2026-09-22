@@ -77,6 +77,8 @@ function baseComposable(overrides: Record<string, any> = {}) {
     }),
     activeBucket: ref(''),
     activeDiagnosis: ref(''),
+    focusSubId: ref<number | null>(null),
+    focusTitle: computed(() => ''),
     subscriptions,
     filteredCount: computed(() => ({ subscriptionCount: 1, episodeCount: 1 })),
     filtering: computed(() => false),

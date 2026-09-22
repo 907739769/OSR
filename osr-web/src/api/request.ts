@@ -5,6 +5,16 @@ import type { Result, LoginResponse } from '@/types'
 import Cookies from 'js-cookie'
 import { useUserStore } from '@/stores/user'
 
+declare module 'axios' {
+  interface AxiosRequestConfig {
+    /**
+     * 出错时不弹全局提示，由调用方自己汇总。批量循环调同一个接口时（如订阅页「批量立即补搜」）
+     * 用得上：每条失败各弹一次会刷一屏，而调用方最后本来就要报一句汇总
+     */
+    silent?: boolean
+  }
+}
+
 const service: AxiosInstance = axios.create({
   baseURL: import.meta.env.VITE_APP_BASE_API || '/api',
   timeout: 15000
@@ -115,7 +125,7 @@ service.interceptors.response.use(
       // trigger the same refresh flow as HTTP 401
       return handleTokenRefresh(response.config as InternalAxiosRequestConfig & { _retry?: boolean })
     } else {
-      message.error(msg || '请求失败')
+      if (!response.config.silent) message.error(msg || '请求失败')
       return Promise.reject(new Error(msg || '请求失败'))
     }
   },
@@ -128,7 +138,7 @@ service.interceptors.response.use(
       const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean }
       return handleTokenRefresh(originalRequest)
     } else {
-      message.error(error.message || '网络错误')
+      if (!error.config?.silent) message.error(error.message || '网络错误')
       return Promise.reject(error)
     }
   }
