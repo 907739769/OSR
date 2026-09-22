@@ -76,9 +76,10 @@ export function enableAutoSearchApi(ids: number[]) {
  * 带回来的集会各发一次完整的单集检索（默认最多 5 集，墙钟预算 180 秒，两者都是后端配置）。
  * 掐在 60 秒的话，补发几乎必然被前端判超时，而它恰恰是这个按钮现在最有价值的部分。
  */
-export function searchMissingApi(subId: number) {
+export function searchMissingApi(subId: number, silent = false) {
   return request.post<any, string>(`/openliststrm/pt-health/${subId}/search-missing`, null, {
-    timeout: 240000
+    timeout: 240000,
+    silent
   })
 }
 

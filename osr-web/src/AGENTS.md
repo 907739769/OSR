@@ -59,6 +59,7 @@ src/
 - **自动导入**: vite-plugin-vuetify (autoImport) + unplugin-auto-import + unplugin-vue-components，`vue`/`vue-router`/`pinia` 与 `v-*` 组件无需手动 import
 - **`@` 别名**: 指向 `src/` 目录
 - **API 层**: 返回标准 `{ code, msg, data }` 格式，axios 拦截器自动处理
+- **批量循环调同一个接口时传 `{ silent: true }`**（`request.ts` 给 `AxiosRequestConfig` 扩了这个字段）：拦截器照常 reject，只是不弹全局错误提示，由调用方最后汇总一句。不传的话十几条落空会弹十几个提示刷屏（先例：订阅页「批量立即补搜」→ `searchMissingApi(id, true)`）。它只管提示，不影响 401 刷新 token 那条路径
 - **路由**: 后端动态返回菜单，前端根据权限生成路由
 - **列表页模式**: 使用 composables (`useTaskList`/`useRecordList`) 封装增删改查 + 分页 + 搜索
 - **移动端**: `views-mobile/` 独立于 `views/`，使用 `MobileSearchPanel` + `MobilePager` + `FullTextDialog` 组件

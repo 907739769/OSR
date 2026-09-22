@@ -74,7 +74,7 @@ public class EpisodeAirDateSyncTask {
                 }
             }
         } catch (Exception e) {
-            log.error("EpisodeAirDateSyncTask run error", e);
+            log.error("播出日期同步本轮异常：{}", e.getMessage(), e);
         } finally {
             running.set(false);
         }

@@ -36,7 +36,13 @@ vi.mock('@/api/openlist/ptSubscription', () => ({
   getSubscriptionSearchLogsApi: vi.fn(),
   batchPauseSubscriptionApi: vi.fn(),
   batchResumeSubscriptionApi: vi.fn(),
+  batchAutoSearchSubscriptionApi: vi.fn(),
   batchDeletePtSubscriptionApi: vi.fn()
+}))
+
+// 批量立即补搜复用缺集体检的接口
+vi.mock('@/api/openlist/ptHealth', () => ({
+  searchMissingApi: vi.fn()
 }))
 
 vi.mock('../usePtStatusSocket', () => ({
@@ -58,12 +64,14 @@ import {
   getPtSubscriptionListApi,
   batchPauseSubscriptionApi,
   batchResumeSubscriptionApi,
+  batchAutoSearchSubscriptionApi,
   searchSupplementApi,
   getSubscriptionProgressApi,
   getSubscriptionEpisodesApi,
   resetEpisodeApi
 } from '@/api/openlist/ptSubscription'
 import { usePtStatusSocket } from '../usePtStatusSocket'
+import { searchMissingApi } from '@/api/openlist/ptHealth'
 import { getPtIndexerListApi } from '@/api/openlist/ptIndexer'
 
 describe('usePtSubscription 的批量暂停/恢复', () => {
@@ -505,5 +513,72 @@ describe('usePtSubscription 搜索限定站点', () => {
     composable.searchIndexerIds.value = [1]
     await composable.confirmSearch()
     expect((searchSupplementApi as any).mock.calls[1][1].indexerIds).toEqual([1])
+  })
+})
+
+describe('usePtSubscription 的批量自动补搜与批量立即补搜', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(getPtSubscriptionListApi as any).mockResolvedValue({ records: [], total: 0 })
+    ;(confirm as any).mockResolvedValue(undefined)
+  })
+
+  it('批量开启自动补搜：确认后调接口并清空选中', async () => {
+    (batchAutoSearchSubscriptionApi as any).mockResolvedValue(2)
+    const c = usePtSubscription()
+    c.selectedIds.value = [1, 2]
+
+    await c.handleBatchAutoSearch(true)
+
+    expect(batchAutoSearchSubscriptionApi).toHaveBeenCalledWith([1, 2], true)
+    expect(message.success).toHaveBeenCalledWith('已为 2 个订阅开启自动补搜')
+    expect(c.selectedIds.value).toEqual([])
+  })
+
+  it('取消确认时不调接口', async () => {
+    (confirm as any).mockRejectedValue('cancel')
+    const c = usePtSubscription()
+    c.selectedIds.value = [1]
+
+    await c.handleBatchAutoSearch(false)
+
+    expect(batchAutoSearchSubscriptionApi).not.toHaveBeenCalled()
+  })
+
+  /**
+   * 逐条串行、静默调用（每条失败不各弹一次）、最后汇总一句。
+   * 并发打会让索引器一次吃下几倍的请求；不静默的话十几条落空会刷一屏错误提示
+   */
+  it('批量立即补搜逐条串行并静默，最后汇总失败条数', async () => {
+    const order: number[] = []
+    ;(searchMissingApi as any).mockImplementation(async (id: number) => {
+      order.push(id)
+      if (id === 2) throw new Error('未推送任何资源')
+      return '已推送 1 个资源到下载器'
+    })
+    const c = usePtSubscription()
+    c.selectedIds.value = [1, 2, 3]
+
+    await c.handleBatchSearchMissing()
+
+    expect(order).toEqual([1, 2, 3])
+    expect(searchMissingApi).toHaveBeenCalledWith(1, true)
+    expect(c.batchSearchDone.value).toBe(3)
+    expect(c.batchSearchRunning.value).toBe(false)
+    expect(message.success).toHaveBeenCalledWith(expect.stringContaining('其中 1 条未推送任何资源'))
+  })
+
+  it('中止后不再发起后面的补搜', async () => {
+    const c = usePtSubscription()
+    ;(searchMissingApi as any).mockImplementation(async (id: number) => {
+      if (id === 1) c.abortBatchSearch()
+      return 'ok'
+    })
+    c.selectedIds.value = [1, 2, 3]
+
+    await c.handleBatchSearchMissing()
+
+    expect(searchMissingApi).toHaveBeenCalledTimes(1)
+    expect(message.success).toHaveBeenCalledWith(expect.stringContaining('已中止'))
   })
 })

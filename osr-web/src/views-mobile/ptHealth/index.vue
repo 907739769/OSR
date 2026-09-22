@@ -64,6 +64,12 @@
     </div>
 
     <!-- 忽略必须配一个能找回来的入口，否则它就是个不可撤销的操作 -->
+    <!-- 从订阅卡片/追剧日历跳过来时只看那一条；「显示全部」回到整页 -->
+    <div v-if="focusSubId" class="focus-bar">
+      <span>只看：{{ focusTitle ? `《${focusTitle}》` : `订阅 #${focusSubId}` }}</span>
+      <v-btn variant="text" size="small" prepend-icon="list" @click="clearFocus">显示全部</v-btn>
+    </div>
+
     <div v-if="report.ignoredCount > 0 || includeIgnored" class="ignored-bar">
       <v-btn
         variant="text"
@@ -108,7 +114,7 @@
               <v-icon v-else class="card-title-icon" icon="tv" size="18" />
               <span class="card-title card-title--link" @click="openSubscription(sub.subId)">
                 {{ sub.title }}
-                <span v-if="sub.mediaType !== 'MOVIE'" class="card-season">S{{ pad(sub.season) }}</span>
+                <span class="card-season">S{{ pad(sub.season) }}</span>
               </span>
               <!-- 「这一集为什么还是灰的」的下一步常常是去 TMDb 核对播出日期、核对这季到底几集。
                    放在标题<b>外面</b>：标题整块是「打开这条订阅」的热区，套在里面点哪儿都成谜 -->
@@ -152,7 +158,7 @@
               :color="bucketMeta(ep.bucket).color === 'default' ? undefined : bucketMeta(ep.bucket).color"
               @click="openEpisode(sub, ep)"
             >
-              {{ sub.mediaType === 'MOVIE' ? '正片' : `E${pad(ep.episode)}` }}
+              E{{ pad(ep.episode) }}
             </v-chip>
             <button
               v-if="hiddenEpisodeCount(sub) > 0"
@@ -219,9 +225,11 @@
         v-if="!loading && subscriptions.length === 0"
         icon="badge-check"
         title="没有发现缺集"
-        :text="filtering
-          ? '当前筛选条件下没有条目'
-          : `播出超过 ${report.overdueDays} 天的集都已入库或正在处理中`"
+        :text="focusSubId && !focusTitle
+          ? '这条订阅目前没有逾期未入库的集（或它已被忽略 / 不在「订阅中」状态）'
+          : filtering
+            ? '当前筛选条件下没有条目'
+            : `播出超过 ${report.overdueDays} 天的集都已入库或正在处理中`"
       />
     </div>
 
@@ -261,18 +269,29 @@
 
 <script setup lang="ts">
 import { ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { usePtHealth, bucketMeta, diagnosisMeta, posterUrl } from '@/composables/usePtHealth'
 import TmdbLink from '@/components/TmdbLink.vue'
 import type { EpisodeHealthItem, SubscriptionHealthItem } from '@/api/openlist/ptHealth'
 
 const {
   loading, loadFailed, report,
-  activeBucket, activeDiagnosis, subscriptions, filteredCount, filtering,
+  activeBucket, activeDiagnosis, focusSubId, focusTitle, subscriptions, filteredCount, filtering,
   bucketTabs, diagnosisTabs, autoSearchOffIds,
   batchActing, isActing, anyActing,
   includeIgnored, handleSetIgnored, toggleIncludeIgnored,
   load, handleEnableAutoSearch, handleSearchNow, openSubscription, setBucket, setDiagnosis
 } = usePtHealth()
+
+/** ?subId= 只看这一条订阅（订阅卡片、追剧日历的「查看诊断」） */
+const route = useRoute()
+focusSubId.value = Number(route.query.subId) || null
+const router = useRouter()
+const clearFocus = () => {
+  focusSubId.value = null
+  // 顺手把 query 去掉，否则刷新页面又回到只看一条
+  router.replace({ query: { ...route.query, subId: undefined } })
+}
 
 const pad = (n: number) => String(n ?? 0).padStart(2, '0')
 
@@ -398,6 +417,15 @@ const expandEpisodes = (subId: number) => {
   font-size: 12px;
   color: var(--osr-primary);
   cursor: pointer;
+}
+
+.focus-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px 8px;
+  font-size: 13px;
+  color: var(--osr-text-secondary);
 }
 
 .ignored-bar {

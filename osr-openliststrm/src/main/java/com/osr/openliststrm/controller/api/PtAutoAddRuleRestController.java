@@ -75,7 +75,12 @@ public class PtAutoAddRuleRestController extends BaseCrudRestController<IPtAutoA
         if (rule == null) {
             return Result.error("规则不存在");
         }
-        return Result.success(autoAddPopularService.runRule(rule));
+        try {
+            return Result.success(autoAddPopularService.runRule(rule));
+        } catch (IllegalStateException e) {
+            // 同一条规则正被定时任务或另一次「立即执行」跑着
+            return Result.error(e.getMessage());
+        }
     }
 
     /**

@@ -84,6 +84,12 @@
       </div>
 
       <!-- 忽略必须配一个能找回来的入口，否则它就是个不可撤销的操作 -->
+      <!-- 从订阅卡片/追剧日历跳过来时只看那一条；「显示全部」回到整页 -->
+      <div v-if="focusSubId" class="focus-bar">
+        <span>只看：{{ focusTitle ? `《${focusTitle}》` : `订阅 #${focusSubId}` }}</span>
+        <v-btn variant="text" size="small" prepend-icon="list" @click="clearFocus">显示全部</v-btn>
+      </div>
+
       <div v-if="report.ignoredCount > 0 || includeIgnored" class="ignored-bar">
         <v-btn
           variant="text"
@@ -137,7 +143,7 @@
                 <button type="button" class="item-title" @click="openSubscription(sub.subId)">
                   {{ sub.title }}
                 </button>
-                <span v-if="sub.mediaType !== 'MOVIE'" class="item-season">S{{ pad(sub.season) }}</span>
+                <span class="item-season">S{{ pad(sub.season) }}</span>
                 <!-- 「这一集为什么还是灰的」的下一步常常是去 TMDb 核对播出日期、
                      核对这季到底几集——体检手里就有 tmdbId，深链到季直接落到那张表上 -->
                 <TmdbLink :tmdb-id="sub.tmdbId" :media-type="sub.mediaType" :season="sub.season" />
@@ -178,7 +184,7 @@
                   :color="bucketMeta(ep.bucket).color === 'default' ? undefined : bucketMeta(ep.bucket).color"
                   :title="episodeTip(ep)"
                 >
-                  {{ sub.mediaType === 'MOVIE' ? '正片' : `E${pad(ep.episode)}` }}
+                  E{{ pad(ep.episode) }}
                 </v-chip>
                 <!-- 原先是个 84px 高的内嵌滚动框：滚轮容易误触，而且看不出下面还有内容 -->
                 <button
@@ -248,9 +254,11 @@
           v-if="!loading && subscriptions.length === 0"
           icon="badge-check"
           title="没有发现缺集"
-          :text="filtering
-            ? '当前筛选条件下没有条目，换一个筛选看看'
-            : `所有「订阅中」的作品，播出超过 ${report.overdueDays} 天的集都已入库或正在处理中`"
+          :text="focusSubId && !focusTitle
+            ? '这条订阅目前没有逾期未入库的集（或它已被忽略 / 不在「订阅中」状态）'
+            : filtering
+              ? '当前筛选条件下没有条目，换一个筛选看看'
+              : `所有「订阅中」的作品，播出超过 ${report.overdueDays} 天的集都已入库或正在处理中`"
         />
       </div>
     </v-card>
@@ -259,6 +267,7 @@
 
 <script setup lang="ts">
 import { ref, computed } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '@/components/PageHeader.vue'
 import { usePtHealth, bucketMeta, diagnosisMeta, posterUrl } from '@/composables/usePtHealth'
 import TmdbLink from '@/components/TmdbLink.vue'
@@ -266,12 +275,22 @@ import type { EpisodeHealthItem, SubscriptionHealthItem } from '@/api/openlist/p
 
 const {
   loading, loadFailed, lastLoadedAt, report,
-  activeBucket, activeDiagnosis, subscriptions, filteredCount, filtering,
+  activeBucket, activeDiagnosis, focusSubId, focusTitle, subscriptions, filteredCount, filtering,
   bucketTabs, diagnosisTabs, autoSearchOffIds,
   batchActing, isActing, anyActing,
   includeIgnored, handleSetIgnored, toggleIncludeIgnored,
   load, handleEnableAutoSearch, handleSearchNow, openSubscription, setBucket, setDiagnosis
 } = usePtHealth()
+
+/** ?subId= 只看这一条订阅（订阅卡片、追剧日历的「查看诊断」） */
+const route = useRoute()
+focusSubId.value = Number(route.query.subId) || null
+const router = useRouter()
+const clearFocus = () => {
+  focusSubId.value = null
+  // 顺手把 query 去掉，否则刷新页面又回到只看一条
+  router.replace({ query: { ...route.query, subId: undefined } })
+}
 
 const pad = (n: number) => String(n ?? 0).padStart(2, '0')
 
@@ -483,6 +502,15 @@ const episodeTip = (ep: EpisodeHealthItem) => {
   gap: 14px;
   flex-wrap: wrap;
   font-size: 12px;
+  color: var(--osr-text-secondary);
+}
+
+.focus-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px 8px;
+  font-size: 13px;
   color: var(--osr-text-secondary);
 }
 

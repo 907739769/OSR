@@ -1,5 +1,7 @@
 package com.osr.openliststrm.controller.api;
 
+import com.baomidou.mybatisplus.core.MybatisConfiguration;
+import com.baomidou.mybatisplus.core.metadata.TableInfoHelper;
 import com.osr.common.core.domain.Result;
 import com.osr.common.utils.CurrentUserService;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
@@ -7,6 +9,8 @@ import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.osr.openliststrm.pt.subscription.SubscriptionSearchOnCreateTrigger;
 import com.osr.openliststrm.pt.subscription.SubscriptionService;
 import com.osr.openliststrm.pt.subscription.dto.SubscribeRequest;
+import org.apache.ibatis.builder.MapperBuilderAssistant;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -14,11 +18,18 @@ import org.mockito.Mock;
 import org.mockito.MockitoAnnotations;
 
 import java.lang.reflect.Field;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -44,6 +55,14 @@ class PtSubscriptionRestControllerTest {
     private IPtSubscriptionPlusService subscriptionService;
 
     private PtSubscriptionRestController controller;
+
+    @BeforeAll
+    static void registerTableInfo() {
+        // 检查列表 wrapper 生成的 SQL 要解析实体 lambda，那份缓存平时由 Mapper 注册时建立，纯单测里手动建一次
+        MapperBuilderAssistant assistant = new MapperBuilderAssistant(new MybatisConfiguration(), "");
+        assistant.setCurrentNamespace(PtSubscriptionPlus.class.getName());
+        TableInfoHelper.initTableInfo(assistant, PtSubscriptionPlus.class);
+    }
 
     @BeforeEach
     void setUp() throws Exception {
@@ -185,5 +204,66 @@ class PtSubscriptionRestControllerTest {
         ArgumentCaptor<SubscribeRequest> captor = ArgumentCaptor.forClass(SubscribeRequest.class);
         verify(subscriptionBiz).subscribe(captor.capture());
         assertEquals(7L, captor.getValue().getOwnerUserId());
+    }
+
+    // ---------- 列表筛选与排序 ----------
+
+    /** 「只看有缺集」与「按缺集数排」必须是同一份口径：已播出的缺失/阻塞集，未播出的不算 */
+    @Test
+    void 列表_只看有缺集与按缺集排序_共用已播出口径() {
+        PtSubscriptionPlus query = new PtSubscriptionPlus();
+        query.setHasMissing("1");
+        query.setSortBy("missing");
+
+        String sql = controller.buildQueryWrapper(query).getCustomSqlSegment();
+
+        assertTrue(sql.contains("SELECT sub_id FROM pt_subscription_episode WHERE state IN ('MISSING','BLOCKED')"
+                + " AND (air_date IS NULL OR air_date <= CURDATE())"), sql);
+        assertTrue(sql.contains("ORDER BY (SELECT COUNT(*) FROM pt_subscription_episode e WHERE e.sub_id = pt_subscription.id"
+                + " AND e.state IN ('MISSING','BLOCKED') AND (e.air_date IS NULL OR e.air_date <= CURDATE())) DESC"), sql);
+        // 非管理员的归属条件不能因为换成 QueryWrapper 外壳而丢掉
+        assertTrue(sql.contains("owner_user_id"), sql);
+    }
+
+    @Test
+    void 列表_未指定缺集筛选与排序_不带子查询() {
+        String sql = controller.buildQueryWrapper(new PtSubscriptionPlus()).getCustomSqlSegment();
+
+        assertFalse(sql.contains("pt_subscription_episode"), sql);
+    }
+
+    // ---------- 批量开关自动补搜 ----------
+
+    /** 普通用户批量操作时，他人名下的订阅要被滤掉，只把自己的与公共的交给业务层 */
+    @Test
+    void 批量自动补搜_滤掉无权操作的订阅() {
+        when(currentUserService.getUserId()).thenReturn(9L);
+        when(subscriptionService.listByIds(anyCollection()))
+                .thenReturn(List.of(ownedSub(1, 9L), ownedSub(2, 999L), ownedSub(3, null)));
+        when(subscriptionBiz.setAutoSearchBatch(anyList(), anyBoolean())).thenReturn(2);
+
+        Result<Integer> result = controller.batchAutoSearch("1,2,3", true);
+
+        assertEquals(200, result.getCode());
+        verify(subscriptionBiz).setAutoSearchBatch(eq(List.of(1, 3)), eq(true));
+    }
+
+    @Test
+    void 批量自动补搜_全部无权_不调业务层() {
+        when(currentUserService.getUserId()).thenReturn(9L);
+        when(subscriptionService.listByIds(anyCollection())).thenReturn(List.of(ownedSub(2, 999L)));
+
+        Result<Integer> result = controller.batchAutoSearch("2", false);
+
+        assertEquals(500, result.getCode());
+        verify(subscriptionBiz, never()).setAutoSearchBatch(anyList(), anyBoolean());
+    }
+
+    @Test
+    void 批量自动补搜_id格式错误_返回提示而不是抛异常() {
+        Result<Integer> result = controller.batchAutoSearch("1,abc", true);
+
+        assertEquals(500, result.getCode());
+        verify(subscriptionBiz, never()).setAutoSearchBatch(anyList(), anyBoolean());
     }
 }

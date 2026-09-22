@@ -35,7 +35,7 @@
             class="legend-item"
             :class="{ 'legend-item--active': activeState === '' }"
             @click="setState('')"
-          >全部 {{ entries.length }}</button>
+          >全部 {{ monthTotal }}</button>
           <button
             v-for="s in LEGEND"
             :key="s.key"
@@ -111,7 +111,7 @@
             :title="activeState ? '本月没有该状态的排播' : '本月没有排播'"
             :text="activeState
               ? '换一个状态筛选看看，或点「全部」'
-              : '只有剧集订阅会出现在这里；播出日期由 TMDb 同步，新订阅可能需要等一轮同步任务'"
+              : '只有剧集订阅会出现在这里；播出日期取自 TMDb，尚未定档的集不会出现，改档由后台每 12 小时同步一次（订阅页点「对账」可立即同步）'"
           />
         </div>
       </template>
@@ -177,6 +177,13 @@
         <v-card-actions>
           <v-spacer />
           <v-btn variant="outlined" @click="entryDialogOpen = false">关闭</v-btn>
+          <!-- 点一格缺失的集，问的多半是「为什么还缺」与「能不能现在搜」，两件事都给直达入口 -->
+          <v-btn v-if="canDiagnose(activeEntry)" variant="text" prepend-icon="stethoscope" @click="openHealth(activeEntry)">
+            查看诊断
+          </v-btn>
+          <v-btn v-if="activeEntry.state === 'MISSING'" variant="text" prepend-icon="search" @click="openSubscription(activeEntry, true)">
+            搜这一集
+          </v-btn>
           <v-btn color="primary" variant="flat" @click="openSubscription(activeEntry)">查看订阅</v-btn>
         </v-card-actions>
       </v-card>
@@ -194,8 +201,8 @@ import { getRoutePathForComponent } from '@/router'
 import type { CalendarEntry } from '@/api/openlist/ptCalendar'
 
 const {
-  loading, loadFailed, entries, anchor, monthLabel, weeks, entriesByDate,
-  activeState, stateCounts, setState, hasEntriesInMonth,
+  loading, loadFailed, anchor, monthLabel, weeks, entriesByDate,
+  activeState, stateCounts, monthTotal, setState, hasEntriesInMonth,
   load, goPrevMonth, goNextMonth, goToday, goMonth
 } = usePtCalendar()
 
@@ -204,7 +211,8 @@ const LEGEND = [
   { key: 'IN_FLIGHT', label: '下载中' },
   { key: 'UPGRADING', label: '洗版中' },
   { key: 'BLOCKED', label: '已阻塞' },
-  { key: 'MISSING', label: '缺失' }
+  { key: 'MISSING', label: '缺失' },
+  { key: 'UNAIRED', label: '待播出' }
 ]
 
 const pad = (n: number) => String(n ?? 0).padStart(2, '0')
@@ -252,9 +260,21 @@ const router = useRouter()
  * query 用 id 而不是 subId —— 订阅页两端读的都是 route.query.id（见其 onMounted）。
  * 路径不写死：后端菜单 path 历史上有 /openlist 与 /openliststrm 两种前缀，写死会跳 404。
  */
-const openSubscription = (entry: CalendarEntry) => {
+const openSubscription = (entry: CalendarEntry, search = false) => {
   const path = getRoutePathForComponent('openlist/ptSubscription/index')
-  if (path) router.push({ path, query: { id: String(entry.subId) } })
+  if (!path) return
+  const query: Record<string, string> = { id: String(entry.subId) }
+  // 带上集号时订阅页会在进度弹窗上再叠开「搜这一集」
+  if (search) query.episode = String(entry.episode)
+  router.push({ path, query })
+}
+
+/** 缺集体检只收已播出的缺失/在途/阻塞集；待播出与已入库的去了也查不到它 */
+const DIAGNOSABLE_STATES = ['MISSING', 'IN_FLIGHT', 'BLOCKED']
+const healthPath = computed(() => getRoutePathForComponent('openlist/ptHealth/index'))
+const canDiagnose = (entry: CalendarEntry) => !!healthPath.value && DIAGNOSABLE_STATES.includes(entry.state)
+const openHealth = (entry: CalendarEntry) => {
+  if (healthPath.value) router.push({ path: healthPath.value, query: { subId: String(entry.subId) } })
 }
 </script>
 
@@ -330,6 +350,7 @@ const openSubscription = (entry: CalendarEntry) => {
 .legend-dot--in_flight { background: rgb(var(--v-theme-info)); }
 .legend-dot--upgrading { background: rgb(var(--v-theme-warning)); }
 .legend-dot--blocked { background: rgb(var(--v-theme-error)); }
+.legend-dot--unaired { background: transparent; border: 1px dashed var(--osr-border-dark); }
 
 .calendar-grid {
   display: grid;
@@ -421,6 +442,8 @@ const openSubscription = (entry: CalendarEntry) => {
 .entry--in_flight { border-left-color: rgb(var(--v-theme-info)); }
 .entry--upgrading { border-left-color: rgb(var(--v-theme-warning)); }
 .entry--blocked { border-left-color: rgb(var(--v-theme-error)); }
+/* 待播出：虚线 + 淡化，与「缺失」的实线区分开——未来的格子不该和已经出问题的长得一样 */
+.entry--unaired { border-left-style: dashed; opacity: 0.7; }
 
 .entry-ep {
   flex: none;

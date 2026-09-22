@@ -135,6 +135,11 @@
             v-if="item.mediaType === 'MOVIE' && (item.inLibraryCount || item.inFlightCount)"
             @click="handleMoreCommand('resetMovie', item)"
           >{{ item.inLibraryCount ? '重置为未入库' : '重置为缺失' }}</v-list-item>
+          <!-- 缺集体检只收订阅中的剧集（电影整体不参与），其余状态点进去必然是空的 -->
+          <v-list-item
+            v-if="item.mediaType !== 'MOVIE' && item.status === 'ACTIVE'"
+            @click="handleMoreCommand('health', item)"
+          >缺集诊断</v-list-item>
           <v-list-item @click="handleMoreCommand('logs', item)">匹配日志</v-list-item>
           <v-list-item @click="handleMoreCommand('filter', item)">过滤规则</v-list-item>
           <v-divider class="my-1" />
@@ -231,11 +236,18 @@ const goDownloadRecords = (row: any) => {
   if (path) router.push({ path, query: { subId: row.id, subTitle: row.title } })
 }
 
+/** 缺集体检只看这一条（体检页读 route.query.subId） */
+const goHealth = (row: any) => {
+  const path = getRoutePathForComponent('openlist/ptHealth/index')
+  if (path) router.push({ path, query: { subId: row.id } })
+}
+
 /** "更多"下拉菜单 command → 现有函数的分发，纯路由不新增业务逻辑 */
 const handleMoreCommand = (cmd: string, row: any) => {
   switch (cmd) {
     case 'refresh': handleRefresh(row); break
     case 'resetMovie': handleResetMovie(row); break
+    case 'health': goHealth(row); break
     case 'logs': showSearchLogs(row); break
     case 'filter': openFilterOverride(row); break
     case 'search': openSeasonSearch(row); break

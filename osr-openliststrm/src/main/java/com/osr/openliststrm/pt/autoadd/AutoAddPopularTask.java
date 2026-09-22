@@ -68,7 +68,7 @@ public class AutoAddPopularTask {
                 }
             }
         } catch (Exception e) {
-            log.error("AutoAddPopularTask run error", e);
+            log.error("热门自动订阅本轮异常：{}", e.getMessage(), e);
         } finally {
             running.set(false);
         }

@@ -39,6 +39,26 @@
           hide-details
         />
         <v-select
+          v-model="queryParams.autoSearch"
+          :items="[{ title: '已开启', value: '1' }, { title: '未开启', value: '0' }]"
+          label="自动补搜"
+          placeholder="不限"
+          clearable
+          density="compact"
+          variant="outlined"
+          hide-details
+        />
+        <v-select
+          v-model="queryParams.hasMissing"
+          :items="[{ title: '有已播缺集', value: '1' }]"
+          label="缺集"
+          placeholder="不限"
+          clearable
+          density="compact"
+          variant="outlined"
+          hide-details
+        />
+        <v-select
           v-model="queryParams.sortBy"
           :items="sortOptions"
           label="排序"
@@ -70,10 +90,25 @@
         @toggle-all="toggleSelectAllPage"
         @cancel="toggleSelectionMode"
       >
-        <v-btn variant="text" color="warning" size="small" :disabled="!selectedIds.length" @click="handleBatchPause">批量暂停</v-btn>
-        <v-btn variant="text" color="success" size="small" :disabled="!selectedIds.length" @click="handleBatchResume">批量恢复</v-btn>
-        <v-btn variant="text" color="error" size="small" :disabled="!selectedIds.length" @click="handleDelete()">批量删除</v-btn>
+        <v-btn variant="text" color="warning" size="small" :disabled="!selectedIds.length || batchSearchRunning" @click="handleBatchPause">批量暂停</v-btn>
+        <v-btn variant="text" color="success" size="small" :disabled="!selectedIds.length || batchSearchRunning" @click="handleBatchResume">批量恢复</v-btn>
+        <v-btn variant="text" color="primary" size="small" :disabled="!selectedIds.length || batchSearchRunning" @click="handleBatchAutoSearch(true)">开启补搜</v-btn>
+        <v-btn variant="text" size="small" :disabled="!selectedIds.length || batchSearchRunning" @click="handleBatchAutoSearch(false)">关闭补搜</v-btn>
+        <v-btn variant="text" color="primary" size="small" :disabled="!selectedIds.length || batchSearchRunning" @click="handleBatchSearchMissing">立即补搜</v-btn>
+        <v-btn variant="text" color="error" size="small" :disabled="!selectedIds.length || batchSearchRunning" @click="handleDelete()">批量删除</v-btn>
       </MobileBatchBar>
+
+      <!-- 批量立即补搜逐条串行，每条一两分钟，理由同 PC 端 -->
+      <div v-if="batchSearchRunning" class="batch-search-progress">
+        <v-progress-linear
+          :model-value="batchSearchTotal ? (batchSearchDone / batchSearchTotal) * 100 : 0"
+          color="primary"
+          height="6"
+          rounded
+        />
+        <span class="batch-search-text">{{ batchSearchDone }}/{{ batchSearchTotal }}</span>
+        <v-btn variant="text" size="small" color="warning" @click="abortBatchSearch">中止</v-btn>
+      </div>
 
       <!-- 列表 -->
     </template>
@@ -97,6 +132,12 @@
           block
           @click="run(() => handleResetMovie(sheetTarget))"
         >{{ sheetTarget.inLibraryCount ? '重置为未入库' : '重置为缺失' }}</v-btn>
+        <!-- 缺集体检只收订阅中的剧集（电影整体不参与），理由同 PC 端 -->
+        <v-btn
+          v-if="healthPath && sheetTarget.mediaType !== 'MOVIE' && sheetTarget.status === 'ACTIVE'"
+          block
+          @click="run(() => goHealthFor(sheetTarget))"
+        >缺集诊断</v-btn>
         <v-btn block @click="run(() => showSearchLogs(sheetTarget))">匹配日志</v-btn>
         <v-btn block @click="run(() => openFilterOverride(sheetTarget))">过滤规则</v-btn>
         <v-btn color="error" block @click="run(() => handleRemove(sheetTarget))">删除</v-btn>
@@ -162,40 +203,38 @@ const {
   totalPages, prevPage, nextPage, handleSizeChange,
   searchCollapsed,
   selectionMode, toggleSelectionMode, isAllPageSelected, toggleSelectAllPage,
-  selectedIds, handleBatchPause, handleBatchResume, handleDelete
+  selectedIds, handleBatchPause, handleBatchResume, handleDelete,
+  handleBatchAutoSearch, handleBatchSearchMissing, abortBatchSearch,
+  batchSearchRunning, batchSearchDone, batchSearchTotal
 } = usePtSubscriptionProvider()
 
-/** 排序档位，与 PC 端同一份取值。缺集数排序需要 ORDER BY 子查询，暂未提供 */
+/** 排序档位，与 PC 端同一份取值 */
 const sortOptions = [
   { title: '默认（最新创建）', value: '' },
+  { title: '已播缺集数', value: 'missing' },
   { title: '上次命中时间', value: 'lastMatchTime' },
   { title: '上次搜索时间', value: 'lastSearchTime' },
   { title: '标题', value: 'title' }
 ]
 
-
 /** 操作抽屉状态 */
 /** 卡片「更多」动作面板：开关状态与「执行完自动关闭」都在 useActionSheet 里 */
 const { sheetOpen, sheetTarget, openSheet, run } = useActionSheet()
-
-
 
 /** 缺集体检页入口。菜单没授权时反查不到，按钮整个不渲染 */
 const healthPath = computed(() => getRoutePathForComponent('openlist/ptHealth/index'))
 const goHealth = () => {
   if (healthPath.value) router.push({ path: healthPath.value })
 }
-
-
-
-
-
-
+/** 只看这一条订阅的缺集诊断 */
+const goHealthFor = (row: any) => {
+  if (healthPath.value) router.push({ path: healthPath.value, query: { subId: row.id } })
+}
 
 // 从下载记录页点订阅名跳过来时带 ?id=，直接弹出该订阅的进度（与 PC 端一致）
 onMounted(() => {
   const subId = Number(route.query.id)
-  if (subId) showProgressById(subId)
+  if (subId) showProgressById(subId, Number(route.query.episode) || undefined)
 })
 
 // 新增按钮并在悬浮底栏右侧（原先是压在内容上的右下角悬浮按钮），见 useMobilePageAction
@@ -208,532 +247,20 @@ useMobilePageAction(() => ({ icon: 'plus', label: '新增订阅', onClick: () =>
   justify-content: flex-end;
 }
 
-/* ---- 进度弹窗：每集明细 ---- */
-.episode-detail-toggle {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-top: 12px;
-  padding-top: 8px;
-  border-top: 1px solid var(--osr-border-light);
-  font-size: 13px;
-  color: var(--osr-primary);
-  cursor: pointer;
-
-  .v-icon {
-    transition: transform var(--osr-transition-fast);
-
-    &.is-open {
-      transform: rotate(180deg);
-    }
-  }
-}
-
-.episode-detail-list {
-  margin-top: 8px;
-  max-height: 44vh;
-  overflow-y: auto;
-}
-
-.episode-detail-row {
-  display: flex;
-  align-items: center;
-  /* 移动端宽度有限，多出播出日期后允许换行，否则日期会把质量摘要挤没 */
-  flex-wrap: wrap;
-  gap: 6px 10px;
-  padding: 6px 0;
-  font-size: 13px;
-  border-bottom: 1px solid var(--osr-border-light);
-
-  .ep-date {
-    flex-shrink: 0;
-    font-size: 12px;
-    font-variant-numeric: tabular-nums;
-    color: var(--osr-text-secondary);
-  }
-
-  .ep-unaired {
-    margin-left: 4px;
-    color: var(--osr-text-disabled);
-  }
-
-  .ep-quality {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 12px;
-  color: var(--osr-text-secondary);
-}
-
-.ep-num {
-    width: 60px;
-    flex-shrink: 0;
-    color: var(--osr-text-primary);
-  }
-}
-
-.progress-actions {
-  flex-wrap: wrap;
-  gap: 6px;
-}
-
-/* ---- 候选种子选择 ---- */
-.candidate-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-height: 50vh;
-  overflow-y: auto;
-}
-
-.candidate-card {
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  padding: 10px;
-  border-radius: var(--osr-radius-sm);
-  border: 2px solid transparent;
-  background: var(--osr-bg-page);
-  cursor: pointer;
-
-  &.selected {
-    border-color: var(--osr-primary-accent);
-    background: var(--osr-primary-subtle);
-  }
-
-  .candidate-title {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--osr-text-primary);
-    line-height: 1.4;
-    word-break: break-all;
-  }
-
-  .candidate-tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-  }
-
-  .candidate-meta {
-    font-size: 11px;
-    color: var(--osr-text-secondary);
-  }
-}
-.sub-card {
-  display: flex;
-  gap: 10px;
-  background: var(--osr-surface);
-  border-radius: var(--osr-radius-lg);
-  padding: 12px;
-  box-shadow: var(--osr-shadow-base);
-  border: 2px solid transparent;
-  transition: all var(--osr-transition-fast);
-
-  &.selected {
-    border-color: var(--osr-primary-accent);
-    background: var(--osr-primary-subtle);
-  }
-
-  &:active {
-    transform: scale(0.99);
-  }
-}
-
-.progress-title {
-  margin: 0 0 12px;
-  font-size: 15px;
-  font-weight: 600;
-}
-
-.progress-season {
-  margin-left: 6px;
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--osr-text-secondary);
-}
-
-.all-done {
-  color: var(--osr-success);
-}
-
-/* 缺集串：集号本身就是搜索入口，不再每个集号后面挂一个按钮组件 */
-.missing-list {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin: 8px 0;
-  font-size: 13px;
-}
-
-.missing-lead {
-  font-size: 12px;
-  color: var(--osr-text-secondary);
-}
-
-.missing-item {
-  min-width: 30px;
-  padding: 2px 6px;
-  border: 1px solid var(--osr-border-light);
-  border-radius: var(--osr-radius-sm);
-  background: transparent;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  color: var(--osr-text-primary);
-  cursor: default;
-
-  &.missing-item--clickable {
-    cursor: pointer;
-  }
-}
-
-.missing-more {
-  padding: 2px 6px;
-  border: none;
-  background: transparent;
-  font-size: 12px;
-  color: var(--osr-primary);
-  cursor: pointer;
-}
-
-/* 补齐跑批时的「3/26」 */
 .batch-search-progress {
-  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 4px 8px;
+
+  .v-progress-linear {
+    flex: 1;
+  }
+}
+
+.batch-search-text {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   color: var(--osr-text-secondary);
 }
-
-.log-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-
-.log-count {
-  font-size: 11px;
-  color: var(--osr-text-secondary);
-}
-
-.field-hint {
-  margin: 4px 0 0;
-  font-size: 12px;
-  color: var(--osr-text-secondary);
-}
-
-.log-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-height: 60vh;
-  overflow-y: auto;
-}
-
-.log-item {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 8px 10px;
-  border-radius: var(--osr-radius-sm);
-  background: var(--osr-bg-page);
-}
-
-.log-top {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-
-  .log-time {
-    flex: 1;
-    min-width: 0;
-    font-size: 11px;
-    color: var(--osr-text-secondary);
-  }
-}
-
-.log-title {
-  font-size: 12px;
-  color: var(--osr-text-primary);
-  word-break: break-all;
-}
-
-.log-reason {
-  font-size: 11px;
-  color: rgb(var(--v-theme-error));
-}
-
-.override-tip {
-  margin: 0 0 12px;
-  font-size: 12px;
-  color: var(--osr-text-secondary);
-}
-
-.override-field {
-  margin-bottom: 12px;
-}
-
-/* 全局取值参照：勾上覆盖那一刻用户得知道自己在把多少改成多少 */
-.override-global {
-  display: block;
-  margin-top: 4px;
-  font-size: 11px;
-  color: var(--osr-text-disabled);
-}
-
-.override-label {
-  display: block;
-  font-size: 12px;
-  color: var(--osr-text-secondary);
-  margin-bottom: 4px;
-}
-
-.override-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-
-  .v-selection-control {
-    flex: none;
-    min-height: auto;
-  }
-
-  > .v-text-field,
-  > .v-radio-group {
-    flex: 1;
-  }
-}
-
-.subscribe-search-row {
-  display: flex;
-  gap: 8px;
-
-  .type-select {
-    width: 110px;
-    flex: none;
-  }
-
-  .keyword-field {
-    flex: 1;
-    min-width: 0;
-  }
-}
-
-.search-result-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  max-height: 40vh;
-  overflow-y: auto;
-  margin-top: 10px;
-}
-
-.search-result-card {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px;
-  border-radius: var(--osr-radius-sm);
-  border: 2px solid transparent;
-  background: var(--osr-bg-page);
-
-  &.selected {
-    border-color: var(--osr-primary-accent);
-    background: var(--osr-primary-subtle);
-  }
-}
-
-.result-poster {
-  flex-shrink: 0;
-  width: 40px;
-  height: 60px;
-  border-radius: var(--osr-radius-sm);
-  overflow: hidden;
-  background: var(--osr-surface);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--osr-text-disabled);
-
-  img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
-  }
-}
-
-.result-info {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.result-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--osr-text-primary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.result-original {
-  font-size: 11px;
-  color: var(--osr-text-secondary);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.picked-bar {
-  margin-top: 12px;
-  padding: 10px 12px;
-  border-radius: var(--osr-radius-sm);
-  background: var(--osr-bg-page);
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  font-size: 13px;
-
-  .season-field {
-    width: 90px;
-    display: inline-flex;
-  }
-}
-
-.picked-season-hint {
-  margin-left: 4px;
-  font-size: 12px;
-  color: var(--osr-primary);
-}</style>
-
-.list-toolbar {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.sub-card {
-  display: flex;
-  gap: 10px;
-  background: var(--osr-surface);
-  border-radius: var(--osr-radius-lg);
-  padding: 12px;
-  box-shadow: var(--osr-shadow-base);
-  border: 2px solid transparent;
-  transition: all var(--osr-transition-fast);
-
-  &.selected {
-    border-color: var(--osr-primary-accent);
-    background: var(--osr-primary-subtle);
-  }
-
-  &:active {
-    transform: scale(0.99);
-  }
-}
-
-.sub-poster {
-  flex-shrink: 0;
-  width: 60px;
-  height: 90px;
-  border-radius: var(--osr-radius-sm);
-  overflow: hidden;
-  background: var(--osr-bg-page);
-
-  img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-    display: block;
-  }
-
-  .sub-poster-placeholder {
-    width: 100%;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 3px;
-    color: var(--osr-text-disabled);
-    font-size: 20px;
-
-    /* 与 PC 端一致的装饰渐变：明暗主题下都是深底白字，刻意不走 --osr-* 令牌 */
-    &.placeholder-movie {
-      background:
-        radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.14), transparent 45%),
-        linear-gradient(135deg, #1e3a5f 0%, #2d5a87 50%, #1e3a5f 100%);
-      color: rgba(255, 255, 255, 0.7);
-    }
-
-    &.placeholder-tv {
-      background:
-        radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.14), transparent 45%),
-        linear-gradient(135deg, #3b1f47 0%, #6b3a7a 50%, #3b1f47 100%);
-      color: rgba(255, 255, 255, 0.7);
-    }
-
-    .placeholder-text {
-      font-size: 10px;
-      font-weight: 500;
-      letter-spacing: 1px;
-    }
-  }
-}
-
-.sub-meta {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  font-size: 11px;
-  color: var(--osr-text-secondary);
-}
-
-.sub-flag {
-  /* chip 自带的高度在这一行里偏大，压到与旁边的文字同高 */
-  height: 18px;
-}
-
-.sub-progress {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.sub-progress-text {
-  flex-shrink: 0;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  color: var(--osr-text-secondary);
-}
-
-.sub-progress-inflight {
-  color: var(--osr-primary);
-}
-
-/* 两个开关并作一行 */
-.sub-switches {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 14px;
-}
-
-.sub-switch {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-
-  .label {
-    color: var(--osr-text-secondary);
-    white-space: nowrap;
-  }
-}
+</style>

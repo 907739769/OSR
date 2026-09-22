@@ -171,9 +171,16 @@ public class PtSubscriptionPlus extends BaseEntity {
     @TableField("owner_user_id")
     private Long ownerUserId;
 
-    /** 排序方式：lastMatchTime=按上次命中时间倒序；其余/空=默认按 id 倒序。仅供列表查询用，不落库 */
+    /**
+     * 排序方式：lastMatchTime / lastSearchTime / title / missing（已播缺集数倒序）；其余/空=默认按 id 倒序。
+     * 仅供列表查询用，不落库
+     */
     @TableField(exist = false)
     private String sortBy;
+
+    /** 列表筛选：'1' 时只看有已播缺集的订阅，口径见 PtSubscriptionRestController#airedMissingSql。不落库 */
+    @TableField(exist = false)
+    private String hasMissing;
 
     /**
      * 已入库集数（含洗版中）。列表查询后由一条聚合语句批量填充，不落库。

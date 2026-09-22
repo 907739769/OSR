@@ -16,7 +16,18 @@ export const EPISODE_STATE_META: Record<string, { label: string; color: string }
   IN_FLIGHT: { label: '下载中', color: 'info' },
   UPGRADING: { label: '洗版中', color: 'warning' },
   BLOCKED: { label: '已阻塞', color: 'error' },
-  MISSING: { label: '缺失', color: 'default' }
+  MISSING: { label: '缺失', color: 'default' },
+  // 前端派生的展示态，后端没有这个值：还没播出的集在库里也是 MISSING，
+  // 照原样显示成「缺失」会让下个月整排未播的集看起来全出了问题
+  UNAIRED: { label: '待播出', color: 'default' }
+}
+
+/**
+ * 展示用的状态：MISSING 且播出日期在今天之后的，显示为「待播出」。
+ * 「今天之后」与后端 SubscriptionService#aired 同一口径（当天播出算已播出）。
+ */
+export function displayState(state: string, airDate: string, today: string) {
+  return state === 'MISSING' && airDate > today ? 'UNAIRED' : state
 }
 
 export function stateMeta(state: string) {
@@ -32,6 +43,9 @@ export function posterUrl(path: string | null) {
  * 追剧日历共享逻辑：按自然月取数，PC 渲染成月历网格，移动端渲染成按日分组的清单。
  * 两端共用同一个月份窗口，翻页/回今天的行为完全一致。
  */
+/** PC 月历网格固定 6 行 7 列；取数范围也按它算 */
+const GRID_DAYS = 42
+
 export function usePtCalendar() {
   const loading = ref(false)
   /**
@@ -45,7 +59,8 @@ export function usePtCalendar() {
   const loadFailed = ref(false)
   /** 当前月份锚点，恒为该月 1 号 */
   const anchor = ref(dayjs().startOf('month'))
-  const entries = ref<CalendarEntry[]>([])
+  /** 接口原样返回的条目；对外的 entries 在它上面派生出「待播出」 */
+  const rawEntries = ref<CalendarEntry[]>([])
   /** 状态筛选；空串=全部。图例本来就是这套颜色的说明，顺手让它可点 */
   const activeState = ref('')
 
@@ -56,6 +71,12 @@ export function usePtCalendar() {
    * 日历这类看板页很容易被开着过夜，跨过零点后高亮框会停在昨天。
    */
   const today = ref(dayjs().format('YYYY-MM-DD'))
+
+  /** state 已换成展示态。跟着 today 重算：页面开着过夜，昨天的「待播出」今天该变回「缺失」 */
+  const entries = computed<CalendarEntry[]>(() => rawEntries.value.map((e) => {
+    const state = displayState(e.state, e.airDate, today.value)
+    return state === e.state ? e : { ...e, state }
+  }))
   const refreshToday = () => {
     const now = dayjs().format('YYYY-MM-DD')
     if (now !== today.value) today.value = now
@@ -83,16 +104,18 @@ export function usePtCalendar() {
     try {
       // 取整个网格覆盖的范围而不是只取本月：月历首尾会露出上月末和下月初几天，
       // 只查本月的话那几格永远是空的，看起来像"那几天没有更新"
+      // 终点按网格的 6 行 × 7 天算，不能取「月末所在那一周」：只占 5 周的月份，
+      // 网格第 6 行（下月初那几天）就永远是空的
       const start = anchor.value.startOf('month').startOf('week')
-      const end = anchor.value.endOf('month').endOf('week')
+      const end = start.add(GRID_DAYS - 1, 'day')
       const data = await getPtCalendarApi(start.format('YYYY-MM-DD'), end.format('YYYY-MM-DD')) || []
       if (current !== requestId) return
-      entries.value = data
+      rawEntries.value = data
       loadFailed.value = false
     } catch (e) {
       console.error(e)
       if (current !== requestId) return
-      entries.value = []
+      rawEntries.value = []
       loadFailed.value = true
     } finally {
       // 只有最后一次请求负责收掉 loading，否则先返回的那个会把还在飞的那次也标成完成
@@ -137,14 +160,22 @@ export function usePtCalendar() {
     activeState.value ? entries.value.filter((e) => e.state === activeState.value) : entries.value
   )
 
-  /** 各状态的条目数，用于图例上的角标；恒按全量算，否则筛选后其余状态会显示成 0 */
+  /**
+   * 各状态的条目数，用于图例上的角标。
+   * 不随筛选变（否则筛选后其余状态会显示成 0），但只算本月：网格首尾溢出的上下月几天
+   * 也取回来了，算进去的话图例上的数与本月格子里数得出来的对不上
+   */
   const stateCounts = computed(() => {
     const counts: Record<string, number> = {}
     for (const entry of entries.value) {
+      if (!inAnchorMonth(entry.airDate)) continue
       counts[entry.state] = (counts[entry.state] || 0) + 1
     }
     return counts
   })
+
+  /** 本月条目总数，图例「全部 N」用，口径同 stateCounts */
+  const monthTotal = computed(() => Object.values(stateCounts.value).reduce((sum, n) => sum + n, 0))
 
   const setState = (state: string) => {
     activeState.value = activeState.value === state ? '' : state
@@ -182,7 +213,7 @@ export function usePtCalendar() {
   const weeks = computed(() => {
     const first = anchor.value.startOf('month').startOf('week')
     const rows: Array<Array<{ key: string; day: number; inMonth: boolean; isToday: boolean }>> = []
-    for (let w = 0; w < 6; w++) {
+    for (let w = 0; w < GRID_DAYS / 7; w++) {
       const row = []
       for (let d = 0; d < 7; d++) {
         const date = first.add(w * 7 + d, 'day')
@@ -218,7 +249,7 @@ export function usePtCalendar() {
 
   return {
     loading, loadFailed, entries, anchor, monthLabel, today,
-    activeState, stateCounts, setState, visibleEntries, hasEntriesInMonth,
+    activeState, stateCounts, monthTotal, setState, visibleEntries, hasEntriesInMonth,
     load, goPrevMonth, goNextMonth, goToday, goMonth,
     entriesByDate, weeks, agenda
   }
