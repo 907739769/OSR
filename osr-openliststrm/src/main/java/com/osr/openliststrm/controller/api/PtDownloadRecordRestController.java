@@ -13,6 +13,8 @@ import com.osr.openliststrm.mybatisplus.service.IPtTorrentBlacklistPlusService;
 import com.osr.openliststrm.pt.stats.PtStatsScope;
 import com.osr.openliststrm.pt.subscription.dto.SupplementResult;
 import com.osr.openliststrm.pt.task.DownloadRecordAdminService;
+import com.osr.openliststrm.pt.task.DownloadRecordState;
+import com.osr.openliststrm.pt.task.UnresolvedFailureSql;
 import com.osr.openliststrm.pt.task.dto.BatchBlacklistResult;
 import com.osr.openliststrm.pt.task.dto.BatchRetryResult;
 import com.osr.openliststrm.pt.task.dto.DownloadRecordView;
@@ -98,11 +100,35 @@ public class PtDownloadRecordRestController extends BaseController {
         wrapper.eq(query.getIndexerId() != null, "indexer_id", query.getIndexerId());
         wrapper.eq(query.getDownloaderId() != null, "downloader_id", query.getDownloaderId());
         wrapper.eq(StringUtils.isNotBlank(query.getHrState()), "hr_state", query.getHrState());
-        // 推送时间区间，开始 / 结束各自独立，只填一侧就是半开区间；格式不合法的一侧直接忽略
+        if (Boolean.TRUE.equals(query.getHideSuperseded())) {
+            wrapper.and(w -> w.ne("state", DownloadRecordState.FAILED.value())
+                    .or().apply(UnresolvedFailureSql.NOT_SUPERSEDED));
+        }
+        // 时间区间，开始 / 结束各自独立，只填一侧就是半开区间；格式不合法的一侧直接忽略
         String beginTime = QueryTimeRange.get(query.getParams(), "beginTime");
         String endTime = QueryTimeRange.get(query.getParams(), "endTime");
-        wrapper.ge(beginTime != null, "pushed_time", beginTime);
-        wrapper.le(endTime != null, "pushed_time", endTime);
+        if (beginTime == null && endTime == null) {
+            return;
+        }
+        String column = dateColumn(query.getDateField());
+        if ("update_time".equals(column)) {
+            // 失败没有专属时间列，FAILED 行的 update_time 就是被判失败的那一刻（与统计仪表盘同一代理列），
+            // 离开 FAILED 状态的行 update_time 就不再有这层含义了
+            wrapper.eq("state", DownloadRecordState.FAILED.value());
+        }
+        wrapper.ge(beginTime != null, column, beginTime);
+        wrapper.le(endTime != null, column, endTime);
+    }
+
+    /** 日期区间对应的列，白名单映射，未知值回退推送时间——不能把前端传来的字符串直接拼成列名 */
+    static String dateColumn(String dateField) {
+        if ("COMPLETED".equalsIgnoreCase(dateField)) {
+            return "completed_time";
+        }
+        if ("FAILED".equalsIgnoreCase(dateField)) {
+            return "update_time";
+        }
+        return "pushed_time";
     }
 
     /**

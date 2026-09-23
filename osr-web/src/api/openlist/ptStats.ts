@@ -1,13 +1,21 @@
 import request from '@/api/request'
 
+/**
+ * 下载相关各项按 rangeDays 统计（null 为全部历史）；订阅数与 H&R 数是当前状态，不受区间影响。
+ * 成功率 = 完成 / (完成 + 未被接替的失败)，失败数也只算还没着落的
+ */
 export interface PtStatsOverview {
+  rangeDays: number | null
   totalSubscriptions: number
   activeSubscriptions: number
+  /** 区间内推送数 */
   totalDownloadRecords: number
   completedCount: number
   failedCount: number
   successRate: number
   avgDurationMinutes: number
+  /** 当前处于「可能已 H&R」的记录数 */
+  hrViolatedCount: number
 }
 
 export interface PtStatsTrendPoint {
@@ -56,8 +64,9 @@ export interface PtStatsActiveSubscription {
   lastMatchTime: string | null
 }
 
-export function getPtStatsOverviewApi() {
-  return request.get<any, PtStatsOverview>('/openliststrm/pt-stats/overview')
+/** 不传 days 为全部历史（首页 PT 概览卡），仪表盘传当前挡位 */
+export function getPtStatsOverviewApi(days?: number) {
+  return request.get<any, PtStatsOverview>('/openliststrm/pt-stats/overview', { params: days ? { days } : undefined })
 }
 
 export function getPtStatsTrendApi(days: number) {

@@ -31,7 +31,13 @@
       </template>
       <template v-else>
         <v-col cols="12" sm="6" md="4" v-for="(stat, index) in statCards" :key="stat.key">
-          <v-card class="stat-card osr-enter" :class="stat.type" :style="{ '--osr-i': index }">
+          <v-card
+            class="stat-card osr-enter"
+            :class="[stat.type, { 'stat-card--link': isCardClickable(stat) }]"
+            :style="{ '--osr-i': index }"
+            :title="stat.hint"
+            v-on="isCardClickable(stat) ? { click: () => openCard(stat) } : {}"
+          >
             <div class="stat-icon">
               <v-icon :icon="stat.icon" size="28" />
             </div>
@@ -49,7 +55,7 @@
         <v-card class="chart-card">
           <v-card-title class="chart-header">
             <span class="chart-title">下载量趋势</span>
-            <span class="chart-subtitle">推送按推送日、完成与平均耗时按完成日、失败按失败日统计</span>
+            <span class="chart-subtitle">推送按推送日、完成与平均耗时按完成日、失败按失败日统计；点折线上的点查看当天记录</span>
           </v-card-title>
           <v-card-text>
             <div class="chart-wrap">
@@ -83,7 +89,7 @@
         <v-card class="chart-card">
           <v-card-title class="chart-header">
             <span class="chart-title">失败原因分布</span>
-            <span class="chart-subtitle">按失败分类聚合，统计区间内失败的记录</span>
+            <span class="chart-subtitle">按失败分类聚合，统计区间内失败的记录；点扇形查看明细</span>
           </v-card-title>
           <v-card-text>
             <div class="chart-wrap">
@@ -134,10 +140,17 @@
           >
             <template #item.title="{ item }">
               <router-link
-                :to="{ path: '/openlist/ptSubscription', query: { id: item.subId } }"
+                v-if="subscriptionLocation(item.subId)"
+                :to="subscriptionLocation(item.subId)!"
                 class="stats-sub-link"
               >
                 {{ item.title }}
+              </router-link>
+              <span v-else>{{ item.title }}</span>
+            </template>
+            <template #item.records="{ item }">
+              <router-link v-if="subscriptionRecordsLink(item)" :to="subscriptionRecordsLink(item)!" class="stats-sub-link">
+                下载记录
               </router-link>
             </template>
             <template #item.seasonType="{ item }">
@@ -162,6 +175,7 @@ import AnimatedNumber from '@/components/AnimatedNumber.vue'
 import { onMounted, ref } from 'vue'
 import { PT_STATS_RANGES, PT_STATS_TOP_LIMITS, usePtStats } from '@/composables/usePtStats'
 import { useEchart } from '@/composables/useEchart'
+import { usePtStatsNavigation } from '@/composables/usePtStatsNavigation'
 // 按需引入：本页只用到 line/bar/pie，避免全量引入 echarts 拖大打包体积
 import * as echarts from 'echarts/core'
 import { LineChart, BarChart, PieChart } from 'echarts/charts'
@@ -197,8 +211,9 @@ const topSubHeaders = [
   { title: '季/类型', key: 'seasonType', width: '100', sortable: false },
   { title: '下载次数', key: 'downloadCount', width: '100' },
   { title: '完成数', key: 'completedCount', width: '100' },
-  { title: '失败数', key: 'failedCount', width: '100' },
-  { title: '上次命中时间', key: 'lastMatchTime', width: '180' }
+  { title: '未解决失败', key: 'failedCount', width: '110' },
+  { title: '上次命中时间', key: 'lastMatchTime', width: '180' },
+  { title: '', key: 'records', width: '100', sortable: false }
 ]
 
 const trendContainer = ref<HTMLElement | null>(null)
@@ -206,9 +221,13 @@ const indexerContainer = ref<HTMLElement | null>(null)
 const failReasonContainer = ref<HTMLElement | null>(null)
 const rejectReasonContainer = ref<HTMLElement | null>(null)
 
-useEchart(trendContainer, trendOption)
+// 统计卡、趋势点、失败扇形、Top 订阅都能下钻到对应明细（跳转口径与移动端共用）
+const { openCard, isCardClickable, onTrendClick, onFailReasonClick, subscriptionRecordsLink, subscriptionLocation } =
+  usePtStatsNavigation(rangeDays)
+
+useEchart(trendContainer, trendOption, onTrendClick)
 useEchart(indexerContainer, indexerOption)
-useEchart(failReasonContainer, failReasonOption)
+useEchart(failReasonContainer, failReasonOption, onFailReasonClick)
 useEchart(rejectReasonContainer, rejectReasonOption)
 
 onMounted(loadAll)
@@ -269,6 +288,10 @@ onMounted(loadAll)
   &:hover {
     transform: translateY(-2px);
     box-shadow: var(--osr-shadow-md);
+  }
+
+  &--link {
+    cursor: pointer;
   }
 
   .stat-icon {

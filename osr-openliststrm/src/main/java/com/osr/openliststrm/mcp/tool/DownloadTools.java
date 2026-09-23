@@ -116,13 +116,13 @@ public class DownloadTools implements McpToolGroup {
                         PT 模块的统计概览：总体计数、各索引器命中率、下载失败原因分布、候选被淘汰的原因分布。
                         回答「最近为什么老是下不到东西」这类问题时先看它——\
                         淘汰原因集中在某一条过滤规则上，比逐条翻搜索日志快得多。""")
-                .param("days", "integer", "失败原因统计的回溯天数，默认由后端决定（通常 7 天）")
+                .param("days", "integer", "总览与失败原因统计的回溯天数（7/30/90）；不传时总览为全部历史、失败原因为最近 30 天")
                 .handle(args -> {
                     Integer days = args.getInt("days");
                     // 四个统计各是一个接口，但它们回答的是同一个问题的四个侧面，
                     // 拆成四个工具只会让模型多跑三轮往返，而这几个查询都很便宜
                     Map<String, Object> view = new LinkedHashMap<>();
-                    view.put("overview", McpResults.unwrapOrThrow(stats.overview()));
+                    view.put("overview", McpResults.unwrapOrThrow(stats.overview(days)));
                     view.put("indexerHitRate", McpResults.unwrapOrThrow(stats.indexerHitRate()));
                     view.put("failReasons", McpResults.unwrapOrThrow(stats.failReasons(days)));
                     view.put("rejectReasons", McpResults.unwrapOrThrow(stats.rejectReasons()));

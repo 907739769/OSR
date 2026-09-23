@@ -45,9 +45,12 @@ public class PtStatsRestController extends BaseController {
         this.statsService = statsService;
     }
 
+    /**
+     * 不带 days 时统计全部历史（首页 PT 概览卡）；带了就按白名单归一，与其它端点同一口径。
+     */
     @GetMapping("/overview")
-    public Result<PtStatsOverviewDTO> overview() {
-        return Result.success(statsService.overview(scope()));
+    public Result<PtStatsOverviewDTO> overview(@RequestParam(value = "days", required = false) Integer days) {
+        return Result.success(statsService.overview(days == null ? null : normalizeDays(days), scope()));
     }
 
     @GetMapping("/trend")

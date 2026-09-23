@@ -9,7 +9,14 @@ export interface PtDownloadRecordQuery extends SearchParams {
   indexerId?: number
   downloaderId?: number
   hrState?: string
+  /** 为 true 时隐藏已被后续推送接替的失败记录 */
+  hideSuperseded?: boolean
+  /** 日期区间落在哪一列，默认推送时间 */
+  dateField?: DownloadRecordDateField
 }
+
+/** 日期区间列：推送时间 / 完成时间 / 失败时间。与统计仪表盘趋势图三条线的分组口径一一对应 */
+export type DownloadRecordDateField = 'PUSHED' | 'COMPLETED' | 'FAILED'
 
 /** 与后端 DownloadRecordView 一一对应 */
 export interface PtDownloadRecordView {

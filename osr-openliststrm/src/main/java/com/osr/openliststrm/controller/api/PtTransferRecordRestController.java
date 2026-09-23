@@ -15,6 +15,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Map;
+
 /**
  * PT 转移做种记录 REST API：列表只读（记录由转移流程自动生成），另提供一个清除失败记录的入口。
  * <p>
@@ -59,16 +61,33 @@ public class PtTransferRecordRestController extends BaseController {
     }
 
     /**
+     * 按规则汇总的状态计数与最近一次转移时间，供规则卡片展示运行情况。
+     */
+    @GetMapping("/summary")
+    public Result<Map<Integer, Map<String, Object>>> summary() {
+        return Result.success(recordService.summarizeByRule());
+    }
+
+    /**
      * 清除失败记录，让被"失败次数过多"挡住的种子重新参与转移。
      * <p>
      * 只删 FAILED 的行：VERIFYING 是正在进行的转移（删掉会让目标端留下一个没人管的暂停
      * 种子），COMPLETED 是成功转移的凭证，两者都不该被这个按钮碰到。
      * </p>
      *
+     * <p>
+     * 限管理员：清掉失败记录等于解除「停止重试」的闸门，那些种子会重新开始转移，
+     * 而转移的最后一步是删源端种子——与改规则、立即执行同级。
+     * </p>
+     *
      * @param ruleId 只清这条规则的失败记录，不传则清全部
      */
     @DeleteMapping("/failed")
     public Result<Integer> clearFailed(@RequestParam(value = "ruleId", required = false) Integer ruleId) {
+        Result<Integer> denied = denyIfNotAdmin();
+        if (denied != null) {
+            return denied;
+        }
         LambdaQueryWrapper<PtTransferRecordPlus> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(PtTransferRecordPlus::getState, TransferState.FAILED.value());
         if (ruleId != null) {

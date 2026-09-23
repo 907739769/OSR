@@ -81,4 +81,24 @@ class PathMappingTest {
         PathMapping mapping = PathMapping.parse("[{\"from\":\"/downloads\"},{\"to\":\"/data\"}]");
         assertEquals(0, mapping.size());
     }
+
+    // ---------- 保存前校验 ----------
+
+    @Test
+    void 校验_留空与合法配置通过() {
+        org.junit.jupiter.api.Assertions.assertNull(PathMapping.validate(null));
+        org.junit.jupiter.api.Assertions.assertNull(PathMapping.validate("  "));
+        org.junit.jupiter.api.Assertions.assertNull(PathMapping.validate("[{\"from\":\"/a\",\"to\":\"/b\"}]"));
+    }
+
+    /**
+     * parse 对坏配置是宽容的（退化成不映射），所以保存时必须严格，
+     * 否则写错的 JSON 被静默当成「不映射」，要等校验失败回滚后才会被怀疑到。
+     */
+    @Test
+    void 校验_非法JSON_缺字段_非对象元素都报错() {
+        org.junit.jupiter.api.Assertions.assertNotNull(PathMapping.validate("{from:/a"));
+        org.junit.jupiter.api.Assertions.assertNotNull(PathMapping.validate("[{\"from\":\"/a\"}]"));
+        org.junit.jupiter.api.Assertions.assertNotNull(PathMapping.validate("[\"/a\"]"));
+    }
 }

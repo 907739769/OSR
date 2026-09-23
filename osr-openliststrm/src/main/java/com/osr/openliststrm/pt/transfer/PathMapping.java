@@ -63,6 +63,38 @@ public final class PathMapping {
     }
 
     /**
+     * 保存规则时的格式校验：合法（含留空）返回 null，否则返回给用户看的错误文案。
+     * <p>
+     * {@link #parse} 刻意对坏配置宽容（退化成不映射），那是运行期的取舍；保存时则应当严格——
+     * 写错的 JSON 被静默当成「不映射」，要等转移校验失败、回滚之后用户才会回头怀疑这一栏。
+     * </p>
+     */
+    public static String validate(String json) {
+        if (StringUtils.isBlank(json)) {
+            return null;
+        }
+        JSONArray array;
+        try {
+            array = JSONArray.parse(json);
+        } catch (Exception e) {
+            return "保存路径映射不是合法的 JSON 数组：" + e.getMessage();
+        }
+        if (array == null) {
+            return "保存路径映射不是合法的 JSON 数组";
+        }
+        for (int i = 0; i < array.size(); i++) {
+            Object raw = array.get(i);
+            if (!(raw instanceof JSONObject item)) {
+                return "保存路径映射第 " + (i + 1) + " 项应为 {\"from\":\"…\",\"to\":\"…\"}";
+            }
+            if (StringUtils.isBlank(item.getString("from")) || StringUtils.isBlank(item.getString("to"))) {
+                return "保存路径映射第 " + (i + 1) + " 项的 from / to 不能为空";
+            }
+        }
+        return null;
+    }
+
+    /**
      * 应用映射。取<b>第一条前缀命中</b>的规则，命中后不再往下看；一条都不命中时原样返回。
      *
      * @param path 源下载器视角下的保存路径

@@ -63,7 +63,18 @@
       <div class="card-content">
         <div class="card-top">
           <span class="card-title">{{ item.name }}</span>
-          <StatusChip :value="item.enabled" />
+          <div class="enabled-switch-wrap" @click.stop>
+            <v-switch
+              :model-value="item.enabled === '1'"
+              :loading="toggleLoadingIds.has(item.id)"
+              :disabled="toggleLoadingIds.has(item.id)"
+              color="success"
+              density="compact"
+              inset
+              hide-details
+              @update:model-value="toggleEnabled(item, !!$event)"
+            />
+          </div>
         </div>
         <div class="card-path">
           <v-icon class="card-path-icon" size="14">arrow-left-right</v-icon>
@@ -80,10 +91,20 @@
             <span class="label">转移后</span>
             <span class="value">{{ item.deleteSource === '0' ? '保留源种子' : '删除源种子（保留文件）' }}</span>
           </div>
+          <div class="detail-row" @click.stop>
+            <span class="label">运行情况</span>
+            <span v-if="summaryOf(item.id)" class="value run-stats">
+              <a class="run-stat run-stat--success" @click="loadRecords(item.id, 'COMPLETED')">完成 {{ summaryOf(item.id)!.COMPLETED }}</a>
+              <a v-if="summaryOf(item.id)!.VERIFYING" class="run-stat run-stat--warning" @click="loadRecords(item.id, 'VERIFYING')">校验中 {{ summaryOf(item.id)!.VERIFYING }}</a>
+              <a v-if="summaryOf(item.id)!.FAILED" class="run-stat run-stat--error" @click="loadRecords(item.id, 'FAILED')">失败 {{ summaryOf(item.id)!.FAILED }}</a>
+            </span>
+            <span v-else class="value">尚未转移过</span>
+          </div>
         </div>
+        <div v-if="summaryOf(item.id)?.lastTime" class="card-time">最近转移 {{ summaryOf(item.id)!.lastTime }}</div>
         <div class="card-actions" @click.stop>
           <v-btn variant="text" color="primary" size="small" prepend-icon="eye" @click="handlePreview(item)">预览</v-btn>
-          <v-btn variant="text" color="success" size="small" prepend-icon="play" :loading="runLoading" @click="handleRun(item)">执行</v-btn>
+          <v-btn variant="text" color="success" size="small" prepend-icon="play" :loading="runningIds.has(item.id)" @click="handleRun(item)">执行</v-btn>
           <v-menu>
             <template #activator="{ props }">
               <v-btn class="action-more" variant="text" size="small" icon="ellipsis" v-bind="props" />
@@ -120,15 +141,25 @@
           <v-card-text class="scroll-body">
             <v-progress-linear v-if="previewLoading" indeterminate color="primary" />
             <v-alert v-if="!previewLoading && previewRows.length === 0" type="info" variant="tonal" text="源下载器上没有种子" />
-            <div v-for="row in previewRows" :key="row.hash" class="preview-item">
-              <div class="preview-title">{{ row.name }}</div>
-              <div class="preview-meta">
-                <span>{{ formatSize(row.sizeBytes) }}</span>
-                <StatusChip v-if="row.transferable" type="success" text="会转移" />
-                <StatusChip v-else type="warning" :text="row.skipReason" />
+            <template v-else-if="!previewLoading">
+              <div class="preview-summary">
+                <div>共 {{ previewSummary.total }} 个种子，本轮会转移 <b>{{ previewSummary.transferable }}</b> 个</div>
+                <div v-if="previewSummary.skipped.length" class="preview-skip">
+                  {{ previewSummary.skipped.map(s => `${s.reason} ${s.count}`).join('，') }}
+                </div>
+                <v-switch v-model="previewOnlyTransferable" label="只看会转移" color="primary" density="compact" inset hide-details />
               </div>
-              <div class="preview-path">{{ row.sourceSavePath }} → {{ row.targetSavePath }}</div>
-            </div>
+              <v-alert v-if="visiblePreviewRows.length === 0" type="info" variant="tonal" text="本轮没有会转移的种子" />
+              <div v-for="row in visiblePreviewRows" :key="row.hash" class="preview-item">
+                <div class="preview-title">{{ row.name }}</div>
+                <div class="preview-meta">
+                  <span>{{ formatTransferSize(row.sizeBytes) }}</span>
+                  <StatusChip v-if="row.transferable" type="success" text="会转移" />
+                  <StatusChip v-else type="warning" :text="row.skipReason" />
+                </div>
+                <div class="preview-path">{{ row.sourceSavePath }} → {{ row.targetSavePath }}</div>
+              </div>
+            </template>
           </v-card-text>
           <v-card-actions>
             <v-spacer />
@@ -139,18 +170,39 @@
 
       <!-- 转移记录弹窗 -->
       <v-dialog v-model="recordOpen" width="92%">
-        <v-card title="转移记录">
+        <v-card :title="recordRuleName ? `转移记录 - ${recordRuleName}` : '转移记录（全部规则）'">
           <v-card-text class="scroll-body">
+            <v-select
+              v-model="recordQuery.state"
+              :items="TRANSFER_STATE_OPTIONS"
+              item-title="title"
+              item-value="value"
+              label="状态"
+              placeholder="全部"
+              clearable
+              density="compact"
+              variant="outlined"
+              hide-details
+              class="mb-2"
+              @update:model-value="onRecordStateChange"
+            />
             <v-progress-linear v-if="recordLoading" indeterminate color="primary" />
             <v-alert v-if="!recordLoading && records.length === 0" type="info" variant="tonal" text="暂无转移记录" />
             <div v-for="row in records" :key="row.id" class="preview-item">
               <div class="preview-title">{{ row.torrentName }}</div>
               <div class="preview-meta">
-                <span>{{ formatSize(row.sizeBytes) }}</span>
-                <StatusChip :type="stateType(row.state)" :text="stateText(row.state)" />
+                <span>{{ formatTransferSize(row.sizeBytes) }}</span>
+                <StatusChip :type="transferStateType(row.state)" :text="transferStateText(row.state)" />
                 <span class="preview-time">{{ row.finishTime || row.createTime }}</span>
               </div>
+              <!-- 路径对照是转移失败时唯一有诊断价值的信息 -->
+              <div v-if="row.sourceSavePath || row.targetSavePath" class="preview-path">{{ row.sourceSavePath || '-' }} → {{ row.targetSavePath || '-' }}</div>
               <div v-if="row.failReason" class="preview-reason">{{ row.failReason }}</div>
+            </div>
+            <div v-if="recordTotalPages > 1" class="record-pager">
+              <v-btn variant="text" size="small" :disabled="recordQuery.pageNum <= 1" @click="recordQuery.pageNum--; fetchRecords()">上一页</v-btn>
+              <span>{{ recordQuery.pageNum }} / {{ recordTotalPages }}（共 {{ recordTotal }} 条）</span>
+              <v-btn variant="text" size="small" :disabled="recordQuery.pageNum >= recordTotalPages" @click="recordQuery.pageNum++; fetchRecords()">下一页</v-btn>
             </div>
           </v-card-text>
           <v-card-actions>
@@ -173,7 +225,10 @@ import MobileListPage from '@/components/mobile/MobileListPage.vue'
 import MobileBatchBar from '@/components/mobile/MobileBatchBar.vue'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import MobilePager from '@/components/mobile/MobilePager.vue'
-import { usePtTransferRule } from '@/composables/usePtTransferRule'
+import {
+  usePtTransferRule, TRANSFER_STATE_OPTIONS, transferStateText, transferStateType,
+  formatTransferSize, transferConditionText as conditionText
+} from '@/composables/usePtTransferRule'
 import { usePageStateProvider } from '@/composables/pageStateContext'
 import PtTransferRuleFormDialog from '@/components/dialogs/PtTransferRuleFormDialog.vue'
 import { useMobilePageAction } from '@/composables/useMobilePageAction'
@@ -187,43 +242,63 @@ const {
   isAllPageSelected, toggleSelectAllPage,
   handleAdd, handleUpdate, handleDelete,
   downloaderOptions, downloaderName,
-  previewOpen, previewLoading, previewRows, previewRuleName, handlePreview,
-  runLoading, handleRun,
-  recordOpen, recordLoading, records, loadRecords, clearLoading, handleClearFailed,
+  summaryOf, toggleLoadingIds, toggleEnabled,
+  previewOpen, previewLoading, previewRows, previewRuleName, previewOnlyTransferable,
+  previewSummary, visiblePreviewRows, handlePreview,
+  runningIds, handleRun,
+  recordOpen, recordLoading, records, recordTotal, recordQuery, recordTotalPages, recordRuleName,
+  loadRecords, fetchRecords, onRecordStateChange,
+  clearLoading, handleClearFailed,
   totalPages, prevPage, nextPage, handleSizeChange,
   searchCollapsed
 } = usePageStateProvider(usePtTransferRule())
-
-const formatSize = (bytes?: number) => {
-  if (!bytes) return '-'
-  const gb = bytes / 1024 ** 3
-  return gb >= 1 ? `${gb.toFixed(2)} GB` : `${(bytes / 1024 ** 2).toFixed(0)} MB`
-}
-
-/** 把规则的几个筛选条件压成一行人话，卡片上只有一行的位置 */
-const conditionText = (item: any) => {
-  const parts: string[] = []
-  if (item.minSeedHours > 0) parts.push(`做满 ${item.minSeedHours} 小时`)
-  const min = Number(item.minSizeGb) || 0
-  if (min > 0 || item.maxSizeGb) {
-    parts.push(`${min}~${item.maxSizeGb ?? '∞'} GB`)
-  }
-  if (item.includeTags) parts.push(`含标签 ${item.includeTags}`)
-  if (item.excludeTags) parts.push(`排除 ${item.excludeTags}`)
-  return parts.length ? parts.join('，') : '全部已完成的种子'
-}
-
-const stateText = (state: string) =>
-  ({ VERIFYING: '校验中', COMPLETED: '已完成', FAILED: '失败', SKIPPED: '已跳过' } as any)[state] || state
-
-const stateType = (state: string) =>
-  ({ VERIFYING: 'warning', COMPLETED: 'success', FAILED: 'error', SKIPPED: 'info' } as any)[state] || 'info'
 
 // 新增按钮并在悬浮底栏右侧（原先是压在内容上的右下角悬浮按钮），见 useMobilePageAction
 useMobilePageAction(() => ({ icon: 'plus', label: '新增转移规则', onClick: () => handleAdd('新增转移规则') }))
 </script>
 
 <style scoped lang="scss">
+.enabled-switch-wrap {
+  flex: none;
+  margin-left: auto;
+}
+
+.run-stats {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.run-stat {
+  text-decoration: none;
+
+  &--success { color: var(--osr-success); }
+  &--warning { color: var(--osr-warning); }
+  &--error { color: var(--osr-error); }
+}
+
+.preview-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.preview-skip {
+  font-size: 12px;
+  color: var(--osr-text-secondary);
+}
+
+.record-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--osr-text-secondary);
+}
+
 // 预览/记录在移动端排成卡片而不是表格：一行四列在 393px 宽度下每列只剩几十像素，
 // 种子名和路径这两项恰恰是最长的
 .scroll-body {

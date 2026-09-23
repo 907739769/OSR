@@ -10,7 +10,8 @@ import {
   batchBlacklistGuidApi, batchBlacklistReleaseGroupApi,
   previewCleanupPtDownloadRecordApi, cleanupPtDownloadRecordApi, CLEANUP_DAY_OPTIONS
 } from '@/api/openlist/ptDownloadRecord'
-import type { BatchBlacklistResult, PtDownloadRecordQuery, PtDownloadRecordView } from '@/api/openlist/ptDownloadRecord'
+import type { BatchBlacklistResult, DownloadRecordDateField, PtDownloadRecordQuery, PtDownloadRecordView } from '@/api/openlist/ptDownloadRecord'
+import type { SearchParams } from '@/types'
 import { getPtIndexerListApi } from '@/api/openlist/ptIndexer'
 import { getPtDownloaderListApi } from '@/api/openlist/ptDownloader'
 import { useRecordList } from './useRecordList'
@@ -31,10 +32,11 @@ export function usePtDownloadRecord(options: ListLoadOptions = {}) {
   const route = useRoute()
   const router = useRouter()
 
-  // 支持从订阅页"下载记录"按钮带 subId 跳转过来，直接筛出该订阅的记录。
-  // subTitle 一并带过来，筛选条上才写得出剧名——列表为空时从记录里是取不到的
-  const initialSubId = route.query.subId ? Number(route.query.subId) : undefined
-  const initialSubTitle = typeof route.query.subTitle === 'string' ? route.query.subTitle : undefined
+  // 支持两处带筛选跳过来：订阅页的「下载记录」按钮带 subId（+ subTitle，筛选条上才写得出剧名——
+  // 列表为空时从记录里是取不到的），统计仪表盘的下钻带状态 / 失败分类 / H&R / 日期区间
+  const ownPath = route.path
+  let initialSubTitle = typeof route.query.subTitle === 'string' ? route.query.subTitle : undefined
+  let initialSubId = route.query.subId ? Number(route.query.subId) : undefined
 
   const {
     recordList: taskList, loading, total, queryParams, stats,
@@ -60,10 +62,70 @@ export function usePtDownloadRecord(options: ListLoadOptions = {}) {
     defaultQuery: {
       subId: undefined, state: undefined, title: undefined,
       failReasonCode: undefined, indexerId: undefined, downloaderId: undefined, hrState: undefined,
+      hideSuperseded: undefined, dateField: undefined,
       pageSize: 12
     }
   })
-  if (initialSubId) queryParams.subId = initialSubId
+
+  // ---------- 路由带进来的筛选 ----------
+
+  /** 地址栏里认的筛选键，与 usePtStatsNavigation#downloadRecordLocation 写出的一致 */
+  const ROUTE_FILTER_KEYS = ['subId', 'subTitle', 'state', 'failReasonCode', 'hrState', 'dateField', 'beginDate', 'endDate', 'hideSuperseded'] as const
+
+  const hasRouteFilters = (query: Record<string, unknown>) => ROUTE_FILTER_KEYS.some(k => query[k] !== undefined)
+
+  /**
+   * 每带筛选跳进来一次加一，页面据此展开搜索区：统计页点进来的条件（日期区间、隐藏已接替）
+   * 都在搜索区里，搜索区默认是收起的，不展开的话用户只会觉得「怎么才这几条」。
+   * 用计数而不是布尔量：keep-alive 下第二次跳进来时布尔量已经是 true，页面 watch 不到变化
+   */
+  const routeFilterTick = ref(0)
+
+  /**
+   * 把地址栏的筛选写进查询条件。带筛选跳进来是一次「新的查看意图」，上一次手动留下的
+   * 标题 / 索引器 / 下载器条件一并清掉，否则两组条件叠在一起，看到的条数与点进来的数字对不上
+   */
+  const applyRouteFilters = (query: Record<string, unknown>) => {
+    const str = (k: string) => (typeof query[k] === 'string' && query[k] !== '' ? (query[k] as string) : undefined)
+    const qp = queryParams as SearchParams
+    const subId = str('subId') ? Number(str('subId')) : undefined
+    initialSubId = subId
+    initialSubTitle = str('subTitle')
+    Object.assign(queryParams, {
+      subId,
+      state: str('state'),
+      failReasonCode: str('failReasonCode'),
+      hrState: str('hrState'),
+      dateField: str('dateField') as DownloadRecordDateField | undefined,
+      hideSuperseded: str('hideSuperseded') === '1' ? true : undefined,
+      title: undefined,
+      indexerId: undefined,
+      downloaderId: undefined,
+      pageNum: 1
+    })
+    const begin = str('beginDate') ?? ''
+    const end = str('endDate') ?? ''
+    dateStart.value = begin
+    dateEnd.value = end
+    // 首次加载由 useGridPageSize 直接调 getList（不经过 handleQuery），日期要先落成 params
+    const params: Record<string, string> = {}
+    if (begin) params.beginTime = begin + ' 00:00:00'
+    if (end) params.endTime = end + ' 23:59:59'
+    if (begin || end) qp.params = params
+    else delete qp.params
+    routeFilterTick.value++
+  }
+
+  if (hasRouteFilters(route.query)) applyRouteFilters(route.query)
+
+  // 列表页开了 keep-alive：从统计页第二次点进来时组件不重新创建，setup 不会再跑，
+  // 只能盯着路由变化重新应用。只认本页路径、且带了筛选键的那次——从菜单直接进来（没带参数）
+  // 保留用户上次的筛选，dropRouteQuery 抹掉参数引起的那次变化也不带筛选键，自然被忽略
+  watch(() => route.fullPath, () => {
+    if (route.path !== ownPath || !hasRouteFilters(route.query)) return
+    applyRouteFilters(route.query)
+    handleQuery()
+  })
 
   // ---------- 订阅筛选 ----------
   // 搜索区没有「订阅」这个控件，路由带进来的 subId 不做成一条看得见、关得掉的筛选条的话，
@@ -77,23 +139,22 @@ export function usePtDownloadRecord(options: ListLoadOptions = {}) {
     return title ? `《${title}》` : `订阅 #${subId}`
   })
 
-  /** 把地址栏里的 subId 一起去掉，否则刷新页面又筛回去了 */
-  const dropSubQuery = () => {
-    if (route.query.subId === undefined && route.query.subTitle === undefined) return
+  /** 把地址栏里的筛选键一起去掉，否则刷新页面又筛回去了 */
+  const dropRouteQuery = (keys: readonly string[] = ROUTE_FILTER_KEYS) => {
+    if (!keys.some(k => route.query[k] !== undefined)) return
     const rest = { ...route.query }
-    delete rest.subId
-    delete rest.subTitle
+    keys.forEach(k => delete rest[k])
     router.replace({ query: rest })
   }
 
   const clearSubFilter = () => {
     queryParams.subId = undefined
-    dropSubQuery()
+    dropRouteQuery(['subId', 'subTitle'])
     handleQuery()
   }
 
   const resetQuery = () => {
-    dropSubQuery()
+    dropRouteQuery()
     resetBaseQuery()
   }
 
@@ -363,7 +424,7 @@ export function usePtDownloadRecord(options: ListLoadOptions = {}) {
   return {
     taskList, loading, total, queryParams, stats, getList, handleQuery, resetQuery, queryRef,
     dateStart, dateEnd, indexerOptions, downloaderOptions,
-    subFilterLabel, clearSubFilter,
+    subFilterLabel, clearSubFilter, routeFilterTick,
     retryingIds, handleRetry,
     selectionMode, toggleSelectionMode, selectedIds, toggleRecordSelect, handleCardClick, clearSelection,
     isAllPageSelected, toggleSelectAllPage,

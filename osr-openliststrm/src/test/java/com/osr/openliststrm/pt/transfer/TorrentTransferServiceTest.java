@@ -434,6 +434,45 @@ class TorrentTransferServiceTest {
         return downloader;
     }
 
+    // ---------- 并发 ----------
+
+    /**
+     * 手动执行与定时任务共用 runRule，同一条规则同时只能有一个线程在跑：
+     * 两边各自评估同一批种子会对同一个种子各发起一次转移。
+     */
+    @Test
+    void 同一规则正在执行时再次执行被拒_结束后锁释放() throws Exception {
+        java.util.concurrent.CountDownLatch entered = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.CountDownLatch release = new java.util.concurrent.CountDownLatch(1);
+        when(recordService.listVerifying(any())).thenAnswer(inv -> {
+            entered.countDown();
+            release.await(5, java.util.concurrent.TimeUnit.SECONDS);
+            return List.of();
+        });
+        when(sourceClient.listAll(same(source))).thenReturn(List.of());
+
+        Thread first = new Thread(() -> {
+            try {
+                service.runRule(rule());
+            } catch (Exception ignored) {
+                // 本用例只关心锁
+            }
+        });
+        first.start();
+        assertTrue(entered.await(5, java.util.concurrent.TimeUnit.SECONDS));
+
+        assertTrue(service.isRunning(10));
+        org.junit.jupiter.api.Assertions.assertThrows(RuleBusyException.class, () -> service.runRule(rule()));
+        // 定时任务撞上时安静让路，不把它算作一次失败
+        when(ruleService.listEnabled()).thenReturn(List.of(rule()));
+        assertEquals(0, service.transferAll().size());
+
+        release.countDown();
+        first.join(5000);
+        assertFalse(service.isRunning(10));
+        service.runRule(rule());
+    }
+
     private PtTransferRulePlus rule() {
         PtTransferRulePlus rule = new PtTransferRulePlus();
         rule.setId(10);

@@ -73,10 +73,22 @@
         hide-details
         class="status-select"
       />
+      <!-- 日期区间落在哪一列：从统计仪表盘趋势图点进来时按那条线自己的日期筛 -->
+      <v-select
+        v-model="queryParams.dateField"
+        :items="DATE_FIELD_OPTIONS"
+        label="日期按"
+        placeholder="推送时间"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        class="status-select"
+      />
       <div class="date-range-fields">
         <v-text-field
           v-model="dateStart"
-          label="推送开始日期"
+          :label="`${dateFieldLabel}·开始`"
           type="date"
           density="compact"
           variant="outlined"
@@ -86,7 +98,7 @@
         <span class="date-range-sep">-</span>
         <v-text-field
           v-model="dateEnd"
-          label="推送结束日期"
+          :label="`${dateFieldLabel}·结束`"
           type="date"
           density="compact"
           variant="outlined"
@@ -94,6 +106,16 @@
           class="date-field"
         />
       </div>
+      <!-- 重试或补搜成功时是新建一条记录，失败那条原样留着；打开后只看还没着落的失败 -->
+      <v-switch
+        v-model="queryParams.hideSuperseded"
+        label="隐藏已被接替的失败"
+        color="primary"
+        density="compact"
+        inset
+        hide-details
+        class="hide-superseded-switch"
+      />
     </SearchPanel>
 
     <!-- 列表 -->
@@ -198,6 +220,11 @@
               rounded
             />
             <span class="record-progress-text">{{ progressPercent(item) }}%</span>
+          </div>
+          <!-- 「已推送」是稳态标签，推送后十分钟与十小时长得一样，后者多半是下载器没接住 -->
+          <div v-if="stalePushedHint(item)" class="record-stale">
+            <v-icon icon="clock" size="14" />
+            {{ stalePushedHint(item) }}
           </div>
           <div class="card-row">
             <span class="label">来源索引器</span>
@@ -334,12 +361,12 @@ import StatusChip from '@/components/StatusChip.vue'
 import RecordStatusBar from '@/components/RecordStatusBar.vue'
 import PtBlacklistDialog from '@/components/dialogs/PtBlacklistDialog.vue'
 import PtDownloadRecordCleanupDialog from '@/components/dialogs/PtDownloadRecordCleanupDialog.vue'
-import { ref, onMounted, onUnmounted } from 'vue'
+import { computed, watch } from 'vue'
 import { usePtDownloadRecord } from '@/composables/usePtDownloadRecord'
 import {
-  DOWNLOAD_STATE_OPTIONS, FAIL_REASON_OPTIONS, HR_STATE_OPTIONS, SEEDERS_HINT,
+  DOWNLOAD_STATE_OPTIONS, FAIL_REASON_OPTIONS, HR_STATE_OPTIONS, DATE_FIELD_OPTIONS, SEEDERS_HINT,
   stateLabel, stateTagType, failReasonCodeLabel, failReasonTagType, hrStateLabel, hrTagType,
-  hrProgress, progressPercent, hasProgress, canRetry
+  hrProgress, progressPercent, hasProgress, canRetry, stalePushedHint
 } from '@/composables/ptDownloadRecordLabels'
 import { formatFileSize } from '@/composables/useRecordList'
 import { useGridPageSize } from '@/composables/useGridPageSize'
@@ -349,17 +376,6 @@ import { getRoutePathForComponent } from '@/router'
 
 const { showSearch } = useSearchPanel()
 
-const skeletonCount = ref(6)
-
-function updateSkeletonCount() {
-  const cardMinWidth = 320 + 14
-  const containerWidth = window.innerWidth - 32 - 32
-  skeletonCount.value = Math.max(3, Math.min(12, Math.floor(containerWidth / cardMinWidth)))
-}
-
-onMounted(() => { updateSkeletonCount(); window.addEventListener('resize', updateSkeletonCount) })
-onUnmounted(() => { window.removeEventListener('resize', updateSkeletonCount) })
-
 // 订阅页的路由 path 按组件反查，不写死：菜单 path 历史上有 /openlist 与 /openliststrm 两种前缀
 const subscriptionPath = getRoutePathForComponent('openlist/ptSubscription/index')
 
@@ -368,7 +384,7 @@ const subscriptionPath = getRoutePathForComponent('openlist/ptSubscription/index
 const {
   taskList, loading, total, queryParams, stats, getList, handleQuery, resetQuery, queryRef,
   dateStart, dateEnd, indexerOptions, downloaderOptions,
-  subFilterLabel, clearSubFilter,
+  subFilterLabel, clearSubFilter, routeFilterTick,
   retryingIds, handleRetry,
   selectionMode, toggleSelectionMode, selectedIds, toggleRecordSelect, handleCardClick,
   isAllPageSelected, toggleSelectAllPage,
@@ -380,11 +396,23 @@ const {
 } = usePtDownloadRecord({ autoLoad: false })
 
 // 每页条数按网格实际列数取整到整行，窗口宽度变了跟着重算
-const { gridRef, pageSizeOptions, setPageSize } = useGridPageSize((size) => {
+const { gridRef, columns, pageSizeOptions, setPageSize } = useGridPageSize((size) => {
   queryParams.pageSize = size
   queryParams.pageNum = 1
   getList()
 })
+
+// 骨架屏铺一整行：列数直接用 useGridPageSize 量出来的，不在这里按窗口宽度再复刻一遍卡片宽度与间距
+const skeletonCount = computed(() => Math.max(3, columns.value))
+
+const dateFieldLabel = computed(() =>
+  DATE_FIELD_OPTIONS.find(o => o.value === queryParams.dateField)?.title ?? '推送时间'
+)
+
+// 从统计仪表盘带筛选跳进来：那些条件都在搜索区里，搜索区收着的话用户看不见、也关不掉
+watch(routeFilterTick, (tick) => {
+  if (tick > 0) showSearch.value = true
+}, { immediate: true })
 </script>
 
 <style scoped lang="scss">
@@ -404,6 +432,20 @@ const { gridRef, pageSizeOptions, setPageSize } = useGridPageSize((size) => {
 /* 按钮上带着发布组名，三个按钮一行放不下时换行，不要把卡片撑宽 */
 .card-footer {
   flex-wrap: wrap;
+}
+
+.hide-superseded-switch {
+  flex: none;
+}
+
+/* 已推送迟迟不开始 */
+.record-stale {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--osr-warning);
 }
 
 /* 所属订阅 */

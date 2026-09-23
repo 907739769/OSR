@@ -29,6 +29,19 @@ export interface PtBatchRetryEvent {
   skippedCount: number
 }
 
+/** 「立即执行」转移规则的结果推送：按 runId 认领；error 非空表示整条规则执行失败 */
+export interface PtTransferRunEvent {
+  type: 'transferRun'
+  runId: string
+  ruleId: number
+  error?: string
+  started?: number
+  completed?: number
+  failed?: number
+  skipped?: number
+  exportUnsupported?: boolean
+}
+
 /** 订阅命中时间推送事件：SubscriptionEngine.handleGroup 推送成功后追加一条 */
 export interface PtSubscriptionStatusEvent {
   type: 'subscription'
@@ -40,6 +53,7 @@ export interface PtStatusSocketHandlers {
   onDownload?: (event: PtDownloadStatusEvent) => void
   onSubscription?: (event: PtSubscriptionStatusEvent) => void
   onBatchRetry?: (event: PtBatchRetryEvent) => void
+  onTransferRun?: (event: PtTransferRunEvent) => void
 }
 
 /**
@@ -104,6 +118,8 @@ export function usePtStatusSocket(handlers: PtStatusSocketHandlers) {
         handlers.onSubscription?.(data)
       } else if (data.type === 'batchRetry') {
         handlers.onBatchRetry?.(data)
+      } else if (data.type === 'transferRun') {
+        handlers.onTransferRun?.(data)
       }
     }
 

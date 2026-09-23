@@ -3,7 +3,8 @@ package com.osr.openliststrm.pt.stats.dto;
 import lombok.Data;
 
 /**
- * PT 统计总览：仪表盘顶部 5 张统计卡片的数据来源，一次查询覆盖，不做时间范围筛选。
+ * PT 统计总览：仪表盘顶部统计卡片与首页 PT 概览卡的数据来源。
+ * 下载相关各项按 {@link #rangeDays} 统计（null 为全部历史），订阅数与 H&R 数是当前状态。
  *
  * @author Jack
  */
@@ -16,18 +17,24 @@ public class PtStatsOverviewDTO {
     /** 活跃订阅数（status=ACTIVE） */
     private long activeSubscriptions;
 
-    /** 下载记录总数（不限状态） */
+    /** 统计区间天数；null 表示全部历史 */
+    private Integer rangeDays;
+
+    /** 区间内推送的下载记录数（不限状态） */
     private long totalDownloadRecords;
 
-    /** 完成数（state=COMPLETED） */
+    /** 区间内完成数（按 completed_time） */
     private long completedCount;
 
-    /** 失败数（state=FAILED） */
+    /** 区间内失败且尚未被后续推送接替的记录数（按 FAILED 行的 update_time） */
     private long failedCount;
 
-    /** 成功率，百分比数值(0~100)，保留1位小数；总数为0时记0，不做除零 */
+    /** 成功率 = 完成 / (完成 + 未接替失败)，百分比数值(0~100)，保留1位小数；分母为0时记0 */
     private double successRate;
 
-    /** 全局平均下载耗时(分钟)，基于 COMPLETED 记录的 pushed_time~completed_time；无 COMPLETED 记录时记0 */
+    /** 区间内完成记录的平均下载耗时(分钟)，pushed_time~completed_time；无完成记录时记0 */
     private double avgDurationMinutes;
+
+    /** 当前处于「可能已 H&R」(hr_state=VIOLATED) 的记录数，不受区间影响 */
+    private long hrViolatedCount;
 }

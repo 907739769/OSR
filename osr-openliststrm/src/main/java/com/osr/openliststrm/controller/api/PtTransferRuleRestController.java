@@ -3,20 +3,29 @@ package com.osr.openliststrm.controller.api;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.osr.common.core.domain.Result;
+import com.osr.framework.manager.AsyncManager;
+import com.osr.openliststrm.mybatisplus.domain.PtDownloaderPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtTransferRulePlus;
+import com.osr.openliststrm.mybatisplus.service.IPtDownloaderPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtTransferRulePlusService;
+import com.osr.openliststrm.pt.transfer.PathMapping;
 import com.osr.openliststrm.pt.transfer.TorrentTransferService;
 import com.osr.openliststrm.pt.transfer.TransferCandidate;
 import com.osr.openliststrm.pt.transfer.TransferSummary;
+import com.osr.openliststrm.pt.ws.PtStatusWebSocket;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.math.BigDecimal;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.UUID;
 
 /**
  * PT 转移做种规则 REST API 控制器。
@@ -33,6 +42,7 @@ import java.util.Map;
  * @author Jack
  * @date 2026-08-15
  */
+@Slf4j
 @RestController
 @RequestMapping("/api/openliststrm/pt-transfer-rules")
 public class PtTransferRuleRestController
@@ -41,6 +51,9 @@ public class PtTransferRuleRestController
     @Autowired
     private TorrentTransferService transferService;
 
+    @Autowired
+    private IPtDownloaderPlusService downloaderService;
+
     /**
      * 转移规则的写操作限管理员：转移的最后一步是<b>删源端种子</b>，而路径映射配错
      * （本功能最常见的故障）会让目标端校验失败、整批种子在两边都不在做种。
@@ -48,6 +61,31 @@ public class PtTransferRuleRestController
     @Override
     protected boolean adminOnlyWrite() {
         return true;
+    }
+
+    /**
+     * 保存前把「跑起来才报错」的配置当场拦下：源与目标是同一个下载器、源是 Transmission、
+     * 路径映射不是合法 JSON、体积区间上下颠倒。这些原先要等到定时任务跑一轮、
+     * 从失败通知或记录里才看得出来。
+     */
+    @Override
+    protected String validateWrite(PtTransferRulePlus rule) {
+        if (rule.getSourceDownloaderId() != null
+                && Objects.equals(rule.getSourceDownloaderId(), rule.getTargetDownloaderId())) {
+            return "源下载器与目标下载器不能是同一个";
+        }
+        if (rule.getSourceDownloaderId() != null) {
+            PtDownloaderPlus source = downloaderService.getById(rule.getSourceDownloaderId());
+            if (source != null && "TRANSMISSION".equalsIgnoreCase(source.getType())) {
+                return "Transmission 无法导出种子文件，只能作为转移目标";
+            }
+        }
+        BigDecimal min = rule.getMinSizeGb();
+        BigDecimal max = rule.getMaxSizeGb();
+        if (min != null && max != null && min.compareTo(max) > 0) {
+            return "体积下限不能大于体积上限";
+        }
+        return PathMapping.validate(rule.getPathMapping());
     }
 
     @Override
@@ -83,16 +121,22 @@ public class PtTransferRuleRestController
     }
 
     /**
-     * 立即执行一次转移。
+     * 立即执行一次转移，<b>转后台执行、立即返回</b>。
      * <p>
      * 与自动删种一样受启用开关约束：开关是用户表达"这条规则可以自动搬种子"的唯一位置，
      * 绕开它意味着一次误点就能把一批种子搬走。
      * </p>
+     * <p>
+     * 一轮要先推进校验中的记录，再对每个候选做「导出 → 加种 → 排除文件 → 触发校验」，
+     * 下载器稍慢就超过前端 15 秒的请求超时——页面报错而后端还在搬，用户很可能再点一次。
+     * 现在只返回 {@code runId}，跑完经 PT 状态 WebSocket 推一条 {@code transferRun} 事件。
+     * 与定时任务撞车由 {@link TorrentTransferService#runRule} 里的按规则锁挡住。
+     * </p>
      */
     @PostMapping("/run/{id}")
-    public Result<TransferSummary> run(@PathVariable("id") Integer id) {
+    public Result<Map<String, Object>> run(@PathVariable("id") Integer id) {
         // 这个端点会真的搬种并删源端种子，比改规则本身更该限管理员
-        Result<TransferSummary> denied = denyIfNotAdmin();
+        Result<Map<String, Object>> denied = denyIfNotAdmin();
         if (denied != null) {
             return denied;
         }
@@ -103,11 +147,20 @@ public class PtTransferRuleRestController
         if (!rule.enabledOn()) {
             return Result.error("该规则未启用，请先启用后再执行");
         }
-        try {
-            return Result.success(transferService.runRule(rule));
-        } catch (Exception e) {
-            return Result.error("执行失败：" + e.getMessage());
+        if (transferService.isRunning(id)) {
+            return Result.error("该规则正在执行中，请稍后再试");
         }
+        String runId = UUID.randomUUID().toString();
+        AsyncManager.me().execute(() -> {
+            try {
+                TransferSummary summary = transferService.runRule(rule);
+                PtStatusWebSocket.pushTransferRunEvent(runId, id, summary, null);
+            } catch (Exception e) {
+                log.warn("手动执行转移规则[{}]失败：{}", rule.getName(), e.getMessage(), e);
+                PtStatusWebSocket.pushTransferRunEvent(runId, id, null, e.getMessage());
+            }
+        });
+        return Result.success(Map.of("runId", runId));
     }
 
     /**
