@@ -38,6 +38,10 @@
           class="mt-3 modern-table"
           :row-props="(row: any) => ({ class: picked && picked.tmdbId === row.item.tmdbId ? 'row-selected' : '', style: 'cursor:pointer', onClick: () => pick(row.item) })"
         >
+          <!-- 首屏骨架：插槽带条件，有数据时的刷新不替换数据行（见 SkeletonTable 注释） -->
+          <template v-if="!searchResults.length" #loading>
+            <SkeletonTable :headers="searchHeaders" />
+          </template>
           <template #item.poster="{ item }">
             <img
               v-if="item.posterPath"
@@ -102,6 +106,7 @@
 <script setup lang="ts">
 import { usePtSubscriptionContext } from '@/composables/ptSubscriptionContext'
 import TmdbLink from '@/components/TmdbLink.vue'
+import SkeletonTable from '@/components/skeleton/SkeletonTable.vue'
 
 const {
   confirmSubscribe,

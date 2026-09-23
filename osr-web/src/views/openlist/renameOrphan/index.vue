@@ -89,6 +89,10 @@
         @update:items-per-page="onSizeChange"
         @update:sort-by="onSortChange"
       >
+        <!-- 首屏骨架：插槽带条件，有数据时的刷新不替换数据行（见 SkeletonTable 注释） -->
+        <template v-if="!recordList.length" #loading>
+          <SkeletonTable :headers="headers" selectable />
+        </template>
         <template #item.title="{ item }">
           <span>{{ item.title || '未知' }}</span>
           <span v-if="item.year" class="orphan-year">（{{ item.year }}）</span>
@@ -123,6 +127,7 @@ import StatusChip from '@/components/StatusChip.vue'
 import { useRenameOrphanList, REASON_META, REASON_OPTIONS, fullPath } from '@/composables/useRenameOrphanList'
 import { useSearchPanel } from '@/composables/useSearchPanel'
 import SearchPanel from '@/components/SearchPanel.vue'
+import SkeletonTable from '@/components/skeleton/SkeletonTable.vue'
 import { useDataTable } from '@/composables/useDataTable'
 
 const { showSearch } = useSearchPanel()

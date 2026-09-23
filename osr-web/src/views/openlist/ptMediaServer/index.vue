@@ -54,7 +54,9 @@
       </div>
 
       <div class="card-grid" ref="gridRef">
-        <v-progress-linear v-if="loading" indeterminate color="primary" />
+        <!-- 首屏骨架（形状对齐真实卡片）；已有数据时的刷新仍用细进度条，不抹掉正在看的卡片 -->
+        <SkeletonCardGrid v-if="loading && !taskList.length" :count="columns * 2" :rows="3" :actions="2" selectable />
+        <v-progress-linear v-else-if="loading" indeterminate color="primary" />
         <div v-for="{ item, health } in rows" :key="item.id" class="item-card">
           <div class="card-header">
             <div class="card-checkbox">
@@ -139,6 +141,7 @@ import { useGridPageSize } from '@/composables/useGridPageSize'
 import { useSearchPanel } from '@/composables/useSearchPanel'
 import SearchPanel from '@/components/SearchPanel.vue'
 import PtMediaServerFormDialog from '@/components/dialogs/PtMediaServerFormDialog.vue'
+import SkeletonCardGrid from '@/components/skeleton/SkeletonCardGrid.vue'
 import { mediaServerHealth } from '@/composables/mediaServerHealth'
 import { mediaServerTypeLabel } from '@/composables/mediaServerTypes'
 import { computed } from 'vue'
@@ -159,7 +162,7 @@ const {
 const rows = computed(() => taskList.value.map((item: any) => ({ item, health: mediaServerHealth(item) })))
 
 // 每页条数按网格实际列数取整到整行，窗口宽度变了跟着重算
-const { gridRef, pageSizeOptions, setPageSize } = useGridPageSize((size) => {
+const { gridRef, columns, pageSizeOptions, setPageSize } = useGridPageSize((size) => {
   queryParams.pageSize = size
   queryParams.pageNum = 1
   getList()

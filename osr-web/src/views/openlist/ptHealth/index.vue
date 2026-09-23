@@ -103,7 +103,22 @@
         <span class="ignored-hint">忽略只影响这个页面与逾期提醒，不影响 RSS 匹配与补搜</span>
       </div>
 
-      <v-progress-linear v-if="loading" indeterminate color="primary" />
+      <!-- 首屏骨架：海报 + 标题 + 诊断标签 + 建议两行，形状同下面的体检条目 -->
+      <div v-if="firstLoading" class="health-list osr-skeleton" role="status" aria-busy="true" aria-label="加载中">
+        <div v-for="i in 4" :key="i" class="osr-sk-mcard osr-sheen" :style="{ '--osr-i': i - 1 }">
+          <span class="osr-bone osr-bone--block health-skeleton-poster" />
+          <div class="osr-sk-mcard__body">
+            <span class="osr-bone osr-bone--title" :style="{ width: ['42%', '56%', '36%', '48%'][i % 4] }" />
+            <div class="health-skeleton-chips">
+              <span class="osr-bone osr-bone--chip" />
+              <span class="osr-bone osr-bone--chip" />
+            </div>
+            <span class="osr-bone" :style="{ width: ['82%', '68%', '74%', '60%'][i % 4] }" />
+            <span class="osr-bone osr-bone--caption" :style="{ width: ['50%', '64%', '44%', '58%'][i % 4] }" />
+          </div>
+        </div>
+      </div>
+      <v-progress-linear v-else-if="refreshing" indeterminate color="primary" />
 
       <!-- 加载失败要单独说。塞回空报告的话，渲染出来是绿色对勾「没有发现缺集」——
            接口挂了和一切正常长得一模一样，对体检页来说这是最不该给的错误答案 -->
@@ -271,6 +286,7 @@ import { useRoute, useRouter } from 'vue-router'
 import PageHeader from '@/components/PageHeader.vue'
 import { usePtHealth, bucketMeta, diagnosisMeta, posterUrl } from '@/composables/usePtHealth'
 import TmdbLink from '@/components/TmdbLink.vue'
+import { useFirstLoad } from '@/composables/useFirstLoad'
 import type { EpisodeHealthItem, SubscriptionHealthItem } from '@/api/openlist/ptHealth'
 
 const {
@@ -281,6 +297,7 @@ const {
   includeIgnored, handleSetIgnored, toggleIncludeIgnored,
   load, handleEnableAutoSearch, handleSearchNow, openSubscription, setBucket, setDiagnosis
 } = usePtHealth()
+const { firstLoading, refreshing } = useFirstLoad(loading)
 
 /** ?subId= 只看这一条订阅（订阅卡片、追剧日历的「查看诊断」） */
 const route = useRoute()
@@ -330,6 +347,18 @@ const episodeTip = (ep: EpisodeHealthItem) => {
 </script>
 
 <style scoped>
+/* 首屏骨架：海报位与真实条目的 .poster 同尺寸 */
+.health-skeleton-poster {
+  width: 46px;
+  height: 66px;
+  border-radius: var(--osr-radius-sm);
+}
+
+.health-skeleton-chips {
+  display: flex;
+  gap: 6px;
+}
+
 .health-toolbar {
   display: flex;
   align-items: center;

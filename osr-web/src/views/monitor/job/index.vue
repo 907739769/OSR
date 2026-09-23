@@ -52,6 +52,10 @@
         hide-default-footer
         class="modern-table"
       >
+        <!-- 首屏骨架：插槽带条件，有数据时的刷新不替换数据行（见 SkeletonTable 注释） -->
+        <template v-if="!jobList.length" #loading>
+          <SkeletonTable :headers="jobHeaders" />
+        </template>
         <template #item.nextValidTime="{ item }">
           <span v-if="item.status === '1'" class="job-muted">已暂停</span>
           <span v-else>{{ formatDateTime(item.nextValidTime, '-', false) }}</span>
@@ -269,6 +273,7 @@ import { formatRelativeTime } from '@/composables/relativeTime'
 import type { SearchParams } from '@/types'
 import { useSearchPanel } from '@/composables/useSearchPanel'
 import SearchPanel from '@/components/SearchPanel.vue'
+import SkeletonTable from '@/components/skeleton/SkeletonTable.vue'
 import JobLogDialog from './JobLogDialog.vue'
 
 const appStore = useAppStore()

@@ -14,7 +14,7 @@
     </div>
 
     <!-- 统计概览 -->
-    <v-progress-linear v-if="loading" indeterminate color="primary" />
+    <v-progress-linear v-if="loading && statCards.length" indeterminate color="primary" />
     <v-alert v-if="statError && !loading" type="error" variant="tonal" density="compact">
       统计数据加载失败
       <template #append>
@@ -22,6 +22,14 @@
       </template>
     </v-alert>
     <div v-else class="stats-grid">
+      <!-- 首屏骨架：尺寸同 .stat-card（图标 36 + 数字 + 标签），数据到了原地换成真卡片 -->
+      <template v-if="loading && !statCards.length">
+        <div v-for="i in 6" :key="'sk-' + i" class="stat-card osr-sheen osr-skeleton" :style="{ '--osr-i': i - 1 }" aria-hidden="true">
+          <span class="osr-bone osr-bone--block stat-skeleton-icon" />
+          <span class="osr-bone stat-skeleton-value" />
+          <span class="osr-bone osr-bone--caption stat-skeleton-label" />
+        </div>
+      </template>
       <div
         v-for="(stat, index) in statCards"
         :key="stat.label"
@@ -57,8 +65,15 @@
     <!-- 今日处理数量：按 COPY/STRM/Rename 分类展示，对应 PC 端饼图的统计口径 -->
     <div class="today-section">
       <h3>今日处理</h3>
-      <v-progress-linear v-if="todayLoading" indeterminate color="primary" />
       <div class="stats-grid">
+        <!-- 首屏骨架：尺寸同 .stat-card（图标 36 + 数字 + 标签），数据到了原地换成真卡片 -->
+        <template v-if="todayLoading && !todayStatCards.length">
+          <div v-for="i in 3" :key="'sk-' + i" class="stat-card osr-sheen osr-skeleton" :style="{ '--osr-i': i - 1 }" aria-hidden="true">
+            <span class="osr-bone osr-bone--block stat-skeleton-icon" />
+            <span class="osr-bone stat-skeleton-value" />
+            <span class="osr-bone osr-bone--caption stat-skeleton-label" />
+          </div>
+        </template>
         <div
           v-for="(stat, index) in todayStatCards"
           :key="stat.label"
@@ -307,6 +322,24 @@ onUnmounted(() => document.removeEventListener('visibilitychange', onVisibilityC
       font-weight: 700;
       color: var(--osr-text-primary);
       line-height: 1.2;
+    }
+
+    /* 骨架：与上面的图标 / 数字 / 标签逐项同尺寸 */
+    .stat-skeleton-icon {
+      width: 36px;
+      height: 36px;
+      margin-bottom: 8px;
+      border-radius: var(--osr-radius-base);
+    }
+
+    .stat-skeleton-value {
+      width: 40px;
+      height: 20px;
+    }
+
+    .stat-skeleton-label {
+      width: 48px;
+      margin-top: 5px;
     }
 
     .stat-label {

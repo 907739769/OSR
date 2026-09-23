@@ -128,15 +128,7 @@
       </div>
 
       <div v-if="loading && taskList.length === 0" class="card-grid card-grid--wide" ref="gridRef">
-        <div v-for="n in skeletonCount" :key="n" class="item-card-skeleton">
-          <v-skeleton-loader type="image" class="item-card-skeleton__poster" width="72" height="108" />
-          <div class="item-card-skeleton__info">
-            <v-skeleton-loader type="text" width="70%" class="mb-2" />
-            <v-skeleton-loader type="text" width="50%" class="mb-2" />
-            <v-skeleton-loader type="text" class="mb-2" />
-            <v-skeleton-loader type="text" />
-          </div>
-        </div>
+        <SkeletonCardGrid :count="skeletonCount" variant="poster" />
       </div>
       <div v-else class="card-grid card-grid--wide" ref="gridRef">
         <v-progress-linear v-if="loading" indeterminate color="primary" />
@@ -200,6 +192,7 @@ import FilterOverrideDialog from './dialogs/FilterOverrideDialog.vue'
 import { useGridPageSize } from '@/composables/useGridPageSize'
 import { useSearchPanel } from '@/composables/useSearchPanel'
 import SearchPanel from '@/components/SearchPanel.vue'
+import SkeletonCardGrid from '@/components/skeleton/SkeletonCardGrid.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -253,26 +246,6 @@ const goHealth = () => {
 </script>
 
 <style scoped lang="scss">
-.item-card-skeleton {
-  display: flex;
-  gap: 12px;
-  padding: 14px;
-  border: 1px solid var(--osr-border-light);
-  border-radius: var(--osr-radius-md);
-
-  &__poster {
-    flex-shrink: 0;
-    border-radius: var(--osr-radius-sm);
-    overflow: hidden;
-  }
-
-  &__info {
-    flex: 1;
-    min-width: 0;
-    padding-top: 2px;
-  }
-}
-
 .sort-label {
   font-size: 13px;
   color: var(--osr-text-secondary);

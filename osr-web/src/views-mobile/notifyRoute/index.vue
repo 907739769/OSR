@@ -90,8 +90,6 @@
         </div>
       </v-card>
 
-      <v-progress-linear v-if="loading" indeterminate color="primary" />
-
       <!-- 移动端横向放不下矩阵，改成按通知类型分组：一个类型一张卡，卡里逐渠道列 -->
     </template>
 

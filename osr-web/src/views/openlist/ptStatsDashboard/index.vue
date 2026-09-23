@@ -26,7 +26,14 @@
     <v-row class="stat-row">
       <template v-if="loading">
         <v-col cols="12" sm="6" md="4" v-for="i in 6" :key="'sk-' + i">
-          <v-skeleton-loader type="list-item-avatar" class="stat-skeleton" />
+          <!-- 与真卡片同一个 .stat-card 外壳，数据到了不跳版 -->
+          <v-card class="stat-card osr-sheen osr-skeleton" :style="{ '--osr-i': i - 1 }" aria-hidden="true">
+            <span class="osr-bone osr-bone--block stat-icon" />
+            <div class="stat-info">
+              <span class="osr-bone stat-skeleton-value" />
+              <span class="osr-bone osr-bone--caption stat-skeleton-label" />
+            </div>
+          </v-card>
         </v-col>
       </template>
       <template v-else>
@@ -268,8 +275,15 @@ onMounted(loadAll)
   margin-bottom: 24px;
 }
 
-.stat-skeleton {
-  border-radius: var(--osr-radius-lg);
+/* 统计卡骨架：数字与标签位同 .stat-value / .stat-label 的行高 */
+.stat-skeleton-value {
+  width: 64px;
+  height: 28px;
+}
+
+.stat-skeleton-label {
+  width: 80px;
+  margin-top: 8px;
 }
 
 .stat-card {

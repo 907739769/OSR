@@ -163,7 +163,6 @@
       <!-- 列表 -->
     </template>
 
-    <v-progress-linear v-if="loading" indeterminate color="primary" class="list-loading" />
     <v-card
       v-for="item in taskList"
       :key="item.id"
@@ -400,10 +399,6 @@ const { sheetOpen, sheetTarget, openSheet, run } = useActionSheet()
 
 .sub-filter-chip {
   margin-bottom: 8px;
-}
-
-.list-loading {
-  border-radius: var(--osr-radius-md);
 }
 
 .task-card {

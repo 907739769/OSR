@@ -37,7 +37,9 @@
       </div>
 
       <div class="card-grid">
-        <v-progress-linear v-if="loading" indeterminate color="primary" />
+        <!-- 首屏骨架（形状对齐真实卡片）；已有数据时的刷新仍用细进度条，不抹掉正在看的卡片 -->
+        <SkeletonCardGrid v-if="loading && !tokenList.length" :count="6" :rows="5" :actions="2" />
+        <v-progress-linear v-else-if="loading" indeterminate color="primary" />
         <div v-for="item in tokenList" :key="item.id" class="item-card">
           <div class="card-header">
             <span class="card-title" :title="item.name">{{ item.name }}</span>
@@ -221,6 +223,7 @@
 import PageHeader from '@/components/PageHeader.vue'
 import SearchPanel from '@/components/SearchPanel.vue'
 import StatusChip from '@/components/StatusChip.vue'
+import SkeletonCardGrid from '@/components/skeleton/SkeletonCardGrid.vue'
 import { useSearchPanel } from '@/composables/useSearchPanel'
 import { message } from '@/composables/useMessage'
 import { confirm } from '@/composables/useConfirm'

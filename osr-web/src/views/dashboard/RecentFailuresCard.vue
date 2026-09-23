@@ -3,7 +3,17 @@
     <div class="chart-header">
       <span class="chart-title">最近失败记录</span>
     </div>
-    <div v-if="!recentFailures.length" class="empty-tip">
+    <!-- 加载中必须与「暂无失败记录」分开：那个空态是一个绿色对勾，数据没到时先亮出来，
+         读起来就是「系统很干净」 -->
+    <div v-if="loading" class="failure-list osr-skeleton" role="status" aria-busy="true" aria-label="加载中">
+      <div v-for="i in 5" :key="i" class="failure-item failure-skeleton osr-sheen" :style="{ '--osr-i': i - 1 }">
+        <span class="osr-bone osr-bone--circle failure-skeleton__icon" />
+        <span class="osr-bone failure-skeleton__tag" />
+        <span class="osr-bone" :style="{ width: ['52%', '38%', '60%', '44%', '48%'][i - 1] }" />
+        <span class="osr-bone osr-bone--caption failure-skeleton__time" />
+      </div>
+    </div>
+    <div v-else-if="!recentFailures.length" class="empty-tip">
       <v-empty-state icon="circle-check" title="暂无失败记录" />
     </div>
     <div v-else class="failure-list">
@@ -53,6 +63,7 @@ interface FailureItem {
 }
 
 const recentFailures = ref<FailureItem[]>([])
+const loading = ref(true)
 
 async function loadRecentFailures() {
   const items: FailureItem[] = []
@@ -89,6 +100,7 @@ async function loadRecentFailures() {
 
   items.sort((a, b) => (a.time < b.time ? 1 : -1))
   recentFailures.value = items.slice(0, 8)
+  loading.value = false
 }
 
 onMounted(loadRecentFailures)
@@ -137,6 +149,24 @@ onMounted(loadRecentFailures)
 
 .failure-list {
   padding: 4px 20px 12px;
+}
+
+.failure-skeleton {
+  cursor: default;
+
+  &__icon {
+    width: 18px;
+    height: 18px;
+  }
+
+  &__tag {
+    width: 44px;
+  }
+
+  &__time {
+    width: 48px;
+    margin-left: auto;
+  }
 }
 
 .failure-item {

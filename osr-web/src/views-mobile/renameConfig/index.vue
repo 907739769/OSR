@@ -9,8 +9,14 @@
     <v-window v-model="activeTab">
       <v-window-item value="template">
         <div class="tab-body">
-          <div v-if="templateLoading" class="tab-loading">
-            <v-progress-circular indeterminate color="primary" size="32" />
+          <!-- 骨架照着「模板输入框 + 按钮 + 预览」的形状画 -->
+          <div v-if="templateLoading" class="tab-skeleton osr-skeleton osr-sheen" role="status" aria-busy="true" aria-label="加载中">
+            <span class="osr-bone osr-bone--block" style="height: 150px" />
+            <div class="tab-skeleton__row">
+              <span class="osr-bone tab-skeleton__btn" />
+              <span class="osr-bone tab-skeleton__btn" />
+            </div>
+            <span class="osr-bone osr-bone--block" style="height: 64px" />
           </div>
           <div v-else class="template-tab">
             <v-textarea
@@ -41,8 +47,13 @@
 
       <v-window-item value="rules">
         <div class="tab-body">
-          <div v-if="rulesLoading" class="tab-loading">
-            <v-progress-circular indeterminate color="primary" size="32" />
+          <!-- 骨架照着「提示条 + 一行一条规则」的形状画 -->
+          <div v-if="rulesLoading" class="tab-skeleton osr-skeleton osr-sheen" role="status" aria-busy="true" aria-label="加载中">
+            <span class="osr-bone osr-bone--block" style="height: 40px" />
+            <div v-for="i in 5" :key="i" class="tab-skeleton__row">
+              <span class="osr-bone" :style="{ width: ['96px', '72px', '120px', '84px', '64px'][i - 1] }" />
+              <span class="osr-bone osr-bone--input" style="flex: 1" />
+            </div>
           </div>
           <div v-else>
             <v-alert type="info" variant="tonal" density="compact" class="fallback-hint">
@@ -183,10 +194,22 @@ const insertVariable = (varName: string) => {
   flex: 0 0 auto;
 }
 
-.tab-loading {
+.tab-skeleton {
   display: flex;
-  justify-content: center;
-  padding: 60px 0;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 0;
+
+  &__row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  &__btn {
+    width: 88px;
+    height: 36px;
+  }
 }
 
 .template-tab {
