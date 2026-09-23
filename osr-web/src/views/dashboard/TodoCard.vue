@@ -4,7 +4,16 @@
       <span class="chart-title">待办提醒</span>
       <v-btn v-if="failed" variant="text" size="small" color="primary" @click="load">重试</v-btn>
     </div>
-    <v-progress-linear v-if="loading" indeterminate color="primary" />
+    <!-- 与「暂无待办，一切正常」必须分开：那是绿色对勾，数据没到先亮出来就是在报平安 -->
+    <div v-if="loading" class="todo-list osr-skeleton" role="status" aria-busy="true" aria-label="加载中">
+      <div v-for="i in 2" :key="i" class="todo-item osr-sheen" :style="{ '--osr-i': i - 1 }">
+        <span class="osr-bone todo-skeleton-count" />
+        <div class="todo-text">
+          <span class="osr-bone" :style="{ width: i === 1 ? '46%' : '58%' }" />
+          <span class="osr-bone osr-bone--caption todo-skeleton-hint" />
+        </div>
+      </div>
+    </div>
     <div v-else-if="failed && !items.length" class="todo-empty">部分数据没取到，暂时无法判断是否有待办</div>
     <div v-else-if="!items.length" class="todo-empty">
       <v-icon icon="circle-check" size="18" color="success" />
@@ -94,6 +103,17 @@ defineExpose({ load })
       background-color: var(--osr-primary-subtle);
     }
   }
+}
+
+.todo-skeleton-count {
+  width: 32px;
+  height: 26px;
+  border-radius: var(--osr-radius-md);
+}
+
+.todo-skeleton-hint {
+  width: 72%;
+  margin-top: 6px;
 }
 
 .todo-count {

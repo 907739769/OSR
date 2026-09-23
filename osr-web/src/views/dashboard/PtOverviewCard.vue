@@ -7,14 +7,25 @@
     <div class="pt-overview-grid">
       <div v-for="item in ptOverviewItems" :key="item.label" class="pt-overview-item" :class="item.type">
         <span class="pt-overview-dot" />
-        <div class="pt-overview-value">{{ formatPtValue(item) }}</div>
+        <!-- 未加载时 formatPtValue 给的是 --，那是「没有数据」的意思，加载中不能拿它充数 -->
+        <span v-if="loading" class="osr-bone pt-skeleton-value osr-skeleton" />
+        <div v-else class="pt-overview-value">{{ formatPtValue(item) }}</div>
         <div class="pt-overview-label">{{ item.label }}</div>
       </div>
     </div>
     <v-divider class="my-2" />
     <div class="pt-top-list">
-      <div class="pt-top-title">热门订阅 Top {{ ptTopSubscriptions.length }}</div>
-      <div v-if="!ptTopSubscriptions.length" class="pt-top-empty">暂无数据</div>
+      <div class="pt-top-title">热门订阅 Top {{ loading ? 5 : ptTopSubscriptions.length }}</div>
+      <template v-if="loading">
+        <div v-for="i in 5" :key="i" class="pt-top-item osr-skeleton osr-sheen" :style="{ '--osr-i': i - 1 }" aria-hidden="true">
+          <div class="pt-top-main">
+            <span class="osr-bone" :style="{ width: ['64%', '48%', '72%', '56%', '40%'][i - 1] }" />
+            <span class="osr-bone pt-skeleton-bar" />
+          </div>
+          <span class="osr-bone osr-bone--caption pt-skeleton-count" />
+        </div>
+      </template>
+      <div v-else-if="!ptTopSubscriptions.length" class="pt-top-empty">暂无数据</div>
       <div v-for="sub in ptTopSubscriptions" :key="sub.subId" class="pt-top-item">
         <div class="pt-top-main">
           <span class="pt-top-name" :title="sub.title">{{ sub.title }}</span>
@@ -45,6 +56,7 @@ const router = useRouter()
 
 const ptOverview = ref<Partial<PtStatsOverview>>({})
 const ptTopSubscriptions = ref<PtStatsActiveSubscription[]>([])
+const loading = ref(true)
 
 /** PT 概览四格：key 对应 PtStatsOverview 字段，type 决定色点 */
 const ptOverviewItems = [
@@ -81,6 +93,7 @@ async function loadPtOverview() {
   } catch (e) {
     console.error('[Dashboard] Failed to load PT top subscriptions:', e)
   }
+  loading.value = false
 }
 
 onMounted(loadPtOverview)
@@ -123,6 +136,24 @@ onMounted(loadPtOverview)
 /* ============================================
    PT overview card
    ============================================ */
+/* 骨架：数字位与 .pt-overview-value 同高同外边距，Top 列表的进度条位同 .pt-top-progress */
+.pt-skeleton-value {
+  width: 48px;
+  height: 24px;
+  margin: 6px auto 0;
+}
+
+.pt-skeleton-bar {
+  width: 100%;
+  height: 4px;
+  margin-top: 6px;
+  border-radius: 999px;
+}
+
+.pt-skeleton-count {
+  width: 28px;
+}
+
 .pt-overview-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

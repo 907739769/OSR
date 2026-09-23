@@ -82,6 +82,10 @@
         @update:items-per-page="onSizeChange"
         @update:sort-by="onSortChange"
       >
+        <!-- 首屏骨架：插槽带条件，有数据时的刷新不替换数据行（见 SkeletonTable 注释） -->
+        <template v-if="!taskList.length" #loading>
+          <SkeletonTable :headers="headers" selectable />
+        </template>
         <template #item.strmTaskPath="{ item }">
           <div class="path-text" :title="item.strmTaskPath">
             <v-icon icon="folder-open" size="16" />
@@ -121,6 +125,7 @@ import { useSearchPanel } from '@/composables/useSearchPanel'
 import SearchPanel from '@/components/SearchPanel.vue'
 import { useDataTable } from '@/composables/useDataTable'
 import StrmTaskFormDialog from '@/components/dialogs/StrmTaskFormDialog.vue'
+import SkeletonTable from '@/components/skeleton/SkeletonTable.vue'
 
 const { showSearch } = useSearchPanel()
 

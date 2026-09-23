@@ -134,6 +134,10 @@
         @update:items-per-page="onSizeChange"
         @update:sort-by="onSortChange"
       >
+        <!-- 首屏骨架：插槽带条件，有数据时的刷新不替换数据行（见 SkeletonTable 注释） -->
+        <template v-if="!recordList.length" #loading>
+          <SkeletonTable :headers="headers" selectable />
+        </template>
         <template #item.fileInfo="{ item }">
           <div class="file-info-box">
             <div class="file-name" :title="item.strmFileName" @click="openDetail(item)">
@@ -184,6 +188,7 @@ import RecordDetailDrawer, { type RecordDetailField } from '@/components/RecordD
 import { useStrmRecord, STRM_STATUS_OPTIONS, STRM_FILE_TYPE_OPTIONS, isSubtitleFile } from '@/composables/useStrmRecord'
 import { useSearchPanel } from '@/composables/useSearchPanel'
 import SearchPanel from '@/components/SearchPanel.vue'
+import SkeletonTable from '@/components/skeleton/SkeletonTable.vue'
 import { useDataTable } from '@/composables/useDataTable'
 import { formatFileSize } from '@/composables/useRecordList'
 

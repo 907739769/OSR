@@ -28,6 +28,12 @@
           >立即扫描</v-btn>
         </div>
 
+        <div v-if="!overview && overviewLoading" class="overview-stats osr-skeleton" aria-hidden="true">
+          <div v-for="i in 6" :key="i" class="overview-stat">
+            <span class="osr-bone osr-bone--title" style="width: 40px; height: 24px" />
+            <span class="osr-bone osr-bone--caption" style="width: 64px; margin-top: 8px" />
+          </div>
+        </div>
         <div v-if="overview" class="overview-stats">
           <div v-for="stat in stats" :key="stat.label" class="overview-stat">
             <div class="overview-num">{{ stat.value }}</div>
@@ -41,7 +47,7 @@
       </v-card-text>
     </v-card>
 
-    <v-card :loading="loading" class="table-card">
+    <v-card :loading="refreshing" class="table-card">
       <v-card-text>
         <v-alert type="warning" variant="tonal" density="comfortable" class="notice">
           <strong>洗版不会删除旧版本。</strong>
@@ -50,7 +56,9 @@
           自动清理会在后续版本提供，届时会先检查旧种子的 H&amp;R 是否已达标再动手。
         </v-alert>
 
-        <v-form ref="formRef" class="filter-form">
+        <!-- 首屏骨架：表单未加载时是一份默认值，直接摆出来的话数据一到整页数值跳变一遍 -->
+        <SkeletonForm v-if="firstLoading" dense :sections="3" :fields="4" />
+        <v-form v-else ref="formRef" class="filter-form">
           <SectionDivider>总开关</SectionDivider>
 
           <FormField label="启用洗版">
@@ -224,6 +232,8 @@ import SectionDivider from '@/components/SectionDivider.vue'
 import OrderedList from '@/components/OrderedList.vue'
 import CsvSelect from '@/components/CsvSelect.vue'
 import ConfigSaveBar from '@/components/ConfigSaveBar.vue'
+import SkeletonForm from '@/components/skeleton/SkeletonForm.vue'
+import { useFirstLoad } from '@/composables/useFirstLoad'
 import StatusChip from '@/components/StatusChip.vue'
 import { usePtUpgradeConfig } from '@/composables/usePtUpgradeConfig'
 import { toRuleFns } from '@/composables/formRules'
@@ -235,6 +245,7 @@ const {
   labelOf, hasTarget, save, discard, isDirty,
   overview, overviewLoading, loadOverview, scanning, scanNow, problems
 } = usePtUpgradeConfig()
+const { firstLoading, refreshing } = useFirstLoad(loading)
 
 const filterConfigPath = computed(() => getRoutePathForComponent('openlist/ptFilterConfig/index'))
 

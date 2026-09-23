@@ -50,9 +50,11 @@
     </v-alert>
 
     <v-card class="table-card">
-      <v-progress-linear v-if="loading" indeterminate color="primary" />
+      <v-progress-linear v-if="refreshing" indeterminate color="primary" />
 
-      <div class="matrix-scroll">
+      <!-- 首屏骨架：渠道列表也是接口给的，加载前矩阵连表头都没有，先按「类型列 + 若干渠道列」画出形状 -->
+      <SkeletonTable v-if="firstLoading" :headers="MATRIX_SKELETON" :rows="7" />
+      <div v-else class="matrix-scroll">
         <table class="matrix">
           <thead>
             <tr>
@@ -173,6 +175,8 @@
 
 <script setup lang="ts">
 import PageHeader from '@/components/PageHeader.vue'
+import SkeletonTable from '@/components/skeleton/SkeletonTable.vue'
+import { useFirstLoad } from '@/composables/useFirstLoad'
 import { useNotifyRoute, RECIPIENT_SCOPES, channelIcon } from '@/composables/useNotifyRoute'
 
 const {
@@ -183,6 +187,13 @@ const {
   testingChannel, testResults, testChannel,
   configPath, goConfig
 } = useNotifyRoute()
+const { firstLoading, refreshing } = useFirstLoad(loading)
+
+/** 矩阵骨架的列：第一列是「类型名 + 说明」两行，其余是渠道格 */
+const MATRIX_SKELETON = [
+  { key: 'type', minWidth: 260 },
+  ...['c1', 'c2', 'c3', 'c4', 'c5'].map((key) => ({ key, align: 'center' as const }))
+]
 </script>
 
 <style scoped>

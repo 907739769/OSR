@@ -55,6 +55,10 @@
           hide-default-footer
           class="modern-table log-table"
         >
+          <!-- 首屏骨架：插槽带条件，有数据时的刷新不替换数据行（见 SkeletonTable 注释） -->
+          <template v-if="!logList.length" #loading>
+            <SkeletonTable :headers="logHeaders" />
+          </template>
           <template #item.status="{ item }">
             <StatusChip :type="item.status === '0' ? 'success' : 'error'" :text="item.status === '0' ? '成功' : '失败'" />
           </template>
@@ -200,6 +204,7 @@ import { getJobLogListApi, getJobLogDetailApi } from '@/api/monitor/jobLog'
 import MobileSearchPanel from '@/components/mobile/MobileSearchPanel.vue'
 import { useAppStore } from '@/stores/app'
 import StatusChip from '@/components/StatusChip.vue'
+import SkeletonTable from '@/components/skeleton/SkeletonTable.vue'
 import type { SearchParams, PageResult } from '@/types'
 import { formatDateTime, formatDuration } from '@/composables/dateTime'
 

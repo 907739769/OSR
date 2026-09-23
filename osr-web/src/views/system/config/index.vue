@@ -21,11 +21,14 @@
       </template>
     </PageHeader>
 
-    <!-- Loading：只在首次加载时整块替换，保存后不再走这里 -->
-    <div v-if="loading" class="page-loading">
-      <v-progress-circular indeterminate color="primary" size="36" />
-      <p>正在加载参数配置...</p>
-    </div>
+    <!-- Loading：只在首次加载时整块替换，保存后不再走这里。
+         骨架照着「标签条 + 分节表单」的形状画，数据到了原地换成真表单，不跳版 -->
+    <v-card v-if="loading" class="table-card">
+      <div class="config-skeleton-tabs osr-skeleton" aria-hidden="true">
+        <span v-for="w in [72, 88, 64, 96, 80]" :key="w" class="osr-bone" :style="{ width: `${w}px` }" />
+      </div>
+      <SkeletonForm :sections="3" :fields="4" />
+    </v-card>
 
     <template v-else>
       <!-- 搜索态：跨标签平铺所有命中项，按分组分小节 -->
@@ -102,6 +105,7 @@ import type { SysConfig } from '@/types/system'
 import { SECTION_RULES, CONFIG_TABS, HIDDEN_KEYS, metaOf, sectionKeyOf, matchesQuery } from './configMeta'
 import PageHeader from '@/components/PageHeader.vue'
 import ConfigItem from './ConfigItem.vue'
+import SkeletonForm from '@/components/skeleton/SkeletonForm.vue'
 
 interface ConfigSection {
   key: string
@@ -358,18 +362,15 @@ getList()
 
 <style scoped lang="scss">
 /* ============================================
-    Loading
+    Loading：骨架里的标签条，高度与 .config-tabs 一致
     ============================================ */
-.page-loading {
+.config-skeleton-tabs {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  justify-content: center;
-  padding: 100px 0;
-  gap: 16px;
-  color: var(--osr-text-secondary);
-
-  p { margin: 0; font-size: 14px; }
+  gap: 32px;
+  height: 48px;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--osr-border-light);
 }
 
 /* ============================================

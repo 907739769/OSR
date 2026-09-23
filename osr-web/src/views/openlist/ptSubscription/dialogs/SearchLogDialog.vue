@@ -19,6 +19,10 @@
           density="compact"
           class="modern-table"
         >
+          <!-- 首屏骨架：插槽带条件，有数据时的刷新不替换数据行（见 SkeletonTable 注释） -->
+          <template v-if="!visibleSearchLogs.length" #loading>
+            <SkeletonTable :headers="searchLogHeaders" />
+          </template>
           <template #item.source="{ item }">
             <StatusChip :type="item.source === 'RSS' ? 'info' : 'primary'" :text="item.source === 'RSS' ? 'RSS轮询' : '搜索补集'" />
           </template>
@@ -48,6 +52,7 @@
 
 <script setup lang="ts">
 import { usePtSubscriptionContext } from '@/composables/ptSubscriptionContext'
+import SkeletonTable from '@/components/skeleton/SkeletonTable.vue'
 
 const {
   searchLogLoading,

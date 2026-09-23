@@ -92,6 +92,10 @@
         @update:items-per-page="onSizeChange"
         @update:sort-by="onSortChange"
       >
+        <!-- 首屏骨架：插槽带条件，有数据时的刷新不替换数据行（见 SkeletonTable 注释） -->
+        <template v-if="!taskList.length" #loading>
+          <SkeletonTable :headers="headers" selectable />
+        </template>
         <template #item.config="{ item }">
           <div class="path-box">
             <div class="path-row"><span class="path-label path-label--src">源</span> <span class="path-text">{{ item.sourceFolder }}</span></div>
@@ -130,6 +134,7 @@ import { useSearchPanel } from '@/composables/useSearchPanel'
 import SearchPanel from '@/components/SearchPanel.vue'
 import { useDataTable } from '@/composables/useDataTable'
 import RenameTaskFormDialog from '@/components/dialogs/RenameTaskFormDialog.vue'
+import SkeletonTable from '@/components/skeleton/SkeletonTable.vue'
 
 const { showSearch } = useSearchPanel()
 

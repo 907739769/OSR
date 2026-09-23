@@ -26,7 +26,8 @@ src/
 │   └── user.ts             # 用户状态
 ├── styles/                 # 全局样式 (tokens.scss 设计令牌, motion.scss 动画库, surface.scss 深度/玻璃层,
 │                           #           list.scss PC 列表公共, mobile-list.scss 移动端列表公共,
-│                           #           mobile-chrome.scss 移动端外壳（悬浮底栏/更多面板）, menu.scss 侧边菜单)
+│                           #           mobile-chrome.scss 移动端外壳（悬浮底栏/更多面板）, menu.scss 侧边菜单,
+│                           #           skeleton.scss 骨架屏，见「动效系统」第 6 条)
 ├── types/                  # TypeScript 类型定义 (SearchParams, PageResult)
 ├── views/                  # PC 端页面 (openlist/, system/, monitor/, dashboard/)
 ├── views-mobile/           # 移动端页面 (对应 PC 端)
@@ -138,6 +139,24 @@ await 过异步组件的 import，此时 chunk 已到位。
 进度条加 `.osr-progress--active` 得到流动高光。这个系统里任务动辄跑几十分钟，
 「还在跑」和「卡住了」是用户最需要区分的两件事，改造前两者形态完全一样。
 它是显式开关而不是按文案自动推断——挂满了就等于没有强调。
+
+**6. 加载形态：首屏给骨架，刷新给细进度条**（`styles/skeleton.scss` + `components/skeleton/` +
+`composables/useFirstLoad.ts`）。骨架按**页面形态**做、不按页面做：`SkeletonCardGrid`（PC 卡片网格，
+`card / poster / record` 三种，直接放进 `.card-grid`、count 取 `columns * 2`）、`SkeletonTable`
+（表格，吃表格自己的 `headers` 算列宽）、`SkeletonForm`（设置表单）、`MobileListPage` 内置的移动端
+骨架卡（17 页一次到位）。统计卡 / 日历 / 体检条目这类独有形态直接套页面自己的外壳类 + `.osr-bone`，
+外壳尺寸天然一致。新页面照抄同形态的现成页面。五条别改坏的：
+- **表格的 `#loading` 插槽必须带 `v-if="!list.length"`**。Vuetify 的规则是「loading 且（无数据
+  **或提供了 loading 插槽**）」就用加载行替换**全部**数据行——无条件提供插槽，每次翻页 / 刷新都把
+  当前数据整片抹成骨架，不报错。`components/__tests__/Skeleton.spec.ts` 钉住。
+- **首屏的判据是「loading 落下过一次」（`useFirstLoad`），不是「数据为空」**。表单页没有「空」可言
+  （未加载时是一份默认值）；初值恒为「未完成」，因为有的 composable 的 loading 初值是 false、挂载后才置 true。
+- **加载中不能拿空态 / `--` / 0 充数**。首页「最近失败记录」「待办提醒」的空态都是绿色对勾，
+  数据没到先亮出来就是在报平安；「PT 订阅概览」未加载时显示 `--`，那是「没有数据」的意思。
+- **骨头尺寸贴着真实布局走**（卡片 `.card-row` 20px 行高 + 72px 标签位、海报 72×108、表格按 headers 列宽）。
+  百分比宽度的骨头放在 flex 行里要包一层 `flex: 1` 的容器，否则百分比连同左侧标签一起算、顶出卡片。
+- **骨架延迟 150ms 才显形、扫光挂在整块上**（理由见 `skeleton.scss` 头注释）。扫光是写死秒数的持续动画，
+  已自带 reduced-motion 降级（只关扫光，骨头保留）。
 
 ### 深度系统（`surface.scss`）
 

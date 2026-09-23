@@ -172,9 +172,7 @@
 
       <!-- 两个分支都要挂 gridRef：每页条数按网格实际列数取整到整行，骨架屏阶段就得量得到 -->
       <div class="card-grid" ref="gridRef" v-if="loading && taskList.length === 0">
-        <div v-for="n in skeletonCount" :key="n" class="item-card-skeleton">
-          <v-skeleton-loader type="article" />
-        </div>
+        <SkeletonCardGrid :count="skeletonCount" variant="record" :rows="3" :actions="3" />
       </div>
       <div class="card-grid" ref="gridRef" v-else>
         <v-progress-linear v-if="loading" indeterminate color="primary" />
@@ -372,6 +370,7 @@ import { formatFileSize } from '@/composables/useRecordList'
 import { useGridPageSize } from '@/composables/useGridPageSize'
 import { useSearchPanel } from '@/composables/useSearchPanel'
 import SearchPanel from '@/components/SearchPanel.vue'
+import SkeletonCardGrid from '@/components/skeleton/SkeletonCardGrid.vue'
 import { getRoutePathForComponent } from '@/router'
 
 const { showSearch } = useSearchPanel()
@@ -402,8 +401,9 @@ const { gridRef, columns, pageSizeOptions, setPageSize } = useGridPageSize((size
   getList()
 })
 
-// 骨架屏铺一整行：列数直接用 useGridPageSize 量出来的，不在这里按窗口宽度再复刻一遍卡片宽度与间距
-const skeletonCount = computed(() => Math.max(3, columns.value))
+// 骨架屏铺两行（封顶 12 张，宽屏 8 列时两行就是 16 张，远超一屏）：列数直接用 useGridPageSize 量出来的，
+// 不在这里按窗口宽度再复刻一遍卡片宽度与间距
+const skeletonCount = computed(() => Math.max(3, Math.min(12, columns.value * 2)))
 
 const dateFieldLabel = computed(() =>
   DATE_FIELD_OPTIONS.find(o => o.value === queryParams.dateField)?.title ?? '推送时间'
@@ -421,12 +421,6 @@ watch(routeFilterTick, (tick) => {
   top: 4px;
   left: 4px;
   z-index: 1;
-}
-
-.item-card-skeleton {
-  padding: 14px;
-  border: 1px solid var(--osr-border-light);
-  border-radius: var(--osr-radius-md);
 }
 
 /* 按钮上带着发布组名，三个按钮一行放不下时换行，不要把卡片撑宽 */

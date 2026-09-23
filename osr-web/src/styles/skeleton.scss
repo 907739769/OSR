@@ -1,0 +1,278 @@
+/* ============================================
+   OSR 骨架屏
+
+   全站骨架屏的唯一样式来源，配套组件在 components/skeleton/。
+   骨架屏按「页面形态」而不是按页面来做：卡片网格、表格、移动端列表、
+   设置表单——同一形态的页面共用同一套骨架，页面只挑形态、不画骨头。
+   形态独有的页面（统计卡、日历、体检条目）直接套页面自己的外壳类 + 这里的骨头，
+   外壳尺寸天然一致，不必在这里再抄一份。
+
+   三条约定：
+   1. **骨头只画形状，不画内容**。骨头的尺寸要贴着真实布局走（卡片的内边距、
+      行高、海报比例），切换到真实内容时不跳版——跳版比没有骨架更糟，
+      读起来是「加载完又重排了一次」。
+   2. **延迟 150ms 才显形**。绝大多数本地接口在这之前就回来了，此时骨架
+      一闪而过反而像闪屏；慢请求才值得给形状。靠 animation-delay + fill both，
+      不用 JS 计时器，没有要清理的东西。
+   3. **扫光挂在整块上，不挂在每根骨头上**。每根骨头各自扫一遍的话，
+      宽度不同的骨头扫速不同（translate 的百分比相对自身宽度），整块看起来
+      是乱闪；挂在整张卡上是一道光从左到右掠过，而且一张卡只有一个动画层。
+      多张卡之间按 --osr-i 错开，一屏网格读起来是一道波。
+   ============================================ */
+
+.osr-skeleton {
+  animation: osr-fade-in var(--osr-dur-3) var(--osr-ease-out) 150ms both;
+}
+
+/* ---- 骨头 ---- */
+
+.osr-bone {
+  display: block;
+  flex-shrink: 0;
+  height: 12px;
+  border-radius: var(--osr-radius-sm);
+  background: rgba(var(--v-theme-on-surface), 0.08);
+
+  &--title {
+    height: 16px;
+  }
+
+  &--caption {
+    height: 10px;
+    background: rgba(var(--v-theme-on-surface), 0.06);
+  }
+
+  /* StatusChip 的尺寸：pill 形，宽度固定 */
+  &--chip {
+    width: 52px;
+    height: 20px;
+    border-radius: 999px;
+  }
+
+  &--btn {
+    width: 28px;
+    height: 28px;
+    border-radius: var(--osr-radius-sm);
+  }
+
+  &--check {
+    width: 18px;
+    height: 18px;
+    border-radius: 4px;
+  }
+
+  &--circle {
+    border-radius: 50%;
+  }
+
+  /* 表单输入框：Vuetify outlined + density comfortable 的高度 */
+  &--input {
+    height: 40px;
+    border-radius: var(--osr-radius-base);
+    background: rgba(var(--v-theme-on-surface), 0.05);
+  }
+
+  &--block {
+    border-radius: var(--osr-radius-md);
+    background: rgba(var(--v-theme-on-surface), 0.05);
+  }
+}
+
+/* ---- 扫光 ---- */
+
+.osr-sheen {
+  position: relative;
+  overflow: hidden;
+
+  &::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(
+      100deg,
+      transparent 20%,
+      rgba(var(--v-theme-on-surface), 0.05) 45%,
+      rgba(var(--v-theme-on-surface), 0.08) 50%,
+      rgba(var(--v-theme-on-surface), 0.05) 55%,
+      transparent 80%
+    );
+    /* 动 transform 而不是 background-position，理由同 surface.scss 的骨架扫光 */
+    transform: translate3d(-100%, 0, 0);
+    animation: osr-shimmer 1.6s var(--osr-ease-in-out) infinite;
+    animation-delay: calc(min(var(--osr-i, 0), 8) * 90ms);
+  }
+}
+
+/* ---- 卡片网格（PC）：与 list.scss 的 .item-card 同尺寸 ---- */
+
+.osr-sk-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--osr-border-light);
+  border-radius: var(--osr-radius-md);
+  background: var(--osr-surface);
+
+  &__head,
+  &__row,
+  &__foot {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  /* 以下三段的尺寸逐项抄自 list.scss 的 .card-header / .card-body / .card-row / .card-footer */
+  &__head {
+    min-height: 24px;
+  }
+
+  &__rows {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  &__row {
+    height: 20px;
+  }
+
+  &__label {
+    width: 56px;
+    margin-right: 16px; /* 真实卡片的 .label 定宽 72px，骨头不画满 */
+  }
+
+  &__val {
+    flex: 1;
+    min-width: 0;
+  }
+
+  &__foot {
+    justify-content: flex-end;
+    gap: 4px;
+    margin-top: auto;
+    padding-top: 8px;
+    border-top: 1px solid var(--osr-border-light);
+  }
+
+  /* 卡片底部的文字按钮（size="small" + 图标 + 两个字） */
+  &__action {
+    width: 60px;
+    height: 28px;
+  }
+
+  /* 带海报的订阅卡：海报 2:3，与 SubscriptionCard 的 72×108 一致 */
+  &--poster {
+    flex-direction: row;
+    gap: 14px;
+  }
+
+  &__poster {
+    width: 72px;
+    height: 108px;
+    border-radius: var(--osr-radius-sm);
+  }
+
+  &__body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+    padding-top: 2px;
+  }
+
+  /* 下载记录卡的进度条位 */
+  &__bar {
+    height: 6px;
+    border-radius: 999px;
+  }
+}
+
+/* ---- 表格：放进 v-data-table 的 #loading 插槽 ---- */
+
+/* 插槽内容渲染在一个跨满全部列的 td 里，Vuetify 给它加了内边距和居中，
+   这里撤掉，让骨架行自己管对齐 */
+.v-table > .v-table__wrapper > table > tbody > tr.v-data-table-rows-loading > td:has(> .osr-sk-table) {
+  padding: 0;
+  text-align: left;
+}
+
+/* 行与单元格的排布在 SkeletonTable.vue 里（列模板要按 headers 算） */
+.osr-sk-table {
+  width: 100%;
+}
+
+/* ---- 移动端列表卡：与 mobile-list.scss 的 .task-card 同尺寸 ---- */
+
+.osr-sk-mcard {
+  display: flex;
+  gap: 12px;
+  padding: 14px 12px;
+  border-radius: var(--osr-radius-lg);
+  background: var(--osr-surface);
+  border: 1px solid var(--osr-border-light);
+
+  &__icon {
+    width: 36px;
+    height: 36px;
+    border-radius: var(--osr-radius-base);
+  }
+
+  &__body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    gap: 9px;
+    min-width: 0;
+    padding-top: 2px;
+  }
+
+  &__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+  }
+}
+
+/* ---- 设置表单 ---- */
+
+.osr-sk-form {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  padding: 20px;
+
+  &__section {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  &__fields {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+    gap: 18px 24px;
+  }
+
+  &__field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  &--dense {
+    padding: 4px 0;
+  }
+}
+
+/* 扫光是写死秒数的持续型动画，不受令牌层降级管辖，自己补一条（见 motion.scss 约定）。
+   骨架本身保留——关掉的是运动，不是「这里在加载」这个信息 */
+@media (prefers-reduced-motion: reduce) {
+  .osr-sheen::after {
+    animation: none;
+    opacity: 0;
+  }
+}

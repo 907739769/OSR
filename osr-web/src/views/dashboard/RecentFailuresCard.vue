@@ -2,11 +2,26 @@
   <v-card class="chart-card">
     <div class="chart-header">
       <span class="chart-title">最近失败记录</span>
+      <v-btn v-if="failedCount" variant="text" size="small" color="primary" @click="loadRecentFailures">重试</v-btn>
     </div>
-    <div v-if="!recentFailures.length" class="empty-tip">
+    <!-- 加载中必须与「暂无失败记录」分开：那个空态是一个绿色对勾，数据没到时先亮出来，
+         读起来就是「系统很干净」 -->
+    <div v-if="loading" class="failure-list osr-skeleton" role="status" aria-busy="true" aria-label="加载中">
+      <div v-for="i in 5" :key="i" class="failure-item failure-skeleton osr-sheen" :style="{ '--osr-i': i - 1 }">
+        <span class="osr-bone osr-bone--circle failure-skeleton__icon" />
+        <span class="osr-bone failure-skeleton__tag" />
+        <span class="osr-bone" :style="{ width: ['52%', '38%', '60%', '44%', '48%'][i - 1] }" />
+        <span class="osr-bone osr-bone--caption failure-skeleton__time" />
+      </div>
+    </div>
+    <!-- 取数失败同理不能落到绿色对勾：后端挂了读起来就成了「系统很干净」 -->
+    <div v-else-if="failedCount === SOURCE_COUNT" class="failure-error">失败记录没取到，暂时无法判断是否有失败</div>
+    <div v-else-if="failedCount && !recentFailures.length" class="failure-error">部分数据没取到，暂时无法判断是否有失败</div>
+    <div v-else-if="!recentFailures.length" class="empty-tip">
       <v-empty-state icon="circle-check" title="暂无失败记录" />
     </div>
     <div v-else class="failure-list">
+      <div v-if="failedCount" class="failure-partial">部分数据没取到，下面可能不全</div>
       <div
         v-for="f in recentFailures"
         :key="f.type + '-' + f.id"
@@ -53,43 +68,60 @@ interface FailureItem {
 }
 
 const recentFailures = ref<FailureItem[]>([])
+const loading = ref(true)
+/** 取失败的来源数。三路全挂与部分挂是两种提示，都不能落到「暂无失败记录」 */
+const failedCount = ref(0)
+const SOURCE_COUNT = 3
 
 async function loadRecentFailures() {
-  const items: FailureItem[] = []
+  loading.value = true
   const strmPath = getRoutePathForComponent('openlist/strmRecord/index')
   const copyPath = getRoutePathForComponent('openlist/copyRecord/index')
   const renamePath = getRoutePathForComponent('openlist/renameDetail/index')
 
-  try {
-    const res: any = await getStrmRecordListApi({ pageNum: 1, pageSize: 5, strmStatus: '0' })
-    for (const r of res?.records || []) {
-      items.push({ type: 'strm', typeLabel: 'STRM', color: 'success', icon: 'video', id: r.strmId, name: r.strmFileName, time: r.createTime, path: strmPath })
+  const sources: { label: string, fetch: () => Promise<FailureItem[]> }[] = [
+    {
+      label: 'strm',
+      fetch: async () => {
+        const res: any = await getStrmRecordListApi({ pageNum: 1, pageSize: 5, strmStatus: '0' })
+        return (res?.records || []).map((r: any) => ({ type: 'strm', typeLabel: 'STRM', color: 'success', icon: 'video', id: r.strmId, name: r.strmFileName, time: r.createTime, path: strmPath }))
+      }
+    },
+    {
+      label: 'copy',
+      fetch: async () => {
+        const res: any = await getCopyRecordListApi({ pageNum: 1, pageSize: 5, copyStatus: '0' })
+        return (res?.records || []).map((r: any) => ({ type: 'copy', typeLabel: 'COPY', color: 'primary', icon: 'files', id: r.copyId, name: r.copySrcFileName, time: r.createTime, path: copyPath }))
+      }
+    },
+    {
+      label: 'rename',
+      fetch: async () => {
+        const res: any = await getRenameDetailListApi({ pageNum: 1, pageSize: 5, status: '0' })
+        return (res?.records || []).map((r: any) => ({ type: 'rename', typeLabel: 'Rename', color: 'warning', icon: 'square-pen', id: r.id, name: r.originalName, time: r.createTime, path: renamePath }))
+      }
     }
-  } catch (e) {
-    console.error('[Dashboard] Failed to load strm failures:', e)
-  }
+  ]
 
-  try {
-    const res: any = await getCopyRecordListApi({ pageNum: 1, pageSize: 5, copyStatus: '0' })
-    for (const r of res?.records || []) {
-      items.push({ type: 'copy', typeLabel: 'COPY', color: 'primary', icon: 'files', id: r.copyId, name: r.copySrcFileName, time: r.createTime, path: copyPath })
+  const results = await Promise.allSettled(sources.map((s) => s.fetch()))
+  const items: FailureItem[] = []
+  let failed = 0
+  results.forEach((r, i) => {
+    if (r.status === 'fulfilled') {
+      items.push(...r.value)
+    } else {
+      failed++
+      console.error(`[Dashboard] Failed to load ${sources[i].label} failures:`, r.reason)
     }
-  } catch (e) {
-    console.error('[Dashboard] Failed to load copy failures:', e)
-  }
-
-  try {
-    const res: any = await getRenameDetailListApi({ pageNum: 1, pageSize: 5, status: '0' })
-    for (const r of res?.records || []) {
-      items.push({ type: 'rename', typeLabel: 'Rename', color: 'warning', icon: 'square-pen', id: r.id, name: r.originalName, time: r.createTime, path: renamePath })
-    }
-  } catch (e) {
-    console.error('[Dashboard] Failed to load rename failures:', e)
-  }
+  })
 
   items.sort((a, b) => (a.time < b.time ? 1 : -1))
   recentFailures.value = items.slice(0, 8)
+  failedCount.value = failed
+  loading.value = false
 }
+
+defineExpose({ load: loadRecentFailures })
 
 onMounted(loadRecentFailures)
 </script>
@@ -135,8 +167,39 @@ onMounted(loadRecentFailures)
   padding: 8px 0;
 }
 
+.failure-error {
+  padding: 28px 16px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--osr-text-secondary);
+}
+
+.failure-partial {
+  padding: 6px 0;
+  font-size: 12px;
+  color: var(--osr-warning);
+}
+
 .failure-list {
   padding: 4px 20px 12px;
+}
+
+.failure-skeleton {
+  cursor: default;
+
+  &__icon {
+    width: 18px;
+    height: 18px;
+  }
+
+  &__tag {
+    width: 44px;
+  }
+
+  &__time {
+    width: 48px;
+    margin-left: auto;
+  }
 }
 
 .failure-item {

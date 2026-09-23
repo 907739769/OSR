@@ -6,9 +6,11 @@
       desc="全局的种子硬性过滤与择优排序规则，可被单条订阅覆盖"
     />
 
-    <v-card :loading="loading" class="table-card">
+    <v-card :loading="refreshing" class="table-card">
       <v-card-text>
-        <v-form ref="formRef" class="filter-form">
+        <!-- 首屏骨架：表单未加载时是一份默认值，直接摆出来的话数据一到整页数值跳变一遍 -->
+        <SkeletonForm v-if="firstLoading" dense :sections="4" :fields="4" />
+        <v-form v-else ref="formRef" class="filter-form">
           <SectionDivider>硬性过滤（不满足即淘汰）</SectionDivider>
 
           <FormField>
@@ -345,6 +347,8 @@ import OrderedList from '@/components/OrderedList.vue'
 import CsvSelect from '@/components/CsvSelect.vue'
 import PriorityListField from '@/components/PriorityListField.vue'
 import ConfigSaveBar from '@/components/ConfigSaveBar.vue'
+import SkeletonForm from '@/components/skeleton/SkeletonForm.vue'
+import { useFirstLoad } from '@/composables/useFirstLoad'
 import { usePtFilterConfig } from '@/composables/usePtFilterConfig'
 import { toRuleFns } from '@/composables/formRules'
 import { formatSize } from '@/composables/sizeUnits'
@@ -354,6 +358,7 @@ const {
   labelOf, save, discard, isDirty,
   previewForm, previewing, previewResult, runPreview
 } = usePtFilterConfig()
+const { firstLoading, refreshing } = useFirstLoad(loading)
 
 /** 解析结果只列有值的项，缺失的整行不写 */
 const parsedRows = computed(() => {

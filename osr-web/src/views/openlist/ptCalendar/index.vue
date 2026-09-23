@@ -50,7 +50,7 @@
         </div>
       </div>
 
-      <v-progress-linear v-if="loading" indeterminate color="primary" />
+      <v-progress-linear v-if="loading && !monthPending" indeterminate color="primary" />
 
       <!-- 加载失败要单独说：塞回空结果的话渲染出来是「本月没有排播」，
            而用户对「某个月没排播」本来就没有预期，只会当成真的 -->
@@ -78,7 +78,11 @@
               :class="{ 'day-cell--muted': !cell.inMonth, 'day-cell--today': cell.isToday }"
             >
               <div class="day-number">{{ cell.day }}</div>
-              <div class="day-entries">
+              <!-- 这个月的数据还没到（首屏或刚翻月）：格子里先铺占位条，数据到了原地换成真条目 -->
+              <div v-if="monthPending" class="day-entries osr-skeleton" aria-hidden="true">
+                <span v-for="n in skeletonBarsOf(cell)" :key="n" class="osr-bone entry-bone osr-sheen" :style="{ '--osr-i': cell.day % 7 }" />
+              </div>
+              <div v-else class="day-entries">
                 <button
                   v-for="entry in previewOf(cell.key)"
                   :key="`${entry.subId}-${entry.episode}`"
@@ -205,6 +209,12 @@ const {
   activeState, stateCounts, monthTotal, setState, hasEntriesInMonth,
   load, goPrevMonth, goNextMonth, goToday, goMonth
 } = usePtCalendar()
+
+/** 本月数据还在路上：首屏，或刚翻到一个还没加载过的月份（格子已经按新月份画好了，条目还是旧的） */
+const monthPending = computed(() => loading.value && !hasEntriesInMonth.value)
+
+/** 占位条数按日期轮换（0~2 条），本月以外的格子不铺——真实数据里它们本来就淡 */
+const skeletonBarsOf = (cell: { day: number; inMonth: boolean }) => (cell.inMonth ? (cell.day * 5) % 3 : 0)
 
 const LEGEND = [
   { key: 'IN_LIBRARY', label: '已入库' },
@@ -414,6 +424,12 @@ const openHealth = (entry: CalendarEntry) => {
   font-size: 11px;
   color: var(--osr-primary);
   cursor: pointer;
+}
+
+/* 占位条与 .entry 同高（11px 字 + 上下 2px 内边距） */
+.entry-bone {
+  height: 19px;
+  border-radius: 4px;
 }
 
 .entry {

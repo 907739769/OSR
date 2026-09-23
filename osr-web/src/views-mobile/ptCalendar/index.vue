@@ -33,7 +33,23 @@
       </div>
     </div>
 
-    <v-progress-linear v-if="loading" indeterminate color="primary" />
+    <!-- 本月数据还在路上（首屏或刚翻月）：按「日期标题 + 卡片」的形状铺占位，有旧数据时只给进度条 -->
+    <div v-if="loading && agenda.length === 0" class="task-list">
+      <div v-for="d in 3" :key="d" class="agenda-day agenda-skeleton-day osr-skeleton" aria-hidden="true">
+        <span class="osr-bone osr-bone--caption agenda-skeleton-date" />
+        <div v-for="c in (d === 2 ? 1 : 2)" :key="c" class="osr-sk-mcard osr-sheen" :style="{ '--osr-i': d * 2 + c }">
+          <span class="osr-bone osr-bone--block agenda-skeleton-poster" />
+          <div class="osr-sk-mcard__body">
+            <div class="osr-sk-mcard__head">
+              <span class="osr-bone osr-bone--title" :style="{ width: (d + c) % 2 ? '58%' : '44%' }" />
+              <span class="osr-bone osr-bone--chip" />
+            </div>
+            <span class="osr-bone osr-bone--caption" style="width: 40%" />
+          </div>
+        </div>
+      </div>
+    </div>
+    <v-progress-linear v-else-if="loading" indeterminate color="primary" />
 
     <!-- 加载失败要单独说：塞回空结果的话渲染出来是「本月没有排播」 -->
     <v-empty-state
@@ -247,6 +263,24 @@ const openHealth = (entry: CalendarEntry) => {
 </script>
 
 <style scoped>
+/* 日历骨架：日期标题与海报位，尺寸同真实的 .agenda-date / .poster */
+.agenda-skeleton-day {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.agenda-skeleton-date {
+  width: 96px;
+  margin: 4px 0 10px;
+}
+
+.agenda-skeleton-poster {
+  width: 32px;
+  height: 46px;
+  border-radius: var(--osr-radius-sm);
+}
+
 .calendar-bar {
   display: flex;
   align-items: center;

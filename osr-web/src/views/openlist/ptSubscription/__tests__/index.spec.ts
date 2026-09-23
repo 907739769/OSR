@@ -172,7 +172,7 @@ describe('PtSubscription 骨架屏', () => {
     // 数量不写死：骨架张数改成按 useGridPageSize 量出的真实列数推算
     // （旧算法自己按 window.innerWidth 估，把 220px 的侧边栏整个漏掉了），
     // jsdom 下量不到布局会保持兜底列数，具体值由下面那条「3~12 张」的用例覆盖
-    expect(wrapper.findAll('.item-card-skeleton').length).toBeGreaterThan(0)
+    expect(wrapper.findAll('.osr-sk-card').length).toBeGreaterThan(0)
     expect(wrapper.find('.item-card').exists()).toBe(false)
   })
 
@@ -182,7 +182,7 @@ describe('PtSubscription 骨架屏', () => {
       loading: ref(true)
     }))
     const wrapper = mount(PtSubscriptionPage)
-    expect(wrapper.find('.item-card-skeleton').exists()).toBe(false)
+    expect(wrapper.find('.osr-sk-card').exists()).toBe(false)
     expect(wrapper.find('.item-card').exists()).toBe(true)
   })
 
@@ -192,7 +192,7 @@ describe('PtSubscription 骨架屏', () => {
       loading: ref(true)
     }))
     const wrapper = mount(PtSubscriptionPage)
-    const count = wrapper.findAll('.item-card-skeleton').length
+    const count = wrapper.findAll('.osr-sk-card').length
     expect(count).toBeGreaterThanOrEqual(3)
     expect(count).toBeLessThanOrEqual(12)
   })

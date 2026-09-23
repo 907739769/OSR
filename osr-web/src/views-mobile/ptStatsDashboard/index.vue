@@ -19,7 +19,15 @@
 
     <div class="stat-grid">
       <template v-if="loading">
-        <v-skeleton-loader v-for="i in 6" :key="'sk-' + i" type="list-item-avatar" class="stat-skeleton" />
+        <!-- 与真卡片同一个 .stat-card 外壳（图标 + 数字 + 标签 + 口径说明），数据到了不跳版 -->
+        <v-card v-for="i in 6" :key="'sk-' + i" class="stat-card osr-sheen osr-skeleton" :style="{ '--osr-i': i - 1 }" aria-hidden="true">
+          <span class="osr-bone osr-bone--block stat-icon" />
+          <div class="stat-info">
+            <span class="osr-bone stat-skeleton-value" />
+            <span class="osr-bone osr-bone--caption stat-skeleton-label" />
+            <span class="osr-bone osr-bone--caption stat-skeleton-hint" />
+          </div>
+        </v-card>
       </template>
       <template v-else>
         <v-card
@@ -327,8 +335,20 @@ onMounted(loadAll)
   color: var(--osr-text-secondary);
 }
 
-.stat-skeleton {
-  border-radius: var(--osr-radius-base);
+/* 统计卡骨架 */
+.stat-skeleton-value {
+  width: 48px;
+  height: 20px;
+}
+
+.stat-skeleton-label {
+  width: 64px;
+  margin-top: 6px;
+}
+
+.stat-skeleton-hint {
+  width: 88%;
+  margin-top: 6px;
 }
 
 .stat-card {
