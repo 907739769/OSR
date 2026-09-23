@@ -20,9 +20,12 @@ import com.osr.openliststrm.pt.filter.RejectCode;
 import com.osr.openliststrm.pt.subscription.SubscriptionService;
 import com.osr.openliststrm.pt.task.DownloadRecordState;
 import com.osr.openliststrm.pt.task.FailReasonCode;
+import com.osr.openliststrm.pt.task.HitAndRunState;
+import com.osr.openliststrm.pt.task.UnresolvedFailureSql;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
@@ -63,33 +66,63 @@ public class PtStatsService {
     }
 
     /**
-     * 总览统计：订阅总数/活跃数 + 下载记录一次性聚合(总数/完成/失败/成功率/全局平均耗时)，
-     * 不做时间范围筛选(设计文档2.1，overview 覆盖全量历史)。
+     * 总览统计。
+     * <p>
+     * {@code days} 为 null 时统计全部历史（首页 PT 概览卡），否则只统计最近 N 天——仪表盘顶部的
+     * 「统计范围」切换就放在统计卡正上方，卡片不跟着变的话用户会把全量数字当成区间数字来读。
+     * 各项按<b>这件事发生的日期</b>落区间，与趋势图同一口径：推送按 {@code pushed_time}、
+     * 完成与平均耗时按 {@code completed_time}、失败按 FAILED 行的 {@code update_time}。
+     * </p>
+     * <p>
+     * 订阅总数 / 活跃数、可能已 H&R 数是<b>当前状态</b>而不是区间内发生的事，不受 {@code days} 影响。
+     * </p>
+     * <p>
+     * <b>成功率 = 完成 / (完成 + 未被接替的失败)</b>。原先是「完成 / 全部记录」，分母里混着还在
+     * 已推送 / 下载中的记录，下载越活跃成功率越低；已被后续推送补上的失败也照算，一集失败一次、
+     * 补上一次就被记成 50%。失败数同样只算还没着落的（见 {@link UnresolvedFailureSql}）。
+     * </p>
      */
-    public PtStatsOverviewDTO overview(PtStatsScope scope) {
+    public PtStatsOverviewDTO overview(Integer days, PtStatsScope scope) {
         PtStatsOverviewDTO dto = new PtStatsOverviewDTO();
+        dto.setRangeDays(days);
         dto.setTotalSubscriptions(subscriptionService.count(scopedSubscriptions(scope)));
         dto.setActiveSubscriptions(subscriptionService.count(
                 scopedSubscriptions(scope).eq("status", SubscriptionService.STATUS_ACTIVE)));
 
-        List<Map<String, Object>> rows = downloadRecordService.listMaps(
-                scopedRecords(scope).select(
-                        "count(*) as total, "
-                                + "SUM(CASE WHEN state='" + STATE_COMPLETED + "' THEN 1 ELSE 0 END) as completed_count, "
-                                + "SUM(CASE WHEN state='" + STATE_FAILED + "' THEN 1 ELSE 0 END) as failed_count, "
-                                + "AVG(CASE WHEN state='" + STATE_COMPLETED
-                                + "' THEN TIMESTAMPDIFF(MINUTE, pushed_time, completed_time) ELSE NULL END) as avg_duration_minutes"));
-        Map<String, Object> row = rows.isEmpty() ? Map.of() : rows.get(0);
+        LocalDateTime start = days == null ? null : LocalDate.now().minusDays(days - 1L).atStartOfDay();
 
-        long total = asLong(row.get("total"));
-        long completed = asLong(row.get("completed_count"));
-        long failed = asLong(row.get("failed_count"));
+        QueryWrapper<PtDownloadRecordPlus> pushed = scopedRecords(scope);
+        if (start != null) {
+            pushed.ge("pushed_time", start);
+        }
+        long total = downloadRecordService.count(pushed);
+
+        List<Map<String, Object>> completedRows = downloadRecordService.listMaps(
+                scopedRecords(scope)
+                        .select("count(*) as cnt, AVG(TIMESTAMPDIFF(MINUTE, pushed_time, completed_time)) as avg_duration_minutes")
+                        .eq("state", STATE_COMPLETED)
+                        .ge(start != null, "completed_time", start));
+        Map<String, Object> completedRow = completedRows.isEmpty() || completedRows.get(0) == null
+                ? Map.of() : completedRows.get(0);
+        long completed = asLong(completedRow.get("cnt"));
+
+        QueryWrapper<PtDownloadRecordPlus> failedQuery = scopedRecords(scope)
+                .eq("state", STATE_FAILED)
+                .apply(UnresolvedFailureSql.NOT_SUPERSEDED);
+        if (start != null) {
+            failedQuery.ge("update_time", start);
+        }
+        long failed = downloadRecordService.count(failedQuery);
+
         dto.setTotalDownloadRecords(total);
         dto.setCompletedCount(completed);
         dto.setFailedCount(failed);
-        dto.setSuccessRate(total > 0 ? Math.round(completed * 1000.0 / total) / 10.0 : 0.0);
-        Double avg = asDouble(row.get("avg_duration_minutes"));
+        long settled = completed + failed;
+        dto.setSuccessRate(settled > 0 ? Math.round(completed * 1000.0 / settled) / 10.0 : 0.0);
+        Double avg = asDouble(completedRow.get("avg_duration_minutes"));
         dto.setAvgDurationMinutes(avg == null ? 0.0 : avg);
+        dto.setHrViolatedCount(downloadRecordService.count(
+                scopedRecords(scope).eq("hr_state", HitAndRunState.VIOLATED.value())));
         return dto;
     }
 
@@ -266,7 +299,9 @@ public class PtStatsService {
                 scopedRecords(scope)
                         .select("sub_id as sub_id, count(*) as download_count, "
                                 + "SUM(CASE WHEN state='" + STATE_COMPLETED + "' THEN 1 ELSE 0 END) as completed_count, "
-                                + "SUM(CASE WHEN state='" + STATE_FAILED + "' THEN 1 ELSE 0 END) as failed_count")
+                                // 只算还没被接替的失败，与总览同一口径（见 UnresolvedFailureSql）
+                                + "SUM(CASE WHEN state='" + STATE_FAILED + "' AND " + UnresolvedFailureSql.NOT_SUPERSEDED
+                                + " THEN 1 ELSE 0 END) as failed_count")
                         .ge("pushed_time", start.atStartOfDay())
                         .groupBy("sub_id")
                         .orderByDesc("download_count")

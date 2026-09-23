@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.extension.service.IService;
 import com.osr.openliststrm.mybatisplus.domain.PtTransferRecordPlus;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * <p>
@@ -28,4 +29,13 @@ public interface IPtTransferRecordPlusService extends IService<PtTransferRecordP
      * </p>
      */
     boolean hasVerifying(Integer ruleId, String torrentHash);
+
+    /**
+     * 按规则汇总转移记录：{@code ruleId -> {VERIFYING/COMPLETED/FAILED/SKIPPED: 条数, lastTime: 最近一条的创建时间}}。
+     * <p>
+     * 规则卡片上只有配置的话，用户看不出「这条规则到底有没有在干活、是不是一直在失败」，
+     * 得逐条点开记录弹窗才知道。一次 GROUP BY 把全部规则的计数拉回来，不按卡片逐条查。
+     * </p>
+     */
+    Map<Integer, Map<String, Object>> summarizeByRule();
 }

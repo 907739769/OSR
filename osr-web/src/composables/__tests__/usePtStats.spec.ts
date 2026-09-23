@@ -12,7 +12,10 @@ import {
   buildRejectReasonOption,
   buildStatCards,
   buildTrendOption,
-  failReasonColor
+  failReasonColor,
+  failReasonFilter,
+  rangeBeginDate,
+  trendPointFilter
 } from '@/composables/usePtStats'
 
 describe('失败原因配色', () => {
@@ -37,6 +40,13 @@ describe('失败原因配色', () => {
 })
 
 describe('统计卡', () => {
+  const NOW = new Date(2026, 8, 23, 10, 0, 0)
+  const overview = (patch: Record<string, number> = {}) => ({
+    rangeDays: 30, totalSubscriptions: 20, activeSubscriptions: 15, totalDownloadRecords: 100,
+    completedCount: 60, failedCount: 20, successRate: 75, avgDurationMinutes: 45.4, hrViolatedCount: 2,
+    ...patch
+  })
+
   /** 取数失败时显示 `--`：一排 0 会被读成「系统很干净」 */
   it('无数据时全部显示两横杠而不是0', () => {
     const cards = buildStatCards(null)
@@ -44,21 +54,65 @@ describe('统计卡', () => {
     expect(cards.every(c => c.value === '--')).toBe(true)
   })
 
-  it('有数据时成功率带百分号_没有下载记录时成功率为两横杠', () => {
-    const withRecords = buildStatCards({
-      totalSubscriptions: 20, activeSubscriptions: 15, totalDownloadRecords: 100,
-      completedCount: 80, failedCount: 10, successRate: 80, avgDurationMinutes: 45.4
-    })
-    expect(withRecords.find(c => c.key === 'successRate')!.value).toBe('80%')
-    expect(withRecords.find(c => c.key === 'failedCount')!.value).toBe(10)
-    expect(withRecords.find(c => c.key === 'avgDuration')!.value).toBe('45 分钟')
+  it('有数据时成功率带百分号_没有已落定记录时成功率为两横杠', () => {
+    const cards = buildStatCards(overview(), 30, NOW)
+    expect(cards.find(c => c.key === 'successRate')!.value).toBe('75%')
+    expect(cards.find(c => c.key === 'failedCount')!.value).toBe(20)
+    expect(cards.find(c => c.key === 'avgDuration')!.value).toBe('45 分钟')
+    expect(cards.find(c => c.key === 'hrViolated')!.value).toBe(2)
+    expect(cards.find(c => c.key === 'activeSubscriptions')!.label).toBe('活跃订阅（共 20）')
 
-    const empty = buildStatCards({
-      totalSubscriptions: 0, activeSubscriptions: 0, totalDownloadRecords: 0,
-      completedCount: 0, failedCount: 0, successRate: 0, avgDurationMinutes: 0
+    // 只有在途记录、还没有完成或失败：分母为 0，成功率说不出来，不是 0%
+    const inFlightOnly = buildStatCards(overview({ completedCount: 0, failedCount: 0, successRate: 0, avgDurationMinutes: 0 }), 30, NOW)
+    expect(inFlightOnly.find(c => c.key === 'successRate')!.value).toBe('--')
+    expect(inFlightOnly.find(c => c.key === 'avgDuration')!.value).toBe('--')
+  })
+
+  /** 卡片就摆在统计范围挡位正下方，每张都得说清楚自己是区间数字还是当前状态 */
+  it('每张卡都带口径说明_区间类的写明天数', () => {
+    const cards = buildStatCards(overview(), 7, NOW)
+    expect(cards.every(c => c.hint)).toBe(true)
+    expect(cards.find(c => c.key === 'totalDownloadRecords')!.hint).toContain('近 7 天')
+    expect(cards.find(c => c.key === 'hrViolated')!.hint).toContain('不受统计范围影响')
+  })
+
+  it('失败卡下钻到区间内未被接替的失败记录_按失败日期筛', () => {
+    const failed = buildStatCards(overview(), 7, NOW).find(c => c.key === 'failedCount')!
+    expect(failed.filter).toEqual({ state: 'FAILED', dateField: 'FAILED', beginDate: '2026-09-17', hideSuperseded: true })
+  })
+
+  it('H&R卡下钻不带日期_成功率卡不可点', () => {
+    const cards = buildStatCards(overview(), 30, NOW)
+    expect(cards.find(c => c.key === 'hrViolated')!.filter).toEqual({ hrState: 'VIOLATED' })
+    expect(cards.find(c => c.key === 'successRate')!.filter).toBeUndefined()
+  })
+})
+
+describe('下钻筛选', () => {
+  /** 起始日与后端 LocalDate.now().minusDays(days - 1) 同口径，且按本地时区取日期 */
+  it('区间起始日含今天共N天', () => {
+    expect(rangeBeginDate(1, new Date(2026, 8, 23, 0, 30))).toBe('2026-09-23')
+    expect(rangeBeginDate(30, new Date(2026, 8, 23, 0, 30))).toBe('2026-08-25')
+  })
+
+  /** 趋势图三条线各按自己的日期分组，点进去必须按同一列筛，否则条数对不上 */
+  it('趋势图各条线按各自的日期列筛那一天', () => {
+    expect(trendPointFilter('推送', '2026-09-01')).toEqual({ dateField: 'PUSHED', beginDate: '2026-09-01', endDate: '2026-09-01' })
+    expect(trendPointFilter('完成', '2026-09-01')).toMatchObject({ state: 'COMPLETED', dateField: 'COMPLETED' })
+    expect(trendPointFilter('平均耗时', '2026-09-01')).toMatchObject({ state: 'COMPLETED', dateField: 'COMPLETED' })
+    expect(trendPointFilter('失败', '2026-09-01')).toMatchObject({ state: 'FAILED', dateField: 'FAILED' })
+    expect(trendPointFilter('未知', '2026-09-01')).toBeNull()
+  })
+
+  it('失败原因扇形按分类码与区间筛', () => {
+    expect(failReasonFilter('ZOMBIE_TIMEOUT', 7, new Date(2026, 8, 23))).toEqual({
+      state: 'FAILED', failReasonCode: 'ZOMBIE_TIMEOUT', dateField: 'FAILED', beginDate: '2026-09-17'
     })
-    expect(empty.find(c => c.key === 'successRate')!.value).toBe('--')
-    expect(empty.find(c => c.key === 'avgDuration')!.value).toBe('--')
+  })
+
+  it('饼图数据项带上分类码_点击时靠它下钻', () => {
+    const option: any = buildFailReasonOption([{ code: 'ZOMBIE_TIMEOUT', reason: '下载超时', count: 3 }])
+    expect(option.series[0].data[0].code).toBe('ZOMBIE_TIMEOUT')
   })
 })
 

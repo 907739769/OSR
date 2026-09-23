@@ -25,14 +25,37 @@ export function previewPtTransferRuleApi(id: number) {
   return request.post<any, any[]>(`/openliststrm/pt-transfer-rules/preview/${id}`)
 }
 
-/** 立即执行一次转移，不等定时任务 */
+/**
+ * 立即执行一次转移，不等定时任务。后端转后台执行、立即返回 runId，
+ * 跑完经 PT 状态 WebSocket 推一条同 runId 的 transferRun 事件
+ */
 export function runPtTransferRuleApi(id: number) {
-  return request.post<any, any>(`/openliststrm/pt-transfer-rules/run/${id}`)
+  return request.post<any, { runId: string }>(`/openliststrm/pt-transfer-rules/run/${id}`)
+}
+
+export interface PtTransferRecordQuery extends SearchParams {
+  ruleId?: number
+  state?: string
+  torrentName?: string
 }
 
 /** 转移记录（只读） */
-export function getPtTransferRecordListApi(params: SearchParams) {
+export function getPtTransferRecordListApi(params: PtTransferRecordQuery) {
   return request.get<any, PageResult<any>>('/openliststrm/pt-transfer-records', { params })
+}
+
+/** 规则卡片上的运行情况：各状态条数 + 最近一次转移时间 */
+export interface PtTransferRuleSummary {
+  VERIFYING: number
+  COMPLETED: number
+  FAILED: number
+  SKIPPED: number
+  lastTime?: string
+}
+
+/** 按规则汇总的转移记录计数，key 为规则 id */
+export function getPtTransferRecordSummaryApi() {
+  return request.get<any, Record<string, PtTransferRuleSummary>>('/openliststrm/pt-transfer-records/summary')
 }
 
 /**

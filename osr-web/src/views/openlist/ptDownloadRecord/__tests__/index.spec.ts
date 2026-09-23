@@ -112,13 +112,14 @@ describe('PtDownloadRecord 失败卡片视觉强化', () => {
 })
 
 describe('PtDownloadRecord 骨架屏', () => {
-  it('首次加载（loading 且列表为空）渲染 6 张骨架卡片，不渲染真实卡片', () => {
+  // 骨架屏铺一整行，列数取 useGridPageSize 量出来的值；jsdom 量不到布局，落在它的兜底 4 列
+  it('首次加载（loading 且列表为空）渲染一整行骨架卡片，不渲染真实卡片', () => {
     (usePtDownloadRecord as any).mockReturnValue(baseComposable({
       taskList: ref([]),
       loading: ref(true)
     }))
     const wrapper = mount(PtDownloadRecordPage)
-    expect(wrapper.findAll('.item-card-skeleton').length).toBe(6)
+    expect(wrapper.findAll('.item-card-skeleton').length).toBe(4)
     expect(wrapper.find('.item-card').exists()).toBe(false)
   })
 
@@ -132,7 +133,7 @@ describe('PtDownloadRecord 骨架屏', () => {
     expect(wrapper.find('.item-card').exists()).toBe(true)
   })
 
-  it('骨架屏数量根据页面宽度动态变化（至少 3 张）', () => {
+  it('骨架屏数量随网格列数变化（至少 3 张）', () => {
     (usePtDownloadRecord as any).mockReturnValue(baseComposable({
       taskList: ref([]),
       loading: ref(true)

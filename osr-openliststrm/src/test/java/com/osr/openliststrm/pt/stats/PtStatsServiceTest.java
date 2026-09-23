@@ -48,9 +48,10 @@ class PtStatsServiceTest {
     @Test
     void overview_下载记录为空_返回全0而不抛异常() {
         when(subscriptionService.count(any(Wrapper.class))).thenReturn(0L, 0L);
+        when(downloadRecordService.count(any(Wrapper.class))).thenReturn(0L);
         when(downloadRecordService.listMaps(any(Wrapper.class))).thenReturn(List.of());
 
-        PtStatsOverviewDTO dto = service().overview(ALL);
+        PtStatsOverviewDTO dto = service().overview(null, ALL);
 
         assertEquals(0L, dto.getTotalSubscriptions());
         assertEquals(0L, dto.getActiveSubscriptions());
@@ -59,23 +60,46 @@ class PtStatsServiceTest {
         assertEquals(0L, dto.getFailedCount());
         assertEquals(0.0, dto.getSuccessRate());
         assertEquals(0.0, dto.getAvgDurationMinutes());
+        assertEquals(0L, dto.getHrViolatedCount());
     }
 
     @Test
-    void overview_正常数据_成功率与平均耗时计算正确() {
+    void overview_成功率分母是完成加未接替失败_不含在途记录() {
         when(subscriptionService.count(any(Wrapper.class))).thenReturn(20L, 15L);
+        // count 依次是：推送总数 / 未接替失败数 / 可能已 H&R 数
+        when(downloadRecordService.count(any(Wrapper.class))).thenReturn(100L, 20L, 3L);
         when(downloadRecordService.listMaps(any(Wrapper.class))).thenReturn(List.of(
-                row("total", 100L, "completed_count", 80L, "failed_count", 10L, "avg_duration_minutes", 45.5)));
+                row("cnt", 60L, "avg_duration_minutes", 45.5)));
 
-        PtStatsOverviewDTO dto = service().overview(ALL);
+        PtStatsOverviewDTO dto = service().overview(30, ALL);
 
         assertEquals(20L, dto.getTotalSubscriptions());
         assertEquals(15L, dto.getActiveSubscriptions());
         assertEquals(100L, dto.getTotalDownloadRecords());
-        assertEquals(80L, dto.getCompletedCount());
-        assertEquals(10L, dto.getFailedCount());
-        assertEquals(80.0, dto.getSuccessRate());
+        assertEquals(60L, dto.getCompletedCount());
+        assertEquals(20L, dto.getFailedCount());
+        // 60 / (60 + 20)，另外 20 条还在下载的不进分母；旧口径 60/100 会把活跃下载算成失败
+        assertEquals(75.0, dto.getSuccessRate());
         assertEquals(45.5, dto.getAvgDurationMinutes());
+        assertEquals(3L, dto.getHrViolatedCount());
+        assertEquals(30, dto.getRangeDays());
+    }
+
+    @Test
+    void overview_失败数只统计未被接替的失败() {
+        when(subscriptionService.count(any(Wrapper.class))).thenReturn(0L, 0L);
+        when(downloadRecordService.count(any(Wrapper.class))).thenReturn(0L);
+        when(downloadRecordService.listMaps(any(Wrapper.class))).thenReturn(List.of());
+
+        service().overview(7, ALL);
+
+        org.mockito.ArgumentCaptor<Wrapper> captor = org.mockito.ArgumentCaptor.forClass(Wrapper.class);
+        org.mockito.Mockito.verify(downloadRecordService, org.mockito.Mockito.times(3)).count(captor.capture());
+        String failedSql = captor.getAllValues().get(1).getCustomSqlSegment();
+        org.junit.jupiter.api.Assertions.assertTrue(failedSql.contains("NOT EXISTS"),
+                "失败数必须排除已被后续推送接替的记录：" + failedSql);
+        org.junit.jupiter.api.Assertions.assertTrue(failedSql.contains("update_time"),
+                "带了统计范围时失败数必须按失败日期落区间：" + failedSql);
     }
 
     @Test

@@ -1,4 +1,5 @@
 import type { RecordStatusOption } from '@/components/RecordStatusBar.vue'
+import { formatRelativeTime } from './relativeTime'
 import type { PtDownloadRecordView } from '@/api/openlist/ptDownloadRecord'
 
 /**
@@ -28,6 +29,16 @@ export const FAIL_REASON_OPTIONS: RecordStatusOption[] = [
   { value: 'NO_TARGET_EPISODE', title: '无目标集', type: 'warning' },
   { value: 'METADATA_TIMEOUT', title: '种子无响应', type: 'warning' },
   { value: 'OTHER', title: '其他原因', type: 'error' }
+]
+
+/**
+ * 日期区间落在哪一列。与统计仪表盘趋势图三条线的分组口径一一对应；
+ * 「失败时间」只对失败记录有意义（取 FAILED 行的 update_time），选它时后端会只查失败记录
+ */
+export const DATE_FIELD_OPTIONS = [
+  { value: 'PUSHED', title: '推送时间' },
+  { value: 'COMPLETED', title: '完成时间' },
+  { value: 'FAILED', title: '失败时间' }
 ]
 
 export const HR_STATE_OPTIONS: RecordStatusOption[] = [
@@ -85,3 +96,19 @@ export const canRetry = (item: PtDownloadRecordView) => item.state === 'FAILED' 
 
 /** 做种数是推送那一刻的快照，卡片上要说清楚，免得被当成实时数据 */
 export const SEEDERS_HINT = '做种数是推送那一刻索引器给出的快照，不随时间更新'
+
+/** 停在「已推送」超过这么久就提示：正常情况下下载器几分钟内就会开始下载并被追踪任务认领 */
+export const STALE_PUSHED_MINUTES = 60
+
+/**
+ * 「已推送」迟迟不开始的提示文案，不需要提示时返回空串。
+ * 已推送是稳态标签（StatusChip 不带 pulse），推送后十分钟和推送后十小时在卡片上长得一模一样，
+ * 而后者多半是下载器没接住（任务被手动删了、做种数为 0 拿不到元数据）——用户最该去看的正是它。
+ */
+export const stalePushedHint = (item: PtDownloadRecordView, now: number = Date.now()) => {
+  if (item.state !== 'PUSHED' || !item.pushedTime) return ''
+  // Safari 不认 `yyyy-MM-dd HH:mm:ss` 里的空格，同 relativeTime.ts
+  const t = new Date(item.pushedTime.replace(' ', 'T')).getTime()
+  if (Number.isNaN(t) || now - t < STALE_PUSHED_MINUTES * 60000) return ''
+  return `推送于 ${formatRelativeTime(item.pushedTime, now)}，下载器仍未开始下载，可到下载器确认任务状态`
+}

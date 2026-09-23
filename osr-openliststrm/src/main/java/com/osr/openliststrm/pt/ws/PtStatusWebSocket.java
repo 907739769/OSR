@@ -5,6 +5,7 @@ import com.osr.common.utils.DateUtils;
 import com.osr.common.utils.JwtTokenUtil;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloadRecordPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
+import com.osr.openliststrm.pt.transfer.TransferSummary;
 import jakarta.annotation.PostConstruct;
 import jakarta.websocket.OnClose;
 import jakarta.websocket.OnError;
@@ -152,6 +153,28 @@ public class PtStatusWebSocket {
         json.put("total", total);
         json.put("pushedCount", pushedCount);
         json.put("skippedCount", skippedCount);
+        broadcast(json.toJSONString());
+    }
+
+    /**
+     * 推送一次「立即执行」转移规则的结果。与批量重试同理按 {@code runId} 认领；
+     * {@code error} 非空表示整条规则执行失败（下载器不可达、规则正在执行等），此时计数无意义。
+     */
+    public static void pushTransferRunEvent(String runId, Integer ruleId, TransferSummary summary, String error) {
+        JSONObject json = new JSONObject();
+        json.put("type", "transferRun");
+        json.put("runId", runId);
+        json.put("ruleId", ruleId);
+        if (error != null) {
+            json.put("error", error);
+        }
+        if (summary != null) {
+            json.put("started", summary.getStarted());
+            json.put("completed", summary.getCompleted());
+            json.put("failed", summary.getFailed());
+            json.put("skipped", summary.getSkipped());
+            json.put("exportUnsupported", summary.isExportUnsupported());
+        }
         broadcast(json.toJSONString());
     }
 

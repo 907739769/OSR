@@ -36,6 +36,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 转移做种：把源下载器上已完成的种子搬到目标下载器继续做种，数据文件原地不动。
@@ -117,6 +118,13 @@ public class TorrentTransferService {
     private final IPtSubscriptionEpisodePlusService episodeService;
     private final DownloaderClientFactory clientFactory;
 
+    /**
+     * 正在执行的规则 id。定时任务与「立即执行」都走 {@link #runRule}，两边各自的防重入
+     * （任务的 running 标志、按钮的 loading）互相看不见：同一条规则被两个线程同时评估，
+     * 会对同一批种子各发起一次转移。锁放在这里，两条路径才共用同一道闸门。
+     */
+    private final Set<Integer> runningRules = ConcurrentHashMap.newKeySet();
+
     public TorrentTransferService(IPtTransferRulePlusService ruleService,
                                   IPtTransferRecordPlusService recordService,
                                   IPtDownloaderPlusService downloaderService,
@@ -143,6 +151,9 @@ public class TorrentTransferService {
         for (PtTransferRulePlus rule : ruleService.listEnabled()) {
             try {
                 summaries.add(runRule(rule));
+            } catch (RuleBusyException e) {
+                // 手动执行还没跑完，本轮让过去即可，下一轮自然接上
+                log.info("转移规则[{}] 正在手动执行，定时任务本轮跳过", rule.getName());
             } catch (Exception e) {
                 log.warn("转移规则[{}] 执行失败：{}", rule.getName(), e.getMessage());
             }
@@ -156,6 +167,25 @@ public class TorrentTransferService {
      * @throws Exception 下载器不存在或不可达
      */
     public TransferSummary runRule(PtTransferRulePlus rule) throws Exception {
+        Integer ruleId = rule.getId();
+        if (ruleId != null && !runningRules.add(ruleId)) {
+            throw new RuleBusyException(rule.getName());
+        }
+        try {
+            return doRunRule(rule);
+        } finally {
+            if (ruleId != null) {
+                runningRules.remove(ruleId);
+            }
+        }
+    }
+
+    /** 这条规则此刻是否有线程在执行（定时任务或手动触发） */
+    public boolean isRunning(Integer ruleId) {
+        return ruleId != null && runningRules.contains(ruleId);
+    }
+
+    private TransferSummary doRunRule(PtTransferRulePlus rule) throws Exception {
         PtDownloaderPlus source = requireDownloader(rule.getSourceDownloaderId(), "源");
         PtDownloaderPlus target = requireDownloader(rule.getTargetDownloaderId(), "目标");
         if (Objects.equals(source.getId(), target.getId())) {

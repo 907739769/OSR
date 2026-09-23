@@ -196,6 +196,9 @@ public class DownloadRecordAdminService {
      * 覆盖判定：失败的是季包时只认后续的季包；失败的是单集时，后续单集 / 区间 / 季包覆盖到它都算。
      * 失败的季包被后续逐集补齐的情况<b>不算</b>——拿不准是不是整季都补上了，宁可留着重试按钮。
      * </p>
+     * <p>
+     * 同一条规则的 SQL 写法在 {@link UnresolvedFailureSql}（统计与「隐藏已接替」筛选用），改这里必须同步改那边。
+     * </p>
      */
     private void markSuperseded(List<DownloadRecordView> views, List<PtDownloadRecordPlus> records) {
         List<PtDownloadRecordPlus> failed = records.stream()

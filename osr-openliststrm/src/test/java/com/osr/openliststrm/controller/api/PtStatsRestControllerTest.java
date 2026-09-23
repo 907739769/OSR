@@ -113,11 +113,22 @@ class PtStatsRestControllerTest {
 
     @Test
     void overview_直接转调service() {
-        when(statsService.overview(any())).thenReturn(new com.osr.openliststrm.pt.stats.dto.PtStatsOverviewDTO());
+        when(statsService.overview(any(), any())).thenReturn(new com.osr.openliststrm.pt.stats.dto.PtStatsOverviewDTO());
 
-        Result<com.osr.openliststrm.pt.stats.dto.PtStatsOverviewDTO> result = controller.overview();
+        Result<com.osr.openliststrm.pt.stats.dto.PtStatsOverviewDTO> result = controller.overview(null);
 
         assertEquals(200, result.getCode());
+        // 不带 days = 全部历史（首页概览卡），不能被归一成默认 30 天
+        verify(statsService).overview(org.mockito.ArgumentMatchers.isNull(), any(PtStatsScope.class));
+    }
+
+    @Test
+    void overview_非法days回退默认30() {
+        when(statsService.overview(any(), any())).thenReturn(new com.osr.openliststrm.pt.stats.dto.PtStatsOverviewDTO());
+
+        controller.overview(999);
+
+        verify(statsService).overview(eq(30), any(PtStatsScope.class));
     }
 
     @Test

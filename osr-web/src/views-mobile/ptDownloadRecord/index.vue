@@ -69,10 +69,21 @@
             variant="outlined"
             hide-details
           />
+          <!-- 日期区间落在哪一列：从统计仪表盘趋势图点进来时按那条线自己的日期筛 -->
+          <v-select
+            v-model="queryParams.dateField"
+            :items="DATE_FIELD_OPTIONS"
+            label="日期按"
+            placeholder="推送时间"
+            clearable
+            density="comfortable"
+            variant="outlined"
+            hide-details
+          />
           <div class="date-range-fields">
             <v-text-field
               v-model="dateStart"
-              label="推送开始"
+              :label="`${dateFieldLabel}·开始`"
               type="date"
               density="compact"
               variant="outlined"
@@ -82,7 +93,7 @@
             <span class="date-range-sep">-</span>
             <v-text-field
               v-model="dateEnd"
-              label="推送结束"
+              :label="`${dateFieldLabel}·结束`"
               type="date"
               density="compact"
               variant="outlined"
@@ -90,6 +101,15 @@
               class="date-field"
             />
           </div>
+          <!-- 重试或补搜成功时是新建一条记录，失败那条原样留着；打开后只看还没着落的失败 -->
+          <v-switch
+            v-model="queryParams.hideSuperseded"
+            label="隐藏已被接替的失败"
+            color="primary"
+            density="compact"
+            inset
+            hide-details
+          />
         </v-form>
       </MobileSearchPanel>
 
@@ -184,6 +204,11 @@
             rounded
           />
           <span class="card-progress-text">{{ progressPercent(item) }}%</span>
+        </div>
+        <!-- 「已推送」是稳态标签，推送后十分钟与十小时长得一样，后者多半是下载器没接住 -->
+        <div v-if="stalePushedHint(item)" class="card-stale">
+          <v-icon icon="clock" size="14" />
+          <span>{{ stalePushedHint(item) }}</span>
         </div>
         <div class="card-detail">
           <div class="detail-row">
@@ -315,6 +340,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed, watch } from 'vue'
 import MobileListPage from '@/components/mobile/MobileListPage.vue'
 import MobileActionSheet from '@/components/mobile/MobileActionSheet.vue'
 import MobileBatchBar from '@/components/mobile/MobileBatchBar.vue'
@@ -326,9 +352,9 @@ import PtBlacklistDialog from '@/components/dialogs/PtBlacklistDialog.vue'
 import PtDownloadRecordCleanupDialog from '@/components/dialogs/PtDownloadRecordCleanupDialog.vue'
 import { usePtDownloadRecord } from '@/composables/usePtDownloadRecord'
 import {
-  DOWNLOAD_STATE_OPTIONS, FAIL_REASON_OPTIONS, HR_STATE_OPTIONS, SEEDERS_HINT,
+  DOWNLOAD_STATE_OPTIONS, FAIL_REASON_OPTIONS, HR_STATE_OPTIONS, DATE_FIELD_OPTIONS, SEEDERS_HINT,
   stateLabel, stateTagType, failReasonCodeLabel, failReasonTagType, hrStateLabel, hrTagType,
-  hrProgress, progressPercent, hasProgress, canRetry
+  hrProgress, progressPercent, hasProgress, canRetry, stalePushedHint
 } from '@/composables/ptDownloadRecordLabels'
 import { formatFileSize } from '@/composables/useRecordList'
 import { useActionSheet } from '@/composables/useActionSheet'
@@ -340,7 +366,7 @@ const subscriptionPath = getRoutePathForComponent('openlist/ptSubscription/index
 const {
   taskList, loading, total, queryParams, stats, queryRef,
   handleQuery, resetQuery, dateStart, dateEnd, indexerOptions, downloaderOptions,
-  subFilterLabel, clearSubFilter,
+  subFilterLabel, clearSubFilter, routeFilterTick,
   retryingIds, handleRetry,
   selectionMode, toggleSelectionMode, selectedIds, toggleRecordSelect, handleCardClick,
   isAllPageSelected, toggleSelectAllPage,
@@ -352,6 +378,15 @@ const {
   copyTorrentHash,
   cleanupDialog, cleanupDayOptions, openCleanup, submitCleanup
 } = usePtDownloadRecord()
+
+const dateFieldLabel = computed(() =>
+  DATE_FIELD_OPTIONS.find(o => o.value === queryParams.dateField)?.title ?? '推送时间'
+)
+
+// 从统计仪表盘带筛选跳进来：那些条件都在搜索区里，搜索区收着的话用户看不见、也关不掉
+watch(routeFilterTick, (tick) => {
+  if (tick > 0) searchCollapsed.value = false
+}, { immediate: true })
 
 /** 卡片「更多」动作面板：开关状态与「执行完自动关闭」都在 useActionSheet 里 */
 const { sheetOpen, sheetTarget, openSheet, run } = useActionSheet()
@@ -408,6 +443,15 @@ const { sheetOpen, sheetTarget, openSheet, run } = useActionSheet()
   .card-hr-progress {
     font-size: 11px;
     color: var(--osr-text-secondary);
+  }
+
+  .card-stale {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--osr-warning);
   }
 
   .card-fail {

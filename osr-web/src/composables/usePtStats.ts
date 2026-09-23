@@ -41,12 +41,47 @@ import {
  *    「系统很干净」（同首页统计卡那条）。
  */
 
+/**
+ * 跳到下载记录页时带的筛选，键名与下载记录页从路由读取的一致（usePtDownloadRecord#applyRouteFilters）。
+ * 日期是 yyyy-MM-dd；dateField 决定日期落在哪一列——趋势图三条线各按自己的日期分组，
+ * 点进去必须按同一列筛，否则「某天失败 3」点进去看到的是那天推送的记录
+ */
+export interface PtRecordFilter {
+  state?: string
+  failReasonCode?: string
+  hrState?: string
+  dateField?: 'PUSHED' | 'COMPLETED' | 'FAILED'
+  beginDate?: string
+  endDate?: string
+  /** 隐藏已被后续推送接替的失败，与统计卡的失败数同一口径 */
+  hideSuperseded?: boolean
+}
+
 export interface PtStatCard {
   key: string
   label: string
   value: number | string
   icon: string
   type: 'primary' | 'success' | 'warning' | 'info' | 'error'
+  /** 口径说明（区间内 / 当前状态），悬停可见 */
+  hint: string
+  /** 点击跳下载记录时带的筛选；没有则不可点 */
+  filter?: PtRecordFilter
+  /** 点击跳订阅页（活跃订阅卡） */
+  toSubscriptions?: boolean
+}
+
+/** 本地时区的 yyyy-MM-dd（toISOString 是 UTC，东八区凌晨会差一天） */
+export function formatDay(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+/** 统计区间的起始日，与后端 `LocalDate.now().minusDays(days - 1)` 同一口径 */
+export function rangeBeginDate(days: number, now = new Date()): string {
+  const d = new Date(now)
+  d.setDate(d.getDate() - (days - 1))
+  return formatDay(d)
 }
 
 /**
@@ -76,18 +111,89 @@ export function failReasonColor(code: string | undefined | null): string {
   return osrCssVar(token) || FAIL_REASON_FALLBACK[token]
 }
 
-/** 统计卡。取数失败时 value 一律 `--`，不是 0 */
-export function buildStatCards(data: PtStatsOverview | null): PtStatCard[] {
+/**
+ * 统计卡。取数失败时 value 一律 `--`，不是 0。
+ *
+ * 下载相关几张按统计区间（顶部挡位）算，订阅数与 H&R 是当前状态——卡片就摆在挡位正下方，
+ * 不跟着变的话用户会把全量数字当区间数字读，所以每张都带口径说明。
+ * 成功率 = 完成 / (完成 + 未被接替的失败)，失败数也只算还没着落的：
+ * 在途记录不进分母、已被补上的失败不算失败（口径见后端 UnresolvedFailureSql）。
+ */
+export function buildStatCards(data: PtStatsOverview | null, days = 30, now = new Date()): PtStatCard[] {
   const has = data !== null
-  const hasRecords = has && data.totalDownloadRecords > 0
+  const settled = has ? data.completedCount + data.failedCount : 0
+  const range = `近 ${days} 天`
+  const beginDate = rangeBeginDate(days, now)
   return [
-    { key: 'totalSubscriptions', label: '总订阅数', value: has ? data.totalSubscriptions : '--', icon: 'file-text', type: 'primary' },
-    { key: 'activeSubscriptions', label: '活跃订阅数', value: has ? data.activeSubscriptions : '--', icon: 'network', type: 'success' },
-    { key: 'totalDownloadRecords', label: '下载记录总数', value: has ? data.totalDownloadRecords : '--', icon: 'download', type: 'info' },
-    { key: 'successRate', label: '成功率', value: hasRecords ? data.successRate + '%' : '--', icon: 'circle-check', type: 'success' },
-    { key: 'failedCount', label: '失败数', value: has ? data.failedCount : '--', icon: 'circle-x', type: 'error' },
-    { key: 'avgDuration', label: '平均下载耗时', value: has && data.avgDurationMinutes > 0 ? Math.round(data.avgDurationMinutes) + ' 分钟' : '--', icon: 'clock', type: 'warning' }
+    {
+      key: 'activeSubscriptions',
+      label: has ? `活跃订阅（共 ${data.totalSubscriptions}）` : '活跃订阅',
+      value: has ? data.activeSubscriptions : '--',
+      icon: 'network',
+      type: 'primary',
+      hint: '当前状态，不受统计范围影响',
+      toSubscriptions: true
+    },
+    {
+      key: 'totalDownloadRecords',
+      label: '推送数',
+      value: has ? data.totalDownloadRecords : '--',
+      icon: 'download',
+      type: 'info',
+      hint: `${range}推送到下载器的次数`,
+      filter: { dateField: 'PUSHED', beginDate }
+    },
+    {
+      key: 'successRate',
+      label: '成功率',
+      value: settled > 0 ? data!.successRate + '%' : '--',
+      icon: 'circle-check',
+      type: 'success',
+      hint: `${range}完成 ÷（完成 + 未被补上的失败），下载中的不计入`
+    },
+    {
+      key: 'failedCount',
+      label: '未解决失败',
+      value: has ? data.failedCount : '--',
+      icon: 'circle-x',
+      type: 'error',
+      hint: `${range}失败且之后还没有新推送接替的记录`,
+      filter: { state: 'FAILED', dateField: 'FAILED', beginDate, hideSuperseded: true }
+    },
+    {
+      key: 'avgDuration',
+      label: '平均下载耗时',
+      value: has && data.avgDurationMinutes > 0 ? Math.round(data.avgDurationMinutes) + ' 分钟' : '--',
+      icon: 'clock',
+      type: 'warning',
+      hint: `${range}完成的记录从推送到完成的平均耗时`,
+      filter: { state: 'COMPLETED', dateField: 'COMPLETED', beginDate }
+    },
+    {
+      key: 'hrViolated',
+      label: '可能已 H&R',
+      value: has ? data.hrViolatedCount ?? 0 : '--',
+      icon: 'triangle-alert',
+      type: 'error',
+      hint: '当前状态：保种未达标就离开了下载器的记录，不受统计范围影响',
+      filter: { hrState: 'VIOLATED' }
+    }
   ]
+}
+
+/** 趋势图点某条线的某一天：按那条线自己的日期列筛那一天 */
+export function trendPointFilter(seriesName: string, date: string): PtRecordFilter | null {
+  if (!date) return null
+  if (seriesName === '推送') return { dateField: 'PUSHED', beginDate: date, endDate: date }
+  // 平均耗时挂在完成那条线上算，点它看的也是那天完成的记录
+  if (seriesName === '完成' || seriesName === '平均耗时') return { state: 'COMPLETED', dateField: 'COMPLETED', beginDate: date, endDate: date }
+  if (seriesName === '失败') return { state: 'FAILED', dateField: 'FAILED', beginDate: date, endDate: date }
+  return null
+}
+
+/** 失败原因饼图点某一块：区间内该分类的失败记录（含已被接替的——饼图统计的就是全部失败） */
+export function failReasonFilter(code: string, days: number, now = new Date()): PtRecordFilter {
+  return { state: 'FAILED', failReasonCode: code, dateField: 'FAILED', beginDate: rangeBeginDate(days, now) }
 }
 
 /**
@@ -177,9 +283,11 @@ export function buildFailReasonOption(data: PtStatsFailReason[] | null, failed =
       label: { show: true, formatter: '{b}\n{c}', fontSize: 11 },
       labelLine: { length: 15, length2: 10 },
       minAngle: 5,
+      // code 带在数据项上，点击扇形时靠它跳到对应分类的失败记录
       data: data.map(item => ({
         value: item.count,
         name: item.reason,
+        code: item.code,
         itemStyle: { color: failReasonColor(item.code) }
       }))
     }]
@@ -244,7 +352,7 @@ export function usePtStats() {
   const themeTick = ref(0)
 
   const anyFailed = computed(() => Object.values(failed.value).some(Boolean))
-  const statCards = computed(() => buildStatCards(overview.value))
+  const statCards = computed(() => buildStatCards(overview.value, rangeDays.value))
   // 每个 option 都读一次 themeTick：主题一换，这几个 computed 连同里面的令牌取值一起重算，
   // 而取数函数一个都不调（旧实现在这里直接调 loadXxx，切个深浅色就扫一遍下载记录全表）
   const trendOption = computed(() => {
@@ -277,7 +385,7 @@ export function usePtStats() {
     }
   }
 
-  const loadOverview = () => run('overview', getPtStatsOverviewApi, v => (overview.value = v))
+  const loadOverview = () => run('overview', () => getPtStatsOverviewApi(rangeDays.value), v => (overview.value = v))
   const loadTrend = () => run('trend', () => getPtStatsTrendApi(rangeDays.value), v => (trend.value = v))
   const loadIndexers = () => run('indexer', getPtStatsIndexerHitRateApi, v => (indexers.value = v))
   const loadFailReasons = () => run('failReason', () => getPtStatsFailReasonsApi(rangeDays.value), v => (failReasons.value = v))
@@ -306,11 +414,11 @@ export function usePtStats() {
     }
   }
 
-  /** 换时间挡位只重取受它影响的三块：命中率与淘汰分布不带 days（口径见后端注释） */
+  /** 换时间挡位只重取受它影响的四块：命中率与淘汰分布不带 days（口径见后端注释） */
   async function onRangeChange() {
     refreshing.value = true
     try {
-      await Promise.all([loadTrend(), loadFailReasons(), loadTopSubscriptions()])
+      await Promise.all([loadOverview(), loadTrend(), loadFailReasons(), loadTopSubscriptions()])
     } finally {
       refreshing.value = false
       stampLoadedAt()

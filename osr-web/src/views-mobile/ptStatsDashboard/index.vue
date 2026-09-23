@@ -22,13 +22,21 @@
         <v-skeleton-loader v-for="i in 6" :key="'sk-' + i" type="list-item-avatar" class="stat-skeleton" />
       </template>
       <template v-else>
-        <v-card v-for="stat in statCards" :key="stat.key" class="stat-card" :class="stat.type">
+        <v-card
+          v-for="stat in statCards"
+          :key="stat.key"
+          class="stat-card"
+          :class="[stat.type, { 'stat-card--link': isCardClickable(stat) }]"
+          v-on="isCardClickable(stat) ? { click: () => openCard(stat) } : {}"
+        >
           <div class="stat-icon">
             <v-icon :icon="stat.icon" size="22" />
           </div>
           <div class="stat-info">
             <div class="stat-value"><AnimatedNumber :value="stat.value" /></div>
             <div class="stat-label">{{ stat.label }}</div>
+            <!-- 移动端没有悬停，口径说明直接写在卡片上 -->
+            <div class="stat-hint">{{ stat.hint }}</div>
           </div>
         </v-card>
       </template>
@@ -37,7 +45,7 @@
     <v-card class="chart-card">
       <div class="chart-header">
         <span class="chart-title">下载量趋势</span>
-        <span class="chart-subtitle">推送按推送日、完成按完成日、失败按失败日统计</span>
+        <span class="chart-subtitle">推送按推送日、完成按完成日、失败按失败日统计；点折线上的点查看当天记录</span>
       </div>
       <div ref="trendContainer" class="echarts-container" />
     </v-card>
@@ -56,7 +64,7 @@
     <v-card class="chart-card">
       <div class="chart-header">
         <span class="chart-title">失败原因分布</span>
-        <span class="chart-subtitle">按失败分类聚合，统计区间内失败的记录</span>
+        <span class="chart-subtitle">按失败分类聚合，统计区间内失败的记录；点扇形查看明细</span>
       </div>
       <div ref="failReasonContainer" class="echarts-container" />
     </v-card>
@@ -81,8 +89,8 @@
         <div v-for="row in topSubscriptions" :key="row.subId ?? row.title" class="top-sub-item">
           <div class="top-sub-title">
             <router-link
-              v-if="row.subId"
-              :to="{ path: '/openlist/ptSubscription', query: { id: row.subId } }"
+              v-if="row.subId && subscriptionLocation(row.subId)"
+              :to="subscriptionLocation(row.subId)!"
               class="top-sub-link"
             >{{ row.title }}</router-link>
             <span v-else>{{ row.title }}</span>
@@ -93,7 +101,8 @@
           <div class="top-sub-meta">
             <span>下载 {{ row.downloadCount }}</span>
             <span>完成 {{ row.completedCount }}</span>
-            <span>失败 {{ row.failedCount }}</span>
+            <span>未解决失败 {{ row.failedCount }}</span>
+            <router-link v-if="subscriptionRecordsLink(row)" :to="subscriptionRecordsLink(row)!" class="top-sub-link top-sub-records">下载记录</router-link>
           </div>
           <div class="top-sub-meta">
             <span>上次命中 {{ row.lastMatchTime || '-' }}</span>
@@ -110,6 +119,7 @@ import AnimatedNumber from '@/components/AnimatedNumber.vue'
 import { onMounted, ref } from 'vue'
 import { PT_STATS_RANGES, PT_STATS_TOP_LIMITS, usePtStats } from '@/composables/usePtStats'
 import { useEchart } from '@/composables/useEchart'
+import { usePtStatsNavigation } from '@/composables/usePtStatsNavigation'
 // 按需引入：本页只用到 line/bar/pie，避免全量引入 echarts 拖大打包体积
 import * as echarts from 'echarts/core'
 import { LineChart, BarChart, PieChart } from 'echarts/charts'
@@ -145,9 +155,13 @@ const indexerContainer = ref<HTMLElement | null>(null)
 const failReasonContainer = ref<HTMLElement | null>(null)
 const rejectReasonContainer = ref<HTMLElement | null>(null)
 
-useEchart(trendContainer, trendOption)
+// 统计卡、趋势点、失败扇形、Top 订阅都能下钻到对应明细（跳转口径与 PC 端共用）
+const { openCard, isCardClickable, onTrendClick, onFailReasonClick, subscriptionRecordsLink, subscriptionLocation } =
+  usePtStatsNavigation(rangeDays)
+
+useEchart(trendContainer, trendOption, onTrendClick)
 useEchart(indexerContainer, indexerOption)
-useEchart(failReasonContainer, failReasonOption)
+useEchart(failReasonContainer, failReasonOption, onFailReasonClick)
 useEchart(rejectReasonContainer, rejectReasonOption)
 
 onMounted(loadAll)
@@ -209,6 +223,14 @@ onMounted(loadAll)
     .stat-label {
       font-size: 12px;
       color: var(--osr-text-secondary);
+      margin-top: 2px;
+    }
+
+    .stat-hint {
+      font-size: 10px;
+      line-height: 1.3;
+      color: var(--osr-text-secondary);
+      opacity: 0.8;
       margin-top: 2px;
     }
   }
@@ -280,6 +302,10 @@ onMounted(loadAll)
       font-weight: 400;
       color: var(--osr-text-secondary);
     }
+  }
+
+  .top-sub-records {
+    margin-left: auto;
   }
 
   .top-sub-meta {

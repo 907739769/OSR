@@ -382,6 +382,48 @@ describe('usePtDownloadRecord 的订阅筛选', () => {
   })
 })
 
+describe('usePtDownloadRecord 从统计仪表盘下钻', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(getPtDownloadRecordListApi as any).mockResolvedValue({ records: [], total: 0 })
+  })
+
+  afterEach(() => {
+    routeState.query = {}
+  })
+
+  /** 失败卡：区间内未被接替的失败，按失败日期筛——条数要与卡片上的数字对得上 */
+  it('带状态、日期列、日期区间与隐藏已接替跳进来：首次加载就按这些条件查', () => {
+    routeState.query = { state: 'FAILED', dateField: 'FAILED', beginDate: '2026-09-17', hideSuperseded: '1' }
+    const composable = usePtDownloadRecord()
+
+    expect(composable.queryParams.state).toBe('FAILED')
+    expect(composable.queryParams.dateField).toBe('FAILED')
+    expect(composable.queryParams.hideSuperseded).toBe(true)
+    expect(composable.dateStart.value).toBe('2026-09-17')
+    expect(composable.routeFilterTick.value).toBe(1)
+    expect(getPtDownloadRecordListApi).toHaveBeenCalledWith(expect.objectContaining({
+      state: 'FAILED', dateField: 'FAILED', hideSuperseded: true,
+      params: { beginTime: '2026-09-17 00:00:00' }
+    }))
+  })
+
+  it('没带筛选时不展开搜索区', () => {
+    const composable = usePtDownloadRecord()
+    expect(composable.routeFilterTick.value).toBe(0)
+  })
+
+  it('重置时把地址栏里所有下钻参数一起去掉，否则刷新又筛回去', () => {
+    routeState.query = { hrState: 'VIOLATED', tab: 'x' }
+    const composable = usePtDownloadRecord()
+
+    composable.resetQuery()
+
+    expect(composable.queryParams.hrState).toBeUndefined()
+    expect(routeState.replace).toHaveBeenCalledWith({ query: { tab: 'x' } })
+  })
+})
+
 describe('usePtDownloadRecord 的筛选项与清理', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -520,5 +562,22 @@ describe('usePtDownloadRecord 的默认分页', () => {
     usePtDownloadRecord({ autoLoad: false })
 
     expect(getPtDownloadRecordListApi).not.toHaveBeenCalled()
+  })
+})
+
+describe('已推送迟迟不开始的提示', () => {
+  const NOW = new Date('2026-09-23T12:00:00').getTime()
+  const record = (patch: Record<string, any>) => ({ id: 1, subId: 1, title: 'x', state: 'PUSHED', ...patch }) as any
+
+  it('推送超过一小时仍是已推送才提示', async () => {
+    const { stalePushedHint } = await import('../ptDownloadRecordLabels')
+    expect(stalePushedHint(record({ pushedTime: '2026-09-23 11:30:00' }), NOW)).toBe('')
+    expect(stalePushedHint(record({ pushedTime: '2026-09-23 09:00:00' }), NOW)).toContain('3 小时前')
+  })
+
+  it('其它状态或没有推送时间不提示', async () => {
+    const { stalePushedHint } = await import('../ptDownloadRecordLabels')
+    expect(stalePushedHint(record({ state: 'DOWNLOADING', pushedTime: '2026-09-22 09:00:00' }), NOW)).toBe('')
+    expect(stalePushedHint(record({ pushedTime: null }), NOW)).toBe('')
   })
 })

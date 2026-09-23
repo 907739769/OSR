@@ -86,6 +86,18 @@ public abstract class BaseCrudRestController<S extends IService<T>, T> extends B
         return false;
     }
 
+    /**
+     * 新增 / 修改前的业务校验：返回错误文案则拒绝写入，返回 null 放行。
+     * <p>
+     * 用于「存得进去、跑起来才报错」的配置——这类错误拖到执行时才暴露，用户得等一轮定时任务
+     * 或者从失败通知里才知道自己配错了，不如保存时当场拦下。
+     * </p>
+     */
+    protected String validateWrite(T entity)
+    {
+        return null;
+    }
+
     /** 写操作的准入校验：不通过时返回错误 Result，通过返回 null */
     private <R> Result<R> denyIfWriteForbidden()
     {
@@ -136,6 +148,11 @@ public abstract class BaseCrudRestController<S extends IService<T>, T> extends B
         {
             return denied;
         }
+        String invalid = validateWrite(entity);
+        if (invalid != null)
+        {
+            return Result.error(invalid);
+        }
         boolean result = service.save(entity);
         return result ? Result.success() : Result.error("新增失败");
     }
@@ -150,6 +167,11 @@ public abstract class BaseCrudRestController<S extends IService<T>, T> extends B
         if (denied != null)
         {
             return denied;
+        }
+        String invalid = validateWrite(entity);
+        if (invalid != null)
+        {
+            return Result.error(invalid);
         }
         T existing = service.getById((java.io.Serializable) getEntityId(entity));
         if (existing != null)

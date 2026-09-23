@@ -19,9 +19,9 @@
       />
       <v-select
         v-model="form.targetDownloaderId"
-        :items="downloaderOptions"
+        :items="targetOptions"
         label="目标下载器"
-        :rules="toRuleFns(rules.targetDownloaderId)"
+        :rules="targetRules"
         class="mb-2"
       />
       <div class="inline-fields mb-2">
@@ -41,8 +41,8 @@
         />
       </div>
       <div class="inline-fields mb-2">
-        <v-text-field v-model.number="form.minSizeGb" label="体积下限(GB)" type="number" />
-        <v-text-field v-model.number="form.maxSizeGb" label="体积上限(GB)" type="number" placeholder="留空表示不限" />
+        <v-text-field v-model.number="form.minSizeGb" label="体积下限(GB)" type="number" step="0.01" />
+        <v-text-field v-model.number="form.maxSizeGb" label="体积上限(GB)" type="number" step="0.01" placeholder="留空表示不限" :rules="maxSizeRules" />
       </div>
       <v-text-field
         v-model="form.includeTags"
@@ -69,6 +69,7 @@
         placeholder="两个下载器挂载一致时留空；不一致填 [{&quot;from&quot;:&quot;/downloads&quot;,&quot;to&quot;:&quot;/data/downloads&quot;}]"
         hint="目标下载器要能在映射后的路径下找到同一份文件，否则校验不通过、转移会被撤销"
         persistent-hint
+        :rules="[validatePathMapping]"
         class="mb-3"
       />
       <v-text-field
@@ -101,10 +102,10 @@ import FormDialogShell from '@/components/dialogs/FormDialogShell.vue'
 import FormField from '@/components/FormField.vue'
 import { usePageState } from '@/composables/pageStateContext'
 import { toRuleFns } from '@/composables/formRules'
-import type { usePtTransferRule } from '@/composables/usePtTransferRule'
+import { validatePathMapping, type usePtTransferRule } from '@/composables/usePtTransferRule'
 
 const {
   open, dialogTitle, submitLoading, formRef, form, rules, submitForm,
-  downloaderOptions, sourceOptions
+  sourceOptions, targetOptions, targetRules, maxSizeRules
 } = usePageState<ReturnType<typeof usePtTransferRule>>()
 </script>
