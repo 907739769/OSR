@@ -695,4 +695,29 @@ class TMDbClientSearchTest {
         assertNull(client.search("tv", info, api));
         verify(api, times(5)).getDetails(anyString(), anyString(), anyInt(), eq("en-US"));
     }
+
+    /**
+     * 同名重启剧：1978 版原名 "All Creatures Great and Small"，2020 版原名写的是 "&"。
+     * 旧归一化把 & 当普通标点抹掉，2020 版拿不到任何标题分，1978 版靠全等分档稳赢。
+     */
+    @Test
+    void 剧集_原名用and号的重启版_按年份选中() throws Exception {
+        String results = "{\"results\":["
+                + "{\"id\":7406,\"name\":\"万物生灵\",\"original_name\":\"All Creatures Great and Small\","
+                + "\"first_air_date\":\"1978-01-08\",\"popularity\":20},"
+                + "{\"id\":108255,\"name\":\"万物生灵\",\"original_name\":\"All Creatures Great & Small\","
+                + "\"first_air_date\":\"2020-09-01\",\"popularity\":40}]}";
+        TMDbApiService api = mock(TMDbApiService.class);
+        when(api.search(anyString(), anyString(), anyString(), any())).thenReturn(results);
+
+        MediaInfo info = new MediaInfo("All.Creatures.Great.and.Small.2020.S07E01.Back.to.School.1080p.MY5.WEB-DL.AAC2.0.H.264-RAWR.strm");
+        info.setOriginalTitle("All Creatures Great and Small");
+        info.setYear("2020");
+        info.setSeason("07");
+        info.setEpisode("01");
+
+        assertEquals("万物生灵", client.search("tv", info, api));
+        assertEquals("108255", info.getTmdbId());
+        assertEquals("2020", info.getYear());
+    }
 }

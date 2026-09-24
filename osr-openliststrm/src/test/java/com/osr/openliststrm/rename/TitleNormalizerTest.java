@@ -77,4 +77,13 @@ class TitleNormalizerTest {
         assertNotEquals(normalizeForCompare("The Office"), normalizeForCompare("The Office US"));
         assertNotEquals(normalizeForCompare("三体"), normalizeForCompare("三体动画版"));
     }
+
+    @Test
+    void 连字符号与and等价() {
+        // TMDb 上 2020 版《万物生灵》原名是 "Great & Small"，文件名写 "Great.and.Small"
+        assertEquals(normalizeForCompare("All Creatures Great and Small"),
+                normalizeForCompare("All Creatures Great & Small"));
+        assertEquals(normalizeForCompare("Tom and Jerry"), normalizeForCompare("Tom＆Jerry"));
+        assertEquals("tom and jerry", normalizeForCompare("Tom&Jerry"));
+    }
 }
