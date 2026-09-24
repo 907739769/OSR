@@ -29,3 +29,4 @@
   3. **集号取 `allLeaves` 里的 `parentIndex`（季）+ `index`（集）**，不带季号时即全剧，与 Emby 的 `listAllEpisodeNumbers` 同语义。
   4. **`apiKey` 存的是 X-Plex-Token，`userId` 不适用**：托管用户要走 plex.tv 换 token，与「用服务器 token 查库」不是一回事。前端表单对 Plex 换标签、隐藏用户 ID（`composables/mediaServerTypes#isPlex`），后端 `listUsers` 用接口默认的空表。
   **只在 MockWebServer 上验证过**，没对真实 Plex 跑过；接真实服务器时先点「测试连接」，再建一条已入库的订阅看进度能否对上。
+- **观看状态（`IMediaServerClient#watchState` → `WatchStateSyncService`，每小时一次，写 `pt_subscription.watched_count / last_watched_time`，20260805）的 null 与空是两回事**：返回 null 表示「这台读不到」（不支持，或 Emby/Jellyfin 没配用户 ID——观看记录是按用户存的），`WatchState.NONE` 表示「读到了、一集都没看」。多台时只合并读得到的（看过的集取并集、最近观看取最晚），**一台都读不到时这条订阅原值不动**，否则一台没配用户 ID 的 Emby 会把另一台读到的结果覆盖成 0。比较是否变化前两边都截到秒：库里 DATETIME 只到秒，不截的话 Emby 带毫秒的时间每小时都「变了」、白写一遍。Plex 读的是 token 所属账号的 `viewCount`/`lastViewedAt`（秒级时间戳），电影要单独取条目详情。用途只有两个：订阅卡片「已看 N 集」、自动补搜排序（见 `pt/task/AGENTS.md`）。**不拿它删种**：本项目的媒体库用的是复制到网盘那份，本地种子只是保种副本，看没看过与删不删种无关，拿观看状态删种只会误伤 H&R。

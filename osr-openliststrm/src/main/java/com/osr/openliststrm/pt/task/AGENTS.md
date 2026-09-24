@@ -28,3 +28,4 @@
 - **回退集时 `download_id` 必须走 `UpdateWrapper.set("download_id", null)`**：实体字段的 `null` 会被 MyBatis-Plus 当作「不更新」跳过，`set.setDownloadId(null)` 是一句空操作。漏掉的话退回 MISSING/IN_LIBRARY 的集仍指着那条 FAILED 记录，用户在下载记录页手动重试它时会把这些集又拖回在途。四处回退路径（`reconcileClaims`、`releaseInFlightEpisodes`、`revertUpgradingEpisodes`、`StuckEpisodeSweepService#sweep`）口径必须一致
 - **`PtStatusWebSocket#pushDownloadEvent` 的 `completedTime` / `failReasonCode` / `hrState` 取自 `record` 本身**，所以 `complete` / `doFail` 在条件更新成功后、推送前要把刚落库的值写回 `record`（落库用的是另一个 `set` 对象，`record` 上原本还是旧值）。漏写不报错，下载记录页原地更新后「完成时间」一直空着、失败卡片没有分类标签，刷新才对得上。
 - **下载记录页的「已由 #x 接替」**（`DownloadRecordAdminService#markSuperseded`）：重试与补搜成功时都是**新建**记录，失败那条原样留着。判定为同订阅、id 更大、覆盖同一集；**失败的季包不因后续逐集推送算作被接替**——拿不准整季是否都补上了，宁可留着重试按钮。被接替的记录前端不再给重试，批量重试的生效范围也同步收掉。
+- **自动补搜的候选按最近观看时间排序**（`AutoSearchService#inWatchOrder`：最近在看的在前，读不到观看状态的保持按 id 的原序排在后面）。单轮有 20 分钟预算，排不上的顺延到下一轮，所以顺序决定的是「谁先补到」——正在追的剧缺一集比半年没打开的老剧缺一集要紧。**必须是稳定排序**，同类之间原序不变；到期判定与 `last_search_time` 仍按订阅各自算，不会因此饿死谁。

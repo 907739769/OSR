@@ -77,6 +77,8 @@
           <span class="sub-progress-text">
             {{ item.inLibraryCount }}/{{ item.totalEpisodes }}
             <span v-if="item.inFlightCount" class="sub-progress-inflight">· 在途 {{ item.inFlightCount }}</span>
+            <!-- 媒体库观看状态（WatchStateSyncTask 每小时同步）；读不到时为 null，不显示 -->
+            <span v-if="item.watchedCount" class="sub-progress-inflight" :title="item.lastWatchedTime ? `最近观看 ${item.lastWatchedTime}` : undefined">· {{ item.mediaType === 'MOVIE' ? '已看过' : `已看 ${item.watchedCount} 集` }}</span>
           </span>
         </div>
         <!-- 命中/搜索两个时间并作一行小字。各占一整行 label+value 时它们吃掉卡片近三分之一的

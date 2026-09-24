@@ -18,6 +18,7 @@ import java.net.ConnectException;
 import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -138,6 +139,41 @@ public class PlexClient implements IMediaServerClient {
     @Override
     public boolean hasMovie(PtMediaServerPlus config, String tmdbId) throws IOException {
         return !index(config, TYPE_MOVIE).getOrDefault(tmdbId, List.of()).isEmpty();
+    }
+
+    /**
+     * 观看状态取 token 所属账号的：{@code viewCount > 0} 即看过，{@code lastViewedAt} 是秒级时间戳。
+     * 剧集沿用集号那条 allLeaves；电影要单独取一次条目详情（库索引里只存了 ratingKey）。
+     */
+    @Override
+    public WatchState watchState(PtMediaServerPlus config, String tmdbId, Integer season, boolean movie)
+            throws IOException {
+        Set<Integer> watched = new HashSet<>();
+        long lastSeconds = 0;
+        List<String> ratingKeys = index(config, movie ? TYPE_MOVIE : TYPE_SHOW).getOrDefault(tmdbId, List.of());
+        for (String ratingKey : ratingKeys) {
+            String path = movie ? "/library/metadata/" + ratingKey : "/library/metadata/" + ratingKey + "/allLeaves";
+            JSONArray items = container(get(config, path, Map.of())).getJSONArray("Metadata");
+            if (items == null) {
+                continue;
+            }
+            for (int i = 0; i < items.size(); i++) {
+                JSONObject item = items.getJSONObject(i);
+                if (item.getIntValue("viewCount") <= 0) {
+                    continue;
+                }
+                if (movie) {
+                    watched.add(0);
+                } else if (item.getInteger("index") != null
+                        && (season == null || season.equals(item.getInteger("parentIndex")))) {
+                    watched.add(item.getInteger("index"));
+                } else {
+                    continue;
+                }
+                lastSeconds = Math.max(lastSeconds, item.getLongValue("lastViewedAt"));
+            }
+        }
+        return new WatchState(watched, lastSeconds > 0 ? new Date(lastSeconds * 1000) : null);
     }
 
     /**

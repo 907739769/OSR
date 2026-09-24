@@ -56,7 +56,9 @@ class PlexClientTest {
                     case "/library/sections/3/all" -> json("{\"MediaContainer\":{\"Metadata\":["
                             + "{\"ratingKey\":\"300\",\"Guid\":[{\"id\":\"tmdb://603\"}]}]}}");
                     case "/library/metadata/100/allLeaves" -> json("{\"MediaContainer\":{\"Metadata\":["
-                            + "{\"parentIndex\":1,\"index\":1},{\"parentIndex\":1,\"index\":2},{\"parentIndex\":2,\"index\":1}]}}");
+                            + "{\"parentIndex\":1,\"index\":1,\"viewCount\":2,\"lastViewedAt\":1758000000},"
+                            + "{\"parentIndex\":1,\"index\":2},{\"parentIndex\":2,\"index\":1,\"viewCount\":1,\"lastViewedAt\":1759000000}]}}");
+                    case "/library/metadata/300" -> json("{\"MediaContainer\":{\"Metadata\":[{\"viewCount\":1,\"lastViewedAt\":1757000000}]}}");
                     case "/library/metadata/200/allLeaves" -> json("{\"MediaContainer\":{\"Metadata\":["
                             + "{\"parentIndex\":1,\"index\":3}]}}");
                     default -> new MockResponse().setResponseCode(404);
@@ -124,6 +126,21 @@ class PlexClientTest {
         MediaServerProbe bad = client.testConnection(config);
         assertFalse(bad.ok());
         assertTrue(bad.detail().contains("Plex Token"), bad.detail());
+    }
+
+    @Test
+    void 观看状态_按季过滤_最近观看取本季最晚的() throws IOException {
+        WatchState season1 = client.watchState(config, "1396", 1, false);
+
+        assertEquals(Set.of(1), season1.watchedEpisodes());
+        assertEquals(1758000000L * 1000, season1.lastWatched().getTime());
+    }
+
+    @Test
+    void 观看状态_电影看条目详情() throws IOException {
+        WatchState movie = client.watchState(config, "603", null, true);
+
+        assertEquals(Set.of(0), movie.watchedEpisodes());
     }
 
     @Test

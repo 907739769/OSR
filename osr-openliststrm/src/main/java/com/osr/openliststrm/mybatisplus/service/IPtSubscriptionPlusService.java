@@ -121,4 +121,10 @@ public interface IPtSubscriptionPlusService extends IService<PtSubscriptionPlus>
      * </p>
      */
     void updateLastSearchTime(Integer subId, Date lastSearchTime);
+
+    /**
+     * 写观看状态两列。理由同 {@link #updateLastSearchTime}：只 set 这两列，不整实体写回——
+     * 调用方手里是同步开始时的快照，整实体写回会冲掉补搜链路其间写入的时间。
+     */
+    void updateWatchState(Integer subId, Integer watchedCount, Date lastWatchedTime);
 }

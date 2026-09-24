@@ -17,6 +17,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -105,7 +107,7 @@ public class AutoSearchService {
      */
     public RoundOutcome run() {
         // 「ACTIVE + 开着开关 + 有 MISSING 集」三个条件由 SQL 完成，不再拉全部 ACTIVE 再内存过滤
-        List<PtSubscriptionPlus> candidates = subscriptionService.listAutoSearchCandidates();
+        List<PtSubscriptionPlus> candidates = inWatchOrder(subscriptionService.listAutoSearchCandidates());
         if (candidates.isEmpty()) {
             // 自动补搜的库默认值就是关的（见 pt/health 那套设计），一个候选都没有是常见状态
             return RoundOutcome.NO_CANDIDATE;
@@ -278,6 +280,21 @@ public class AutoSearchService {
      */
     private boolean budgetExhausted(long deadline) {
         return roundBudgetMillis > 0 && deadline - System.nanoTime() < 0;
+    }
+
+    /**
+     * 最近在媒体库里看过的剧排前面，没看过/读不到观看状态的保持原序（按 id）排在后面。
+     * <p>
+     * 单轮有预算（{@code roundBudgetMillis}），排不上的顺延到下一轮——所以顺序决定的是「谁先补到」。
+     * 用户正在追的剧缺了一集，比一部半年没打开过的老剧缺一集要紧得多。稳定排序保证同类之间顺序不变，
+     * 不会让按 id 的轮转因此饿死谁：到期判定与 last_search_time 仍按订阅各自算。
+     * </p>
+     */
+    static List<PtSubscriptionPlus> inWatchOrder(List<PtSubscriptionPlus> candidates) {
+        List<PtSubscriptionPlus> sorted = new ArrayList<>(candidates);
+        sorted.sort(Comparator.comparing(PtSubscriptionPlus::getLastWatchedTime,
+                Comparator.nullsLast(Comparator.reverseOrder())));
+        return sorted;
     }
 
     private int resolveIntervalHours() {

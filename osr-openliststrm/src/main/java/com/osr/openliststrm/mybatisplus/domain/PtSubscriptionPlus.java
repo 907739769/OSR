@@ -171,6 +171,14 @@ public class PtSubscriptionPlus extends BaseEntity {
     @TableField("owner_user_id")
     private Long ownerUserId;
 
+    /** 媒体库里已看过的集数，由 WatchStateSyncTask 写；null 表示读不到观看状态（见 20260805） */
+    @TableField("watched_count")
+    private Integer watchedCount;
+
+    /** 最近一次在媒体库里观看的时间，自动补搜据此把在看的剧排前面 */
+    @TableField("last_watched_time")
+    private Date lastWatchedTime;
+
     /**
      * 排序方式：lastMatchTime / lastSearchTime / title / missing（已播缺集数倒序）；其余/空=默认按 id 倒序。
      * 仅供列表查询用，不落库
