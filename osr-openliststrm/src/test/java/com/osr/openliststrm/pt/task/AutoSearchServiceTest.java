@@ -22,6 +22,7 @@ import java.util.Date;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.argThat;
@@ -319,7 +320,7 @@ class AutoSearchServiceTest {
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
             service().run();
 
-            tg.verify(() -> TgHelper.sendMsg(any(), anyString(), any()), never());
+            tg.verify(() -> TgHelper.sendMsg(any(), anyString(), any(), anyList()), never());
         }
     }
 
@@ -339,7 +340,7 @@ class AutoSearchServiceTest {
             // 那类系统告警，混在一起时用户想单独关掉补搜提醒做不到。
             // 文案末尾要报出下次重试的间隔——退避之后实际周期不再等于用户配的那个值
             tg.verify(() -> TgHelper.sendMsg(eq(NotificationType.SUBSCRIPTION_SEARCH),
-                    argThat(m -> m.contains("未找到可用资源") && m.contains("小时后再试")), any()));
+                    argThat(m -> m.contains("未找到可用资源") && m.contains("小时后再试")), any(), anyList()));
             // 只更新这两列，绝不整实体写回——那会把本次搜索刚写入的 last_search_time
             // 覆盖成本轮开始时的旧值，让订阅永远"已到期"、每次心跳都重搜一遍
             verify(subscriptionService).updateAutoSearchMissState(NO_JITTER_ID, 1, "NO_CANDIDATE");
@@ -359,7 +360,7 @@ class AutoSearchServiceTest {
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
             service().run();
 
-            tg.verify(() -> TgHelper.sendMsg(any(), anyString(), any()), never());
+            tg.verify(() -> TgHelper.sendMsg(any(), anyString(), any(), anyList()), never());
             // 与旧实现的差别：仍然写库。退避靠这个计数，不累加就永远停在第一档
             verify(subscriptionService).updateAutoSearchMissState(NO_JITTER_ID, 2, "NOT_FREE");
         }
@@ -380,7 +381,7 @@ class AutoSearchServiceTest {
             service().run();
 
             tg.verify(() -> TgHelper.sendMsg(eq(NotificationType.SUBSCRIPTION_SEARCH),
-                    argThat(m -> m.contains("过滤规则")), any()));
+                    argThat(m -> m.contains("过滤规则")), any(), anyList()));
             verify(subscriptionService).updateAutoSearchMissState(NO_JITTER_ID, 2, "NOT_FREE");
         }
     }
@@ -397,7 +398,7 @@ class AutoSearchServiceTest {
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
             service().run();
 
-            tg.verify(() -> TgHelper.sendMsg(any(), anyString(), any()), never());
+            tg.verify(() -> TgHelper.sendMsg(any(), anyString(), any(), anyList()), never());
             verify(subscriptionService).updateAutoSearchMissState(NO_JITTER_ID, 0, null);
         }
     }

@@ -112,8 +112,13 @@ class TgPtCommandHandler {
 
     /** 把回复里的按钮转成内联键盘；没有按钮时返回 null（不带键盘） */
     static InlineKeyboardMarkup keyboard(ChatReply reply) {
+        return keyboard(reply.buttons());
+    }
+
+    /** 按钮行转内联键盘，通知上的快捷操作（{@code TgSendMsg}）也走这里，回调前缀与超长处理只有一份 */
+    static InlineKeyboardMarkup keyboard(List<List<ChatReply.Button>> buttonRows) {
         List<List<InlineKeyboardButton>> rows = new ArrayList<>();
-        for (List<ChatReply.Button> row : reply.buttons()) {
+        for (List<ChatReply.Button> row : buttonRows) {
             List<InlineKeyboardButton> keys = new ArrayList<>();
             for (ChatReply.Button button : row) {
                 String data = CALLBACK_PREFIX + button.command();

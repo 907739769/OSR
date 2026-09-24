@@ -3,6 +3,7 @@ package com.osr.openliststrm.pt.task;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.helper.TgHelper;
+import com.osr.openliststrm.notify.NotifyAction;
 import com.osr.openliststrm.notify.NotifyTarget;
 import com.osr.openliststrm.mybatisplus.domain.PtMediaServerPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
@@ -272,7 +273,8 @@ public class StuckEpisodeSweepService {
             // LIBRARY_STUCK 而不是 SUBSCRIPTION_HIT：这里发的全是「卡住了 / 退回缺失 /
             // 已熔断」，挂在「订阅命中」下语义正好相反，用户想单独关掉它也做不到
             TgHelper.sendMsg(NotificationType.LIBRARY_STUCK, msg,
-                    NotifyTarget.owner(sub == null ? null : sub.getOwnerUserId()));
+                    NotifyTarget.owner(sub == null ? null : sub.getOwnerUserId()),
+                    sub == null ? List.of() : List.of(NotifyAction.progress(sub.getId())));
         } catch (Exception e) {
             log.debug("发送通知失败（不影响主流程）：{}", e.getMessage());
         }

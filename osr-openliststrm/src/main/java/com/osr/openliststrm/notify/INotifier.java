@@ -1,5 +1,7 @@
 package com.osr.openliststrm.notify;
 
+import java.util.List;
+
 /**
  * 通知渠道抽象。新增一个通知渠道时，只需新增一个实现本接口的 {@code @Component}，
  * Spring 会自动被 {@link NotifierManager} 收集，不需要改动任何分发逻辑或调用点。
@@ -58,6 +60,16 @@ public interface INotifier {
      */
     default void send(NotificationType type, String message, NotifyTarget target) {
         send(type, message);
+    }
+
+    /**
+     * 带快捷操作的发送（见 {@link NotifyAction}）。能回复聊天指令的渠道覆写本方法，
+     * 默认实现丢掉操作、照常发送正文。只有 {@code actions} 非空时分发器才会调到这里。
+     * <p>
+     * 契约同上：不得抛异常。
+     */
+    default void send(NotificationType type, String message, NotifyTarget target, List<NotifyAction> actions) {
+        send(type, message, target);
     }
 
     /**

@@ -43,6 +43,13 @@ public class NotifierManager {
      * @param target 调用方给出的「这条通知是谁的事」，null 按广播处理
      */
     public void send(NotificationType type, String message, NotifyTarget target) {
+        send(type, message, target, List.of());
+    }
+
+    /**
+     * 带快捷操作的分发。没有操作时走渠道的三参数 {@code send}，行为与引入操作之前逐字节一致。
+     */
+    public void send(NotificationType type, String message, NotifyTarget target, List<NotifyAction> actions) {
         NotifyTarget origin = target == null ? NotifyTarget.BROADCAST : target;
         for (INotifier notifier : notifiers) {
             try {
@@ -51,7 +58,12 @@ public class NotifierManager {
                 if (route != null && !route.enabledOn()) {
                     continue;
                 }
-                notifier.send(type, message, applyScope(route, origin, notifier));
+                NotifyTarget scoped = applyScope(route, origin, notifier);
+                if (actions == null || actions.isEmpty()) {
+                    notifier.send(type, message, scoped);
+                } else {
+                    notifier.send(type, message, scoped, actions);
+                }
             } catch (Exception e) {
                 // 渠道实现按契约自己吞异常，走到这里的是契约之外的意外（查路由、改写目标出错），堆栈要留
                 log.warn("通知渠道[{}]发送[{}]失败：{}", notifier.channelKey(), type, e.getMessage(), e);

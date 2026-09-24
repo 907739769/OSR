@@ -37,6 +37,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyLong;
@@ -311,7 +312,7 @@ class DownloadTrackServiceTest {
             service().track(downloader(), List.of(seedingTorrent("osr-pt,osr-pt-bbb", 260_000, 0.1)));
 
             tg.verify(() -> TgHelper.sendMsg(eq(NotificationType.HR_STATE),
-                    argThat(m -> m.startsWith("🌱 H&R 已达标，可安全删除：《Some Show》")), any()));
+                    argThat(m -> m.startsWith("🌱 H&R 已达标，可安全删除：《Some Show》")), any(), anyList()));
         }
     }
 
@@ -624,7 +625,7 @@ class DownloadTrackServiceTest {
 
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
             service().track(downloader(), List.of(torrent("osr-pt,osr-pt-aaa", 1.0)));
-            tg.verify(() -> TgHelper.sendMsg(any(), anyString(), any()), never());
+            tg.verify(() -> TgHelper.sendMsg(any(), anyString(), any(), anyList()), never());
         }
         // 已被并发轮次处理过，不该重复触发 STRM 联动同步
         verify(completionSyncTrigger, never()).triggerAsync(any(), any());
@@ -639,7 +640,7 @@ class DownloadTrackServiceTest {
 
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
             service().track(downloader(), List.of(torrent("osr-pt,osr-pt-other", 0.5)));
-            tg.verify(() -> TgHelper.sendMsg(any(), anyString(), any()), never());
+            tg.verify(() -> TgHelper.sendMsg(any(), anyString(), any(), anyList()), never());
         }
     }
 
@@ -984,7 +985,7 @@ class DownloadTrackServiceTest {
         when(subscriptionService.listByIds(any())).thenReturn(List.of(tvSub(10)));
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
             svc.track(downloader(), List.of(torrent("osr-pt,osr-pt-pack", 0.1)));
-            tg.verify(() -> TgHelper.sendMsg(any(), argThat(m -> m.contains("不含任何目标集")), any()));
+            tg.verify(() -> TgHelper.sendMsg(any(), argThat(m -> m.contains("不含任何目标集")), any(), anyList()));
         }
 
         verify(downloaderClient, never()).excludeFiles(any(), any(), any());
@@ -1163,7 +1164,7 @@ class DownloadTrackServiceTest {
                     argThat(m -> m.startsWith("✅ 下载完成：《Some Show》 S01E05")
                             && m.contains("[电影天堂]Some.Show.S01E05.1080p")
                             && m.contains("4.00 GB")
-                            && m.contains("用时 23 分钟")), any()));
+                            && m.contains("用时 23 分钟")), any(), anyList()));
         }
     }
 
@@ -1187,7 +1188,10 @@ class DownloadTrackServiceTest {
             tg.verify(() -> TgHelper.sendMsg(eq(NotificationType.DOWNLOAD_FAILED),
                     argThat(m -> m.startsWith("❌ 下载失败：《Some Show》 S01E05")
                             && m.contains("原因：下载器中已找不到该种子")
-                            && m.contains("已释放待下轮重新匹配")), any()));
+                            && m.contains("已释放待下轮重新匹配")), any(),
+                    // 失败通知带「重试 / 拉黑 / 看进度」三个快捷操作，指令里的编号要对得上
+                    argThat(actions -> actions.stream().map(com.osr.openliststrm.notify.NotifyAction::command).toList()
+                            .equals(List.of("重试下载 " + r.getId(), "拉黑种子 " + r.getId(), "进度 10")))));
         }
     }
 
@@ -1207,9 +1211,9 @@ class DownloadTrackServiceTest {
             service().track(downloader(), List.of(torrent("osr-pt,osr-pt-other", 0.5)));
 
             tg.verify(() -> TgHelper.sendMsg(eq(NotificationType.DOWNLOAD_FAILED),
-                    argThat(m -> m.contains("原因：") && m.contains("停止自动重试")), any()));
+                    argThat(m -> m.contains("原因：") && m.contains("停止自动重试")), any(), anyList()));
             // 只此一条，不再额外发一条 GENERAL 的熔断告警
-            tg.verify(() -> TgHelper.sendMsg(any(), anyString(), any()), times(1));
+            tg.verify(() -> TgHelper.sendMsg(any(), anyString(), any(), anyList()), times(1));
         }
     }
 
@@ -1245,7 +1249,7 @@ class DownloadTrackServiceTest {
             verify(episodeService).update(captor.capture(), any(Wrapper.class));
             assertEquals("BLOCKED", captor.getValue().getState());
             assertEquals(3, captor.getValue().getFailCount());
-            tg.verify(() -> TgHelper.sendMsg(any(), argThat(m -> m.contains("停止自动重试")), any()));
+            tg.verify(() -> TgHelper.sendMsg(any(), argThat(m -> m.contains("停止自动重试")), any(), anyList()));
         }
     }
 

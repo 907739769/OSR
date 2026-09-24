@@ -23,6 +23,7 @@ import java.util.List;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -207,7 +208,7 @@ class StuckEpisodeSweepServiceTest {
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
             service().sweep();
 
-            tg.verify(() -> TgHelper.sendMsg(eq(NotificationType.LIBRARY_STUCK), anyString(), any()));
+            tg.verify(() -> TgHelper.sendMsg(eq(NotificationType.LIBRARY_STUCK), anyString(), any(), anyList()));
         }
     }
 

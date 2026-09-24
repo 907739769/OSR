@@ -3,6 +3,7 @@ package com.osr.openliststrm.pt.health;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.osr.openliststrm.pt.health.dto.EpisodeHealthItem;
+import com.osr.openliststrm.pt.subscription.SubscriptionService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -189,5 +190,22 @@ class EpisodeHealthNotifyServiceTest {
         String msg = service(true, 7).buildMessage(List.of(h));
 
         assertTrue(msg.contains("Tom &amp; &lt;b&gt;Jerry&lt;/b&gt;"), msg);
+    }
+
+    /** 补搜只对订阅中的生效：已暂停的给了按钮，按下去只会得到一句拒绝 */
+    @Test
+    void 快捷操作_只给订阅中的剧_且有上限() {
+        List<SubscriptionHealth> group = new java.util.ArrayList<>();
+        for (int i = 1; i <= 6; i++) {
+            PtSubscriptionPlus s = sub(i, "剧" + i, 1L);
+            s.setStatus(i == 1 ? SubscriptionService.STATUS_PAUSED : SubscriptionService.STATUS_ACTIVE);
+            group.add(new SubscriptionHealth(s, List.of()));
+        }
+
+        List<com.osr.openliststrm.notify.NotifyAction> actions = service(true, 7).buildActions(group);
+
+        assertEquals(4, actions.size());
+        assertEquals("补搜 2", actions.get(0).command(), "第 1 部已暂停，应从第 2 部开始");
+        assertEquals("补搜《剧2》", actions.get(0).label());
     }
 }

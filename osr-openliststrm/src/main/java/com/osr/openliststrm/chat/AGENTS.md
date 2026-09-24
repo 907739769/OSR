@@ -20,3 +20,4 @@ PT 订阅的聊天指令：订阅、我的订阅、下载中、最近入库、�
 - **补搜是异步的**：`searchAndPushMissing` 可能跑几分钟（季搜索 + 单集补发各有预算）。聊天里先回「已开始」，搜完经 `ChatUser#laterReply` 补发结果。同一订阅在跑时再触发会被 `searching` 集合拦下，否则 TG 按钮连点几下就是并发搜几轮、同一资源推几次。**`searching.remove` 必须在补发结果之前**：用户收到结果立刻再点一次补搜，不能被判成「正在补搜中」。
 - **TG 身份**：Bot 只接受配置里那一个 Telegram 用户（`creatorId`），映射到 OSR 超级管理员（id 1），能看全部订阅，从 TG 建的订阅也归管理员。纯文本和按钮回调都不经过 AbilityBot 的 privacy 校验，`StrmBot#ptText` / `TgPtCommandHandler#handleCallback` 各自校验了发送者，**新增 `Reply` 时别漏掉这一步**。
 - **TG 纯文本 Reply 要避开 `/strmdir`、`/syncdir` 的追问回复**：那两个 Ability 自己的 reply 在接用户回的路径，`ptText` 再接一次会把路径当成订阅指令回一句「看不懂」。AbilityBot 会执行**所有**条件满足的 Reply，不是只挑一个。
+- **「重试下载 <记录号>」「拉黑种子 <记录号>」主要给通知按钮用**（见 `notify/AGENTS.md` 的 `NotifyAction`），归属校验走 `DownloadRecordAdminService#canAccess`，与下载记录页同一口径。重试要跑一轮搜索，照补搜的做法后台执行、同一记录防重入、结果经 `laterReply` 补发；`retry` 前置校验抛出的 `IllegalArgumentException` 文案原样回给用户。

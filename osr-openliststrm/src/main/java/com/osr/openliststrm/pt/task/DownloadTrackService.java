@@ -6,6 +6,7 @@ import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.helper.TgHelper;
 import com.osr.openliststrm.notify.NotificationType;
+import com.osr.openliststrm.notify.NotifyAction;
 import com.osr.openliststrm.notify.NotifyTarget;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloadRecordPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloaderPlus;
@@ -1002,8 +1003,13 @@ public class DownloadTrackService {
      * 或订阅已被删除），支持分人投递的渠道据此决定发给谁。
      */
     private void notifySafely(NotificationType type, String msg, Long ownerUserId) {
+        notifySafely(type, msg, ownerUserId, List.of());
+    }
+
+    /** 同上，附带快捷操作（见 {@link NotifyAction}） */
+    private void notifySafely(NotificationType type, String msg, Long ownerUserId, List<NotifyAction> actions) {
         try {
-            TgHelper.sendMsg(type, msg, NotifyTarget.owner(ownerUserId));
+            TgHelper.sendMsg(type, msg, NotifyTarget.owner(ownerUserId), actions);
         } catch (Exception e) {
             log.debug("发送通知失败（不影响主流程）：{}", e.getMessage());
         }
@@ -1215,9 +1221,17 @@ public class DownloadTrackService {
         String blockedNotice = rollback.blocked() > 0
                 ? "\n🚫 已连续失败 " + maxConsecutiveFailures + " 次，停止自动重试，需到下载记录管理页人工重试"
                 : "";
+        // 失败通知上带「重试 / 拉黑 / 看进度」：收到失败后要做的就是这三件事之一，
+        // 原先只能打开网页找到这条记录再点
+        List<NotifyAction> actions = new ArrayList<>();
+        actions.add(NotifyAction.retryDownload(record.getId()));
+        actions.add(NotifyAction.blacklistTorrent(record.getId()));
+        if (sub != null) {
+            actions.add(NotifyAction.progress(sub.getId()));
+        }
         notifySafely(NotificationType.DOWNLOAD_FAILED,
                 (notice != null ? notice : describeFailure(sub, record, reason, upgradeReverted > 0)) + blockedNotice,
-                sub == null ? null : sub.getOwnerUserId());
+                sub == null ? null : sub.getOwnerUserId(), actions);
         log.warn("{} 下载失败（{} 个集回退缺失，{} 个集回退入库）：{}",
                 PtLogText.subject(sub, record.getEpisode(), record.getEpisodeEnd()),
                 rollback.released(), upgradeReverted, record.getTitle());

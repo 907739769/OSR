@@ -9,7 +9,11 @@ import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtDownloadRecordPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
+import com.osr.openliststrm.mybatisplus.service.IPtTorrentBlacklistPlusService;
 import com.osr.openliststrm.pt.PtLogText;
+import com.osr.openliststrm.pt.stats.PtStatsScope;
+import com.osr.openliststrm.pt.subscription.dto.SupplementResult;
+import com.osr.openliststrm.pt.task.DownloadRecordAdminService;
 import com.osr.openliststrm.pt.subscription.SearchSupplementService;
 import com.osr.openliststrm.pt.subscription.SubscriptionSearchOnCreateTrigger;
 import com.osr.openliststrm.pt.subscription.SubscriptionService;
@@ -81,6 +85,8 @@ public class PtChatCommandService {
             最近入库          查看最近入库的集
             进度 <编号>       查看某条订阅的进度
             补搜 <编号>       立即搜索该订阅的全部缺集
+            重试下载 <记录号> 重新搜索并下载一条失败的下载记录
+            拉黑种子 <记录号> 拉黑该下载记录对应的种子，以后不再推送
             暂停 <编号>       暂停订阅
             恢复 <编号>       恢复订阅
             我的账号          查看绑定状态
@@ -105,12 +111,19 @@ public class PtChatCommandService {
     private SearchSupplementService searchSupplementService;
     @Autowired
     private ChatSessionStore sessionStore;
+    @Autowired
+    private DownloadRecordAdminService downloadRecordAdmin;
+    @Autowired
+    private IPtTorrentBlacklistPlusService blacklistService;
 
     /**
      * 正在补搜的订阅。补搜要跑几分钟，TG 上按钮一连点几下、或企微里连发两遍，
      * 不拦的话同一条订阅会并发搜几轮、把同一个资源推好几次。
      */
     private final Set<Integer> searching = ConcurrentHashMap.newKeySet();
+
+    /** 正在重试的下载记录，理由同 {@link #searching} */
+    private final Set<Integer> retrying = ConcurrentHashMap.newKeySet();
 
     /**
      * 处理一条指令。异常在这里兜住并转成提示文案，调用方不必再包。
@@ -171,6 +184,14 @@ public class PtChatCommandService {
         String searchArg = stripPrefix(text, "补搜", "搜索缺集");
         if (searchArg != null) {
             return ChatReply.of(searchMissing(user, searchArg));
+        }
+        String retryArg = stripPrefix(text, "重试下载");
+        if (retryArg != null) {
+            return ChatReply.of(retryDownload(user, retryArg));
+        }
+        String blacklistArg = stripPrefix(text, "拉黑种子");
+        if (blacklistArg != null) {
+            return ChatReply.of(blacklistTorrent(user, blacklistArg));
         }
         String pauseArg = stripPrefix(text, "暂停");
         if (pauseArg != null) {
@@ -573,6 +594,75 @@ public class PtChatCommandService {
         return StringUtils.isNotBlank(summary.getRejectSummary())
                 ? "未推送任何资源：" + summary.getRejectSummary()
                 : "未搜到任何候选资源，可检查订阅标题/季号与索引器配置。";
+    }
+
+    /**
+     * 重试一条失败的下载记录，与下载记录页的「重试」是同一件事（{@code DownloadRecordAdminService#retry}）。
+     * 它要跑一轮完整搜索，理由同 {@link #searchMissing}：先回「已开始」，结果事后补发。
+     */
+    private String retryDownload(ChatUser user, String arg) {
+        Integer recordId = parseNumber(arg);
+        if (recordId == null) {
+            return "请带上下载记录编号，例如：重试下载 12（失败通知里带着这个编号）";
+        }
+        if (!downloadRecordAdmin.canAccess(recordId, scopeOf(user))) {
+            return "下载记录不存在或无权访问。";
+        }
+        if (!retrying.add(recordId)) {
+            return "下载记录 " + recordId + " 正在重试中，完成后会通知你。";
+        }
+        try {
+            Thread.ofVirtual().name("chat-retry-" + recordId).start(Threads.wrap(() -> runRetry(user, recordId)));
+        } catch (RuntimeException e) {
+            retrying.remove(recordId);
+            throw e;
+        }
+        return "已开始重试下载记录 " + recordId + "，搜索完成后通知你。";
+    }
+
+    private void runRetry(ChatUser user, Integer recordId) {
+        String result;
+        try {
+            SupplementResult outcome = downloadRecordAdmin.retry(recordId);
+            result = outcome.isPushed()
+                    ? "已推送 " + Math.max(1, outcome.getPushedCount()) + " 个资源到下载器。"
+                    : "没有推送任何资源：" + StringUtils.defaultIfBlank(outcome.getReason(), "未找到可用资源");
+        } catch (IllegalArgumentException e) {
+            // retry 的前置校验（记录已不是失败状态、订阅已暂停……），文案本身是给用户看的
+            result = e.getMessage();
+        } catch (Exception e) {
+            log.warn("聊天指令重试下载失败，recordId={}：{}", recordId, e.getMessage(), e);
+            result = "重试失败：" + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+        } finally {
+            retrying.remove(recordId);
+        }
+        try {
+            user.laterReply().accept("下载记录 " + recordId + " 重试完成：\n" + result);
+        } catch (Exception e) {
+            log.warn("重试结果回发失败，session={} recordId={}：{}", user.sessionKey(), recordId, e.getMessage(), e);
+        }
+    }
+
+    /** 拉黑下载记录对应的种子（GUID 维度），以后搜到同一个种子不再推送。幂等 */
+    private String blacklistTorrent(ChatUser user, String arg) {
+        Integer recordId = parseNumber(arg);
+        if (recordId == null) {
+            return "请带上下载记录编号，例如：拉黑种子 12（失败通知里带着这个编号）";
+        }
+        if (!downloadRecordAdmin.canAccess(recordId, scopeOf(user))) {
+            return "下载记录不存在或无权访问。";
+        }
+        try {
+            boolean added = blacklistService.blockRecordGuid(recordId, "从聊天指令拉黑");
+            return added ? "已拉黑下载记录 " + recordId + " 对应的种子，以后不会再推送它。"
+                    : "这个种子已经在黑名单里了。";
+        } catch (IllegalArgumentException e) {
+            return "拉黑失败：" + e.getMessage();
+        }
+    }
+
+    private static PtStatsScope scopeOf(ChatUser user) {
+        return PtStatsScope.of(SysUser.isAdmin(user.sysUserId()), user.sysUserId());
     }
 
     private ChatReply switchStatus(ChatUser user, String arg, boolean pause) {

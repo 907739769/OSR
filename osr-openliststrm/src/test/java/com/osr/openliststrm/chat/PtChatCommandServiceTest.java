@@ -31,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -48,6 +49,8 @@ class PtChatCommandServiceTest {
     @Mock private IPtSubscriptionPlusService subscriptionService;
     @Mock private SubscriptionSearchOnCreateTrigger searchOnCreateTrigger;
     @Mock private SearchSupplementService searchSupplementService;
+    @Mock private com.osr.openliststrm.pt.task.DownloadRecordAdminService downloadRecordAdmin;
+    @Mock private com.osr.openliststrm.mybatisplus.service.IPtTorrentBlacklistPlusService blacklistService;
     @Spy private ChatSessionStore sessionStore = new ChatSessionStore();
 
     @InjectMocks private PtChatCommandService service;
@@ -214,6 +217,58 @@ class PtChatCommandServiceTest {
         ChatReply paused = service.handle(user(1L), "进度 3");
         assertEquals("恢复 3", buttonCommand(paused, "恢复"));
         assertTrue(paused.buttons().stream().flatMap(List::stream).noneMatch(b -> b.label().contains("补搜")));
+    }
+
+    // ---------------- 通知上的快捷操作：重试下载 / 拉黑种子 ----------------
+
+    /** 别人订阅下的下载记录：与不存在回同一句，且什么都不做 */
+    @Test
+    void 重试下载_无权访问_不执行() {
+        when(downloadRecordAdmin.canAccess(eq(5), any())).thenReturn(false);
+
+        String reply = service.handle(user(100L), "重试下载 5").text();
+
+        assertTrue(reply.contains("不存在或无权访问"), reply);
+        verify(downloadRecordAdmin, never()).retry(any());
+    }
+
+    @Test
+    void 重试下载_后台执行_结束后补发结果() throws Exception {
+        when(downloadRecordAdmin.canAccess(eq(5), any())).thenReturn(true);
+        com.osr.openliststrm.pt.subscription.dto.SupplementResult outcome =
+                org.mockito.Mockito.mock(com.osr.openliststrm.pt.subscription.dto.SupplementResult.class);
+        when(outcome.isPushed()).thenReturn(true);
+        when(outcome.getPushedCount()).thenReturn(1);
+        when(downloadRecordAdmin.retry(5)).thenReturn(outcome);
+
+        String reply = service.handle(user(1L), "重试下载 5").text();
+        String result = later.poll(5, TimeUnit.SECONDS);
+
+        assertTrue(reply.contains("已开始重试"), reply);
+        assertNotNull(result);
+        assertTrue(result.contains("已推送 1 个资源"), result);
+    }
+
+    /** retry 的前置校验文案（记录已不是失败状态等）要原样回给用户，而不是笼统的「重试失败」 */
+    @Test
+    void 重试下载_前置校验不通过_原样回复原因() throws Exception {
+        when(downloadRecordAdmin.canAccess(eq(5), any())).thenReturn(true);
+        when(downloadRecordAdmin.retry(5)).thenThrow(new IllegalArgumentException("只有失败的下载记录才能重试，当前状态：COMPLETED"));
+
+        service.handle(user(1L), "重试下载 5");
+        String result = later.poll(5, TimeUnit.SECONDS);
+
+        assertNotNull(result);
+        assertTrue(result.contains("只有失败的下载记录才能重试"), result);
+    }
+
+    @Test
+    void 拉黑种子_有权限时拉黑_重复拉黑提示已在黑名单() {
+        when(downloadRecordAdmin.canAccess(eq(5), any())).thenReturn(true);
+        when(blacklistService.blockRecordGuid(eq(5), any())).thenReturn(true).thenReturn(false);
+
+        assertTrue(service.handle(user(1L), "拉黑种子 5").text().contains("已拉黑"));
+        assertTrue(service.handle(user(1L), "拉黑种子 5").text().contains("已经在黑名单"));
     }
 
     /** 按钮只是快捷方式：正文必须自给自足，企微用户只看得到正文 */

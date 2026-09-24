@@ -7,6 +7,7 @@ import com.osr.common.utils.Threads;
 import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.helper.TgHelper;
 import com.osr.openliststrm.notify.NotificationType;
+import com.osr.openliststrm.notify.NotifyAction;
 import com.osr.openliststrm.notify.NotifyTarget;
 import com.osr.openliststrm.mybatisplus.domain.PtFilterConfigPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtIndexerPlus;
@@ -1058,8 +1059,10 @@ public class SearchSupplementService {
         try {
             // SUBSCRIPTION_SEARCH 而不是 GENERAL：GENERAL 是索引器故障、复制超时那类系统告警，
             // 补搜落空是某条订阅自己的事，处置方向也不同（去调过滤规则或关键词）
+            // 带「立即补搜 / 看进度」：调完过滤规则或关键词之后，下一步就是再搜一次
             TgHelper.sendMsg(NotificationType.SUBSCRIPTION_SEARCH, msg,
-                    NotifyTarget.owner(sub == null ? null : sub.getOwnerUserId()));
+                    NotifyTarget.owner(sub == null ? null : sub.getOwnerUserId()),
+                    sub == null ? List.of() : List.of(NotifyAction.searchMissing(sub.getId()), NotifyAction.progress(sub.getId())));
         } catch (Exception e) {
             log.debug("发送通知失败（不影响主流程）：{}", e.getMessage());
         }

@@ -2,8 +2,11 @@ package com.osr.openliststrm.helper;
 
 import com.osr.common.utils.spring.SpringUtils;
 import com.osr.openliststrm.notify.NotificationType;
+import com.osr.openliststrm.notify.NotifyAction;
 import com.osr.openliststrm.notify.NotifierManager;
 import com.osr.openliststrm.notify.NotifyTarget;
+
+import java.util.List;
 
 /**
  * 兼容门面：历史遗留的静态调用入口。{@link #sendMsg(String)} 现在会转发给
@@ -41,6 +44,14 @@ public class TgHelper {
      */
     public static void sendMsg(NotificationType type, String msg, NotifyTarget target) {
         SpringUtils.getBean(NotifierManager.class).send(type, msg, target);
+    }
+
+    /**
+     * 同上，附带快捷操作（Telegram 渲染成按钮、企业微信渲染成「可直接回复」提示）。
+     * 正文要自给自足，不支持操作的渠道只会收到正文。
+     */
+    public static void sendMsg(NotificationType type, String msg, NotifyTarget target, List<NotifyAction> actions) {
+        SpringUtils.getBean(NotifierManager.class).send(type, msg, target, actions);
     }
 
 }
