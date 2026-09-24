@@ -6,6 +6,41 @@
       desc="全局的种子硬性过滤与择优排序规则，可被单条订阅覆盖"
     />
 
+    <v-card class="table-card preview-card">
+      <v-card-text>
+        <SectionDivider>用一句话描述规则（AI）</SectionDivider>
+        <p class="preview-desc">
+          比如「只要 4K，体积不超过 30G，不要杜比视界，有 H&amp;R 的站点别下」。AI 会把描述改进下方表单，<b>不会自动保存</b>——
+          确认无误（可以先到页面底部跑一次历史回放）再点保存。需要先在「参数设置 → OpenAI 配置」里填好 API Key。
+        </p>
+        <div class="inline-fields preview-fields">
+          <v-text-field
+            v-model="aiText"
+            label="想要什么样的种子"
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="field-lg"
+            @keyup.enter="runAiDraft"
+          />
+          <v-btn color="primary" variant="flat" prepend-icon="wand-sparkles" :loading="aiDrafting" @click="runAiDraft">
+            生成草稿
+          </v-btn>
+        </div>
+        <div v-if="aiDraft" class="preview-result">
+          <v-alert type="info" variant="tonal" density="compact">
+            {{ aiDraft.explanation || '（AI 没有给出说明）' }}
+            <template v-if="Object.keys(aiDraft.changes).length">
+              <br>已改动：{{ Object.keys(aiDraft.changes).map(fieldLabel).join('、') }}
+            </template>
+          </v-alert>
+          <v-alert v-if="aiDraft.dropped.length" type="warning" variant="tonal" density="compact" class="mt-2">
+            以下内容没有采纳：{{ aiDraft.dropped.join('；') }}
+          </v-alert>
+        </div>
+      </v-card-text>
+    </v-card>
+
     <v-card :loading="refreshing" class="table-card">
       <v-card-text>
         <!-- 首屏骨架：表单未加载时是一份默认值，直接摆出来的话数据一到整页数值跳变一遍 -->
@@ -404,7 +439,8 @@ const {
   loading, saving, formRef, form, rules, sizeRangeError, sortOrder, vocabulary,
   labelOf, save, discard, isDirty,
   previewForm, previewing, previewResult, runPreview,
-  replayDays, replaying, replayResult, runReplay
+  replayDays, replaying, replayResult, runReplay,
+  aiText, aiDrafting, aiDraft, runAiDraft
 } = usePtFilterConfig()
 
 /** 回放结果的两组：新通过的列「现在为什么被挡」，新淘汰的列「改完之后为什么被挡」 */
@@ -413,6 +449,17 @@ const replayGroups = computed(() => replayResult.value ? [
   { key: 'rejected', title: '会新被淘汰', reasonPrefix: '改后被淘汰：', data: replayResult.value.newlyRejected }
 ] : [])
 const { firstLoading, refreshing } = useFirstLoad(loading)
+
+/** AI 草稿改动的字段名 → 表单上的叫法 */
+const FIELD_LABELS: Record<string, string> = {
+  minSeeders: '最低做种数', minSize: '体积下限', maxSize: '体积上限', preferredSize: '偏好体积',
+  sizePerEpisode: '按每集判定体积', freeOnly: '仅免费种', includeKeywords: '包含关键词',
+  excludeKeywords: '排除关键词', descriptionExcludeKeywords: '描述排除关键词',
+  resolutionWhitelist: '分辨率白名单', resolutionPriority: '分辨率优先级', sourceWhitelist: '来源白名单',
+  sourcePriority: '来源优先级', requiredTags: '必需标签', excludeTags: '排除标签',
+  releaseGroupPriority: '发布组优先级', requireChineseSubtitle: '外语电影需中字', avoidHitAndRun: '规避 H&R'
+}
+const fieldLabel = (key: string) => FIELD_LABELS[key] ?? key
 
 /** 解析结果只列有值的项，缺失的整行不写 */
 const parsedRows = computed(() => {

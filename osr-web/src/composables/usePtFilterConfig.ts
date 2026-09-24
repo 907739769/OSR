@@ -9,10 +9,12 @@ import {
   getFilterVocabularyApi,
   previewPtFilterApi,
   replayPtFilterApi,
+  aiDraftPtFilterApi,
   type PtFilterConfig,
   type FilterVocabulary,
   type FilterPreviewResult,
-  type FilterReplayResult
+  type FilterReplayResult,
+  type FilterAiDraft
 } from '@/api/openlist/ptFilterConfig'
 import { bytesToGb, gbToBytes } from '@/composables/sizeUnits'
 import { mergeOrder, joinCsv } from '@/composables/orderList'
@@ -216,6 +218,39 @@ export function usePtFilterConfig() {
     }
   }
 
+  // ---------- 自然语言建规则 ----------
+
+  const aiText = ref('')
+  const aiDrafting = ref(false)
+  const aiDraft = ref<FilterAiDraft | null>(null)
+
+  /**
+   * 让 AI 按描述改出一份草稿并直接填进表单——**不保存**，页面随之进入「有未保存修改」状态，
+   * 用户看过（可以先跑一次历史回放）再自己点保存。体积字段后端给的是字节，表单里是 GB。
+   */
+  const runAiDraft = async () => {
+    if (!aiText.value.trim()) {
+      message.warning('请先描述想要的规则')
+      return
+    }
+    aiDrafting.value = true
+    try {
+      const draft = await aiDraftPtFilterApi(aiText.value.trim(), toPayload())
+      const target = form as Record<string, unknown>
+      for (const [key, value] of Object.entries(draft.changes)) {
+        target[key] = (SIZE_FIELDS as readonly string[]).includes(key) ? bytesToGb(value as number) : value
+      }
+      aiDraft.value = draft
+      const count = Object.keys(draft.changes).length
+      if (count) message.success(`已按描述改动 ${count} 项，确认无误后记得保存`)
+      else message.info('AI 没有改动任何字段，看看下方说明')
+    } catch (e) {
+      console.error(e)
+    } finally {
+      aiDrafting.value = false
+    }
+  }
+
   // 这个页面没有 keep-alive，离开即卸载，没保存的编辑就此丢掉。
   // 测试里直接调用、不在组件 setup 里时不挂（onBeforeRouteLeave 需要组件实例）
   if (getCurrentInstance()) {
@@ -252,6 +287,7 @@ export function usePtFilterConfig() {
     loading, saving, formRef, form, rules, sizeRangeError, sortOrder, allDimensions, vocabulary,
     labelOf, load, save, discard, isDirty,
     previewForm, previewing, previewResult, runPreview,
-    replayDays, replaying, replayResult, runReplay
+    replayDays, replaying, replayResult, runReplay,
+    aiText, aiDrafting, aiDraft, runAiDraft
   }
 }

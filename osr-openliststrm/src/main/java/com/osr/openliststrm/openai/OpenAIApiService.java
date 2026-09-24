@@ -31,6 +31,24 @@ public class OpenAIApiService {
      * 调用 OpenAI Chat Completions 接口
      */
     public JsonNode fetchChatCompletion(String apiKey, String endpoint, String model, String prompt) throws IOException {
+        String contentString = fetchChatText(apiKey, endpoint, model, prompt, 300);
+        if (contentString == null) {
+            return null;
+        }
+        try {
+            return mapper.readTree(stripCodeFence(contentString));
+        } catch (Exception e) {
+            log.warn("OpenAI 返回内容不是有效的 JSON: {}", contentString);
+            return null;
+        }
+    }
+
+    /**
+     * 调用 Chat Completions，返回第一条回复的原始文本；请求失败或回复为空时返回 null。
+     *
+     * @param maxTokens 回复长度上限。标题解析 300 足够，周报、批量解析要给得更宽
+     */
+    public String fetchChatText(String apiKey, String endpoint, String model, String prompt, int maxTokens) throws IOException {
         Map<String, Object> payload = new HashMap<>();
         payload.put("model", model);
         payload.put("messages", new Object[]{
@@ -40,7 +58,7 @@ public class OpenAIApiService {
                 }}
         });
         payload.put("temperature", 0.0);
-        payload.put("max_tokens", 300);
+        payload.put("max_tokens", maxTokens);
 
         RequestBody body = RequestBody.create(
                 MediaType.parse("application/json; charset=utf-8"),
@@ -65,18 +83,24 @@ public class OpenAIApiService {
             if (choices.isArray() && choices.size() > 0) {
                 String contentString = choices.get(0).path("message").path("content").asText();
                 if (contentString != null && !contentString.trim().isEmpty()) {
-                    // 这里我们假设 OpenAI 总是按 Prompt 要求返回 JSON 字符串
-                    // 为了缓存方便，我们在这里再次解析它为 JsonNode 返回，或者直接返回 String 由客户端解析
-                    // 参考 TMDb 实现，我们返回 JsonNode（这里是内容本身的 JSON 结构）
-                    try {
-                        return mapper.readTree(contentString.trim());
-                    } catch (Exception e) {
-                        log.warn("OpenAI 返回内容不是有效的 JSON: {}", contentString);
-                        return null;
-                    }
+                    return contentString.trim();
                 }
             }
             return null;
         }
+    }
+
+    /** 不少模型即使被要求「只返回 JSON」也会包一层 ```json 代码块，解析前剥掉 */
+    public static String stripCodeFence(String content) {
+        String t = content.trim();
+        if (!t.startsWith("```")) {
+            return t;
+        }
+        int firstNewline = t.indexOf('\n');
+        int lastFence = t.lastIndexOf("```");
+        if (firstNewline < 0 || lastFence <= firstNewline) {
+            return t;
+        }
+        return t.substring(firstNewline + 1, lastFence).trim();
     }
 }

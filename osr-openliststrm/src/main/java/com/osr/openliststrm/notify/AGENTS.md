@@ -28,3 +28,4 @@ notify_route 的语义、文案转义、PT 通知的固定首行。
   1. **没有操作时分发器仍调渠道的三参数 `send`**（`NotifierManager#send` 四参数版里的分支），与引入前逐字节一致；只有带操作时才调 `INotifier#send(..., actions)`。
   2. **指令字符串只在 `NotifyAction` 的几个工厂方法里拼**，要与 `PtChatCommandService` 的解析前缀一致；改了一边没改另一边的症状是「按钮点了回一句看不懂」。
   3. 目前带操作的：下载失败（重试 / 拉黑 / 进度）、补搜落空（立即补搜 / 进度）、入库卡住（进度）、缺集逾期聚合（每部订阅中的剧一个补搜，最多 4 个，已暂停的不给）。这几个服务的通知一律走 `TgHelper` 四参数重载（没有操作时传空表），测试里 `mockStatic` 的断言相应是四参数。
+- **`WEEKLY_REPORT`（每周周报）由定时任务 104「openliststrm-每周周报」（`openListStrmTask.weeklyReport()`，每周一 9 点，迁移里默认暂停）触发**，实现在 `dashboard/report/WeeklyReportService`。三条：**数字全部复用现成统计口径**（首页趋势 `DashboardStatsService#trend` 与 `PtStatsService` 的 overview/failReasons/topSubscriptions，`PtStatsScope.ALL`），与页面上的数字对不上的话用户会开始怀疑哪个是真的；**AI 只写点评、不产出数字**，数字段落由代码拼好，AI 拿同一份事实写 2~4 句，调用失败照发不带点评的版本；AI 的回复同样要过 `escapeHtml`（TG 用 HTML parse_mode，一个 `<` 就能让整条发不出去）。周报是广播（无归属人），不支持分人的渠道照常退化。

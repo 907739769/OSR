@@ -1,6 +1,7 @@
 package com.osr.openliststrm.task;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.osr.openliststrm.dashboard.report.WeeklyReportService;
 import com.osr.openliststrm.mybatisplus.domain.OpenlistCopyTaskPlus;
 import com.osr.openliststrm.mybatisplus.domain.OpenlistStrmTaskPlus;
 import com.osr.openliststrm.mybatisplus.domain.RenameTaskPlus;
@@ -37,6 +38,9 @@ public class OpenListStrmTask {
 
     @Autowired
     private IStrmService strmService;
+
+    @Autowired
+    private WeeklyReportService weeklyReportService;
 
     @Autowired
     private RenameTaskManager renameTaskManager;
@@ -102,6 +106,11 @@ public class OpenListStrmTask {
 
     public void checkRenameOrphan() {
         renameOrphanScanService.scan();
+    }
+
+    /** 每周周报（sys_job 104，默认暂停），见 {@link WeeklyReportService} */
+    public void weeklyReport() {
+        weeklyReportService.send();
     }
 
 }

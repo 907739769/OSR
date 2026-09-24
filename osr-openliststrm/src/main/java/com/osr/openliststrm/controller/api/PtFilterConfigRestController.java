@@ -7,6 +7,7 @@ import com.osr.openliststrm.mybatisplus.service.IPtFilterConfigPlusService;
 import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.pt.filter.FilterConfigAdminService;
 import com.osr.openliststrm.pt.filter.FilterReplayService;
+import com.osr.openliststrm.pt.filter.FilterRuleAiDraftService;
 import com.osr.openliststrm.pt.filter.FilterVocabulary;
 import com.osr.openliststrm.pt.filter.SortDimension;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -42,6 +43,9 @@ public class PtFilterConfigRestController extends BaseController {
 
     @Autowired
     private FilterReplayService replayService;
+
+    @Autowired
+    private FilterRuleAiDraftService aiDraftService;
 
     /**
      * 读取全局过滤规则。种子数据被误删时服务层会返回内置默认值，不会为 null。
@@ -99,6 +103,30 @@ public class PtFilterConfigRestController extends BaseController {
             return Result.error("缺少要回放的规则");
         }
         return Result.success(replayService.replay(draft, days));
+    }
+
+    /** 自然语言建规则的请求：用户的描述 + 表单当前值（可能尚未保存，草稿在它的基础上改） */
+    public record AiDraftRequest(String text, PtFilterConfigPlus current) {
+    }
+
+    /**
+     * 自然语言 → 规则草稿，仅管理员（会消耗 OpenAI 额度，且草稿只有管理员能保存）。不落库。
+     */
+    @PostMapping("/ai-draft")
+    public Result<FilterRuleAiDraftService.Draft> aiDraft(@RequestBody AiDraftRequest request) {
+        Result<FilterRuleAiDraftService.Draft> denied = denyIfNotAdmin();
+        if (denied != null) {
+            return denied;
+        }
+        if (request == null || StringUtils.isBlank(request.text())) {
+            return Result.error("请描述想要的规则");
+        }
+        if (!aiDraftService.available()) {
+            return Result.error("未配置 OpenAI，请先在「参数设置 → OpenAI 配置」里填写 API Key");
+        }
+        PtFilterConfigPlus base = request.current() != null ? request.current() : filterConfigService.getConfig();
+        FilterRuleAiDraftService.Draft draft = aiDraftService.draft(request.text().trim(), base);
+        return draft == null ? Result.error("AI 没有给出可用的结果，请换个说法再试") : Result.success(draft);
     }
 
     /**

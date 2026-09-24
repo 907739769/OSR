@@ -121,6 +121,20 @@ export function replayPtFilterApi(draft: PtFilterConfig, days: number) {
   })
 }
 
+/** 自然语言建规则的草稿：changes 里体积是字节，dropped 是 AI 给了但被丢弃的字段及原因 */
+export interface FilterAiDraft {
+  changes: Partial<PtFilterConfig>
+  explanation: string
+  dropped: string[]
+}
+
+/** 自然语言 → 规则草稿（不落库）。current 传表单当前值，草稿在它的基础上改 */
+export function aiDraftPtFilterApi(text: string, current: PtFilterConfig) {
+  return request.post<any, FilterAiDraft>('/openliststrm/pt-filter-config/ai-draft', { text, current }, {
+    timeout: 90000
+  })
+}
+
 export function previewPtFilterApi(data: FilterPreviewRequest) {
   return request.post<any, FilterPreviewResult>('/openliststrm/pt-filter-config/preview', data)
 }

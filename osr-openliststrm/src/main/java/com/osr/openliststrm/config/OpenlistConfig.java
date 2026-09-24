@@ -162,6 +162,11 @@ public class OpenlistConfig {
         return sysConfigService.selectConfigByKey("openlist.openai.endpoint");
     }
 
+    /** PT 种子标题 AI 兜底解析开关 '1' 开，其余关（sys_config 的 'openlist.openai.pt-title-fallback'，默认关） */
+    public String getPtTitleAiFallback() {
+        return sysConfigService.selectConfigByKey("openlist.openai.pt-title-fallback");
+    }
+
     // OpenAI model name (stored in sys_config as 'openlist.openai.model'). If empty, clients should use a sensible default.
     public String getOpenAiModel() {
         return sysConfigService.selectConfigByKey("openlist.openai.model");
