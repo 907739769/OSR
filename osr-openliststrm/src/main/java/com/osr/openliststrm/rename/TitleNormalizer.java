@@ -45,11 +45,23 @@ public final class TitleNormalizer {
     private static final Pattern NOISE = Pattern.compile(
             "[\\p{Punct}\\p{IsPunctuation}\\p{IsWhite_Space}\\uFF5E\\u301C]+");
 
+    /**
+     * {@code &} 与单词 {@code and} 是同一个意思，比较前统一写成 {@code and}。
+     * <p>
+     * 不能只当普通标点抹掉：{@code All Creatures Great & Small} 抹完是 {@code great small}，
+     * 与文件名里的 {@code Great and Small} 既不全等也不互相包含。事故：
+     * {@code All.Creatures.Great.and.Small.2020.S07E01} 被刮成 1978 年老版——老版原名逐字是
+     * {@code ... and Small}（全等档），2020 版原名写的是 {@code &}（0 分），年份吻合的 +40
+     * 跨不过全等分档，老版稳赢。{@code ＆}（U+FF06 全角）同理。
+     * </p>
+     */
+    private static final Pattern AMPERSAND = Pattern.compile("[&\uFF06]");
+
     private TitleNormalizer() {
     }
 
     /**
-     * 转小写 → 把标点与空白（含全角）压成单个空格 → 去首尾空白。
+     * 转小写 → {@code &} 写成 {@code and} → 把标点与空白（含全角）压成单个空格 → 去首尾空白。
      *
      * @param title 原始标题，允许为 null/空白
      * @return 归一化结果；入参为空或归一化后为空时返回 {@code null}，便于调用方直接丢弃
@@ -58,7 +70,8 @@ public final class TitleNormalizer {
         if (StringUtils.isBlank(title)) {
             return null;
         }
-        String normalized = NOISE.matcher(title.toLowerCase(Locale.ROOT)).replaceAll(" ").trim();
+        String lower = AMPERSAND.matcher(title.toLowerCase(Locale.ROOT)).replaceAll(" and ");
+        String normalized = NOISE.matcher(lower).replaceAll(" ").trim();
         return normalized.isEmpty() ? null : normalized;
     }
 }
