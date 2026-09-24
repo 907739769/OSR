@@ -41,11 +41,16 @@ export const SOURCE_OPTIONS = [
   { value: 'TMDB_TRENDING_DAY', title: 'TMDb 每日热门', short: '每日热门' },
   { value: 'TMDB_TRENDING_WEEK', title: 'TMDb 每周热门', short: '每周热门' },
   { value: 'TMDB_DISCOVER', title: 'TMDb 条件发现（按评分/地区）', short: '条件发现' },
-  { value: 'RSSHUB_DOUBAN', title: '豆瓣热门（RSSHub）', short: '豆瓣热门' }
+  { value: 'RSSHUB_DOUBAN', title: '豆瓣热门（RSSHub）', short: '豆瓣热门' },
+  { value: 'TMDB_COLLECTION', title: 'TMDb 电影系列（订阅系列全部电影）', short: '电影系列' },
+  { value: 'TMDB_PERSON', title: 'TMDb 人物（导演/主演的近期新片）', short: '人物' }
 ]
 
 /** 该数据源是否需要填 RSS 地址 */
 export const isRssSource = (source?: string) => source === 'RSSHUB_DOUBAN'
+
+/** 「跟」一个系列或人物的数据源：来源地址栏填 TMDb ID 或页面链接，只支持电影 */
+export const isFollowSource = (source?: string) => source === 'TMDB_COLLECTION' || source === 'TMDB_PERSON'
 
 /**
  * 豆瓣常用榜单的 RSSHub 路由预设，**只是省打字，不是白名单**——地址框照常可以手填。
