@@ -18,6 +18,7 @@ import com.osr.openliststrm.pt.subscription.SearchSupplementService;
 import com.osr.openliststrm.pt.subscription.SubscriptionSearchOnCreateTrigger;
 import com.osr.openliststrm.pt.PtLogText;
 import com.osr.openliststrm.pt.calendar.EpisodeAirDateSyncService;
+import com.osr.openliststrm.pt.subscription.SubscriptionDiagnosisService;
 import com.osr.openliststrm.pt.subscription.SubscriptionService;
 import com.osr.openliststrm.pt.subscription.TmdbSearchService;
 import com.osr.openliststrm.pt.subscription.dto.BatchOperationResult;
@@ -63,6 +64,9 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
 
     @Autowired
     private IPtSearchLogPlusService searchLogService;
+
+    @Autowired
+    private SubscriptionDiagnosisService diagnosisService;
 
     @Autowired
     private EpisodeAirDateSyncService airDateSyncService;
@@ -314,6 +318,22 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
                 .orderByDesc(PtSearchLogPlus::getId)
                 .last("limit 100"));
         return Result.success(logs);
+    }
+
+    /**
+     * 一键诊断：每个已播出却还缺着的集，最近一轮搜了什么、各因为什么被淘汰。只读，不发起搜索。
+     */
+    @GetMapping("/{id}/diagnosis")
+    public Result<SubscriptionDiagnosisService.Diagnosis> diagnosis(@PathVariable("id") Integer id) {
+        Result<SubscriptionDiagnosisService.Diagnosis> denied = denyIfInaccessible(id);
+        if (denied != null) {
+            return denied;
+        }
+        try {
+            return Result.success(diagnosisService.diagnose(id));
+        } catch (IllegalArgumentException e) {
+            return Result.error(e.getMessage());
+        }
     }
 
     /**

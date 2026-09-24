@@ -15,6 +15,7 @@ import com.osr.openliststrm.pt.stats.PtStatsScope;
 import com.osr.openliststrm.pt.subscription.dto.SupplementResult;
 import com.osr.openliststrm.pt.task.DownloadRecordAdminService;
 import com.osr.openliststrm.pt.subscription.SearchSupplementService;
+import com.osr.openliststrm.pt.subscription.SubscriptionDiagnosisService;
 import com.osr.openliststrm.pt.subscription.SubscriptionSearchOnCreateTrigger;
 import com.osr.openliststrm.pt.subscription.SubscriptionService;
 import com.osr.openliststrm.pt.subscription.TmdbSearchService;
@@ -85,6 +86,7 @@ public class PtChatCommandService {
             最近入库          查看最近入库的集
             进度 <编号>       查看某条订阅的进度
             补搜 <编号>       立即搜索该订阅的全部缺集
+            诊断 <编号>       看看缺的集为什么还没下到
             重试下载 <记录号> 重新搜索并下载一条失败的下载记录
             拉黑种子 <记录号> 拉黑该下载记录对应的种子，以后不再推送
             暂停 <编号>       暂停订阅
@@ -115,6 +117,8 @@ public class PtChatCommandService {
     private DownloadRecordAdminService downloadRecordAdmin;
     @Autowired
     private IPtTorrentBlacklistPlusService blacklistService;
+    @Autowired
+    private SubscriptionDiagnosisService diagnosisService;
 
     /**
      * 正在补搜的订阅。补搜要跑几分钟，TG 上按钮一连点几下、或企微里连发两遍，
@@ -180,6 +184,10 @@ public class PtChatCommandService {
         String progressArg = stripPrefix(text, "进度", "查看");
         if (progressArg != null) {
             return showProgress(user, progressArg);
+        }
+        String diagnoseArg = stripPrefix(text, "诊断");
+        if (diagnoseArg != null) {
+            return diagnose(user, diagnoseArg);
         }
         String searchArg = stripPrefix(text, "补搜", "搜索缺集");
         if (searchArg != null) {
@@ -526,6 +534,36 @@ public class PtChatCommandService {
             row.add(new ChatReply.Button("恢复", "恢复 " + subId));
         }
         row.add(new ChatReply.Button("刷新", "进度 " + subId));
+        return ChatReply.of(sb.toString(), List.of(row));
+    }
+
+    /** 一键诊断的文字版，逐集一行，与订阅页的诊断弹窗同一份数据 */
+    private ChatReply diagnose(ChatUser user, String arg) {
+        Integer subId = parseNumber(arg);
+        if (subId == null) {
+            return ChatReply.of("请带上订阅编号，例如：诊断 3（编号见「我的订阅」）");
+        }
+        PtSubscriptionPlus sub = requireAccessible(user, subId);
+        if (sub == null) {
+            return ChatReply.of("订阅不存在或无权访问。");
+        }
+        SubscriptionDiagnosisService.Diagnosis d = diagnosisService.diagnose(subId);
+        StringBuilder sb = new StringBuilder(describe(sub)).append(" 诊断：");
+        d.notes().forEach(n -> sb.append("\n⚠ ").append(n));
+        if (d.episodes().isEmpty()) {
+            sb.append("\n已播出的集都已入库，没有要诊断的。");
+        }
+        for (SubscriptionDiagnosisService.EpisodeDiagnosis ep : d.episodes()) {
+            sb.append("\n\n").append(ep.label()).append("：").append(ep.summary());
+        }
+        if (d.pendingTotal() > d.episodes().size()) {
+            sb.append("\n\n……共 ").append(d.pendingTotal()).append(" 集未入库，其余请到网页端查看。");
+        }
+        List<ChatReply.Button> row = new ArrayList<>();
+        if (SubscriptionService.STATUS_ACTIVE.equals(sub.getStatus()) && !d.episodes().isEmpty()) {
+            row.add(new ChatReply.Button("立即补搜", "补搜 " + subId));
+        }
+        row.add(new ChatReply.Button("查看进度", "进度 " + subId));
         return ChatReply.of(sb.toString(), List.of(row));
     }
 

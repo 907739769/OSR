@@ -125,6 +125,34 @@ export function getSubscriptionSearchLogsApi(id: number) {
   return request.get<any, any[]>(`/openliststrm/pt-subscriptions/${id}/search-logs`)
 }
 
+/** 一集的诊断：最近一轮搜索的时间、候选数与按原因计数的淘汰情况 */
+export interface EpisodeDiagnosis {
+  episode: number
+  label: string
+  state: string
+  lastSearchTime: string | null
+  source: string | null
+  candidates: number
+  accepted: number
+  reasons: { label: string; count: number }[]
+  summary: string
+}
+
+export interface SubscriptionDiagnosis {
+  subId: number
+  title: string
+  /** 订阅级的前提问题（没开自动补搜、没有启用的索引器……），先解决这些再看逐集 */
+  notes: string[]
+  episodes: EpisodeDiagnosis[]
+  /** 已播出仍未入库的集总数；大于 episodes.length 时说明被截断了 */
+  pendingTotal: number
+}
+
+/** 一键诊断：只读，不发起任何搜索 */
+export function getSubscriptionDiagnosisApi(id: number) {
+  return request.get<any, SubscriptionDiagnosis>(`/openliststrm/pt-subscriptions/${id}/diagnosis`)
+}
+
 /** 批量暂停订阅 */
 export function batchPauseSubscriptionApi(ids: number[]) {
   return request.post<any, { successCount: number; failedIds: number[] }>(

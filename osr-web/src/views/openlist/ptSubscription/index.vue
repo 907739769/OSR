@@ -171,6 +171,7 @@
     <CandidateDialog />
 
     <SearchLogDialog />
+    <SubscriptionDiagnosisDialog />
 
     <FilterOverrideDialog />
   </div>
@@ -188,6 +189,7 @@ import ProgressDialog from './dialogs/ProgressDialog.vue'
 import SearchConfirmDialog from './dialogs/SearchConfirmDialog.vue'
 import CandidateDialog from './dialogs/CandidateDialog.vue'
 import SearchLogDialog from './dialogs/SearchLogDialog.vue'
+import SubscriptionDiagnosisDialog from '@/components/dialogs/SubscriptionDiagnosisDialog.vue'
 import FilterOverrideDialog from './dialogs/FilterOverrideDialog.vue'
 import { useGridPageSize } from '@/composables/useGridPageSize'
 import { useSearchPanel } from '@/composables/useSearchPanel'

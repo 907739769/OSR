@@ -138,6 +138,7 @@
           block
           @click="run(() => goHealthFor(sheetTarget))"
         >缺集诊断</v-btn>
+        <v-btn block @click="run(() => showDiagnosis(sheetTarget))">一键诊断</v-btn>
         <v-btn block @click="run(() => showSearchLogs(sheetTarget))">匹配日志</v-btn>
         <v-btn block @click="run(() => openFilterOverride(sheetTarget))">过滤规则</v-btn>
         <v-btn color="error" block @click="run(() => handleRemove(sheetTarget))">删除</v-btn>
@@ -165,6 +166,8 @@
 
       <SearchLogDialog />
 
+      <SubscriptionDiagnosisDialog />
+
       <FilterOverrideDialog />
     </template>
   </MobileListPage>
@@ -186,6 +189,7 @@ import ProgressDialog from './dialogs/ProgressDialog.vue'
 import SearchConfirmDialog from './dialogs/SearchConfirmDialog.vue'
 import CandidateDialog from './dialogs/CandidateDialog.vue'
 import SearchLogDialog from './dialogs/SearchLogDialog.vue'
+import SubscriptionDiagnosisDialog from '@/components/dialogs/SubscriptionDiagnosisDialog.vue'
 import FilterOverrideDialog from './dialogs/FilterOverrideDialog.vue'
 import { useActionSheet } from '@/composables/useActionSheet'
 import { useMobilePageAction } from '@/composables/useMobilePageAction'
@@ -196,7 +200,7 @@ const router = useRouter()
 // 弹窗子组件共享这同一个实例（见 ptSubscriptionContext）
 const {
   taskList, loading, total, queryParams,
-  handleQuery, resetQuery, openSubscribeDialog, showProgressById, showSearchLogs,
+  handleQuery, resetQuery, openSubscribeDialog, showProgressById, showSearchLogs, showDiagnosis,
   openFilterOverride,
   openSeasonSearch,
   handleRefresh, handlePause, handleResume, handleRemove, handleResetMovie,

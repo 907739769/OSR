@@ -135,6 +135,8 @@
             v-if="item.mediaType === 'MOVIE' && (item.inLibraryCount || item.inFlightCount)"
             @click="handleMoreCommand('resetMovie', item)"
           >{{ item.inLibraryCount ? '重置为未入库' : '重置为缺失' }}</v-list-item>
+          <!-- 一键诊断不设门槛：电影、刚播一两天的集、已暂停的订阅都能问一句「为什么还没下到」 -->
+          <v-list-item @click="handleMoreCommand('diagnose', item)">一键诊断</v-list-item>
           <!-- 缺集体检只收订阅中的剧集（电影整体不参与），其余状态点进去必然是空的 -->
           <v-list-item
             v-if="item.mediaType !== 'MOVIE' && item.status === 'ACTIVE'"
@@ -175,6 +177,7 @@ const {
   selectionMode,
   showProgress,
   showSearchLogs,
+  showDiagnosis,
   toggleAutoSearch,
   toggleSubSelect,
   toggleUpgrade
@@ -249,6 +252,7 @@ const handleMoreCommand = (cmd: string, row: any) => {
     case 'resetMovie': handleResetMovie(row); break
     case 'health': goHealth(row); break
     case 'logs': showSearchLogs(row); break
+    case 'diagnose': showDiagnosis(row); break
     case 'filter': openFilterOverride(row); break
     case 'search': openSeasonSearch(row); break
     case 'pause': handlePause(row); break

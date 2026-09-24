@@ -71,6 +71,7 @@ public class StrmBot extends AbilityBot {
         commands.add(new BotCommand("submovie", "订阅电影：/submovie 片名"));
         commands.add(new BotCommand("progress", "订阅进度：/progress 编号"));
         commands.add(new BotCommand("search", "立即补搜缺集：/search 编号"));
+        commands.add(new BotCommand("diagnose", "缺的集为什么没下到：/diagnose 编号"));
         commands.add(new BotCommand("pause", "暂停订阅：/pause 编号"));
         commands.add(new BotCommand("resume", "恢复订阅：/resume 编号"));
         commands.add(new BotCommand("pthelp", "订阅指令说明"));
@@ -336,6 +337,10 @@ public class StrmBot extends AbilityBot {
 
     public Ability searchMissing() {
         return ptAbility("search", "立即补搜缺集", "补搜");
+    }
+
+    public Ability diagnose() {
+        return ptAbility("diagnose", "订阅诊断", "诊断");
     }
 
     public Ability pause() {
