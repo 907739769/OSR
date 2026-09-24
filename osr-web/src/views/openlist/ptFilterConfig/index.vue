@@ -335,6 +335,53 @@
       </v-card-text>
     </v-card>
 
+    <v-card class="table-card preview-card">
+      <v-card-text>
+        <SectionDivider>历史回放</SectionDivider>
+        <p class="preview-desc">
+          拿最近搜到过的候选，分别用<b>已保存的规则</b>和<b>正在编辑的规则</b>判一遍，列出结论会变的——保存之前先看清这次修改会多放进来什么、多挡掉什么。
+          较早的匹配日志没有记录体积、做种数等信息，这部分候选只比按标题判断的规则（分辨率、来源、关键词、发布组、质量标签）。
+        </p>
+        <div class="inline-fields preview-fields">
+          <v-select
+            v-model="replayDays"
+            :items="[{ title: '最近 3 天', value: 3 }, { title: '最近 7 天', value: 7 }, { title: '最近 30 天', value: 30 }]"
+            label="回放范围"
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="field-md"
+          />
+          <v-btn color="primary" variant="flat" prepend-icon="history" :loading="replaying" @click="runReplay">
+            回放
+          </v-btn>
+        </div>
+        <div v-if="replayResult" class="preview-result">
+          <v-alert :type="replayResult.changed ? 'warning' : 'info'" variant="tonal" density="compact">
+            回放了 {{ replayResult.evaluated }} 个候选<template v-if="replayResult.titleOnly">（其中 {{ replayResult.titleOnly }} 个只按标题比较）</template>：
+            <template v-if="replayResult.changed">
+              {{ replayResult.newlyAccepted.total }} 个会<b>新通过</b>，{{ replayResult.newlyRejected.total }} 个会<b>新被淘汰</b>
+            </template>
+            <template v-else>结论全部不变<template v-if="!isDirty">（还没有改动规则）</template></template>
+          </v-alert>
+          <template v-for="group in replayGroups" :key="group.key">
+            <div v-if="group.data.examples.length" class="replay-group">
+              <div class="replay-group-title">{{ group.title }}（{{ group.data.total }}）</div>
+              <div v-for="(c, i) in group.data.examples" :key="i" class="replay-row">
+                <div class="replay-torrent" :title="c.torrentTitle">{{ c.torrentTitle }}</div>
+                <div class="replay-meta">
+                  《{{ c.subscriptionTitle }}》 · {{ group.reasonPrefix }}{{ c.reason }}<template v-if="c.titleOnly"> · 只按标题比较</template>
+                </div>
+              </div>
+              <div v-if="group.data.total > group.data.examples.length" class="replay-meta">
+                只列出前 {{ group.data.examples.length }} 个
+              </div>
+            </div>
+          </template>
+        </div>
+      </v-card-text>
+    </v-card>
+
     <ConfigSaveBar v-if="!loading" :dirty="isDirty" :saving="saving" @save="save" @discard="discard" />
   </div>
 </template>
@@ -356,8 +403,15 @@ import { formatSize } from '@/composables/sizeUnits'
 const {
   loading, saving, formRef, form, rules, sizeRangeError, sortOrder, vocabulary,
   labelOf, save, discard, isDirty,
-  previewForm, previewing, previewResult, runPreview
+  previewForm, previewing, previewResult, runPreview,
+  replayDays, replaying, replayResult, runReplay
 } = usePtFilterConfig()
+
+/** 回放结果的两组：新通过的列「现在为什么被挡」，新淘汰的列「改完之后为什么被挡」 */
+const replayGroups = computed(() => replayResult.value ? [
+  { key: 'accepted', title: '会新通过', reasonPrefix: '现在被淘汰：', data: replayResult.value.newlyAccepted },
+  { key: 'rejected', title: '会新被淘汰', reasonPrefix: '改后被淘汰：', data: replayResult.value.newlyRejected }
+] : [])
 const { firstLoading, refreshing } = useFirstLoad(loading)
 
 /** 解析结果只列有值的项，缺失的整行不写 */
@@ -382,6 +436,35 @@ const parsedRows = computed(() => {
 </script>
 
 <style scoped>
+/* 历史回放：每个候选两行，标题一行截断、所属订阅与原因一行 */
+.replay-group {
+  margin-top: 12px;
+}
+
+.replay-group-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: var(--osr-text-primary);
+}
+
+.replay-row {
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--osr-border-light);
+}
+
+.replay-torrent {
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.replay-meta {
+  font-size: 12px;
+  color: var(--osr-text-secondary);
+}
+
 /* 数字输入框限宽，避免「最低做种数」这类两三位数的框拉满整行 */
 .field-num-lg {
   max-width: 200px;

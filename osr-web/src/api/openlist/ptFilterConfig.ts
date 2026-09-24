@@ -94,6 +94,33 @@ export interface FilterPreviewResult {
   rejectReason?: string
 }
 
+/** 回放里一个结论变了的候选 */
+export interface FilterReplayChange {
+  torrentTitle: string
+  subscriptionTitle: string
+  /** 旧日志没有体积等画像，只按标题维度比较 */
+  titleOnly: boolean
+  /** 淘汰那一侧的原因 */
+  reason: string
+}
+
+export interface FilterReplayResult {
+  days: number
+  evaluated: number
+  titleOnly: number
+  changed: number
+  newlyAccepted: { total: number; examples: FilterReplayChange[] }
+  newlyRejected: { total: number; examples: FilterReplayChange[] }
+}
+
+/** 历史回放：比较已保存的规则与草稿在最近候选上的结论差异（仅管理员） */
+export function replayPtFilterApi(draft: PtFilterConfig, days: number) {
+  return request.post<any, FilterReplayResult>('/openliststrm/pt-filter-config/replay', draft, {
+    params: { days },
+    timeout: 60000
+  })
+}
+
 export function previewPtFilterApi(data: FilterPreviewRequest) {
   return request.post<any, FilterPreviewResult>('/openliststrm/pt-filter-config/preview', data)
 }

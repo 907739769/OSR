@@ -17,3 +17,8 @@
 - **REMUX 在解析器里是「标签」，在 PT 侧是「来源」，归一化只在 PT 侧做（`MediaSource`）**。`SourceAndGroupExtractor` 把 `Show.2160p.BluRay.REMUX` 解析成 `source=BluRay, tags=[REMUX]`，而来源白名单 / 来源优先级 / 洗版目标来源的界面与默认值都把 REMUX 当来源——修复前只写 `REMUX` 的白名单淘汰全部种子、`REMUX,BluRay` 的优先级里两者并列，全部静默。现在 `SubscriptionEngine#fillParsed` 与 `QualityProfile` 构造器都经 `MediaSource.effective` 还原（后者顺带修正存量基线，否则库里的 REMUX 会被另一个 REMUX「升级」掉）；比较一律走 `MediaSource.in/rank`：**列表里没写 REMUX 时 REMUX 按 BluRay 对待**，保证写 BluRay 的存量配置行为不变。**不要改解析器本身**——`{{source}}` 进了重命名模板，改它会让存量媒体库命名口径分叉。
 - **分辨率 / 来源 / 标签三类字段的可选值只有 `FilterVocabulary` 一份**，前端从 `/vocabulary` 取、只许下拉选（后端全等比对，手打的 `WEB-DL`/`4K` 永远命不中）。它必须跟着解析器走，`FilterVocabularyTest` 用真实解析器逐条标题校验——这条用例上线当天就逮到 `CodecExtractor` 把 `AC3`/`EAC3` 削成 `AC`/`EAC` 的老 bug。
 - **全局过滤规则的保存走 `FilterConfigAdminService#save`，写接口仅管理员**。`FilterConfigCheck` 挡体积下限 > 上限、负阈值、写错的排序维度；洗版开着时，**这次修改新引入**的洗版一致性问题（如清空来源优先级）会被拒绝，原本就有的不拦。三个优先级列表变了会重置洗版评估（见 `pt/upgrade/AGENTS.md`）。`/preview` 用**未保存**的规则试算一条标题，黑名单取已保存的。
+
+- **过滤规则的「历史回放」（`FilterReplayService`，过滤规则页「历史回放」）比的是「已保存的规则」与「草稿」，不是「日志里当时的结论」与「草稿」**：当时的结论是那时的规则判的，其间可能改过好几轮，拿它当基线会把早就生效的修改也算成这次的影响；草稿与已保存的相同时结论必然全部不变，`FilterReplayServiceTest` 钉住这条。三条不要改坏的：
+  1. **旧日志只能按标题比**。20260803 之前 `pt_search_log` 只存标题，体积/做种数/下载系数/H&R 都没有（`torrent_size IS NULL` 即判为旧日志）。这些行两边都要把 `NUMERIC_KEYS` 中和掉——全局配置清零**并且订阅覆盖 JSON 里的同名键一并删掉**（否则中和的全局值会被覆盖回去）。不中和的话体积 0 会被最小体积一律挡掉，调体积下限看起来像「所有候选都变成了新淘汰」，完全是假象。结果里单独报 `titleOnly` 条数。
+  2. **每个候选套它所属订阅的过滤覆盖**，与推送链路 `FilterCriteriaFactory.build(global, sub.getFilterOverride())` 同一口径；外语电影中字检查拿不到语言，两边都传 null（与试算同）。
+  3. **同一候选（订阅 + 站点 + 标题）在一轮轮搜索里会被记很多次，只取最新一条**，最多 2000 个；限管理员（结果里有别人订阅的剧名）。新写入的日志由 `SearchLogService#recordVerdicts` 带上四项画像，回放随之变完整，不需要再做什么。

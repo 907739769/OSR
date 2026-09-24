@@ -74,6 +74,11 @@ public class SearchLogService {
                 row.setAccepted(v.accepted() ? "1" : "0");
                 row.setReasonCode(v.rejectCode() == null ? null : v.rejectCode().value());
                 row.setReason(v.rejectReason());
+                // 种子画像：过滤规则回放要拿它们重新判体积、做种数、免费与 H&R 这几条
+                row.setTorrentSize(v.torrent().getSize());
+                row.setSeeders(v.torrent().getSeeders());
+                row.setDownloadFactor(v.torrent().getDownloadVolumeFactor());
+                row.setHitAndRun(v.torrent().isHitAndRun() ? "1" : "0");
                 return row;
             }).toList();
             logService.saveBatch(rows);

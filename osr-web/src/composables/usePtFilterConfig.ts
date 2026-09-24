@@ -8,9 +8,11 @@ import {
   getSortDimensionsApi,
   getFilterVocabularyApi,
   previewPtFilterApi,
+  replayPtFilterApi,
   type PtFilterConfig,
   type FilterVocabulary,
-  type FilterPreviewResult
+  type FilterPreviewResult,
+  type FilterReplayResult
 } from '@/api/openlist/ptFilterConfig'
 import { bytesToGb, gbToBytes } from '@/composables/sizeUnits'
 import { mergeOrder, joinCsv } from '@/composables/orderList'
@@ -196,6 +198,24 @@ export function usePtFilterConfig() {
     }
   }
 
+  // ---------- 历史回放 ----------
+
+  const replayDays = ref(7)
+  const replaying = ref(false)
+  const replayResult = ref<FilterReplayResult | null>(null)
+
+  /** 拿最近搜到过的候选，比较「已保存的规则」与「当前编辑中的草稿」——没改动时结论必然全部相同 */
+  const runReplay = async () => {
+    replaying.value = true
+    try {
+      replayResult.value = await replayPtFilterApi(toPayload(), replayDays.value)
+    } catch (e) {
+      console.error(e)
+    } finally {
+      replaying.value = false
+    }
+  }
+
   // 这个页面没有 keep-alive，离开即卸载，没保存的编辑就此丢掉。
   // 测试里直接调用、不在组件 setup 里时不挂（onBeforeRouteLeave 需要组件实例）
   if (getCurrentInstance()) {
@@ -231,6 +251,7 @@ export function usePtFilterConfig() {
   return {
     loading, saving, formRef, form, rules, sizeRangeError, sortOrder, allDimensions, vocabulary,
     labelOf, load, save, discard, isDirty,
-    previewForm, previewing, previewResult, runPreview
+    previewForm, previewing, previewResult, runPreview,
+    replayDays, replaying, replayResult, runReplay
   }
 }

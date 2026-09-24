@@ -6,6 +6,7 @@ import com.osr.openliststrm.mybatisplus.domain.PtFilterConfigPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtFilterConfigPlusService;
 import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.pt.filter.FilterConfigAdminService;
+import com.osr.openliststrm.pt.filter.FilterReplayService;
 import com.osr.openliststrm.pt.filter.FilterVocabulary;
 import com.osr.openliststrm.pt.filter.SortDimension;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Arrays;
@@ -37,6 +39,9 @@ public class PtFilterConfigRestController extends BaseController {
 
     @Autowired
     private FilterConfigAdminService adminService;
+
+    @Autowired
+    private FilterReplayService replayService;
 
     /**
      * 读取全局过滤规则。种子数据被误删时服务层会返回内置默认值，不会为 null。
@@ -72,6 +77,28 @@ public class PtFilterConfigRestController extends BaseController {
             return Result.error("请输入种子标题");
         }
         return Result.success(adminService.preview(request));
+    }
+
+    /**
+     * 历史回放：拿最近搜到过的候选，比较「已保存的规则」与「草稿」的结论差异。只读，不落库。
+     * <p>
+     * <b>限管理员</b>（与试算不同）：回放的是全站所有订阅的候选，结果里带着别人订阅的剧名与种子标题。
+     * </p>
+     *
+     * @param days 回放最近几天，1~30，默认 7
+     */
+    @PostMapping("/replay")
+    public Result<FilterReplayService.ReplayResult> replay(
+            @RequestParam(value = "days", defaultValue = "7") int days,
+            @RequestBody PtFilterConfigPlus draft) {
+        Result<FilterReplayService.ReplayResult> denied = denyIfNotAdmin();
+        if (denied != null) {
+            return denied;
+        }
+        if (draft == null) {
+            return Result.error("缺少要回放的规则");
+        }
+        return Result.success(replayService.replay(draft, days));
     }
 
     /**
