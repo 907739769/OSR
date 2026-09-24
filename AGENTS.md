@@ -12,7 +12,7 @@
 ├── osr-framework/      # 框架配置 (security, config, websocket)
 ├── osr-system/         # 标准系统管理模块 (user/role/menu/config domain)
 ├── osr-quartz/         # 定时任务 (job scheduler)
-├── osr-openliststrm/   # ★ 核心业务，新功能几乎都写在这里 (21个子包，见下)
+├── osr-openliststrm/   # ★ 核心业务，新功能几乎都写在这里 (22个子包，见下)
 ├── osr-web/         # Vue 3 前端 (Vite + Pinia + Vuetify 3 + PWA)
 ├── Dockerfile.backend    # Java 25 JRE + --enable-preview
 ├── Dockerfile.frontend   # Node 20 build → Nginx Alpine
@@ -20,15 +20,15 @@
 └── nginx.conf            # SPA + API proxy + WebSocket proxy
 ```
 
-`osr-openliststrm` 按功能域分包（21 个）：
-`api/ config/ controller/ dashboard/ enums/ helper/ mcp/ monitor/ mybatisplus/ notify/ openai/ orphan/ pt/ rename/ req/ scrape/ service/ task/ tg/ tmdb/ upload/ wecom/`
+`osr-openliststrm` 按功能域分包（22 个）：
+`api/ chat/ config/ controller/ dashboard/ enums/ helper/ mcp/ monitor/ mybatisplus/ notify/ openai/ orphan/ pt/ rename/ req/ scrape/ service/ task/ tg/ tmdb/ upload/ wecom/`
 
 ## WHERE TO LOOK
 | 任务 | 位置 | 备注 |
 |------|------|------|
 | STRM 生成 | `osr-openliststrm/src/main/java/com/osr/openliststrm/` | task/, helper/, tmdb/, rename/ |
 | 文件夹同步 | `osr-openliststrm/src/main/java/com/osr/openliststrm/` | api/, upload/, service/ |
-| Telegram Bot | `osr-openliststrm/src/main/java/com/osr/openliststrm/tg/` | bot commands & handlers |
+| Telegram Bot | `osr-openliststrm/src/main/java/com/osr/openliststrm/tg/` | bot commands & handlers；PT 订阅指令逻辑在 `chat/`，与企微共用 |
 | 企业微信 | `osr-openliststrm/src/main/java/com/osr/openliststrm/wecom/` | 自建应用 API、回调加解密、订阅指令交互 |
 | 通知渠道 | `osr-openliststrm/src/main/java/com/osr/openliststrm/notify/` | INotifier 抽象 + TG/Webhook/企微/Bark/Gotify 五个实现；路由由 `notify_route` 表决定 |
 | 刮削 | `osr-openliststrm/src/main/java/com/osr/openliststrm/scrape/` + `tmdb/` | TMDb 刮削、文件删除 |
@@ -89,6 +89,7 @@
 | `…/openliststrm/controller/` | REST 端点：继承来的增删改开放范围、统计接口、批量删除 |
 | `…/openliststrm/mybatisplus/` | 数据层 Wrapper 的陷阱 |
 | `…/openliststrm/wecom/` | 企业微信回调鉴权 |
+| `…/openliststrm/chat/` | 企微与 TG 共用的订阅聊天指令：按钮会话 id、补搜异步、TG 身份与回调校验 |
 | `osr-quartz/AGENTS.md` | 定时任务：两条执行路径、手动执行异步化与并发闸门、执行记录的时间列 |
 | `osr-framework/AGENTS.md` | 接口授权、JWT 失效、Filter 注册、访问日志、全局异常、Actuator |
 | `osr-common/AGENTS.md` | SQL 迁移注册、分页上下文、日志节流三件套、traceId 封顶 |

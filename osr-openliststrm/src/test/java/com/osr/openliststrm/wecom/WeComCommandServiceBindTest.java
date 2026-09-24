@@ -1,5 +1,7 @@
 package com.osr.openliststrm.wecom;
 
+import com.osr.openliststrm.chat.ChatSessionStore;
+import com.osr.openliststrm.chat.PtChatCommandService;
 import com.osr.openliststrm.config.OpenlistConfig;
 import com.osr.openliststrm.mybatisplus.domain.WecomUserPlus;
 import com.osr.openliststrm.mybatisplus.service.IWecomUserPlusService;
@@ -11,6 +13,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -31,13 +34,16 @@ class WeComCommandServiceBindTest {
     @Mock private IWecomUserPlusService wecomUserService;
     @Mock private WeComUserProvisioner provisioner;
     @Mock private OpenlistConfig config;
-    /** 「帮助」指令会清会话，不打桩会 NPE */
-    @Mock private WeComSessionStore sessionStore;
+    @Mock private ChatSessionStore sessionStore;
+
+    /** 指令本身由共用的聊天指令服务处理，这里用真实实例（其依赖同为 mock）接到被测类上 */
+    @InjectMocks private PtChatCommandService chatCommandService;
 
     @InjectMocks private WeComCommandService service;
 
     @BeforeEach
     void setUp() {
+        ReflectionTestUtils.setField(service, "chatCommandService", chatCommandService);
         when(config.isWeComAutoCreateUser()).thenReturn(true);
     }
 
