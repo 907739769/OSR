@@ -17,15 +17,15 @@
       <v-text-field
         v-model="form.url"
         label="服务器地址"
-        placeholder="如 http://192.168.1.10:8096"
+        :placeholder="isPlex(form.type) ? '如 http://192.168.1.10:32400' : '如 http://192.168.1.10:8096'"
         :rules="toRuleFns(rules.url)"
         class="mb-2"
       />
       <v-text-field
         v-model="form.apiKey"
-        label="API Key"
+        :label="isPlex(form.type) ? 'X-Plex-Token' : 'API Key'"
         type="password"
-        :placeholder="form.id ? '留空则不修改 API Key' : '请输入 API Key'"
+        :placeholder="form.id ? '留空则不修改' : isPlex(form.type) ? '请输入服务器的 Plex Token' : '请输入 API Key'"
         :rules="apiKeyRules"
         class="mb-2"
       />
@@ -33,7 +33,9 @@
       <!-- 用户ID 保持可手填：拉取要管理员权限、也可能因为服务器不通而失败，
            那时输入框仍是唯一的出路。下面的列表只是省掉「去 Web 控制台 URL 里抠一串
            32 位十六进制」这一步，不取代它 -->
+      <!-- Plex 没有「按用户查询」：托管用户要走 plex.tv 换 token，这里一律用服务器 token 全库查 -->
       <v-text-field
+        v-if="!isPlex(form.type)"
         v-model="form.userId"
         label="用户ID"
         placeholder="留空则按服务器全库查询"
@@ -53,7 +55,7 @@
         </template>
       </v-text-field>
 
-      <div v-if="users.length" class="user-picks mb-2">
+      <div v-if="users.length && !isPlex(form.type)" class="user-picks mb-2">
         <v-chip
           size="small"
           variant="tonal"
@@ -92,7 +94,7 @@ import { computed } from 'vue'
 import FormDialogShell from '@/components/dialogs/FormDialogShell.vue'
 import { usePageState } from '@/composables/pageStateContext'
 import { toRuleFns } from '@/composables/formRules'
-import { MEDIA_SERVER_TYPES } from '@/composables/mediaServerTypes'
+import { MEDIA_SERVER_TYPES, isPlex } from '@/composables/mediaServerTypes'
 import type { usePtMediaServer } from '@/composables/usePtMediaServer'
 
 const {
