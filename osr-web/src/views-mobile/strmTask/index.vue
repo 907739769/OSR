@@ -72,6 +72,7 @@
             <span class="card-title card-title--link" @click.stop="showFullText(task.strmTaskPath, 'STRM目录')">{{ task.strmTaskPath }}</span>
           </div>
           <v-chip v-if="hasOverride(task)" size="x-small" color="primary" variant="tonal">已覆盖</v-chip>
+          <v-chip v-if="task.incremental === '1'" size="x-small" color="info" variant="tonal" :title="incrementalTitle(task)">增量</v-chip>
           <StatusChip :value="task.strmTaskStatus" />
         </div>
         <div class="card-time">
@@ -136,6 +137,7 @@ const {
   handleAdd, handleUpdate,
   handleDelete, handleExecuteOne,
   hasOverride,
+  incrementalTitle,
   toggleSelect, handleCardClick, clearSelection,
   isAllPageSelected, toggleSelectAllPage,
   totalPages, prevPage, nextPage, handleSizeChange,

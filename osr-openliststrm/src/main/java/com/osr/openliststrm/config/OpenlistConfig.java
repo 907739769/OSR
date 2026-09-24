@@ -289,6 +289,22 @@ public class OpenlistConfig {
     }
 
     /**
+     * 开启了增量扫描的 STRM 任务，距上次全量超过这么多天就在定时执行时改为全量一次。
+     * 未配置或非法时默认 7；0 表示每次都全量（等于关掉增量）；负数按 0 处理。
+     */
+    public int getStrmFullScanDays() {
+        String value = sysConfigService.selectConfigByKey("openlist.strm.fullscan.days");
+        if (value == null || value.isBlank()) {
+            return 7;
+        }
+        try {
+            return Math.max(0, Integer.parseInt(value.trim()));
+        } catch (NumberFormatException e) {
+            return 7;
+        }
+    }
+
+    /**
      * 同步遍历时要跳过的「临时目录」识别规则：逗号分隔的正则，<b>整体匹配目录名</b>（不是子串匹配）。
      * <p>
      * 默认一条 {@code .+__[0-9A-Za-z]{6}}，对应下载器删种时产生的

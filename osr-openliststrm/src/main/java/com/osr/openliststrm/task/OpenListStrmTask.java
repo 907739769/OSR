@@ -87,9 +87,8 @@ public class OpenListStrmTask {
         LambdaQueryWrapper<OpenlistStrmTaskPlus> wrapper = new LambdaQueryWrapper<>();
         wrapper.eq(OpenlistStrmTaskPlus::getStrmTaskStatus, "1");
         List<OpenlistStrmTaskPlus> taskList = strmTaskPlusService.list(wrapper);
-        taskList.forEach(task -> {
-            strmService.strmDir(task.getStrmTaskPath());
-        });
+        // 定时执行：开了增量扫描的任务在全量周期内只列有变化的目录
+        taskList.forEach(task -> strmService.strmTask(task, false));
     }
 
     public void rename() {

@@ -155,7 +155,7 @@ public class ConfigBackupService {
 
     private EntitySpec<?> spec(BackupSection section) {
         return switch (section) {
-            case STRM_TASK -> new EntitySpec<>(section, strmTaskService, STRM_TASK, Set.of(), Set.of(), List.of(),
+            case STRM_TASK -> new EntitySpec<>(section, strmTaskService, STRM_TASK, Set.of("lastFullScanTime"), Set.of(), List.of(),
                     j -> j.getString("strmTaskPath"), j -> j.getString("strmTaskPath"));
             case COPY_TASK -> new EntitySpec<>(section, copyTaskService, COPY_TASK, Set.of("lastSyncTime"), Set.of(), List.of(),
                     j -> pair(j.getString("copyTaskSrc"), j.getString("copyTaskDst")),

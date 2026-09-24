@@ -3,21 +3,27 @@ package com.osr.openliststrm.service.impl;
 import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.osr.common.utils.Threads;
 import com.osr.framework.manager.AsyncManager;
 import com.osr.openliststrm.api.OpenlistApi;
 import com.osr.openliststrm.config.OpenlistConfig;
+import com.osr.openliststrm.helper.MediaExtensionProvider;
 import com.osr.openliststrm.helper.OpenListHelper;
 import com.osr.openliststrm.helper.StrmHelper;
 import com.osr.openliststrm.mybatisplus.domain.OpenlistCopyPlus;
+import com.osr.openliststrm.mybatisplus.domain.OpenlistStrmDirSnapshotPlus;
 import com.osr.openliststrm.mybatisplus.domain.OpenlistStrmPlus;
 import com.osr.openliststrm.mybatisplus.domain.OpenlistStrmTaskPlus;
 import com.osr.openliststrm.mybatisplus.service.IOpenlistCopyPlusService;
+import com.osr.openliststrm.mybatisplus.service.IOpenlistStrmDirSnapshotPlusService;
 import com.osr.openliststrm.mybatisplus.service.IOpenlistStrmPlusService;
 import com.osr.openliststrm.mybatisplus.service.IOpenlistStrmTaskPlusService;
 import com.osr.openliststrm.rename.cleanup.ArtifactPaths;
 import com.osr.openliststrm.service.BatchRemoveOutcome;
 import com.osr.openliststrm.service.IStrmService;
+import com.osr.openliststrm.service.StrmIncrementalScan;
+import com.osr.openliststrm.service.StrmIncrementalScan.Mode;
 import com.osr.openliststrm.service.StrmSettings;
 import com.osr.openliststrm.service.StrmSettingsFactory;
 import jakarta.annotation.PostConstruct;
@@ -41,6 +47,7 @@ import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.Collections;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -48,6 +55,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Semaphore;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.Pattern;
 
 @Service
@@ -56,6 +64,28 @@ public class StrmServiceImpl implements IStrmService {
 
     /** BFS遍历收集的文件条目 */
     private record FileEntry(String path, String localPath, String name, long size) {}
+
+    /** 待列举的目录；modified 取自列父目录时的那一项，根目录没有父目录可列，为 null */
+    private record DirTask(String path, String modified) {}
+
+    /** 本轮实际列过的目录：修改时间、是否叶子（没有子目录） */
+    private record DirVisit(String modified, boolean leaf) {}
+
+    /** 单个文件的处理结果；settled=false 表示这次没处理完（写失败、字幕查不到），所在目录不能记快照 */
+    private record EntryResult(List<OpenlistStrmPlus> records, boolean settled) {}
+
+    /**
+     * 一轮目录级生成里与增量扫描有关的状态。
+     *
+     * @param snapshots 子树内已有快照，按目录路径；FULL 模式下为空表
+     * @param visits    本轮实际列过的目录，并发写入
+     * @param skipped   本轮因快照对得上而跳过的目录数
+     */
+    private record ScanState(Mode mode, String settingsSign, Map<String, OpenlistStrmDirSnapshotPlus> snapshots,
+                             Map<String, DirVisit> visits, AtomicInteger skipped) {}
+
+    /** 一轮目录级生成的统计 */
+    record ScanStats(int listedDirs, int skippedDirs, int files, int generated) {}
 
     /**
      * 单次 STRM 任务的配置快照。避免在每文件的热循环里重复走 sysConfig 缓存查询与 parseLong，
@@ -113,6 +143,12 @@ public class StrmServiceImpl implements IStrmService {
 
     @Autowired
     private TransactionTemplate transactionTemplate;
+
+    @Autowired
+    private IOpenlistStrmDirSnapshotPlusService snapshotService;
+
+    @Autowired
+    private MediaExtensionProvider mediaExtensions;
 
     private static final Pattern ILLEGAL_PATTERN = Pattern.compile("[\\\\/:*?\"<>|]");
 
@@ -216,6 +252,38 @@ public class StrmServiceImpl implements IStrmService {
         } finally {
             log.info("strm任务执行完成: {}", path);
         }
+    }
+
+    @Override
+    public void strmTask(OpenlistStrmTaskPlus task, boolean forceFull) {
+        String path = task.getStrmTaskPath();
+        Mode mode = Mode.FULL;
+        if (task.incrementalOn()) {
+            boolean due = StrmIncrementalScan.fullScanDue(task.getLastFullScanTime(), config.getStrmFullScanDays(), new Date());
+            mode = (forceFull || due) ? Mode.FULL_REBUILD : Mode.INCREMENTAL;
+        }
+        log.info("开始执行 STRM 任务#{} {}：{}", task.getStrmTaskId(), path, describeMode(mode, forceFull));
+        try {
+            ScanStats stats = scan(path, resolveSettings(path), mode);
+            if (mode == Mode.FULL_REBUILD) {
+                // 只写这一列：用整个实体 updateById 会把执行期间用户在页面上改过的配置冲回去
+                openlistStrmTaskPlusService.update(new LambdaUpdateWrapper<OpenlistStrmTaskPlus>()
+                        .eq(OpenlistStrmTaskPlus::getStrmTaskId, task.getStrmTaskId())
+                        .set(OpenlistStrmTaskPlus::getLastFullScanTime, new Date()));
+            }
+            log.info("STRM 任务#{} 完成：列目录 {} 个，跳过未变化目录 {} 个，扫描 {} 个文件，生成 {} 个 .strm 记录",
+                    task.getStrmTaskId(), stats.listedDirs(), stats.skippedDirs(), stats.files(), stats.generated());
+        } catch (Exception e) {
+            log.error("STRM 任务#{} 执行异常 {}：{}", task.getStrmTaskId(), path, e.getMessage(), e);
+        }
+    }
+
+    private static String describeMode(Mode mode, boolean forceFull) {
+        return switch (mode) {
+            case FULL -> "全量扫描";
+            case INCREMENTAL -> "增量扫描";
+            case FULL_REBUILD -> forceFull ? "全量扫描（手动执行）并重建增量快照" : "全量扫描（到了全量周期）并重建增量快照";
+        };
     }
 
     @Override
@@ -449,12 +517,25 @@ public class StrmServiceImpl implements IStrmService {
     }
 
     public void getData(String rootPath, StrmSettings settings) {
+        ScanStats stats = scan(rootPath, settings, Mode.FULL);
+        // 打「生成数」而不是只打「扫描数」：扫了 500 个文件、因为非媒体/太小/已处理而一个 .strm 都没生成时，
+        // 只打扫描数读起来完全像成功了
+        log.info("STRM 文件并行处理完成：列目录 {} 个，扫描 {} 个文件，生成 {} 个 .strm 记录",
+                stats.listedDirs(), stats.files(), stats.generated());
+    }
+
+    /**
+     * 目录级生成。{@code mode} 为 FULL 时与增量扫描引入前逐字节同一行为（不读不写快照）。
+     */
+    ScanStats scan(String rootPath, StrmSettings settings, Mode mode) {
+        Date runStart = new Date();
         // 单次任务配置快照，避免每文件热循环重复取配置。
         // 输出根目录 / downloadSub / minSize 来自 settings（全局配置叠加任务级覆盖），
         // encode 仍取全局：它有解码侧消费者，理由见 StrmSettingsFactory 的类注释
         String localRootPath = settings.outputDir();
         StrmCtx ctx = new StrmCtx(config.getOpenListUrl(), shouldEncode(), settings.downloadSub(),
                 settings.minSize(), config.getTraversalRefresh());
+        ScanState state = newScanState(rootPath, settings, ctx, mode);
 
         // 第一阶段：并行 BFS 遍历收集所有待处理文件。
         // 目录列举是网络 IO（每目录一次 fs/list），逐层并发列举可显著缩短大目录树的遍历耗时。
@@ -463,17 +544,17 @@ public class StrmServiceImpl implements IStrmService {
         Semaphore dirSemaphore = new Semaphore(config.getTraversalConcurrency());
 
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            List<String> currentLevel = new java.util.ArrayList<>();
-            currentLevel.add(rootPath);
+            List<DirTask> currentLevel = new java.util.ArrayList<>();
+            currentLevel.add(new DirTask(rootPath, null));
 
             while (!currentLevel.isEmpty()) {
-                List<CompletableFuture<List<String>>> futures = currentLevel.stream()
-                        .map(path -> CompletableFuture.supplyAsync(Threads.wrapSupplier(
-                                () -> listDirCollect(path, localRootPath, fileEntries, dirSemaphore, ctx)), executor))
+                List<CompletableFuture<List<DirTask>>> futures = currentLevel.stream()
+                        .map(dir -> CompletableFuture.supplyAsync(Threads.wrapSupplier(
+                                () -> listDirCollect(dir, localRootPath, fileEntries, dirSemaphore, ctx, state)), executor))
                         .toList();
 
-                List<String> nextLevel = new java.util.ArrayList<>();
-                for (CompletableFuture<List<String>> f : futures) {
+                List<DirTask> nextLevel = new java.util.ArrayList<>();
+                for (CompletableFuture<List<DirTask>> f : futures) {
                     nextLevel.addAll(f.join());
                 }
                 currentLevel = nextLevel;
@@ -481,7 +562,8 @@ public class StrmServiceImpl implements IStrmService {
         }
 
         int fileEntryCount = fileEntries.size();
-        log.info("BFS遍历完成，共收集到 {} 个待处理文件", fileEntryCount);
+        log.info("BFS遍历完成，列目录 {} 个，跳过未变化目录 {} 个，共收集到 {} 个待处理文件",
+                state.visits().size(), state.skipped().get(), fileEntryCount);
 
         // 一次性批量查出该目录树下已有的 strm 记录，用途两个：
         // 1) successKeys（仅成功记录）用于处理阶段跳过已成功的文件；
@@ -493,22 +575,18 @@ public class StrmServiceImpl implements IStrmService {
         // 不补分隔符时 /电视剧/三体 会连 /电视剧/三体2 一起捞；不转义时路径里的 _（发布组命名的常态）
         // 在 LIKE 里是"任意单字符"。两者都只造成过取（recordKey 是精确匹配，多捞的行 key 对不上，
         // 不会误跳过文件也不会判错 insert/update），但白读的行会实打实占住内存。
-        String rootDir = normalizedRoot(rootPath);
-        List<OpenlistStrmPlus> existingList = openlistStrmPlusService.lambdaQuery()
-                .and(w -> w.eq(OpenlistStrmPlus::getStrmPath, rootDir)
-                        .or().likeRight(OpenlistStrmPlus::getStrmPath, subtreeLikePrefix(rootPath)))
-                .select(OpenlistStrmPlus::getStrmId, OpenlistStrmPlus::getStrmPath,
-                        OpenlistStrmPlus::getStrmFileName, OpenlistStrmPlus::getStrmStatus)
-                .list();
-        ExistingIndex existing = indexExisting(existingList);
+        ExistingIndex existing = indexExisting(loadExistingRecords(rootPath));
         Set<String> existingKeys = existing.successKeys();
         Map<String, Integer> existingIdByKey = existing.failedIdByKey();
 
         // 第二阶段：虚拟线程并行处理文件，处理结果（待写入的DB记录）先收集，处理完成后统一批量落库，
         // 避免每文件各自调度一次异步单行查询+insert/update（N 次数据库往返）
-        List<OpenlistStrmPlus> pendingRecords;
+        List<OpenlistStrmPlus> pendingRecords = new java.util.ArrayList<>();
+        // 有文件没处理完的目录：这次不能记快照，否则下次增量会把没处理完的文件连同目录一起跳过
+        Set<String> unsettledDirs = new java.util.HashSet<>();
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
-            List<CompletableFuture<List<OpenlistStrmPlus>>> futures = fileEntries.stream()
+            List<FileEntry> entries = List.copyOf(fileEntries);
+            List<CompletableFuture<EntryResult>> futures = entries.stream()
                 .map(entry -> CompletableFuture.supplyAsync(Threads.wrapSupplier(() -> {
                     try {
                         STRM_SEMAPHORE.acquire();
@@ -519,25 +597,86 @@ public class StrmServiceImpl implements IStrmService {
                         }
                     } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
-                        return Collections.<OpenlistStrmPlus>emptyList();
+                        return new EntryResult(Collections.emptyList(), false);
                     }
                 }), executor).exceptionally(ex -> {
                     // 单个文件处理异常不应导致整批已收集的记录全部无法落库，兜底为空列表后继续
                     log.error("处理文件条目异常 {} / {}", entry.path(), entry.name(), ex);
-                    return Collections.emptyList();
+                    return new EntryResult(Collections.emptyList(), false);
                 }))
                 .toList();
-            pendingRecords = futures.stream()
-                    .map(CompletableFuture::join)
-                    .flatMap(List::stream)
-                    .toList();
+            for (int i = 0; i < entries.size(); i++) {
+                EntryResult result = futures.get(i).join();
+                pendingRecords.addAll(result.records());
+                if (!result.settled()) {
+                    unsettledDirs.add(entries.get(i).path());
+                }
+            }
         }
         strmHelper.batchAddStrm(pendingRecords, existingIdByKey);
-        // 打 pendingRecords 而不是 fileEntryCount：后者是 BFS 扫到的<b>输入</b>数，
-        // 而真正生成的是前者。扫了 500 个文件、因为非媒体/太小/已处理而一个 .strm 都没生成时，
-        // 原先那行会说「共处理 500 个文件」——读起来完全像成功了
-        log.info("STRM 文件并行处理完成：扫描 {} 个文件，生成 {} 个 .strm 记录",
-                fileEntryCount, pendingRecords.size());
+        if (mode != Mode.FULL) {
+            persistSnapshots(rootPath, state, unsettledDirs, runStart);
+        }
+        return new ScanStats(state.visits().size(), state.skipped().get(), fileEntryCount, pendingRecords.size());
+    }
+
+    /** 读出快照与设置指纹；FULL 模式什么都不读，保证没开增量的任务行为与以前完全一致 */
+    private ScanState newScanState(String rootPath, StrmSettings settings, StrmCtx ctx, Mode mode) {
+        if (mode == Mode.FULL) {
+            return new ScanState(mode, "", Map.of(), new java.util.concurrent.ConcurrentHashMap<>(), new AtomicInteger());
+        }
+        String sign = StrmIncrementalScan.settingsSign(ctx.baseUrl(), ctx.encode(), ctx.downloadSub(), ctx.minSize(),
+                settings.outputDir(), mediaExtensions.videoExtensions(), mediaExtensions.subtitleExtensions());
+        return new ScanState(mode, sign, snapshotService.loadSubtree(normalizedRoot(rootPath)),
+                new java.util.concurrent.ConcurrentHashMap<>(), new AtomicInteger());
+    }
+
+    /**
+     * 按本轮列过的目录更新快照：没有子目录、修改时间可用、文件全部处理完的记一行，其余删掉旧行。
+     * 全量重建时再清掉这棵子树里本轮没确认过的行（目录已不存在）。
+     * <p>
+     * <b>快照写失败不影响生成结果</b>，只打一条警告：.strm 已经写好了，缺快照的目录下次照常列，
+     * 最坏也只是这一轮省不下请求。
+     */
+    private void persistSnapshots(String rootPath, ScanState state, Set<String> unsettledDirs, Date runStart) {
+        String root = normalizedRoot(rootPath);
+        Date now = new Date();
+        List<OpenlistStrmDirSnapshotPlus> keep = new java.util.ArrayList<>();
+        List<String> drop = new java.util.ArrayList<>();
+        state.visits().forEach((path, visit) -> {
+            boolean snapshotable = visit.leaf() && !path.equals(root)
+                    && StrmIncrementalScan.knownModified(visit.modified()) && !unsettledDirs.contains(path);
+            if (snapshotable) {
+                OpenlistStrmDirSnapshotPlus snapshot = new OpenlistStrmDirSnapshotPlus();
+                snapshot.setDirPath(path);
+                snapshot.setModified(visit.modified());
+                snapshot.setSettingsSign(state.settingsSign());
+                snapshot.setScannedTime(now);
+                keep.add(snapshot);
+            } else if (state.snapshots().containsKey(path)) {
+                drop.add(path);
+            }
+        });
+        try {
+            snapshotService.upsert(keep);
+            snapshotService.removePaths(drop);
+            int purged = state.mode() == Mode.FULL_REBUILD ? snapshotService.purgeStale(root, runStart) : 0;
+            log.info("STRM 增量快照已更新 {}：记录 {} 个叶子目录，移除 {} 个不再适用的，清理 {} 个已不存在的",
+                    root.isEmpty() ? "/" : root, keep.size(), drop.size(), purged);
+        } catch (Exception e) {
+            log.warn("更新 STRM 增量快照失败 {}（不影响本次生成，下次这些目录照常列举）：{}", root, e.getMessage(), e);
+        }
+    }
+
+    /** 子树内已有的生成记录，只取建索引要用的四列 */
+    List<OpenlistStrmPlus> loadExistingRecords(String rootPath) {
+        String rootDir = normalizedRoot(rootPath);
+        return openlistStrmPlusService.lambdaQuery()
+                .and(w -> w.eq(OpenlistStrmPlus::getStrmPath, rootDir)
+                        .or().likeRight(OpenlistStrmPlus::getStrmPath, subtreeLikePrefix(rootPath)))
+                .select(OpenlistStrmPlus::getStrmId, OpenlistStrmPlus::getStrmPath,
+                        OpenlistStrmPlus::getStrmFileName, OpenlistStrmPlus::getStrmStatus)
+                .list();
     }
 
     /**
@@ -617,9 +756,9 @@ public class StrmServiceImpl implements IStrmService {
      * 列举单个目录：创建对应本地目录、收集其中的文件条目、返回子目录路径列表（供下一层遍历）。
      * 通过信号量限制并发列举数，避免压垮 AList。
      */
-    private List<String> listDirCollect(String rawPath, String localRootPath,
-                                        java.util.Queue<FileEntry> fileEntries, Semaphore dirSemaphore, StrmCtx ctx) {
-        String currentPath = StringUtils.removeEnd(rawPath, "/");
+    private List<DirTask> listDirCollect(DirTask dir, String localRootPath, java.util.Queue<FileEntry> fileEntries,
+                                         Semaphore dirSemaphore, StrmCtx ctx, ScanState state) {
+        String currentPath = StringUtils.removeEnd(dir.path(), "/");
         String currentLocalPath = localRootPath + File.separator + currentPath.replace("/", File.separator);
         File currentDir = new File(currentLocalPath);
         if (!currentDir.exists()) {
@@ -645,7 +784,8 @@ public class StrmServiceImpl implements IStrmService {
                 return Collections.emptyList();
             }
 
-            List<String> childDirs = new java.util.ArrayList<>();
+            List<DirTask> childDirs = new java.util.ArrayList<>();
+            boolean hasSubDir = false;
             for (Object obj : jsonArray) {
                 JSONObject object = (JSONObject) obj;
                 String rawName = object.getString("name");
@@ -653,11 +793,20 @@ public class StrmServiceImpl implements IStrmService {
                 long size = object.getLongValue("size");
 
                 if (isDir) {
-                    childDirs.add(currentPath + "/" + rawName);
+                    hasSubDir = true;
+                    String childPath = currentPath + "/" + rawName;
+                    String modified = object.getString("modified");
+                    if (state.mode() == Mode.INCREMENTAL
+                            && StrmIncrementalScan.canSkip(state.snapshots().get(childPath), modified, state.settingsSign())) {
+                        state.skipped().incrementAndGet();
+                        continue;
+                    }
+                    childDirs.add(new DirTask(childPath, modified));
                 } else if (isCollectible(rawName, ctx)) {
                     fileEntries.add(new FileEntry(currentPath, currentLocalPath, rawName, size));
                 }
             }
+            state.visits().put(currentPath, new DirVisit(dir.modified(), !hasSubDir));
             return childDirs;
         } finally {
             dirSemaphore.release();
@@ -668,7 +817,7 @@ public class StrmServiceImpl implements IStrmService {
      * 处理单个文件条目（从 getData 中提取出的文件处理逻辑）。
      * 返回本文件产生的待写入DB记录（0~2条：视频/字幕各一条），由调用方统一批量落库。
      */
-    private List<OpenlistStrmPlus> processFileEntry(FileEntry entry, Set<String> existingKeys, StrmCtx ctx) {
+    private EntryResult processFileEntry(FileEntry entry, Set<String> existingKeys, StrmCtx ctx) {
         String currentPath = entry.path();
         String currentLocalPath = entry.localPath();
         String rawName = entry.name();
@@ -678,14 +827,14 @@ public class StrmServiceImpl implements IStrmService {
             if (log.isDebugEnabled()) {
                 log.debug("文件已处理过，跳过处理 {} / {}", currentPath, rawName);
             }
-            return Collections.emptyList();
+            return new EntryResult(Collections.emptyList(), true);
         }
 
         if (!openListHelper.isVideo(rawName) && !openListHelper.isSrt(rawName)) {
             if (log.isDebugEnabled()) {
                 log.debug("跳过非媒体文件：{}", rawName);
             }
-            return Collections.emptyList();
+            return new EntryResult(Collections.emptyList(), true);
         }
 
         int dot = rawName.lastIndexOf('.');
@@ -694,11 +843,12 @@ public class StrmServiceImpl implements IStrmService {
         String fileName = safeName.length() > 255 ? safeName.substring(0, 250) : safeName;
 
         List<OpenlistStrmPlus> records = new java.util.ArrayList<>(2);
+        boolean settled = true;
 
         if (openListHelper.isVideo(rawName)) {
             if (size < ctx.minSize()) {
                 log.debug("跳过小文件：{}（{} 字节）", rawName, size);
-                return records;
+                return new EntryResult(records, true);
             }
 
             Path strmFile = Paths.get(currentLocalPath).resolve(fileName + ".strm");
@@ -715,6 +865,7 @@ public class StrmServiceImpl implements IStrmService {
             } catch (Exception e) {
                 log.error("写入 .strm 文件失败 {}", strmFile, e);
                 records.add(strmHelper.newRecord(currentPath, rawName, "0", size, StrmHelper.failReason("写入 .strm 文件失败", e)));
+                settled = false;
             }
         }
 
@@ -726,14 +877,19 @@ public class StrmServiceImpl implements IStrmService {
                     File outFile = new File(currentLocalPath + File.separator + fileName + rawName.substring(rawName.lastIndexOf(".")));
                     downloadSubtitle(url, outFile.getAbsolutePath());
                     records.add(strmHelper.newRecord(currentPath, rawName, "1", size, null));
+                } else {
+                    // 查不到字幕文件（OpenList 无响应或文件刚被删）时不落记录，下次全量会再试；
+                    // 增量这边也得让这个目录下次照常列，否则它会被一直跳过
+                    settled = false;
                 }
             } catch (Exception e) {
                 log.error("下载字幕失败 {} / {}", currentPath, rawName, e);
                 records.add(strmHelper.newRecord(currentPath, rawName, "0", size, StrmHelper.failReason("下载字幕失败", e)));
+                settled = false;
             }
         }
 
-        return records;
+        return new EntryResult(records, settled);
     }
 
     /**

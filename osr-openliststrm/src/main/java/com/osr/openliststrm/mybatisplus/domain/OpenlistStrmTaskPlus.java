@@ -8,6 +8,8 @@ import com.osr.common.mybatisplus.BaseEntity;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.util.Date;
+
 /**
  * <p>
  * strm任务配置
@@ -47,4 +49,23 @@ public class OpenlistStrmTaskPlus extends BaseEntity {
      */
     @TableField("strm_override")
     private String strmOverride;
+
+    /**
+     * 定时执行时是否增量扫描（跳过修改时间没变的叶子目录）：0-否 1-是。
+     * 只影响定时任务；页面/TG 手动执行、复制完成触发的生成一律全量。
+     */
+    @TableField("incremental")
+    private String incremental;
+
+    /** 上次全量扫描完成的时间，NULL 表示还没全量扫过（下次定时执行必定全量） */
+    @TableField("last_full_scan_time")
+    private Date lastFullScanTime;
+
+    /**
+     * 是否开启了增量扫描。刻意不叫 isIncremental()：Lombok 已为 incremental 字段生成 getIncremental()，
+     * 再加一个 boolean 的 isXxx 会让 MyBatis 在第一次写库时报 getter 歧义（见根 AGENTS.md）
+     */
+    public boolean incrementalOn() {
+        return "1".equals(incremental);
+    }
 }

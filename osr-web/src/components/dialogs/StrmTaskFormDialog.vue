@@ -11,6 +11,23 @@
         </v-radio-group>
       </FormField>
 
+      <FormField label="增量扫描">
+        <v-switch
+          v-model="form.incremental"
+          true-value="1"
+          false-value="0"
+          color="primary"
+          density="compact"
+          hide-details
+          inset
+        />
+      </FormField>
+      <p class="override-tip">
+        开启后，定时执行只列出修改时间变化了的目录，没变化的「只有文件的目录」（如 Season 1、单部电影）直接跳过，
+        每隔一段时间（参数设置「STRM 增量扫描的全量间隔」，默认 7 天）自动全量一次；手动点「执行」始终是全量。
+        需要网盘驱动在目录内增删文件时更新该目录的修改时间——本地存储一定会，网盘请先确认，否则直接传到网盘的新文件要等到下次全量才出 STRM。
+      </p>
+
       <div class="section-divider"><span>任务级覆盖</span></div>
       <p class="override-tip">只勾选需要覆盖的项，不勾选的沿用全局配置（参数设置页里的 STRM 相关项）。</p>
 

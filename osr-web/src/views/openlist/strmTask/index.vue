@@ -93,6 +93,16 @@
             <v-chip v-if="hasOverride(item)" size="x-small" color="primary" variant="tonal" class="override-chip">
               已覆盖
             </v-chip>
+            <v-chip
+              v-if="item.incremental === '1'"
+              size="x-small"
+              color="info"
+              variant="tonal"
+              class="override-chip"
+              :title="incrementalTitle(item)"
+            >
+              增量
+            </v-chip>
           </div>
         </template>
         <template #item.strmTaskStatus="{ item }">
@@ -136,7 +146,7 @@ const {
   selectedIds, notOneSelected, noneSelected, handleSelectionChange,
   handleAdd, handleUpdate,
   handleDelete, handleExecuteOne, handleExecute,
-  hasOverride
+  hasOverride, incrementalTitle
 } = usePageStateProvider(useStrmTask())
 
 const headers = [

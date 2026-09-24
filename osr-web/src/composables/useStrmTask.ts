@@ -34,7 +34,8 @@ export function useStrmTask() {
       strmTaskId: undefined,
       strmTaskPath: undefined,
       strmTaskStatus: '1',
-      strmOverride: undefined
+      strmOverride: undefined,
+      incremental: '0'
     }),
     rules: {
       strmTaskPath: [{ required: true, message: 'STRM目录不能为空', trigger: 'blur' }]
@@ -145,6 +146,10 @@ export function useStrmTask() {
     }
   }
 
+  /** 「增量」标签的悬浮说明：带上上次全量时间，用户据此判断下次什么时候会全量兜底 */
+  const incrementalTitle = (row: any): string =>
+    `定时执行时跳过没变化的目录；上次全量：${row?.lastFullScanTime || '尚未全量扫描过（下次定时执行会全量）'}`
+
   /** 提交前把勾选表单序列化回 form.strmOverride */
   const submitFormWithOverride = () => {
     const override: Record<string, any> = {}
@@ -171,6 +176,6 @@ export function useStrmTask() {
     // 批量执行
     handleBatchExecute,
     // 任务级覆盖
-    overrideForm, hasOverride, submitFormWithOverride
+    overrideForm, hasOverride, submitFormWithOverride, incrementalTitle
   }
 }
