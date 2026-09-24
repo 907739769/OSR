@@ -50,6 +50,7 @@ src/
 | 两端共用的表单弹窗 | `src/components/dialogs/` | `FormDialogShell` + 10 个 `XxxFormDialog`，见下方「表单弹窗两端共用」 |
 | 移动端组件 | `src/components/mobile/` | MobileListPage(外壳), MobileSearchPanel, MobileBatchBar, MobileActionSheet, MobilePager, FullTextDialog, MobileTabBar, MobilePageAction, MobileMorePanel, MobileTabSettingsDialog |
 | 移动端外壳/导航 | `src/layouts/MobileLayout.vue` + `components/mobile/MobileTabBar.vue` + `MobileMorePanel.vue` | 顶栏 / 悬浮底栏 / 「更多」面板，见下方「移动端外壳」 |
+| 备份与恢复 | `views/system/backup/index.vue` + `api/system/backup.ts` | 只有 PC 一套；上传走 FormData（不走 JSON 体，避免进访问日志），订阅恢复轮询 `/restore/status`。后端约定见 `osr-openliststrm/.../backup/AGENTS.md` |
 | MCP 令牌管理 | `views/system/mcpToken/index.vue` + `api/system/mcpToken.ts` | 只有 PC 一套（同参数设置）；明文令牌只在签发响应里出现一次，页面必须让用户当场复制 |
 | PWA 配置 | `vite.config.ts` | VitePWA 插件配置 |
 | 动效 / 深度 / 排版令牌 | `src/styles/tokens.scss` + `motion.scss` + `surface.scss` | 见下方「动效系统」「深度系统」「排版」 |

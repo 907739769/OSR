@@ -46,6 +46,8 @@ const componentMap: Record<string, Component | (() => Promise<any>)> = {
   // 与参数设置一样只有 PC 一套：签发令牌要复制一长串明文和一条命令行，
   // 那是坐在电脑前才做得了的事，为它单做一套移动端界面没有意义
   'system/mcpToken/index': () => import('@/views/system/mcpToken/index.vue'),
+  // 同样只有 PC 一套：备份文件要在电脑上存下来、恢复要上传文件并逐项核对，手机上做这件事不现实
+  'system/backup/index': () => import('@/views/system/backup/index.vue'),
   'system/notifyRoute/index': createDeviceView(
     () => import('@/views/system/notifyRoute/index.vue'),
     () => import('@/views-mobile/notifyRoute/index.vue')

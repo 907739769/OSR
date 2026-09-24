@@ -122,7 +122,8 @@ public class MysqlDdl extends SimpleDdl {
                 "sql/20260797-pt-media-server-health.sql",
                 "sql/20260798-job-log-exec-time.sql",
                 "sql/20260799-notify-route-backfill.sql",
-                "sql/20260800-pt-upgrade-search-budget.sql"
+                "sql/20260800-pt-upgrade-search-budget.sql",
+                "sql/20260801-backup-menu.sql"
         );
     }
 }

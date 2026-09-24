@@ -12,7 +12,7 @@
 ├── osr-framework/      # 框架配置 (security, config, websocket)
 ├── osr-system/         # 标准系统管理模块 (user/role/menu/config domain)
 ├── osr-quartz/         # 定时任务 (job scheduler)
-├── osr-openliststrm/   # ★ 核心业务，新功能几乎都写在这里 (22个子包，见下)
+├── osr-openliststrm/   # ★ 核心业务，新功能几乎都写在这里 (23个子包，见下)
 ├── osr-web/         # Vue 3 前端 (Vite + Pinia + Vuetify 3 + PWA)
 ├── Dockerfile.backend    # Java 25 JRE + --enable-preview
 ├── Dockerfile.frontend   # Node 20 build → Nginx Alpine
@@ -20,8 +20,8 @@
 └── nginx.conf            # SPA + API proxy + WebSocket proxy
 ```
 
-`osr-openliststrm` 按功能域分包（22 个）：
-`api/ chat/ config/ controller/ dashboard/ enums/ helper/ mcp/ monitor/ mybatisplus/ notify/ openai/ orphan/ pt/ rename/ req/ scrape/ service/ task/ tg/ tmdb/ upload/ wecom/`
+`osr-openliststrm` 按功能域分包（23 个）：
+`api/ backup/ chat/ config/ controller/ dashboard/ enums/ helper/ mcp/ monitor/ mybatisplus/ notify/ openai/ orphan/ pt/ rename/ req/ scrape/ service/ task/ tg/ tmdb/ upload/ wecom/`
 
 ## WHERE TO LOOK
 | 任务 | 位置 | 备注 |
@@ -42,6 +42,7 @@
 | PT 统计仪表盘 | `osr-openliststrm/src/main/java/com/osr/openliststrm/pt/stats/` + `osr-web/src/composables/usePtStats.ts` | 聚合查询（含归属隔离）+ 两端共用的图表选项 |
 | 追剧日历 | `osr-openliststrm/src/main/java/com/osr/openliststrm/pt/calendar/` | 播出日期同步 + 按日期区间查排播 |
 | 缺集体检 | `osr-openliststrm/src/main/java/com/osr/openliststrm/pt/health/` | 逾期未入库的分档诊断 + 每日聚合提醒 |
+| 配置备份与恢复 | `osr-openliststrm/src/main/java/com/osr/openliststrm/backup/` + `osr-web/src/views/system/backup/` | 导出配置与订阅为 JSON，恢复按业务键合并、先预览后写入 |
 | MCP 服务端 | `osr-openliststrm/src/main/java/com/osr/openliststrm/mcp/` | 端点 `/mcp`，令牌鉴权 + 33 个工具，供本地 AI 助理连接 |
 | 安全/认证 | `osr-framework/src/main/java/com/osr/framework/security/` | Spring Security + JWT（无 Shiro，早期文档写的 shiro/ 目录并不存在） |
 | 登录防爆破 | `osr-framework/src/main/java/com/osr/framework/security/LoginAttemptService.java` | 账号桶 + IP 桶双计数，超阈值临时锁定 |
@@ -89,6 +90,7 @@
 | `…/openliststrm/controller/` | REST 端点：继承来的增删改开放范围、统计接口、批量删除 |
 | `…/openliststrm/mybatisplus/` | 数据层 Wrapper 的陷阱 |
 | `…/openliststrm/wecom/` | 企业微信回调鉴权 |
+| `…/openliststrm/backup/` | 配置备份：分区与恢复顺序、按名字引用、敏感字段语义、订阅重建不补搜 |
 | `…/openliststrm/chat/` | 企微与 TG 共用的订阅聊天指令：按钮会话 id、补搜异步、TG 身份与回调校验 |
 | `osr-quartz/AGENTS.md` | 定时任务：两条执行路径、手动执行异步化与并发闸门、执行记录的时间列 |
 | `osr-framework/AGENTS.md` | 接口授权、JWT 失效、Filter 注册、访问日志、全局异常、Actuator |
