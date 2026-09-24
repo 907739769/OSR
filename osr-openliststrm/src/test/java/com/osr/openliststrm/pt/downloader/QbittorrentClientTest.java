@@ -333,4 +333,14 @@ class QbittorrentClientTest {
 
         assertEquals(0, server.getRequestCount());
     }
+
+    @Test
+    void cumulativeUploaded_取maindata的alltime_ul() throws Exception {
+        server.enqueue(loginOk());
+        server.enqueue(new MockResponse().setBody("{\"rid\":1,\"server_state\":{\"alltime_ul\":123456789,\"alltime_dl\":1}}"));
+
+        assertEquals(123456789L, client.cumulativeUploaded(config(21)));
+        server.takeRequest();
+        assertEquals("/api/v2/sync/maindata?rid=0", server.takeRequest().getPath());
+    }
 }

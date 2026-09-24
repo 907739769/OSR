@@ -264,6 +264,13 @@ public class TransmissionClient implements IDownloaderClient {
     }
 
     @Override
+    public Long cumulativeUploaded(PtDownloaderPlus config) throws IOException {
+        JSONObject args = call(config, "session-stats", null).getJSONObject("arguments");
+        JSONObject cumulative = args == null ? null : args.getJSONObject("cumulative-stats");
+        return cumulative == null ? null : cumulative.getLong("uploadedBytes");
+    }
+
+    @Override
     public void recheckTorrent(PtDownloaderPlus config, String hash) throws IOException {
         JSONObject args = new JSONObject();
         args.put("ids", List.of(hash));

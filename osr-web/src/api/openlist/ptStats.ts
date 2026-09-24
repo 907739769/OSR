@@ -89,3 +89,43 @@ export function getPtStatsRejectReasonsApi() {
 export function getPtStatsTopSubscriptionsApi(days: number, limit: number) {
   return request.get<any, PtStatsActiveSubscription[]>('/openliststrm/pt-stats/top-subscriptions', { params: { days, limit } })
 }
+
+/** 保种看板：一台下载器此刻的保种现状；连不上时 error 有值 */
+export interface SeedingDownloader {
+  id: number
+  name: string
+  error?: string | null
+  torrentCount: number
+  seedingCount: number
+  seedingSize: number
+  uploadedSum: number
+  cumulativeUploaded?: number | null
+}
+
+export interface SeedingTorrentRow {
+  name: string
+  downloader: string
+  size: number
+  uploaded: number
+  ratio: number
+  seedingDays: number
+}
+
+/** uploaded 为 null 表示那天算不出（缺前一天快照、或下载器计数器被清零） */
+export interface SeedingDayPoint {
+  date: string
+  uploaded: number | null
+  seedingSize: number
+}
+
+export interface SeedingOverview {
+  downloaders: SeedingDownloader[]
+  trend: SeedingDayPoint[]
+  topUploaded: SeedingTorrentRow[]
+  lowRatio: SeedingTorrentRow[]
+}
+
+/** 仅管理员；非管理员返回 403，调用方静默隐藏整块（silent 不弹全局错误） */
+export function getPtSeedingOverviewApi(days: number) {
+  return request.get<any, SeedingOverview>('/openliststrm/pt-stats/seeding', { params: { days }, silent: true, timeout: 60000 })
+}

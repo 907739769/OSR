@@ -182,4 +182,16 @@ public interface IDownloaderClient {
      * @throws IOException 网络异常或下载器拒绝
      */
     void recheckTorrent(PtDownloaderPlus config, String hash) throws IOException;
+
+    /**
+     * 下载器自己记的累计上传字节（qB 的 {@code alltime_ul}、Transmission 的 {@code cumulative-stats.uploadedBytes}），
+     * 取不到时返回 null。
+     * <p>
+     * 保种看板靠它算「每天上传了多少」：它是下载器维护的单调计数器，删种不会让它变小；
+     * 拿现存种子的 {@code uploaded} 求和的话，删掉一个上传过 50G 的种子那天就是 -50G。
+     * </p>
+     */
+    default Long cumulativeUploaded(PtDownloaderPlus config) throws IOException {
+        return null;
+    }
 }
