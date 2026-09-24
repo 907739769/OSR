@@ -19,6 +19,7 @@ import com.osr.openliststrm.pt.subscription.SubscriptionSearchOnCreateTrigger;
 import com.osr.openliststrm.pt.PtLogText;
 import com.osr.openliststrm.pt.calendar.EpisodeAirDateSyncService;
 import com.osr.openliststrm.pt.subscription.SubscriptionDiagnosisService;
+import com.osr.openliststrm.pt.subscription.SubscriptionOwnerService;
 import com.osr.openliststrm.pt.subscription.SubscriptionService;
 import com.osr.openliststrm.pt.subscription.TmdbSearchService;
 import com.osr.openliststrm.pt.subscription.dto.BatchOperationResult;
@@ -70,6 +71,9 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
 
     @Autowired
     private EpisodeAirDateSyncService airDateSyncService;
+
+    @Autowired
+    private SubscriptionOwnerService ownerService;
 
     /**
      * 当前登录用户是否可以看到/操作所有订阅。管理员可以；其余用户只能碰自己的订阅
@@ -156,6 +160,7 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
         if (StringUtils.isNotBlank(entity.getAutoSearch())) {
             wrapper.eq(PtSubscriptionPlus::getAutoSearch, entity.getAutoSearch());
         }
+        SubscriptionOwnerService.apply(wrapper, entity.getOwnerFilter(), getUserId());
         if ("1".equals(entity.getHasMissing())) {
             wrapper.inSql(PtSubscriptionPlus::getId,
                     "SELECT sub_id FROM pt_subscription_episode WHERE " + airedMissingSql(""));
@@ -205,8 +210,20 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
         PageResult<PtSubscriptionPlus> page = result.getData();
         if (page != null) {
             subscriptionBiz.fillProgressCounts(page.getRecords());
+            if (canAccessAll()) {
+                // 非管理员只看得到自己的与公共的，没有「别人」可标
+                ownerService.fillOwnerNames(page.getRecords(), getUserId());
+            }
         }
         return result;
+    }
+
+    /**
+     * 「归属」筛选的可选项：我的、公共，管理员另有其余每个有订阅的用户，各带可见范围内的订阅数。
+     */
+    @GetMapping("/owners")
+    public Result<List<SubscriptionOwnerService.OwnerOption>> owners() {
+        return Result.success(ownerService.options(canAccessAll(), getUserId()));
     }
 
     /**

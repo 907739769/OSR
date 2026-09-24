@@ -70,6 +70,18 @@
         hide-details
         class="field-sm"
       />
+      <v-select
+        v-if="ownerFilterVisible"
+        v-model="queryParams.ownerFilter"
+        :items="ownerItems"
+        label="归属"
+        placeholder="归属"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        class="field-sm"
+      />
     </SearchPanel>
 
     <!-- 列表 -->
@@ -207,7 +219,7 @@ const {
   handleBatchPause, handleBatchResume,
   handleBatchAutoSearch, handleBatchSearchMissing, abortBatchSearch,
   batchSearchRunning, batchSearchDone, batchSearchTotal,
-  isAllPageSelected, toggleSelectAllPage } = usePtSubscriptionProvider({ autoLoad: false })
+  isAllPageSelected, toggleSelectAllPage, ownerItems, ownerFilterVisible } = usePtSubscriptionProvider({ autoLoad: false })
 
 // 每页条数按网格实际列数取整到整行，窗口宽度变了跟着重算
 const { gridRef, columns, pageSizeOptions, setPageSize } = useGridPageSize((size) => {

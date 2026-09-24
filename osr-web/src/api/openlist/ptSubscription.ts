@@ -5,6 +5,17 @@ export function getPtSubscriptionListApi(params: SearchParams) {
   return request.get<any, PageResult<any>>('/openliststrm/pt-subscriptions', { params })
 }
 
+/** 订阅「归属」筛选的一个选项；value 是 mine / public / 用户 id，count 是可见范围内的订阅数 */
+export interface SubscriptionOwnerOption {
+  value: string
+  label: string
+  count: number
+}
+
+export function getSubscriptionOwnersApi() {
+  return request.get<any, SubscriptionOwnerOption[]>('/openliststrm/pt-subscriptions/owners')
+}
+
 export function addPtSubscriptionApi(data: any) {
   return request.post('/openliststrm/pt-subscriptions', data)
 }

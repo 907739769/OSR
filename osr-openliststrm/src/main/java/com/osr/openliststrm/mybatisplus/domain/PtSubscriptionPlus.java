@@ -190,6 +190,14 @@ public class PtSubscriptionPlus extends BaseEntity {
     @TableField(exist = false)
     private String hasMissing;
 
+    /** 列表筛选：归属 mine / public / 用户 id，见 SubscriptionOwnerService。不落库 */
+    @TableField(exist = false)
+    private String ownerFilter;
+
+    /** 归属人名字，列表查询后填充供卡片展示；公共订阅为 null。不落库 */
+    @TableField(exist = false)
+    private String ownerName;
+
     /**
      * 已入库集数（含洗版中）。列表查询后由一条聚合语句批量填充，不落库。
      * <p>

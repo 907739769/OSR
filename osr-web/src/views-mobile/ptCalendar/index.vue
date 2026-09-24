@@ -9,6 +9,18 @@
         <v-btn icon="chevron-right" variant="text" density="comfortable" @click="goNextMonth" />
         <v-btn variant="text" size="small" class="today-btn" @click="handleGoToday">本月</v-btn>
       </div>
+      <v-select
+        v-if="ownerFilterVisible"
+        :model-value="owner"
+        :items="ownerItems"
+        placeholder="全部归属"
+        clearable
+        density="compact"
+        variant="outlined"
+        hide-details
+        class="owner-picker"
+        @update:model-value="setOwner"
+      />
 
       <!-- 图例即筛选：日历上绝大多数是已入库的绿色，不筛的话真正要找的缺失/阻塞会被淹掉 -->
       <div class="state-tabs">
@@ -179,6 +191,7 @@ import type { CalendarEntry } from '@/api/openlist/ptCalendar'
 const {
   loading, loadFailed, monthLabel, agenda, today,
   activeState, stateCounts, monthTotal, setState,
+  owner, ownerItems, ownerFilterVisible, setOwner,
   load, goPrevMonth, goNextMonth, goToday
 } = usePtCalendar()
 
@@ -279,6 +292,10 @@ const openHealth = (entry: CalendarEntry) => {
   width: 32px;
   height: 46px;
   border-radius: var(--osr-radius-sm);
+}
+
+.owner-picker {
+  margin: 0 12px 8px;
 }
 
 .calendar-bar {

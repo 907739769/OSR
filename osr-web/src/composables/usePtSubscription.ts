@@ -1,6 +1,7 @@
 import { ref, reactive, computed, watch } from 'vue'
 import { message } from '@/composables/useMessage'
 import { confirm } from '@/composables/useConfirm'
+import { useOwnerFilter } from '@/composables/useOwnerFilter'
 import { useTaskList } from './useTaskList'
 import { usePtStatusSocket } from './usePtStatusSocket'
 import { bytesToGb, gbToBytes } from './sizeUnits'
@@ -44,6 +45,8 @@ interface PtSubscriptionQuery extends SearchParams {
   autoSearch?: string
   /** '1' 只看有已播缺集的 */
   hasMissing?: string
+  /** 归属：mine / public / 用户 id，空=不限（见 useOwnerFilter） */
+  ownerFilter?: string
 }
 
 /**
@@ -61,7 +64,7 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
     rules: {},
     defaultQuery: {
       title: undefined, mediaType: undefined, status: 'ACTIVE', sortBy: undefined,
-      autoSearch: undefined, hasMissing: undefined, pageSize: 12
+      autoSearch: undefined, hasMissing: undefined, ownerFilter: undefined, pageSize: 12
     }
   })
 
@@ -1146,8 +1149,12 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
   // PC 端卡片网格页把首次加载交给 useGridPageSize（要先量出列数）
   if (options.autoLoad !== false) base.getList()
 
+  // ---------- 归属筛选（多用户） ----------
+  const { ownerItems, ownerFilterVisible } = useOwnerFilter()
+
   return {
     ...base,
+    ownerItems, ownerFilterVisible,
     // 建订阅向导
     subscribeOpen, searchLoading, subscribeLoading, searchResults, searchForm,
     picked, pickedSeason, openSubscribeDialog, doSearch, pick, confirmSubscribe,
