@@ -9,6 +9,7 @@ import com.osr.common.utils.spring.SpringUtils;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloaderPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtDownloaderPlusService;
 import com.osr.openliststrm.pt.downloader.DownloaderClientFactory;
+import com.osr.openliststrm.pt.downloader.DownloaderHealthRegistry;
 import com.osr.openliststrm.pt.downloader.IDownloaderClient;
 import com.osr.openliststrm.pt.downloader.model.DownloaderTorrent;
 import jakarta.annotation.PreDestroy;
@@ -41,6 +42,8 @@ public class DownloadTrackTask {
     private DownloaderClientFactory downloaderClientFactory;
     @Autowired
     private DownloadTrackService trackService;
+    @Autowired
+    private DownloaderHealthRegistry healthRegistry;
 
     private final TaskScheduler scheduler = SpringUtils.getBean("virtualScheduledExecutor");
 
@@ -103,12 +106,15 @@ public class DownloadTrackTask {
                 String key = "fetch:" + downloader.getId();
                 try {
                     snapshots.add(new DownloaderSnapshot(downloader, fetchTorrents(downloader)));
+                    healthRegistry.recordSuccess(downloader.getId());
                     if (faultThrottle.onSuccess(key)) {
                         log.info("下载器[{}]已恢复，种子列表拉取正常", downloader.getName());
                     }
                 } catch (Exception e) {
                     // 本任务每 30 秒一轮：下载器离线时原先是每天 2880 条逐字相同的 WARN，
                     // 既淹掉别的日志，又不比第一条多告诉你任何事。只在故障开始/恢复时喊。
+                    // 首页「待办提醒」据此显示下载器离线；日志那边由 faultThrottle 管节流，两者互不影响
+                    healthRegistry.recordFailure(downloader.getId(), e.getMessage());
                     FaultThrottle.Decision d = faultThrottle.onFailure(key);
                     if (d.shouldReport()) {
                         log.warn("拉取下载器[{}]种子列表失败（连续第 {} 次）：{}",

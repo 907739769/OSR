@@ -1,5 +1,23 @@
 import request from '@/api/request'
 
+/** 出问题的下载器 / 媒体服务器；detail 只对管理员下发（报错里常带内网地址） */
+export interface TodoProblem {
+  name: string
+  since: string | null
+  detail: string | null
+}
+
+/** 首页待办的后端信号；任一字段为 null 表示那一路没取到，不是「没有问题」 */
+export interface TodoSignals {
+  offlineDownloaders: TodoProblem[] | null
+  unhealthyMediaServers: TodoProblem[] | null
+  unresolvedFailedDownloads: number | null
+}
+
+export function getTodoSignalsApi() {
+  return request.get<any, TodoSignals>('/openliststrm/dashboard/todo-signals')
+}
+
 export function getDashboardStatsApi() {
   return request.get('/openliststrm/dashboard/stats')
 }
