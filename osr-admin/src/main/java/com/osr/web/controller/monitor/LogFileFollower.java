@@ -1,12 +1,15 @@
 package com.osr.web.controller.monitor;
 
 import java.io.ByteArrayOutputStream;
+import java.io.EOFException;
 import java.io.IOException;
-import java.io.RandomAccessFile;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.List;
@@ -28,6 +31,12 @@ import java.util.List;
  *       换文件前先把旧句柄<b>读干</b>，滚动前最后那几行不丢。</li>
  *   <li><b>半行</b>：读到的末尾不以换行结束时先攒着，等换行到了再作为完整一行交出去。</li>
  * </ul>
+ *
+ * <p><b>句柄一律用 NIO {@link FileChannel} 打开，不要换回 {@code RandomAccessFile}</b>：Windows 上后者打开时
+ * 不带 {@code FILE_SHARE_DELETE}，跟随器开着的整段时间里谁都改不了这个文件的名——logback 的滚动改名会失败，
+ * 只要有人开着实时日志页，日志就一直写在同一个文件里不滚。NIO 在 Windows 上默认带这个共享位，
+ * 改名后句柄照样指向旧文件，与 Linux 语义一致。Windows 的 {@code fileKey()} 恒为 null，
+ * 那边滚动只能靠「长度缩了」判出来（新文件第一次被读到时通常远短于旧偏移）。
  *
  * <p>一个连接一个实例，跑在自己的虚拟线程里；{@link #stop()} 后最多一个轮询间隔内退出。
  */
@@ -69,14 +78,14 @@ final class LogFileFollower implements Runnable {
     @Override
     public void run() {
         LineSplitter splitter = new LineSplitter();
-        RandomAccessFile raf = null;
+        FileChannel ch = null;
         try {
-            raf = new RandomAccessFile(path.toFile(), "r");
-            raf.seek(Math.min(startPos, raf.length()));
+            ch = open(path);
+            ch.position(Math.min(startPos, ch.size()));
             Object key = fileKey(path);
 
             while (running) {
-                boolean got = drain(raf, splitter);
+                boolean got = drain(ch, splitter);
 
                 Object nowKey;
                 long nowLen;
@@ -90,15 +99,15 @@ final class LogFileFollower implements Runnable {
                 }
 
                 boolean replaced = key != null && nowKey != null && !key.equals(nowKey);
-                if (replaced || nowLen < raf.getFilePointer()) {
+                if (replaced || nowLen < ch.position()) {
                     // 旧句柄里改名前最后写进去的内容先读干，再换到新文件
-                    drain(raf, splitter);
+                    drain(ch, splitter);
                     List<String> tail = splitter.flushPartial();
                     if (!tail.isEmpty()) {
                         sink.lines(tail);
                     }
-                    raf.close();
-                    raf = new RandomAccessFile(path.toFile(), "r");
+                    ch.close();
+                    ch = open(path);
                     key = nowKey;
                     sink.rotated();
                     continue;
@@ -115,9 +124,9 @@ final class LogFileFollower implements Runnable {
                 sink.failed(e);
             }
         } finally {
-            if (raf != null) {
+            if (ch != null) {
                 try {
-                    raf.close();
+                    ch.close();
                 } catch (IOException ignored) {
                     // 只读句柄，关闭失败无后果
                 }
@@ -126,14 +135,14 @@ final class LogFileFollower implements Runnable {
     }
 
     /** 把句柄读到 EOF，完整的行按批交给 sink。返回本次是否读到了任何字节 */
-    private boolean drain(RandomAccessFile raf, LineSplitter splitter) throws IOException {
-        byte[] buf = new byte[READ_BUF];
+    private boolean drain(FileChannel ch, LineSplitter splitter) throws IOException {
+        ByteBuffer buf = ByteBuffer.allocate(READ_BUF);
         boolean got = false;
         List<String> batch = new ArrayList<>();
         int n;
-        while (running && (n = raf.read(buf)) > 0) {
+        while (running && (n = ch.read(buf.clear())) > 0) {
             got = true;
-            splitter.feed(buf, n, batch);
+            splitter.feed(buf.array(), n, batch);
             if (batch.size() >= MAX_BATCH) {
                 deliver(batch);
                 batch = new ArrayList<>();
@@ -159,6 +168,22 @@ final class LogFileFollower implements Runnable {
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             running = false;
+        }
+    }
+
+    /** 只读打开；NIO 在 Windows 上带 FILE_SHARE_DELETE，不挡 logback 滚动改名 */
+    private static FileChannel open(Path p) throws IOException {
+        return FileChannel.open(p, StandardOpenOption.READ);
+    }
+
+    /** 从 pos 起读满 dst，读不满（文件被截短）按 EOF 报错 */
+    private static void readFully(FileChannel ch, long pos, byte[] dst) throws IOException {
+        ByteBuffer b = ByteBuffer.wrap(dst);
+        while (b.hasRemaining()) {
+            int n = ch.read(b, pos + b.position());
+            if (n < 0) {
+                throw new EOFException();
+            }
         }
     }
 
@@ -223,15 +248,14 @@ final class LogFileFollower implements Runnable {
      *         那半行不进历史，整行留给跟随器，否则会被劈成两条显示
      */
     static Tail readTail(Path file, long end, int maxLines, long maxBytes) throws IOException {
-        try (RandomAccessFile raf = new RandomAccessFile(file.toFile(), "r")) {
-            end = Math.min(end, raf.length());
+        try (FileChannel ch = open(file)) {
+            end = Math.min(end, ch.size());
 
             // 先把上界收到最后一个换行之后
             long resume = end;
             byte[] one = new byte[1];
             while (resume > 0) {
-                raf.seek(resume - 1);
-                raf.readFully(one);
+                readFully(ch, resume - 1, one);
                 if (one[0] == '\n') {
                     break;
                 }
@@ -253,8 +277,7 @@ final class LogFileFollower implements Runnable {
                 int size = (int) Math.min(READ_BUF, pos);
                 pos -= size;
                 byte[] chunk = new byte[size];
-                raf.seek(pos);
-                raf.readFully(chunk);
+                readFully(ch, pos, chunk);
                 chunks.add(0, chunk);
                 for (byte b : chunk) {
                     if (b == '\n') {
