@@ -8,6 +8,8 @@ import {
   enableAutoSearchApi,
   searchMissingApi,
   setHealthIgnoredApi,
+  getSubtitleHealthApi,
+  type SubtitleIssue,
   type EpisodeHealthReport,
   type SubscriptionHealthItem
 } from '@/api/openlist/ptHealth'
@@ -360,6 +362,26 @@ export function usePtHealth() {
     activeDiagnosis.value = activeDiagnosis.value === diagnosis ? '' : diagnosis
   }
 
+  // ---------- 字幕体检 ----------
+  // 点「检查」才加载：它要扫全部已入库的集，而多数时候用户是来看缺集的
+
+  const subtitleIssues = ref<SubtitleIssue[]>([])
+  const subtitleLoading = ref(false)
+  const subtitleLoaded = ref(false)
+
+  async function loadSubtitles() {
+    subtitleLoading.value = true
+    try {
+      subtitleIssues.value = await getSubtitleHealthApi()
+      subtitleLoaded.value = true
+    } catch (e) {
+      // 拦截器已提示；保持「没检查过」的状态，不显示成「没有问题」
+      console.error(e)
+    } finally {
+      subtitleLoading.value = false
+    }
+  }
+
   load()
 
   return {
@@ -368,6 +390,7 @@ export function usePtHealth() {
     bucketTabs, diagnosisTabs, autoSearchOffIds,
     actingSubId, batchActing, isActing, anyActing,
     includeIgnored, handleSetIgnored, toggleIncludeIgnored,
-    load, handleEnableAutoSearch, handleSearchNow, openSubscription, setBucket, setDiagnosis
+    load, handleEnableAutoSearch, handleSearchNow, openSubscription, setBucket, setDiagnosis,
+    subtitleIssues, subtitleLoading, subtitleLoaded, loadSubtitles
   }
 }

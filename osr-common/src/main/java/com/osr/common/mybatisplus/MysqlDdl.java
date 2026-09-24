@@ -125,7 +125,8 @@ public class MysqlDdl extends SimpleDdl {
                 "sql/20260800-pt-upgrade-search-budget.sql",
                 "sql/20260801-backup-menu.sql",
                 "sql/20260802-strm-incremental-scan.sql",
-                "sql/20260803-pt-search-log-profile.sql"
+                "sql/20260803-pt-search-log-profile.sql",
+                "sql/20260804-pt-download-record-subtitle.sql"
         );
     }
 }

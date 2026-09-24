@@ -16,3 +16,9 @@
 - **`pt/health/` 是只读诊断层，绝不许在里面改集状态或推送下载**。它读 `pt_subscription_episode` 与 `pt_subscription` 算出「缺了几集、缺了多久、为什么还缺」，唯一的写操作是通知去重的两列（`last_overdue_notify_sign` / `last_overdue_notify_time`）。想让它顺手把 `MISSING` 的集退回重搜、或把长期缺集的订阅自动暂停，都会与 `StuckEpisodeSweepService`、`AutoSearchService`、`DownloadTrackService` 抢同一份状态机——那三处的退回逻辑各自带着熔断计数与并发条件更新，多一个写入方就没人说得清一集是被谁改的。页面上的处置动作（开启自动补搜、立即补搜）走 Controller 显式调用既有服务（`searchAndPushMissing`），体检本身不发起任何动作。
 - **`EpisodeHealthService#scan(LocalDate)` 的 today 是参数，不是 `LocalDate.now()`**，为的是让逾期天数那套算术能被测试钉住。**刻意不为此加第二个构造器注入 `Clock`**：一个 bean 有多个构造器时 Spring 不会自己挑，没标 `@Autowired` 就退回去找默认构造器、找不到就整个应用装配失败，而单测直接 new、绕开 Spring、全绿——`LoginAttemptService` 踩过这一次。需要注入时钟时优先改成传参。
 - **体检页支持 `?subId=` 只看一条订阅**（`usePtHealth#focusSubId`，纯前端过滤，接口不变）。入口在订阅卡片「更多 → 缺集诊断」与追剧日历的「查看诊断」——用户问的是「这一部为什么还缺」，给一整页别的订阅等于没回答。只看一条时批量「开启自动补搜」的作用范围也随之收窄（它取的是筛选后的 `subscriptions`）；「显示全部」要 `router.replace` 掉地址栏里的 `subId`，否则一刷新又回到只看一条。那条订阅不在报告里（没有逾期集、被忽略或不在订阅中）时空状态文案要单独说明，不能套「当前筛选条件下没有条目」。
+- **字幕体检（`SubtitleHealthService` + `SubtitleDetector`）不联网，依据只有种子本身**：标题/描述里的中字标识（与过滤规则「外语片需中字」共用 `TorrentFilterEngine#hasChineseSubtitleMark`，那边放行的种子这边不能反过来说它没中字）+ 种子文件列表里的外挂字幕文件名。五条不要改坏的：
+  1. **判定在下载完成那一刻做一次并落库**（`DownloadTrackService#detectSubtitle` → `pt_download_record.subtitle`，20260804）：那时文件列表最齐，之后种子可能被删、被转移，再也拿不到。拉文件列表失败退回只看标题，**不能让完成状态因此卡住**。历史记录为 NULL，查询时按标题现算，结果里标 `titleOnly`。
+  2. **只能说「未识别到」，不能说「没有」**：不少内封中字的种子标题什么都不写。页面文案、枚举 label 都按这个口径写，并在卡片上明说会误报。
+  3. **只看字幕文件名、不看目录名**：目录名常是整部发布名，里面的「中字」说的是视频不是这个字幕文件。英文缩写（chs/sc/tc/zh…）两侧不能是字母，挡掉 Scene、TCP 这类词。
+  4. **华语作品整体跳过**，判据是原名含汉字且不含假名/韩文（`isChineseOrigin`）——日剧日漫的原名也常含汉字，只看汉字会把它们一起放过去；原名缺失时不跳过（宁可多报）。
+  5. **只认经 OSR 下载入库的集**（`download_id` 非空）：订阅前就在库里的集不知道是哪个种子来的，猜不出字幕情况。体检页上是点「检查」才加载（要扫全部已入库的集），没点过时不显示空状态，免得读成「一切正常」。
