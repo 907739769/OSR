@@ -53,6 +53,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -89,6 +90,9 @@ public class SubscriptionEngine {
 
     /** 全淘汰摘要里最多列举几类淘汰原因 */
     private static final int REJECT_SUMMARY_TOP_N = 3;
+
+    /** 「全部被过滤规则淘汰」那行日志最多逐条列出几个候选，见 describeRejectedCandidates */
+    private static final int REJECTED_CANDIDATE_LOG_LIMIT = 5;
 
     /**
      * 「这个种子没匹配上任何订阅」只在<b>首次</b>见到它时记一行。
@@ -422,13 +426,16 @@ public class SubscriptionEngine {
             // 按 RejectCode 聚合而不是按 reason 文本：文案里嵌着实际值，按文本分组只会得到
             // 一堆计数为 1 的碎片，看不出主要卡在哪条规则上。
             String summary = summarizeRejections(verdicts);
+            // 日志行额外带上「哪个站、哪个种子」：摘要只说方向，而排查「站上明明有却没下」
+            // 要先知道 RSS 看到的究竟是哪一个版本。落库与回给用户的仍是 summary 本身，见 describeRejectedCandidates
+            String candidatesDetail = describeRejectedCandidates(verdicts);
             // 全被拉黑淘汰时降到 DEBUG：拉黑是用户自己按下的终态开关，那条种子会一直留在
             // RSS 窗口里，每轮告诉他一次「这个被拉黑了」既不是新消息也无事可做。其余原因
             // （freeOnly、分辨率白名单…）留在 INFO——那才是「你可能配错了」需要被看见的一类
             if (allRejectedByBlacklist(verdicts)) {
-                log.debug("{} {}", PtLogText.subject(sub, match.getEpisode(), null), summary);
+                log.debug("{} {}；{}", PtLogText.subject(sub, match.getEpisode(), null), summary, candidatesDetail);
             } else {
-                log.info("{} {}", PtLogText.subject(sub, match.getEpisode(), null), summary);
+                log.info("{} {}；{}", PtLogText.subject(sub, match.getEpisode(), null), summary, candidatesDetail);
             }
             searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, summary);
             return PushOutcome.fail(summary);
@@ -665,6 +672,50 @@ public class SubscriptionEngine {
                 .map(e -> e.getValue() + " 个「" + e.getKey().label() + "」")
                 .collect(java.util.stream.Collectors.joining("、"));
         return verdicts.size() + " 个候选全部被过滤规则淘汰：" + detail;
+    }
+
+    /**
+     * 被淘汰的候选逐条写成「[站点] 标题（原因）」，只进日志，<b>不进摘要</b>。
+     * <p>
+     * 摘要（{@link #summarizeRejections}）同时是落库的匹配日志与回给用户的推送原因，
+     * 两者必须是同一句话；逐条明细另由 {@code recordVerdicts} 落在 {@code pt_search_log} 里。
+     * 这里补的是 sys-all.log 这一侧：原先只有「1 个「分辨率不在白名单」」，读日志的人
+     * 看不出 RSS 拉到的是哪个站的哪个版本，只能拿 traceId 去反推是哪一轮索引器拉取。
+     * </p>
+     * <p>
+     * 最多列 {@link #REJECTED_CANDIDATE_LOG_LIMIT} 条，其余只报个数——这条 INFO 在 RSS 稳态下
+     * 会每轮重复（同一候选留在窗口里），不能让它随候选数无限变长。站点名按 id 缓存，
+     * 同一批候选多半来自同一两个站，不必逐条查库。
+     * </p>
+     */
+    private String describeRejectedCandidates(List<TorrentFilterEngine.Verdict> verdicts) {
+        List<TorrentFilterEngine.Verdict> rejected = verdicts.stream()
+                .filter(v -> !v.accepted())
+                .toList();
+        Map<Integer, String> siteNames = new HashMap<>();
+        String listed = rejected.stream()
+                .limit(REJECTED_CANDIDATE_LOG_LIMIT)
+                .map(v -> "[" + siteNameOf(v.torrent().getIndexerId(), siteNames) + "] "
+                        + v.torrent().getTitle() + "（" + rejectionText(v) + "）")
+                .collect(Collectors.joining("；"));
+        int rest = rejected.size() - REJECTED_CANDIDATE_LOG_LIMIT;
+        return "候选：" + listed + (rest > 0 ? "；另 " + rest + " 个未列出" : "");
+    }
+
+    private String siteNameOf(Integer indexerId, Map<Integer, String> cache) {
+        if (indexerId == null) {
+            return "未知站点";
+        }
+        // 索引器被删掉时 indexerNameOf 返回 null，这里退回 id 而不是留空：留空会读成「没有站点」
+        return cache.computeIfAbsent(indexerId,
+                id -> Objects.requireNonNullElse(indexerNameOf(id), "索引器#" + id));
+    }
+
+    /** 优先用带实际值的原因（「分辨率 1080p 不在白名单」），没有才退回分类名 */
+    private static String rejectionText(TorrentFilterEngine.Verdict verdict) {
+        return StringUtils.isNotBlank(verdict.rejectReason())
+                ? verdict.rejectReason()
+                : verdict.rejectCode().label();
     }
 
     /**

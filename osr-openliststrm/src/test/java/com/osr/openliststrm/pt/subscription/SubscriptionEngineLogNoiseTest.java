@@ -371,4 +371,99 @@ class SubscriptionEngineLogNoiseTest {
         assertEquals(1, countAtLevel(Level.INFO, "全部被过滤规则淘汰"),
                 "「你可能把 freeOnly 打开了」这类才是需要被看见的淘汰原因");
     }
+
+    // ---------- 淘汰日志里的站点与种子标题 ----------
+
+    private PtFilterConfigPlus only2160p() {
+        PtFilterConfigPlus config = permissiveConfig();
+        config.setResolutionWhitelist("2160p");
+        return config;
+    }
+
+    private void indexerNamed(int id, String name) {
+        com.osr.openliststrm.mybatisplus.domain.PtIndexerPlus indexer =
+                new com.osr.openliststrm.mybatisplus.domain.PtIndexerPlus();
+        indexer.setId(id);
+        indexer.setName(name);
+        when(indexerService.getById(id)).thenReturn(indexer);
+    }
+
+    private String infoLine(String fragment) {
+        return appender.list.stream()
+                .filter(e -> e.getLevel() == Level.INFO && e.getFormattedMessage().contains(fragment))
+                .map(ILoggingEvent::getFormattedMessage)
+                .findFirst()
+                .orElseThrow();
+    }
+
+    /**
+     * 真实场景：《星际迷航：奇异新世界》每集 RSS 都只拉到 1080p，被订阅的 2160p 白名单挡掉，
+     * 日志却只有「1 个「分辨率不在白名单」」——看不出是哪个站的哪个版本，只能靠 traceId 反推。
+     */
+    @Test
+    void 淘汰日志带上站点与种子标题() {
+        when(filterConfigService.getConfig()).thenReturn(only2160p());
+        indexerNamed(1, "mteam");
+        when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Some Show", 1, 3)));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(
+                episode(101, 1, "MISSING"), episode(102, 2, "MISSING"), episode(103, 3, "MISSING")));
+
+        engine.process(List.of(torrent("Some.Show.S01E02.1080p.WEB-DL", "g1")));
+
+        String line = infoLine("全部被过滤规则淘汰");
+        assertTrue(line.contains("[mteam] Some.Show.S01E02.1080p.WEB-DL"), line);
+        assertTrue(line.contains("1080p"), "要带实际值的原因，而不只是分类名：" + line);
+    }
+
+    /** 落库的匹配日志与回给用户的原因必须是同一句话，明细只进 sys-all.log */
+    @Test
+    void 站点与标题不进落库摘要() {
+        when(filterConfigService.getConfig()).thenReturn(only2160p());
+        indexerNamed(1, "mteam");
+        when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Some Show", 1, 3)));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(
+                episode(101, 1, "MISSING"), episode(102, 2, "MISSING"), episode(103, 3, "MISSING")));
+
+        engine.process(List.of(torrent("Some.Show.S01E02.1080p.WEB-DL", "g1")));
+
+        org.mockito.ArgumentCaptor<String> summary = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(searchLogService).recordSummary(any(), anyInt(), anyString(), summary.capture());
+        assertTrue(summary.getValue().contains("全部被过滤规则淘汰"), summary.getValue());
+        assertTrue(!summary.getValue().contains("mteam") && !summary.getValue().contains("候选："),
+                summary.getValue());
+    }
+
+    /** 这行在 RSS 稳态下每轮重复，候选再多也不能无限变长 */
+    @Test
+    void 候选超过上限只报剩余个数() {
+        when(filterConfigService.getConfig()).thenReturn(only2160p());
+        indexerNamed(1, "mteam");
+        when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Some Show", 1, 3)));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(
+                episode(101, 1, "MISSING"), episode(102, 2, "MISSING"), episode(103, 3, "MISSING")));
+        List<TorrentInfo> batch = new ArrayList<>();
+        for (int i = 0; i < 7; i++) {
+            batch.add(torrent("Some.Show.S01E02.1080p.WEB-DL-G" + i, "g" + i));
+        }
+
+        engine.process(batch);
+
+        String line = infoLine("全部被过滤规则淘汰");
+        assertTrue(line.contains("-G4（"), line);
+        assertTrue(!line.contains("-G5（"), line);
+        assertTrue(line.contains("另 2 个未列出"), line);
+    }
+
+    /** 索引器被删掉时写 id，不留空——留空会被读成「没有站点」 */
+    @Test
+    void 索引器已删除时退回显示id() {
+        when(filterConfigService.getConfig()).thenReturn(only2160p());
+        when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Some Show", 1, 3)));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(
+                episode(101, 1, "MISSING"), episode(102, 2, "MISSING"), episode(103, 3, "MISSING")));
+
+        engine.process(List.of(torrent("Some.Show.S01E02.1080p.WEB-DL", "g1")));
+
+        assertTrue(infoLine("全部被过滤规则淘汰").contains("[索引器#1]"));
+    }
 }
