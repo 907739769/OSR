@@ -57,11 +57,33 @@ public final class TitleNormalizer {
      */
     private static final Pattern AMPERSAND = Pattern.compile("[&\uFF06]");
 
+    /**
+     * \u5939\u5728\u4E24\u4E2A\u5B57\u6BCD\u4E4B\u95F4\u7684\u6487\u53F7\u76F4\u63A5\u5220\u6389\uFF0C\u800C<b>\u4E0D\u662F</b>\u50CF\u5176\u5B83\u6807\u70B9\u90A3\u6837\u6362\u6210\u7A7A\u683C\u3002
+     * <p>
+     * \u6487\u53F7\u662F\u6807\u70B9\u91CC\u552F\u4E00\u300C\u5199\u4E0D\u5199\u90FD\u662F\u540C\u4E00\u4E2A\u8BCD\u300D\u7684\uFF1A\u53D1\u5E03\u7EC4\u547D\u540D\u901A\u5E38\u76F4\u63A5\u7701\u6389\u5B83\u3002\u4E8B\u6545\uFF1A
+     * {@code JoJos Bizarre Adventure S06E02 \u2026} \u5F52\u4E00\u5316\u6210 {@code jojos bizarre adventure}\uFF0C
+     * \u8BA2\u9605\u82F1\u6587\u540D {@code JoJo's Bizarre Adventure} \u5374\u6210\u4E86 {@code jojo s bizarre adventure}\uFF0C
+     * PT \u4FA7\u53EA\u8BA4\u5168\u7B49\uFF0C\u7AD9\u4E0A\u660E\u660E\u6709\u8D44\u6E90\u3001RSS \u6BCF\u8F6E\u90FD\u62C9\u5230\u4E86\uFF0C\u5C31\u662F\u4E00\u76F4\u300C\u672A\u5339\u914D\u5230\u4EFB\u4F55\u8BA2\u9605\u300D\u3002
+     * \u53EA\u5220\u4E24\u4FA7\u90FD\u662F\u5B57\u6BCD\u7684\uFF1A{@code Rock 'n' Roll} \u8FD9\u79CD\u5F15\u53F7\u7528\u6CD5\u4ECD\u6309\u666E\u901A\u6807\u70B9\u5904\u7406\u3002
+     * \u8986\u76D6\u76F4\u6487\u53F7\u3001\u5F2F\u6487\u53F7\uFF08{@code \u2019 \u2018}\uFF09\u4E0E\u4FEE\u9970\u5B57\u6BCD\u6487\u53F7\uFF08U+02BC\uFF09\u3002
+     * </p>
+     */
+    private static final Pattern APOSTROPHE = Pattern.compile("(?<=\\p{L})['\u2019\u2018\u02BC](?=\\p{L})");
+
+    /**
+     * 撇号被写成分隔符的所有格（{@code Marvel.s.Daredevil}）在抹完标点后是 {@code marvel s daredevil}，
+     * 把这个孤立的 {@code s} 并回前一个词，与 {@code Marvel's} / {@code Marvels} 归到同一个结果。
+     * 前一个词至少两个拉丁字母：{@code M*A*S*H} 抹完是 {@code m a s h}，那里的 {@code s} 不是所有格，
+     * 并掉会让它塌向另一部作品（见类注释）。
+     */
+    private static final Pattern DETACHED_POSSESSIVE = Pattern.compile("(?<=\\p{IsLatin}{2}) s(?= |$)");
+
     private TitleNormalizer() {
     }
 
     /**
-     * 转小写 → {@code &} 写成 {@code and} → 把标点与空白（含全角）压成单个空格 → 去首尾空白。
+     * 转小写 → {@code &} 写成 {@code and} → 删掉词内撇号 → 把标点与空白（含全角）压成单个空格 → 去首尾空白
+     * → 孤立的所有格 {@code s} 并回前一个词。
      *
      * @param title 原始标题，允许为 null/空白
      * @return 归一化结果；入参为空或归一化后为空时返回 {@code null}，便于调用方直接丢弃
@@ -71,7 +93,9 @@ public final class TitleNormalizer {
             return null;
         }
         String lower = AMPERSAND.matcher(title.toLowerCase(Locale.ROOT)).replaceAll(" and ");
+        lower = APOSTROPHE.matcher(lower).replaceAll("");
         String normalized = NOISE.matcher(lower).replaceAll(" ").trim();
+        normalized = DETACHED_POSSESSIVE.matcher(normalized).replaceAll("s");
         return normalized.isEmpty() ? null : normalized;
     }
 }

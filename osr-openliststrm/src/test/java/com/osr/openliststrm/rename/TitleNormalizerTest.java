@@ -86,4 +86,19 @@ class TitleNormalizerTest {
         assertEquals(normalizeForCompare("Tom and Jerry"), normalizeForCompare("Tom＆Jerry"));
         assertEquals("tom and jerry", normalizeForCompare("Tom&Jerry"));
     }
+
+    @Test
+    void 所有格三种写法归一_带撇号_省掉撇号_撇号写成分隔符() {
+        // 实景：种子标题 JoJos，订阅英文名 JoJo's，全等比较对不上，RSS 每轮都拉到却从不匹配
+        String expected = "jojos bizarre adventure";
+        assertEquals(expected, normalizeForCompare("JoJo's Bizarre Adventure"));
+        assertEquals(expected, normalizeForCompare("JoJo’s Bizarre Adventure"));
+        assertEquals(expected, normalizeForCompare("JoJos Bizarre Adventure"));
+        assertEquals(expected, normalizeForCompare("JoJo.s.Bizarre.Adventure"));
+        assertEquals("the handmaids tale", normalizeForCompare("The Handmaid's Tale"));
+        // 不夹在字母之间的撇号仍按普通标点处理
+        assertEquals("rock n roll", normalizeForCompare("Rock 'n' Roll"));
+        // 单字母之间的 s 不是所有格，不能并
+        assertEquals("m a s h", normalizeForCompare("M*A*S*H"));
+    }
 }
