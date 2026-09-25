@@ -215,6 +215,22 @@
     &:hover > td:first-child {
       box-shadow: inset 2px 0 0 0 rgb(var(--v-theme-primary));
     }
+
+    /* 单选表格的选中行（:row-props 挂 row-selected：选候选种子、建订阅选 TMDb 条目）。
+       这个类曾经没有任何样式，点下去只有底部按钮由灰变亮，用户感觉不到选中了哪一行。
+       必须比 hover 更重且常驻：hover 是 2px，选中是 3px + 主题浅底 + 标题加粗；
+       写在 hover 之后，同特异性下后者胜出，选中行被悬停时不会退回 2px。 */
+    &.row-selected {
+      background: var(--osr-primary-subtle);
+
+      > td:first-child {
+        box-shadow: inset 3px 0 0 0 rgb(var(--v-theme-primary));
+      }
+
+      > td {
+        font-weight: 600;
+      }
+    }
   }
 }
 
