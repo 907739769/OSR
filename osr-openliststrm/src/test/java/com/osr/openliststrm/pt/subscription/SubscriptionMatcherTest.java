@@ -555,4 +555,17 @@ class SubscriptionMatcherTest {
         assertEquals(SubscriptionMatcher.Identity.SAME,
                 matcher.identityOf(withIds(torrent("X", null, 1, 5), "tt0944947", null), sub));
     }
+
+    @Test
+    void 种子标题省掉撇号_仍匹配带撇号的订阅英文名() {
+        // 实景：JoJos Bizarre Adventure S06E02 … 每轮 RSS 都拉到，却一直「未匹配到任何订阅」
+        PtSubscriptionPlus sub = tvSub(209, "JOJO的奇妙冒险", "ジョジョの奇妙な冒険", 6);
+        sub.setEnglishTitle("JoJo's Bizarre Adventure");
+        sub.setYear("2012");
+
+        MatchResult result = matcher.match(torrent("JoJos Bizarre Adventure", "2026", 6, 2), List.of(sub));
+
+        assertNotNull(result);
+        assertEquals(2, result.getEpisode());
+    }
 }
