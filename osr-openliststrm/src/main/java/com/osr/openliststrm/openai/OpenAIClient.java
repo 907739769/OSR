@@ -52,6 +52,16 @@ public class OpenAIClient {
     }
 
     /**
+     * 通用对话：发一段 prompt，返回回复原文。请求失败时返回 null。
+     * PT 侧的标题兜底、自然语言建规则、周报都走这里，与重命名共用同一套 endpoint/model 缺省规则。
+     */
+    public String chat(String prompt, int maxTokens) throws java.io.IOException {
+        if (apiKey == null || apiKey.isEmpty()) return null;
+        OpenAIApiService apiService = SpringUtils.getBean(OpenAIApiService.class);
+        return apiService.fetchChatText(apiKey, endpoint, model, prompt, maxTokens);
+    }
+
+    /**
      * Try to enrich MediaInfo using OpenAI.
      */
     public boolean enrich(MediaInfo info, String filename) {

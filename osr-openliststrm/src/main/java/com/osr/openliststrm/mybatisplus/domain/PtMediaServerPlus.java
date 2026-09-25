@@ -34,7 +34,7 @@ public class PtMediaServerPlus extends BaseEntity {
     @TableField("name")
     private String name;
 
-    /** 类型 EMBY / JELLYFIN */
+    /** 类型 EMBY / JELLYFIN / PLEX；PLEX 的 apiKey 存的是 X-Plex-Token，userId 不适用 */
     @TableField("type")
     private String type;
 

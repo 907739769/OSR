@@ -162,6 +162,11 @@ public class OpenlistConfig {
         return sysConfigService.selectConfigByKey("openlist.openai.endpoint");
     }
 
+    /** PT 种子标题 AI 兜底解析开关 '1' 开，其余关（sys_config 的 'openlist.openai.pt-title-fallback'，默认关） */
+    public String getPtTitleAiFallback() {
+        return sysConfigService.selectConfigByKey("openlist.openai.pt-title-fallback");
+    }
+
     // OpenAI model name (stored in sys_config as 'openlist.openai.model'). If empty, clients should use a sensible default.
     public String getOpenAiModel() {
         return sysConfigService.selectConfigByKey("openlist.openai.model");
@@ -285,6 +290,22 @@ public class OpenlistConfig {
             return Math.min(n, 64);
         } catch (NumberFormatException e) {
             return 10;
+        }
+    }
+
+    /**
+     * 开启了增量扫描的 STRM 任务，距上次全量超过这么多天就在定时执行时改为全量一次。
+     * 未配置或非法时默认 7；0 表示每次都全量（等于关掉增量）；负数按 0 处理。
+     */
+    public int getStrmFullScanDays() {
+        String value = sysConfigService.selectConfigByKey("openlist.strm.fullscan.days");
+        if (value == null || value.isBlank()) {
+            return 7;
+        }
+        try {
+            return Math.max(0, Integer.parseInt(value.trim()));
+        } catch (NumberFormatException e) {
+            return 7;
         }
     }
 

@@ -7,6 +7,8 @@ import org.apache.commons.lang3.StringUtils;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiRequestException;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
+
 /**
  * Telegram 通知渠道，承接原 {@code TgHelper} 的逻辑：token/userId 均已配置才发送，
  * {@link TgSendMsg} 实例按 token/userId 缓存，配置变化时重建。
@@ -57,6 +59,20 @@ public class TgNotifier implements INotifier {
         }
         try {
             getBot(token, userId).sendMsg(message);
+        } catch (Exception e) {
+            log.warn("Telegram 通知发送失败：{}", e.getMessage());
+        }
+    }
+
+    @Override
+    public void send(NotificationType type, String message, NotifyTarget target, List<NotifyAction> actions) {
+        String token = config.getOpenListTgToken();
+        String userId = config.getOpenListTgUserId();
+        if (StringUtils.isAnyBlank(token, userId)) {
+            return;
+        }
+        try {
+            getBot(token, userId).sendMsg(message, actions);
         } catch (Exception e) {
             log.warn("Telegram 通知发送失败：{}", e.getMessage());
         }

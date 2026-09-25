@@ -330,4 +330,13 @@ class TransmissionClientTest {
 
         assertEquals(0, server.getRequestCount());
     }
+
+    @Test
+    void cumulativeUploaded_取session_stats的累计上传() throws Exception {
+        server.enqueue(sessionRequired());
+        server.enqueue(new MockResponse().setBody(
+                "{\"result\":\"success\",\"arguments\":{\"cumulative-stats\":{\"uploadedBytes\":987654321}}}"));
+
+        assertEquals(987654321L, client.cumulativeUploaded(config(21)));
+    }
 }

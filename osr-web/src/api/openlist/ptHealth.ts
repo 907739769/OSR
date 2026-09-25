@@ -49,6 +49,27 @@ export interface EpisodeHealthReport {
  *
  * @param includeIgnored 是否把已忽略的订阅一并回传（默认不回传）
  */
+/** 字幕体检里一条订阅的问题 */
+export interface SubtitleIssue {
+  subId: number
+  title: string
+  year: string | null
+  season: number | null
+  mediaType: string
+  tmdbId: string | null
+  posterPath: string | null
+  /** 未识别到中文字幕的集 */
+  noChinese: number[]
+  /** 有外挂字幕但认不出语言的集 */
+  unknownLanguage: number[]
+  /** 有集的判断只按标题（下载完成于字幕识别上线之前） */
+  titleOnly: boolean
+}
+
+export function getSubtitleHealthApi() {
+  return request.get<any, SubtitleIssue[]>('/openliststrm/pt-health/subtitles')
+}
+
 export function getPtHealthApi(includeIgnored = false) {
   return request.get<any, EpisodeHealthReport>('/openliststrm/pt-health', {
     params: { includeIgnored }

@@ -94,6 +94,47 @@ export interface FilterPreviewResult {
   rejectReason?: string
 }
 
+/** 回放里一个结论变了的候选 */
+export interface FilterReplayChange {
+  torrentTitle: string
+  subscriptionTitle: string
+  /** 旧日志没有体积等画像，只按标题维度比较 */
+  titleOnly: boolean
+  /** 淘汰那一侧的原因 */
+  reason: string
+}
+
+export interface FilterReplayResult {
+  days: number
+  evaluated: number
+  titleOnly: number
+  changed: number
+  newlyAccepted: { total: number; examples: FilterReplayChange[] }
+  newlyRejected: { total: number; examples: FilterReplayChange[] }
+}
+
+/** 历史回放：比较已保存的规则与草稿在最近候选上的结论差异（仅管理员） */
+export function replayPtFilterApi(draft: PtFilterConfig, days: number) {
+  return request.post<any, FilterReplayResult>('/openliststrm/pt-filter-config/replay', draft, {
+    params: { days },
+    timeout: 60000
+  })
+}
+
+/** 自然语言建规则的草稿：changes 里体积是字节，dropped 是 AI 给了但被丢弃的字段及原因 */
+export interface FilterAiDraft {
+  changes: Partial<PtFilterConfig>
+  explanation: string
+  dropped: string[]
+}
+
+/** 自然语言 → 规则草稿（不落库）。current 传表单当前值，草稿在它的基础上改 */
+export function aiDraftPtFilterApi(text: string, current: PtFilterConfig) {
+  return request.post<any, FilterAiDraft>('/openliststrm/pt-filter-config/ai-draft', { text, current }, {
+    timeout: 90000
+  })
+}
+
 export function previewPtFilterApi(data: FilterPreviewRequest) {
   return request.post<any, FilterPreviewResult>('/openliststrm/pt-filter-config/preview', data)
 }

@@ -63,7 +63,9 @@ public enum NotificationType {
      * 这条是"根本没下到"，处置方向是去看搜索链路。
      * </p>
      */
-    EPISODE_OVERDUE("缺集逾期", "已播出多日仍未匹配到资源的集，每日聚合提醒一次");
+    EPISODE_OVERDUE("缺集逾期", "已播出多日仍未匹配到资源的集，每日聚合提醒一次"),
+    /** 每周周报：由定时任务「openliststrm-每周周报」触发，汇总最近 7 天，配了 OpenAI 时附点评 */
+    WEEKLY_REPORT("每周周报", "最近 7 天的同步、STRM、重命名与 PT 下载概况，由定时任务「每周周报」发送");
 
     private final String label;
     private final String description;

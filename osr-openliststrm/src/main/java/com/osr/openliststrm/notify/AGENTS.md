@@ -23,3 +23,9 @@ notify_route 的语义、文案转义、PT 通知的固定首行。
 - **路由缓存带代数校验**（`generation`）。读者在保存之前开始查库、在 `invalidate()` 之后才写回，没有这层校验的话旧配置会一直生效到下次保存——用户关掉的通知照发，而且不报任何错。「比较代数」与「写缓存」在同一把锁里，中间插不进一次失效。`NotifyRouteServiceTest` 那条「重建期间发生失效」钉住它。
 - **每个渠道都要实现 `INotifier#sendTest`，失败必须如实返回原因**（配置页「发送测试」）。做法是把发送主体抽成返回失败原因的 `deliver(...)`：`send` 拿到原因只记 warn（通知不能影响业务），`sendTest` 原样带回页面。原因要具体到能行动：Gotify 401 点明「application token 而不是 client token」、Telegram 取 `TelegramApiRequestException#getApiResponse()`（`getMessage()` 只有一句 "Error sending message"）、企微走 `WeComApiClient#sendTextDetailed`（接收人**全部**无效时企微仍返回 errcode=0，这种情况也报失败）。**失败原因会进日志，不许带地址原文**：Bark 的 Key 在路径里、不少 Webhook 把密钥放在 URL 上。测试**绕过路由**、发给默认接收人——它问的是「这个渠道通不通」。
 - **`NotificationType` 的 `description` 是给配置页看的**，写「什么时候会收到」，不写实现细节。页面原先显示枚举名，而相近类型（补搜落空 / 缺集逾期 / 入库卡住）的区别恰恰决定了用户该关哪一个。新增取值时一并写上。
+
+- **通知上的快捷操作（`NotifyAction`）是一条条聊天指令**（「补搜 12」「重试下载 34」「拉黑种子 34」「进度 12」），不是另一套回调协议：身份、归属校验、执行、回执全部复用 `chat/PtChatCommandService`。Telegram 渲染成内联按钮（`TgSendMsg` 借 `TgPtCommandHandler#keyboard`，回调由同一个 Bot Token 的 `StrmBot` 长轮询收到），企业微信渲染成「可直接回复」的提示行（`WeComNotifier#actionHint`），其余渠道忽略——**正文必须自给自足**。三条不要改坏的：
+  1. **没有操作时分发器仍调渠道的三参数 `send`**（`NotifierManager#send` 四参数版里的分支），与引入前逐字节一致；只有带操作时才调 `INotifier#send(..., actions)`。
+  2. **指令字符串只在 `NotifyAction` 的几个工厂方法里拼**，要与 `PtChatCommandService` 的解析前缀一致；改了一边没改另一边的症状是「按钮点了回一句看不懂」。
+  3. 目前带操作的：下载失败（重试 / 拉黑 / 进度）、补搜落空（立即补搜 / 进度）、入库卡住（进度）、缺集逾期聚合（每部订阅中的剧一个补搜，最多 4 个，已暂停的不给）。这几个服务的通知一律走 `TgHelper` 四参数重载（没有操作时传空表），测试里 `mockStatic` 的断言相应是四参数。
+- **`WEEKLY_REPORT`（每周周报）由定时任务 104「openliststrm-每周周报」（`openListStrmTask.weeklyReport()`，每周一 9 点，迁移里默认暂停）触发**，实现在 `dashboard/report/WeeklyReportService`。三条：**数字全部复用现成统计口径**（首页趋势 `DashboardStatsService#trend` 与 `PtStatsService` 的 overview/failReasons/topSubscriptions，`PtStatsScope.ALL`），与页面上的数字对不上的话用户会开始怀疑哪个是真的；**AI 只写点评、不产出数字**，数字段落由代码拼好，AI 拿同一份事实写 2~4 句，调用失败照发不带点评的版本；AI 的回复同样要过 `escapeHtml`（TG 用 HTML parse_mode，一个 `<` 就能让整条发不出去）。周报是广播（无归属人），不支持分人的渠道照常退化。

@@ -1518,7 +1518,7 @@ class SearchSupplementServiceTest {
 
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
             service.supplementOnCreate(20);
-            tg.verify(() -> TgHelper.sendMsg(any(), anyString(), any()));
+            tg.verify(() -> TgHelper.sendMsg(any(), anyString(), any(), anyList()));
         }
     }
 
@@ -1532,7 +1532,7 @@ class SearchSupplementServiceTest {
 
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
             service.supplementOnCreate(20);
-            tg.verify(() -> TgHelper.sendMsg(any(), anyString(), any()), never());
+            tg.verify(() -> TgHelper.sendMsg(any(), anyString(), any(), anyList()), never());
         }
     }
 
@@ -1548,7 +1548,7 @@ class SearchSupplementServiceTest {
 
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
             service.supplementOnCreate(10);
-            tg.verify(() -> TgHelper.sendMsg(any(), anyString(), any()));
+            tg.verify(() -> TgHelper.sendMsg(any(), anyString(), any(), anyList()));
         }
     }
 
@@ -1569,7 +1569,7 @@ class SearchSupplementServiceTest {
 
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
             service.supplementOnCreate(10);
-            tg.verify(() -> TgHelper.sendMsg(any(), anyString(), any()), never());
+            tg.verify(() -> TgHelper.sendMsg(any(), anyString(), any(), anyList()), never());
         }
     }
 
@@ -1595,7 +1595,7 @@ class SearchSupplementServiceTest {
 
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
             service.supplementOnCreate(10);
-            tg.verify(() -> TgHelper.sendMsg(any(), anyString(), any()), never());
+            tg.verify(() -> TgHelper.sendMsg(any(), anyString(), any(), anyList()), never());
         }
     }
 

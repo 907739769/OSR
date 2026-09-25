@@ -119,10 +119,14 @@
         <v-empty-state v-if="!topSubscriptionsLoading && topSubscriptions.length === 0" icon="inbox" title="暂无数据" />
       </div>
     </v-card>
+
+    <!-- 保种与上传：仅管理员可见（组件自己判），与 PC 共用一份 -->
+    <SeedingPanel :days="rangeDays" />
   </div>
 </template>
 
 <script setup lang="ts">
+import SeedingPanel from '@/components/SeedingPanel.vue'
 import AnimatedNumber from '@/components/AnimatedNumber.vue'
 import { onMounted, ref } from 'vue'
 import { PT_STATS_RANGES, PT_STATS_TOP_LIMITS, usePtStats } from '@/composables/usePtStats'

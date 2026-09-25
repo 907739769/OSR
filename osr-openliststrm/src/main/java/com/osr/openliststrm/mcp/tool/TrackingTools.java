@@ -62,7 +62,7 @@ public class TrackingTools implements McpToolGroup {
                         没有播出日期的集不会出现在日历里。""")
                 .requiredParam("start", "string", "起始日期，格式 YYYY-MM-DD（含）")
                 .requiredParam("end", "string", "结束日期，格式 YYYY-MM-DD（含）")
-                .handle(args -> calendar.query(parseDate(args, "start"), parseDate(args, "end")));
+                .handle(args -> calendar.query(parseDate(args, "start"), parseDate(args, "end"), null));
     }
 
     private McpToolSpec getEpisodeHealth() {

@@ -7,6 +7,7 @@ import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.osr.openliststrm.pt.calendar.PtCalendarService;
 import com.osr.openliststrm.pt.calendar.dto.CalendarEntry;
 import org.springframework.format.annotation.DateTimeFormat;
+import com.osr.openliststrm.pt.subscription.SubscriptionOwnerService;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -58,9 +59,13 @@ public class PtCalendarRestController extends BaseController {
     @GetMapping
     public Result<List<CalendarEntry>> query(
             @RequestParam("start") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate start,
-            @RequestParam("end") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate end) {
+            @RequestParam("end") @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate end,
+            @RequestParam(value = "owner", required = false) String owner) {
+        Long me = getUserId();
         try {
-            return Result.success(calendarService.query(start, end, this::canAccess));
+            // 归属筛选只在可见范围内再收窄，口径与订阅列表同一份
+            return Result.success(calendarService.query(start, end,
+                    sub -> canAccess(sub) && SubscriptionOwnerService.matches(sub, owner, me)));
         } catch (IllegalArgumentException e) {
             return Result.error(e.getMessage());
         }

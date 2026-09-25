@@ -26,6 +26,18 @@
             class="month-picker"
             @update:model-value="goMonth"
           />
+          <v-select
+            v-if="ownerFilterVisible"
+            :model-value="owner"
+            :items="ownerItems"
+            placeholder="全部归属"
+            clearable
+            density="compact"
+            variant="outlined"
+            hide-details
+            class="owner-picker"
+            @update:model-value="setOwner"
+          />
         </div>
         <!-- 图例本来就是这套颜色的说明，顺手让它可点：日历上绝大多数是已入库的绿色，
              不筛的话真正要找的缺失/阻塞会被淹掉 -->
@@ -207,6 +219,7 @@ import type { CalendarEntry } from '@/api/openlist/ptCalendar'
 const {
   loading, loadFailed, anchor, monthLabel, weeks, entriesByDate,
   activeState, stateCounts, monthTotal, setState, hasEntriesInMonth,
+  owner, ownerItems, ownerFilterVisible, setOwner,
   load, goPrevMonth, goNextMonth, goToday, goMonth
 } = usePtCalendar()
 
@@ -478,6 +491,11 @@ const openHealth = (entry: CalendarEntry) => {
 
 .calendar-empty {
   padding: 24px 0;
+}
+
+.owner-picker {
+  max-width: 180px;
+  margin-left: 8px;
 }
 
 .month-picker {

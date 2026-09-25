@@ -5,7 +5,9 @@ import com.osr.openliststrm.helper.TgHelper;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.osr.openliststrm.notify.NotificationType;
+import com.osr.openliststrm.notify.NotifyAction;
 import com.osr.openliststrm.notify.NotifyTarget;
+import com.osr.openliststrm.pt.subscription.SubscriptionService;
 import com.osr.openliststrm.pt.health.dto.EpisodeHealthItem;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -49,6 +51,9 @@ public class EpisodeHealthNotifyService {
 
     /** 一条消息里最多列几部剧，其余折叠成「等 N 部」。剩下的照样写日志，不会丢 */
     private static final int MAX_TITLES_PER_MESSAGE = 15;
+
+    /** 聚合通知上最多几个「补搜」按钮 */
+    private static final int MAX_ACTIONS = 4;
 
     private final EpisodeHealthService healthService;
     private final IPtSubscriptionPlusService subscriptionService;
@@ -129,7 +134,7 @@ public class EpisodeHealthNotifyService {
             log.info("逾期缺集提醒：归属人[{}] 共 {} 部剧，{}",
                     entry.getKey() == null ? "默认" : entry.getKey(), group.size(),
                     group.stream().map(h -> h.subscription().getTitle()).toList());
-            if (notifySafely(buildMessage(group), entry.getKey())) {
+            if (notifySafely(buildMessage(group), entry.getKey(), buildActions(group))) {
                 sent++;
             }
             // 通知时间与指纹在发送后才落库。发送失败时不落，下一轮会重试——
@@ -214,6 +219,20 @@ public class EpisodeHealthNotifyService {
         return msg.toString();
     }
 
+    /**
+     * 每部订阅中的剧一个「补搜」按钮，最多 {@link #MAX_ACTIONS} 个——聚合通知一次可能列十几部，
+     * 按钮铺满一屏就没人看正文了。已暂停的订阅不给：补搜只对订阅中的生效，按了只会得到一句拒绝。
+     */
+    List<NotifyAction> buildActions(List<SubscriptionHealth> group) {
+        return group.stream()
+                .map(SubscriptionHealth::subscription)
+                .filter(sub -> SubscriptionService.STATUS_ACTIVE.equals(sub.getStatus()))
+                .limit(MAX_ACTIONS)
+                .map(sub -> new NotifyAction("补搜《" + StringUtils.abbreviate(
+                        StringUtils.defaultString(sub.getTitle(), "未命名"), 12) + "》", "补搜 " + sub.getId()))
+                .toList();
+    }
+
     /** 逾期天数取这批集里最大的那个——"最久的那一集缺了多少天"才是用户要的紧迫度 */
     private Integer maxOverdueDays(SubscriptionHealth health, List<Integer> overdue) {
         Set<Integer> wanted = Set.copyOf(overdue);
@@ -243,9 +262,9 @@ public class EpisodeHealthNotifyService {
     }
 
     /** 发通知但绝不让通知失败影响主流程（单测环境下 SpringUtils.getBean 会抛异常，这里兜住） */
-    private boolean notifySafely(String msg, Long ownerUserId) {
+    private boolean notifySafely(String msg, Long ownerUserId, List<NotifyAction> actions) {
         try {
-            TgHelper.sendMsg(NotificationType.EPISODE_OVERDUE, msg, NotifyTarget.owner(ownerUserId));
+            TgHelper.sendMsg(NotificationType.EPISODE_OVERDUE, msg, NotifyTarget.owner(ownerUserId), actions);
             return true;
         } catch (Exception e) {
             log.debug("发送逾期缺集通知失败（不影响主流程）：{}", e.getMessage());

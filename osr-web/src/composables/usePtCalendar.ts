@@ -2,6 +2,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import dayjs from 'dayjs'
 import 'dayjs/locale/zh-cn'
 import { getPtCalendarApi, type CalendarEntry } from '@/api/openlist/ptCalendar'
+import { useOwnerFilter } from '@/composables/useOwnerFilter'
 
 // dayjs 在本项目里只有日历用到，locale 就在这里设。zh-cn 同时带来两件必要的事：
 // 中文星期名，以及 weekStart=1（周一起始）——中文语境的月历没有从周日排起的
@@ -98,6 +99,14 @@ export function usePtCalendar() {
    */
   let requestId = 0
 
+  /** 归属筛选（mine / public / 用户 id，空=全部）。与状态筛选不同，它由后端过滤，换了要重新取数 */
+  const owner = ref<string | undefined>(undefined)
+  const { ownerItems, ownerFilterVisible } = useOwnerFilter()
+  const setOwner = (value: string | null | undefined) => {
+    owner.value = value || undefined
+    load()
+  }
+
   const load = async () => {
     const current = ++requestId
     loading.value = true
@@ -108,7 +117,7 @@ export function usePtCalendar() {
       // 网格第 6 行（下月初那几天）就永远是空的
       const start = anchor.value.startOf('month').startOf('week')
       const end = start.add(GRID_DAYS - 1, 'day')
-      const data = await getPtCalendarApi(start.format('YYYY-MM-DD'), end.format('YYYY-MM-DD')) || []
+      const data = await getPtCalendarApi(start.format('YYYY-MM-DD'), end.format('YYYY-MM-DD'), owner.value) || []
       if (current !== requestId) return
       rawEntries.value = data
       loadFailed.value = false
@@ -250,6 +259,7 @@ export function usePtCalendar() {
   return {
     loading, loadFailed, entries, anchor, monthLabel, today,
     activeState, stateCounts, monthTotal, setState, visibleEntries, hasEntriesInMonth,
+    owner, ownerItems, ownerFilterVisible, setOwner,
     load, goPrevMonth, goNextMonth, goToday, goMonth,
     entriesByDate, weeks, agenda
   }

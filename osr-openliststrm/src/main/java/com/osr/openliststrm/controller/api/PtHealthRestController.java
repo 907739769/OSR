@@ -9,6 +9,7 @@ import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.osr.openliststrm.pt.health.EpisodeHealthService;
+import com.osr.openliststrm.pt.health.SubtitleHealthService;
 import com.osr.openliststrm.pt.health.dto.EpisodeHealthReport;
 import com.osr.openliststrm.pt.subscription.SearchSupplementService;
 import com.osr.openliststrm.pt.subscription.dto.SearchAndPushSummary;
@@ -36,13 +37,24 @@ public class PtHealthRestController extends BaseController {
     private final EpisodeHealthService healthService;
     private final IPtSubscriptionPlusService subscriptionService;
     private final SearchSupplementService searchSupplementService;
+    private final SubtitleHealthService subtitleHealthService;
 
     public PtHealthRestController(EpisodeHealthService healthService,
                                   IPtSubscriptionPlusService subscriptionService,
-                                  SearchSupplementService searchSupplementService) {
+                                  SearchSupplementService searchSupplementService,
+                                  SubtitleHealthService subtitleHealthService) {
         this.healthService = healthService;
         this.subscriptionService = subscriptionService;
         this.searchSupplementService = searchSupplementService;
+        this.subtitleHealthService = subtitleHealthService;
+    }
+
+    /**
+     * 字幕体检：已入库的集里，下载它的种子没识别到中文字幕的。只读。可见范围与缺集体检相同。
+     */
+    @GetMapping("/subtitles")
+    public Result<List<SubtitleHealthService.SubtitleIssue>> subtitles() {
+        return Result.success(subtitleHealthService.report(this::canAccess));
     }
 
     /**

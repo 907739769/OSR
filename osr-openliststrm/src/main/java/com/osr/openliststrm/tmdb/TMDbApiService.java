@@ -159,6 +159,34 @@ public class TMDbApiService {
     }
 
     /**
+     * 电影系列（合集）详情，{@code parts} 里是系列中的全部电影。热门自动订阅的「TMDb 电影系列」来源用它。
+     * 接口: GET /collection/{id}
+     */
+    public String getCollection(String apiKey, int collectionId) {
+        HttpUrl url = Objects.requireNonNull(HttpUrl.parse(BASE + "/collection/" + collectionId))
+                .newBuilder()
+                .addQueryParameter("api_key", apiKey)
+                .addQueryParameter("language", language())
+                .build();
+        Request req = new Request.Builder().url(url).get().build();
+        return executeAndReturnString(req, "getCollection");
+    }
+
+    /**
+     * 人物参与过的电影（{@code cast} 演员、{@code crew} 幕后）。热门自动订阅的「TMDb 人物」来源用它。
+     * 接口: GET /person/{id}/movie_credits
+     */
+    public String getPersonMovieCredits(String apiKey, int personId) {
+        HttpUrl url = Objects.requireNonNull(HttpUrl.parse(BASE + "/person/" + personId + "/movie_credits"))
+                .newBuilder()
+                .addQueryParameter("api_key", apiKey)
+                .addQueryParameter("language", language())
+                .build();
+        Request req = new Request.Builder().url(url).get().build();
+        return executeAndReturnString(req, "getPersonMovieCredits");
+    }
+
+    /**
      * 获取电影上映/分级信息（Movie 专用）
      */
     public String getMovieReleaseDates(String apiKey, int movieId) {

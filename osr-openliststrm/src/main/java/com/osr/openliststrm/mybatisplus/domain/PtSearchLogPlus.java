@@ -66,4 +66,19 @@ public class PtSearchLogPlus extends BaseEntity {
 
     @TableField("reason")
     private String reason;
+
+    /** 候选体积（字节）。以下四列供过滤规则回放用，旧日志为 null（见 20260803） */
+    @TableField("torrent_size")
+    private Long torrentSize;
+
+    @TableField("seeders")
+    private Integer seeders;
+
+    /** 下载量系数，0 表示免费 */
+    @TableField("download_factor")
+    private Double downloadFactor;
+
+    /** 来源站点是否有 H&R 考核：0/1 */
+    @TableField("hit_and_run")
+    private String hitAndRun;
 }

@@ -94,6 +94,7 @@ export const CONFIG_META: Record<string, ConfigMeta> = {
   'openlist.openai.apikey': { type: 'password', hint: 'OpenAI API Key' },
   'openlist.openai.endpoint': { type: 'text', hint: 'OpenAI 接口地址，默认 https://api.openai.com' },
   'openlist.openai.model': { type: 'text', hint: 'OpenAI 模型名称，例如 gpt-5-mini' },
+  'openlist.openai.pt-title-fallback': { type: 'switch', hint: '本地解析不出的 PT 种子标题交给 AI 兜底。后台排队、结果缓存，不拖慢 RSS 与补搜，下次搜到同一个种子时生效' },
   // TMDb
   'openlist.tmdb.apikey': { type: 'password', hint: 'TMDb API Key' },
   'openlist.tmdb.image.language': { type: 'select', options: tmdbImageLangOptions, hint: 'TMDb 图片语言偏好' },

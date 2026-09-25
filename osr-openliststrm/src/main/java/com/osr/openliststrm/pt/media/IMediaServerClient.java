@@ -74,4 +74,19 @@ public interface IMediaServerClient {
      * @throws IOException 网络异常或服务器返回非 2xx
      */
     boolean hasMovie(PtMediaServerPlus config, String tmdbId) throws IOException;
+
+    /**
+     * 查询观看状态：看过哪几集、最近一次什么时候看的。
+     * <p>
+     * 返回 <b>null 表示这台服务器读不到</b>（不支持，或 Emby/Jellyfin 没配用户 ID——观看记录是按用户的），
+     * 与「读到了、一集都没看」（{@link WatchState#NONE}）必须分开：前者不能拿去覆盖别的服务器读到的结果。
+     * 默认 null，新接入的服务器不实现也不影响对账。
+     *
+     * @param season 季号；电影传 null
+     * @throws IOException 网络异常或服务器返回非 2xx
+     */
+    default WatchState watchState(PtMediaServerPlus config, String tmdbId, Integer season, boolean movie)
+            throws IOException {
+        return null;
+    }
 }

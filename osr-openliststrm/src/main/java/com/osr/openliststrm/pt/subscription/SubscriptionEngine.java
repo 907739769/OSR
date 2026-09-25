@@ -160,6 +160,14 @@ public class SubscriptionEngine {
      */
     private final MediaParser mediaParser = new MediaParser(null, null);
 
+    /** 本地解析不出来时的 AI 兜底，只查缓存不阻塞；setter 注入，单测里不设就是没有兜底 */
+    private TitleAiFallback titleAiFallback;
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    public void setTitleAiFallback(TitleAiFallback titleAiFallback) {
+        this.titleAiFallback = titleAiFallback;
+    }
+
     public SubscriptionEngine(IPtSubscriptionPlusService subscriptionService,
                               IPtSubscriptionEpisodePlusService episodeService,
                               IPtDownloadRecordPlusService recordService,
@@ -843,6 +851,7 @@ public class SubscriptionEngine {
         torrent.setParsedSeason(toInt(info.getSeason()));
         torrent.setParsedEpisode(toInt(info.getEpisode()));
         torrent.setParsedEpisodeEnd(toInt(info.getEpisodeEnd()));
+        applyAiFallback(torrent);
         applySeasonPackRange(torrent);
         applyDescriptionEpisode(torrent);
         torrent.setParsedResolution(info.getResolution());
@@ -850,6 +859,18 @@ public class SubscriptionEngine {
         torrent.setParsedTags(collectTags(info));
         // 解析器把 REMUX 记成标签、来源只写 BluRay，PT 侧要把它还原成来源，见 MediaSource
         torrent.setParsedSource(MediaSource.effective(info.getSource(), torrent.getParsedTags()));
+    }
+
+    private void applyAiFallback(TorrentInfo torrent) {
+        if (titleAiFallback == null || !TitleAiFallback.needsAi(torrent)) {
+            return;
+        }
+        TitleAiFallback.Parsed parsed = titleAiFallback.lookup(torrent.getTitle());
+        if (parsed != null) {
+            TitleAiFallback.apply(torrent, parsed);
+            log.debug("本地解析不出的种子标题用了 AI 兜底结果：{} -> 《{}》 S{}E{}", torrent.getTitle(),
+                    parsed.title(), parsed.season(), parsed.episode());
+        }
     }
 
     /**

@@ -17,7 +17,10 @@ import java.io.IOException;
 import java.net.ConnectException;
 import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -190,6 +193,77 @@ public class EmbyClient implements IMediaServerClient {
     @Override
     public boolean hasMovie(PtMediaServerPlus config, String tmdbId) throws IOException {
         return findItemId(config, "Movie", tmdbId) != null;
+    }
+
+    /**
+     * 观看记录是按用户存的：没配用户 ID 时读不到，返回 null（而不是「一集都没看」）。
+     * 剧集按季取 Episodes 并带 {@code Fields=UserData}；电影直接看条目自己的 UserData。
+     */
+    @Override
+    public WatchState watchState(PtMediaServerPlus config, String tmdbId, Integer season, boolean movie)
+            throws IOException {
+        if (StringUtils.isBlank(config.getUserId())) {
+            return null;
+        }
+        JSONArray items;
+        if (movie) {
+            Map<String, String> query = new LinkedHashMap<>();
+            query.put("IncludeItemTypes", "Movie");
+            query.put("Recursive", "true");
+            query.put("AnyProviderIdEquals", "tmdb." + tmdbId);
+            query.put("Fields", "UserData");
+            query.put("userId", config.getUserId());
+            items = parseJsonObject(get(config, "/Items", query)).getJSONArray("Items");
+        } else {
+            String seriesId = findItemId(config, "Series", tmdbId);
+            if (seriesId == null) {
+                return WatchState.NONE;
+            }
+            Map<String, String> query = new LinkedHashMap<>();
+            if (season != null) {
+                query.put("season", String.valueOf(season));
+            }
+            query.put("Fields", "UserData");
+            query.put("userId", config.getUserId());
+            items = parseJsonObject(get(config, "/Shows/" + seriesId + "/Episodes", query)).getJSONArray("Items");
+        }
+        return toWatchState(items, movie);
+    }
+
+    static WatchState toWatchState(JSONArray items, boolean movie) {
+        if (items == null || items.isEmpty()) {
+            return WatchState.NONE;
+        }
+        Set<Integer> watched = new HashSet<>();
+        Date last = null;
+        for (int i = 0; i < items.size(); i++) {
+            JSONObject item = items.getJSONObject(i);
+            JSONObject userData = item.getJSONObject("UserData");
+            if (userData == null || !userData.getBooleanValue("Played")) {
+                continue;
+            }
+            Integer index = movie ? Integer.valueOf(0) : item.getInteger("IndexNumber");
+            if (index != null) {
+                watched.add(index);
+            }
+            Date played = parseIsoDate(userData.getString("LastPlayedDate"));
+            if (played != null && (last == null || played.after(last))) {
+                last = played;
+            }
+        }
+        return new WatchState(watched, last);
+    }
+
+    /** Emby 的时间是 ISO-8601（带或不带小数秒、以 Z 结尾），解析不了当作没有 */
+    private static Date parseIsoDate(String text) {
+        if (StringUtils.isBlank(text)) {
+            return null;
+        }
+        try {
+            return Date.from(OffsetDateTime.parse(text).toInstant());
+        } catch (DateTimeParseException e) {
+            return null;
+        }
     }
 
     /**

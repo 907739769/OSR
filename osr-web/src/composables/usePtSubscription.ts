@@ -1,6 +1,7 @@
 import { ref, reactive, computed, watch } from 'vue'
 import { message } from '@/composables/useMessage'
 import { confirm } from '@/composables/useConfirm'
+import { useOwnerFilter } from '@/composables/useOwnerFilter'
 import { useTaskList } from './useTaskList'
 import { usePtStatusSocket } from './usePtStatusSocket'
 import { bytesToGb, gbToBytes } from './sizeUnits'
@@ -25,7 +26,9 @@ import {
   batchResumeSubscriptionApi,
   batchAutoSearchSubscriptionApi,
   batchDeletePtSubscriptionApi,
-  getPtSubscriptionByIdApi
+  getPtSubscriptionByIdApi,
+  getSubscriptionDiagnosisApi,
+  type SubscriptionDiagnosis
 } from '@/api/openlist/ptSubscription'
 import { getPtFilterConfigApi } from '@/api/openlist/ptFilterConfig'
 import { searchMissingApi } from '@/api/openlist/ptHealth'
@@ -42,6 +45,8 @@ interface PtSubscriptionQuery extends SearchParams {
   autoSearch?: string
   /** '1' 只看有已播缺集的 */
   hasMissing?: string
+  /** 归属：mine / public / 用户 id，空=不限（见 useOwnerFilter） */
+  ownerFilter?: string
 }
 
 /**
@@ -59,7 +64,7 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
     rules: {},
     defaultQuery: {
       title: undefined, mediaType: undefined, status: 'ACTIVE', sortBy: undefined,
-      autoSearch: undefined, hasMissing: undefined, pageSize: 12
+      autoSearch: undefined, hasMissing: undefined, ownerFilter: undefined, pageSize: 12
     }
   })
 
@@ -418,6 +423,29 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
       console.error(e)
     } finally {
       searchLogLoading.value = false
+    }
+  }
+
+  // ---------- 一键诊断 ----------
+
+  const diagnosisOpen = ref(false)
+  const diagnosisLoading = ref(false)
+  const diagnosis = ref<SubscriptionDiagnosis | null>(null)
+  /** 弹窗里「立即补搜」要知道是哪一条；诊断数据回来前也能用 */
+  const diagnosisTarget = ref<any>(null)
+
+  const showDiagnosis = async (row: any) => {
+    diagnosisOpen.value = true
+    diagnosisLoading.value = true
+    diagnosis.value = null
+    diagnosisTarget.value = row
+    try {
+      diagnosis.value = await getSubscriptionDiagnosisApi(row.id)
+    } catch (e) {
+      // 拦截器已经弹过后端的 message
+      console.error(e)
+    } finally {
+      diagnosisLoading.value = false
     }
   }
 
@@ -1121,8 +1149,12 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
   // PC 端卡片网格页把首次加载交给 useGridPageSize（要先量出列数）
   if (options.autoLoad !== false) base.getList()
 
+  // ---------- 归属筛选（多用户） ----------
+  const { ownerItems, ownerFilterVisible } = useOwnerFilter()
+
   return {
     ...base,
+    ownerItems, ownerFilterVisible,
     // 建订阅向导
     subscribeOpen, searchLoading, subscribeLoading, searchResults, searchForm,
     picked, pickedSeason, openSubscribeDialog, doSearch, pick, confirmSubscribe,
@@ -1140,6 +1172,8 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
     currentIsMovie, handleResetMovie,
     // 匹配日志
     searchLogOpen, searchLogLoading, searchLogs, showSearchLogs,
+    // 一键诊断
+    diagnosisOpen, diagnosisLoading, diagnosis, diagnosisTarget, showDiagnosis,
     searchLogRejectedOnly, visibleSearchLogs,
     // 过滤规则覆盖
     filterOverrideOpen, filterOverrideSaving, filterOverrideForm,

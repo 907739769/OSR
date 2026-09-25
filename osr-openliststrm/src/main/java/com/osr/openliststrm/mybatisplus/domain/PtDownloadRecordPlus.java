@@ -132,4 +132,11 @@ public class PtDownloadRecordPlus extends BaseEntity {
      */
     @TableField("hr_limits_applied")
     private Boolean hrLimitsApplied;
+
+    /**
+     * 下载完成时识别到的字幕情况，取值见 {@code SubtitleStatus}；完成于 20260804 之前的记录为 null，
+     * 体检时按标题现算。
+     */
+    @TableField("subtitle")
+    private String subtitle;
 }

@@ -13,7 +13,9 @@ import org.slf4j.MDC;
 import org.telegram.abilitybots.api.bot.AbilityBot;
 import org.telegram.abilitybots.api.objects.Ability;
 import org.telegram.abilitybots.api.objects.Flag;
+import org.telegram.abilitybots.api.objects.Reply;
 import org.telegram.telegrambots.meta.api.methods.commands.SetMyCommands;
+import org.telegram.telegrambots.meta.api.objects.Message;
 import org.telegram.telegrambots.meta.api.objects.commands.BotCommand;
 import org.telegram.telegrambots.meta.api.objects.commands.scope.BotCommandScopeDefault;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
@@ -33,13 +35,23 @@ import static org.telegram.abilitybots.api.util.AbilityUtils.getChatId;
 @Slf4j
 public class StrmBot extends AbilityBot {
 
+    /** /strmdir 追问路径的那句话，用户回复它时由 strmDir 的 reply 接手 */
+    private static final String STRM_DIR_PROMPT = "请输入路径";
+
+    /** /syncdir 追问路径的那句话 */
+    private static final String SYNC_DIR_PROMPT = "请输入路径(格式：源路径#目标路径)";
+
     private final String adminUserId;
 
     private final ResponseHandler responseHandler = new ResponseHandler(sender, db);
 
+    /** PT 订阅指令，与企业微信共用同一套指令逻辑 */
+    private final TgPtCommandHandler ptHandler;
+
     public StrmBot(String botToken, String adminUserId) {
         super(botToken, "bot");
         this.adminUserId = adminUserId;
+        this.ptHandler = new TgPtCommandHandler(sender, Long.parseLong(adminUserId));
         registerCommands();
     }
 
@@ -52,6 +64,17 @@ public class StrmBot extends AbilityBot {
         commands.add(new BotCommand("retry", "重试所有失败任务"));
         commands.add(new BotCommand("rename", "执行重命名任务"));
         commands.add(new BotCommand("checkorphan", "执行重命名一致性检查"));
+        commands.add(new BotCommand("subs", "我的订阅"));
+        commands.add(new BotCommand("downloading", "正在下载的集"));
+        commands.add(new BotCommand("recent", "最近入库的集"));
+        commands.add(new BotCommand("sub", "订阅剧集：/sub 剧名"));
+        commands.add(new BotCommand("submovie", "订阅电影：/submovie 片名"));
+        commands.add(new BotCommand("progress", "订阅进度：/progress 编号"));
+        commands.add(new BotCommand("search", "立即补搜缺集：/search 编号"));
+        commands.add(new BotCommand("diagnose", "缺的集为什么没下到：/diagnose 编号"));
+        commands.add(new BotCommand("pause", "暂停订阅：/pause 编号"));
+        commands.add(new BotCommand("resume", "恢复订阅：/resume 编号"));
+        commands.add(new BotCommand("pthelp", "订阅指令说明"));
         try {
             execute(new SetMyCommands(commands, new BotCommandScopeDefault(), null));
         } catch (TelegramApiException e) {
@@ -99,11 +122,11 @@ public class StrmBot extends AbilityBot {
                         try {
                             parameter = ctx.firstArg();
                         } catch (Exception e) {
-                            silent.forceReply("请输入路径", ctx.chatId());
+                            silent.forceReply(STRM_DIR_PROMPT, ctx.chatId());
                             return;
                         }
                         if (StringUtils.isBlank(parameter)) {
-                            silent.forceReply("请输入路径", ctx.chatId());
+                            silent.forceReply(STRM_DIR_PROMPT, ctx.chatId());
                             return;
                         }
                         silent.send("==开始执行指定路径strm任务==", ctx.chatId());
@@ -115,7 +138,7 @@ public class StrmBot extends AbilityBot {
                     }
                 })
                 .reply((bot, upd) -> responseHandler.replyToStrmDir(getChatId(upd), upd.getMessage().getText(), upd.getMessage().getMessageId()), Flag.REPLY,//回复
-                        upd -> upd.getMessage().getReplyToMessage().hasText(), upd -> upd.getMessage().getReplyToMessage().getText().equals("请输入路径")//回复的是上面的问题
+                        upd -> upd.getMessage().getReplyToMessage().hasText(), upd -> upd.getMessage().getReplyToMessage().getText().equals(STRM_DIR_PROMPT)//回复的是上面的问题
                 )
                 .build();
     }
@@ -155,11 +178,11 @@ public class StrmBot extends AbilityBot {
                         try {
                             parameter = ctx.firstArg();
                         } catch (Exception e) {
-                            silent.forceReply("请输入路径(格式：源路径#目标路径)", ctx.chatId());
+                            silent.forceReply(SYNC_DIR_PROMPT, ctx.chatId());
                             return;
                         }
                         if (StringUtils.isBlank(parameter)) {
-                            silent.forceReply("请输入路径(格式：源路径#目标路径)", ctx.chatId());
+                            silent.forceReply(SYNC_DIR_PROMPT, ctx.chatId());
                             return;
                         }
                         if (!parameter.contains("#")) {
@@ -180,7 +203,7 @@ public class StrmBot extends AbilityBot {
                     }
                 })
                 .reply((bot, upd) -> responseHandler.replyToSyncDir(getChatId(upd), upd.getMessage().getText(), upd.getMessage().getMessageId()), Flag.REPLY,//回复
-                        upd -> upd.getMessage().getReplyToMessage().hasText(), upd -> upd.getMessage().getReplyToMessage().getText().equals("请输入路径(格式：源路径#目标路径)")//回复的是上面的问题
+                        upd -> upd.getMessage().getReplyToMessage().hasText(), upd -> upd.getMessage().getReplyToMessage().getText().equals(SYNC_DIR_PROMPT)//回复的是上面的问题
                 )
                 .build();
     }
@@ -284,6 +307,98 @@ public class StrmBot extends AbilityBot {
                     }
                 })
                 .build();
+    }
+
+    // ---------------- PT 订阅指令（逻辑在 PtChatCommandService，与企业微信共用） ----------------
+
+    public Ability subs() {
+        return ptAbility("subs", "我的订阅", "我的订阅");
+    }
+
+    public Ability downloading() {
+        return ptAbility("downloading", "正在下载的集", "下载中");
+    }
+
+    public Ability recent() {
+        return ptAbility("recent", "最近入库的集", "最近入库");
+    }
+
+    public Ability sub() {
+        return ptAbility("sub", "订阅剧集", "订阅");
+    }
+
+    public Ability subMovie() {
+        return ptAbility("submovie", "订阅电影", "订阅电影");
+    }
+
+    public Ability progress() {
+        return ptAbility("progress", "订阅进度", "进度");
+    }
+
+    public Ability searchMissing() {
+        return ptAbility("search", "立即补搜缺集", "补搜");
+    }
+
+    public Ability diagnose() {
+        return ptAbility("diagnose", "订阅诊断", "诊断");
+    }
+
+    public Ability pause() {
+        return ptAbility("pause", "暂停订阅", "暂停");
+    }
+
+    public Ability resume() {
+        return ptAbility("resume", "恢复订阅", "恢复");
+    }
+
+    public Ability ptHelp() {
+        return ptAbility("pthelp", "订阅指令说明", "帮助");
+    }
+
+    /**
+     * 斜杠命令 = 中文指令 + 参数：{@code /sub 三体} 等价于发送「订阅 三体」，
+     * 解析只有 PtChatCommandService 那一份。
+     */
+    private Ability ptAbility(String name, String info, String command) {
+        return Ability.builder()
+                .name(name)
+                .info(info)
+                .privacy(CREATOR)
+                .locality(USER)
+                .input(0)
+                .action(ctx -> ptHandler.handle(ctx.chatId(), (command + " " + String.join(" ", ctx.arguments())).trim()))
+                .build();
+    }
+
+    /**
+     * 不带斜杠的纯文本也当指令处理：「订阅 三体」、选片时回的序号「2」都走这里，
+     * 与企业微信里的用法一致。
+     * <p>
+     * 不接两类消息：斜杠命令（交给上面的 Ability），以及对 /strmdir、/syncdir 追问的回复
+     * （那两个 Ability 自己的 reply 在接，这里再接一次会把路径当成订阅指令回一句「看不懂」）。
+     */
+    public Reply ptText() {
+        return Reply.of((bot, upd) -> ptHandler.handle(getChatId(upd), upd.getMessage().getText()),
+                Flag.TEXT,
+                upd -> upd.getMessage().getChat().isUserChat(),
+                upd -> upd.getMessage().getFrom() != null && upd.getMessage().getFrom().getId() == creatorId(),
+                upd -> !upd.getMessage().getText().startsWith("/"),
+                upd -> !isPathPromptReply(upd.getMessage()));
+    }
+
+    /** PT 回复上的内联按钮 */
+    public Reply ptCallback() {
+        return Reply.of((bot, upd) -> ptHandler.handleCallback(upd.getCallbackQuery()),
+                Flag.CALLBACK_QUERY,
+                upd -> TgPtCommandHandler.isPtCallback(upd.getCallbackQuery()));
+    }
+
+    private static boolean isPathPromptReply(Message message) {
+        if (!message.isReply() || !message.getReplyToMessage().hasText()) {
+            return false;
+        }
+        String prompt = message.getReplyToMessage().getText();
+        return STRM_DIR_PROMPT.equals(prompt) || SYNC_DIR_PROMPT.equals(prompt);
     }
 
 }

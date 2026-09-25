@@ -10,8 +10,17 @@
  */
 export const MEDIA_SERVER_TYPES = [
   { title: 'Emby', value: 'EMBY' },
-  { title: 'Jellyfin', value: 'JELLYFIN' }
+  { title: 'Jellyfin', value: 'JELLYFIN' },
+  { title: 'Plex', value: 'PLEX' }
 ]
+
+/**
+ * Plex 与 Emby/Jellyfin 在配置上的两处不同：密钥叫 X-Plex-Token，且没有「按用户查询」这个概念
+ * （托管用户要走 plex.tv 换 token）。表单据此换标签、隐藏用户 ID。
+ */
+export function isPlex(type?: string | null): boolean {
+  return type === 'PLEX'
+}
 
 export function mediaServerTypeLabel(type?: string | null): string {
   if (!type) return '未知'

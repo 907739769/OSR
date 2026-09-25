@@ -329,6 +329,24 @@ public class QbittorrentClient implements IDownloaderClient {
         return AddTorrentOutcome.ADDED;
     }
 
+    /**
+     * {@code /sync/maindata} 的 {@code server_state.alltime_ul}。rid=0 会连带返回全部种子，
+     * 响应不小，但保种看板一小时才取一次，与 qB 自己的 WebUI 打开时拉的是同一份。
+     */
+    @Override
+    public Long cumulativeUploaded(PtDownloaderPlus config) throws IOException {
+        String json = get(config, "/api/v2/sync/maindata", Map.of("rid", "0"));
+        if (StringUtils.isBlank(json)) {
+            return null;
+        }
+        try {
+            JSONObject state = JSONObject.parseObject(json).getJSONObject("server_state");
+            return state == null ? null : state.getLong("alltime_ul");
+        } catch (Exception e) {
+            throw new IOException("qBittorrent 返回的 maindata 不是合法 JSON：" + e.getMessage(), e);
+        }
+    }
+
     @Override
     public void recheckTorrent(PtDownloaderPlus config, String hash) throws IOException {
         post(config, "/api/v2/torrents/recheck", hashesBody(hash));

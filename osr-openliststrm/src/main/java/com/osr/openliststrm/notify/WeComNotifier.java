@@ -74,6 +74,33 @@ public class WeComNotifier implements INotifier {
         }
     }
 
+    /**
+     * 企业微信的文本消息没有按钮，把操作写成「可直接回复」的指令附在末尾——
+     * 回复的指令走 {@code WeComCommandService}，与订阅助手里手打的是同一套，归属校验照样生效。
+     */
+    @Override
+    public void send(NotificationType type, String message, NotifyTarget target, List<NotifyAction> actions) {
+        if (!apiClient.isConfigured() || StringUtils.isBlank(message)) {
+            return;
+        }
+        try {
+            apiClient.sendText(resolveToUser(target), toPlainText(message) + actionHint(actions));
+        } catch (Exception e) {
+            log.warn("企业微信通知发送失败：{}", e.getMessage());
+        }
+    }
+
+    static String actionHint(List<NotifyAction> actions) {
+        if (actions == null || actions.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder("\n\n可直接回复：");
+        for (NotifyAction action : actions) {
+            sb.append('\n').append(action.command()).append("　").append(action.label());
+        }
+        return sb.toString();
+    }
+
     @Override
     public String sendTest(String message) {
         return apiClient.sendTextDetailed(config.getWeComToUser(), toPlainText(message));

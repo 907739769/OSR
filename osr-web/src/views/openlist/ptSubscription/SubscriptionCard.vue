@@ -51,6 +51,8 @@
           <!-- 订错了/想确认是不是这一部时的出口：订阅手里就握着 tmdbId，此前只能当一串看不见的数字。
                剧集深链到季（订阅本来就是按季建的），电影落到条目页 -->
           <TmdbLink :tmdb-id="item.tmdbId" :media-type="item.mediaType" :season="item.season" />
+          <!-- 归属人：后端只在管理员视图、且只对别人的订阅填，自己的与公共订阅不显示 -->
+          <span v-if="item.ownerName" class="sub-owner" title="这条订阅的归属人">@{{ item.ownerName }}</span>
           <!-- 被单独配过过滤规则/下载器的订阅要看得出来，否则只能逐条打开弹窗才知道 -->
           <v-chip
             v-if="hasFilterOverride(item)"
@@ -77,6 +79,8 @@
           <span class="sub-progress-text">
             {{ item.inLibraryCount }}/{{ item.totalEpisodes }}
             <span v-if="item.inFlightCount" class="sub-progress-inflight">· 在途 {{ item.inFlightCount }}</span>
+            <!-- 媒体库观看状态（WatchStateSyncTask 每小时同步）；读不到时为 null，不显示 -->
+            <span v-if="item.watchedCount" class="sub-progress-inflight" :title="item.lastWatchedTime ? `最近观看 ${item.lastWatchedTime}` : undefined">· {{ item.mediaType === 'MOVIE' ? '已看过' : `已看 ${item.watchedCount} 集` }}</span>
           </span>
         </div>
         <!-- 命中/搜索两个时间并作一行小字。各占一整行 label+value 时它们吃掉卡片近三分之一的
@@ -135,6 +139,8 @@
             v-if="item.mediaType === 'MOVIE' && (item.inLibraryCount || item.inFlightCount)"
             @click="handleMoreCommand('resetMovie', item)"
           >{{ item.inLibraryCount ? '重置为未入库' : '重置为缺失' }}</v-list-item>
+          <!-- 一键诊断不设门槛：电影、刚播一两天的集、已暂停的订阅都能问一句「为什么还没下到」 -->
+          <v-list-item @click="handleMoreCommand('diagnose', item)">一键诊断</v-list-item>
           <!-- 缺集体检只收订阅中的剧集（电影整体不参与），其余状态点进去必然是空的 -->
           <v-list-item
             v-if="item.mediaType !== 'MOVIE' && item.status === 'ACTIVE'"
@@ -175,6 +181,7 @@ const {
   selectionMode,
   showProgress,
   showSearchLogs,
+  showDiagnosis,
   toggleAutoSearch,
   toggleSubSelect,
   toggleUpgrade
@@ -249,6 +256,7 @@ const handleMoreCommand = (cmd: string, row: any) => {
     case 'resetMovie': handleResetMovie(row); break
     case 'health': goHealth(row); break
     case 'logs': showSearchLogs(row); break
+    case 'diagnose': showDiagnosis(row); break
     case 'filter': openFilterOverride(row); break
     case 'search': openSeasonSearch(row); break
     case 'pause': handlePause(row); break
@@ -423,6 +431,12 @@ watch(taskList, () => posterErrorIds.clear())
   .label {
     color: var(--osr-text-placeholder);
   }
+}
+
+/* 归属人：只在管理员看别人的订阅时出现，用主色弱化显示，与季集等元信息同一行 */
+.sub-owner {
+  color: rgb(var(--v-theme-primary));
+  font-size: var(--osr-fs-xs);
 }
 
 .sub-meta {

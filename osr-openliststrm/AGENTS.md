@@ -5,16 +5,18 @@
 > `pt/`（PT 总则）、`pt/subscription/`、`pt/task/`、`pt/indexer/`、`pt/downloader/`、`pt/filter/`、
 > `pt/clean/`、`pt/upgrade/`、`pt/transfer/`、`pt/media/`、`pt/health/`、`pt/autoadd/`、`pt/stats/`、`pt/calendar/`、
 > `rename/`、`rename/cleanup/`、`scrape/`、`orphan/`、`tmdb/`、`notify/`、`mcp/`、`monitor/`、
-> `service/`、`helper/`、`controller/`、`mybatisplus/`、`wecom/`。
+> `service/`、`helper/`、`controller/`、`mybatisplus/`、`wecom/`、`chat/`、`backup/`。
 > 全局约定与日志纲领见仓库根 `AGENTS.md`。
 
 ## OVERVIEW
-OSR (OpenList STRM Relay) 核心业务层，负责 STRM 生成、文件夹同步、Telegram Bot、企业微信、文件重命名、任务调度、第三方回调、PT 订阅管理、重命名一致性检查等业务逻辑。21 个子包按功能域划分。
+OSR (OpenList STRM Relay) 核心业务层，负责 STRM 生成、文件夹同步、Telegram Bot、企业微信、文件重命名、任务调度、第三方回调、PT 订阅管理、重命名一致性检查等业务逻辑。23 个子包按功能域划分。
 
 ## STRUCTURE
 ```
 com/osr/openliststrm/
 ├── api/              # OpenList API 客户端 (网盘操作封装)
+├── backup/           # 配置备份与恢复 (ConfigBackupService + 后台重建订阅)
+├── chat/             # 聊天指令 (企微与 TG 共用的 PT 订阅指令：PtChatCommandService)
 ├── config/           # 业务配置类 (OpenlistConfig 等)
 ├── controller/       # REST API 端点 (STRM/同步/任务配置/回调)
 ├── controller/api/   # 第三方开放 API (qb/callback、企微回调 等)
@@ -51,7 +53,9 @@ com/osr/openliststrm/
 | STRM 生成逻辑 | `task/` + `service/` | OpenListStrmTask, IStrmService |
 | 文件夹同步 | `service/` | ICopyService, 增量/全量同步 |
 | 复制任务监控 | `helper/` | AsynHelper（内存监控链）+ CopyRecoveryTask（重启兜底）+ CopyMonitorRegistry（心跳分工） |
-| Telegram Bot | `tg/` | StrmBot (7 个指令), TgBotRegister |
+| Telegram Bot | `tg/` | StrmBot（任务指令 + PT 订阅指令）, TgPtCommandHandler（PT 指令与内联按钮）, TgBotRegister |
+| 配置备份与恢复 | `backup/` + `controller/api/BackupRestController` | 导出/预览/按分区合并恢复 |
+| 订阅聊天指令 | `chat/` | PtChatCommandService，企微与 TG 共用 |
 | 企业微信 | `wecom/` + `controller/api/WeComCallbackController` | 收发消息、订阅指令、成员绑定 |
 | 通知渠道 | `notify/` | INotifier / NotifierManager / NotifyTarget |
 | TMDB 查询 | `tmdb/` | TMDbClient, 元数据获取/增强 |

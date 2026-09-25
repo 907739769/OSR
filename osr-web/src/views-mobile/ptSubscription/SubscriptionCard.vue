@@ -52,6 +52,8 @@
         <!-- 订错了/想确认是不是这一部时的出口：订阅手里就握着 tmdbId，此前只能当一串看不见的数字。
              剧集深链到季（订阅本来就是按季建的），电影落到条目页 -->
         <TmdbLink :tmdb-id="item.tmdbId" :media-type="item.mediaType" :season="item.season" />
+        <!-- 归属人：后端只在管理员视图、且只对别人的订阅填，自己的与公共订阅不显示 -->
+        <span v-if="item.ownerName" class="sub-owner" title="这条订阅的归属人">@{{ item.ownerName }}</span>
         <!-- 被单独配过过滤规则的订阅要看得出来，否则只能逐条打开弹窗才知道 -->
         <v-chip
           v-if="hasFilterOverride(item)"
@@ -76,6 +78,8 @@
         <span class="sub-progress-text">
           {{ item.inLibraryCount }}/{{ item.totalEpisodes }}
           <span v-if="item.inFlightCount" class="sub-progress-inflight">· 在途 {{ item.inFlightCount }}</span>
+          <!-- 媒体库观看状态（WatchStateSyncTask 每小时同步）；读不到时为 null，不显示 -->
+          <span v-if="item.watchedCount" class="sub-progress-inflight" :title="item.lastWatchedTime ? `最近观看 ${item.lastWatchedTime}` : undefined">· {{ item.mediaType === 'MOVIE' ? '已看过' : `已看 ${item.watchedCount} 集` }}</span>
         </span>
       </div>
       <!-- 命中/搜索并作一行小字，理由同 PC 端：各占一整行时它们吃掉卡片近三分之一高度 -->
@@ -311,6 +315,12 @@ const shortTime = (value?: string) => {
       letter-spacing: 1px;
     }
   }
+}
+
+/* 归属人：只在管理员看别人的订阅时出现，用主色弱化显示，与季集等元信息同一行 */
+.sub-owner {
+  color: rgb(var(--v-theme-primary));
+  font-size: var(--osr-fs-xs);
 }
 
 .sub-meta {

@@ -173,10 +173,14 @@
         </v-card>
       </v-col>
     </v-row>
+
+    <!-- 保种与上传：仅管理员可见，数据来自下载器，与上面按订阅归属隔离的统计是两套口径 -->
+    <SeedingPanel :days="rangeDays" />
   </div>
 </template>
 
 <script setup lang="ts">
+import SeedingPanel from '@/components/SeedingPanel.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import AnimatedNumber from '@/components/AnimatedNumber.vue'
 import { onMounted, ref } from 'vue'

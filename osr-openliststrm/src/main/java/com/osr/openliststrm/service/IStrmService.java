@@ -1,10 +1,18 @@
 package com.osr.openliststrm.service;
 
+import com.osr.openliststrm.mybatisplus.domain.OpenlistStrmTaskPlus;
+
 import java.util.List;
 
 public interface IStrmService {
 
     void strmDir(String path);
+
+    /**
+     * 执行一个 STRM 任务。任务开了增量扫描时，定时执行（forceFull=false）在全量周期内走增量、
+     * 到期走全量并重建快照；手动执行（forceFull=true）一律全量并重建快照。没开增量的任务等同 {@link #strmDir}。
+     */
+    void strmTask(OpenlistStrmTaskPlus task, boolean forceFull);
 
     void strmOneFile(String path);
 

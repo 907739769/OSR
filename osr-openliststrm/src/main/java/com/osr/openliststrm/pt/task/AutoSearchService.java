@@ -3,6 +3,7 @@ package com.osr.openliststrm.pt.task;
 import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.helper.TgHelper;
 import com.osr.openliststrm.notify.NotificationType;
+import com.osr.openliststrm.notify.NotifyAction;
 import com.osr.openliststrm.notify.NotifyTarget;
 import com.osr.openliststrm.mybatisplus.domain.PtFilterConfigPlus;
 import com.osr.openliststrm.pt.PtLogText;
@@ -16,6 +17,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -104,7 +107,7 @@ public class AutoSearchService {
      */
     public RoundOutcome run() {
         // 「ACTIVE + 开着开关 + 有 MISSING 集」三个条件由 SQL 完成，不再拉全部 ACTIVE 再内存过滤
-        List<PtSubscriptionPlus> candidates = subscriptionService.listAutoSearchCandidates();
+        List<PtSubscriptionPlus> candidates = inWatchOrder(subscriptionService.listAutoSearchCandidates());
         if (candidates.isEmpty()) {
             // 自动补搜的库默认值就是关的（见 pt/health 那套设计），一个候选都没有是常见状态
             return RoundOutcome.NO_CANDIDATE;
@@ -279,6 +282,21 @@ public class AutoSearchService {
         return roundBudgetMillis > 0 && deadline - System.nanoTime() < 0;
     }
 
+    /**
+     * 最近在媒体库里看过的剧排前面，没看过/读不到观看状态的保持原序（按 id）排在后面。
+     * <p>
+     * 单轮有预算（{@code roundBudgetMillis}），排不上的顺延到下一轮——所以顺序决定的是「谁先补到」。
+     * 用户正在追的剧缺了一集，比一部半年没打开过的老剧缺一集要紧得多。稳定排序保证同类之间顺序不变，
+     * 不会让按 id 的轮转因此饿死谁：到期判定与 last_search_time 仍按订阅各自算。
+     * </p>
+     */
+    static List<PtSubscriptionPlus> inWatchOrder(List<PtSubscriptionPlus> candidates) {
+        List<PtSubscriptionPlus> sorted = new ArrayList<>(candidates);
+        sorted.sort(Comparator.comparing(PtSubscriptionPlus::getLastWatchedTime,
+                Comparator.nullsLast(Comparator.reverseOrder())));
+        return sorted;
+    }
+
     private int resolveIntervalHours() {
         PtFilterConfigPlus config = filterConfigService.getConfig();
         Integer hours = config.getAutoSearchIntervalHours();
@@ -289,8 +307,10 @@ public class AutoSearchService {
         try {
             // SUBSCRIPTION_SEARCH 而不是 GENERAL：GENERAL 是索引器故障、复制超时那类系统告警，
             // 补搜落空是某条订阅自己的事，处置方向也不同（去调过滤规则或关键词）
+            // 带「立即补搜 / 看进度」：调完过滤规则或关键词之后，下一步就是再搜一次
             TgHelper.sendMsg(NotificationType.SUBSCRIPTION_SEARCH, msg,
-                    NotifyTarget.owner(sub == null ? null : sub.getOwnerUserId()));
+                    NotifyTarget.owner(sub == null ? null : sub.getOwnerUserId()),
+                    sub == null ? List.of() : List.of(NotifyAction.searchMissing(sub.getId()), NotifyAction.progress(sub.getId())));
         } catch (Exception e) {
             log.debug("发送通知失败（不影响主流程）：{}", e.getMessage());
         }

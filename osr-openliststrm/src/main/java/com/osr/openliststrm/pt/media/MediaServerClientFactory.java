@@ -12,7 +12,7 @@ import java.util.stream.Collectors;
  * 按 pt_media_server.type 分发到具体的媒体服务器实现。
  * <p>
  * Jellyfin 与 Emby 的相关接口完全兼容，故 JELLYFIN 复用 EmbyClient。
- * 未来接入 Plex 等异构服务器时，实现 IMediaServerClient 并注册为 Bean 即可。
+ * 异构服务器（如 {@link PlexClient}）实现 IMediaServerClient 并注册为 Bean 即可，本类不用改。
  * </p>
  *
  * @author Jack

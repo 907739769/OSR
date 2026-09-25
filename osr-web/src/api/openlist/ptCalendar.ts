@@ -13,6 +13,7 @@ export interface CalendarEntry {
 }
 
 /** 查询日期区间内的排播，start/end 均为 yyyy-MM-dd 且含首尾两天 */
-export function getPtCalendarApi(start: string, end: string) {
-  return request.get<any, CalendarEntry[]>('/openliststrm/pt-calendar', { params: { start, end } })
+/** @param owner 归属筛选 mine / public / 用户 id，不传=全部可见的 */
+export function getPtCalendarApi(start: string, end: string, owner?: string) {
+  return request.get<any, CalendarEntry[]>('/openliststrm/pt-calendar', { params: { start, end, owner } })
 }

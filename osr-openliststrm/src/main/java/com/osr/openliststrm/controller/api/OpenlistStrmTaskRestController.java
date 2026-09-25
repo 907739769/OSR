@@ -60,6 +60,8 @@ public class OpenlistStrmTaskRestController extends BaseController
     @PostMapping
     public Result<Void> add(@RequestBody OpenlistStrmTaskPlus openlistStrmTask)
     {
+        // 上次全量时间只由扫描本身写，不接受页面传入
+        openlistStrmTask.setLastFullScanTime(null);
         boolean result = openlistStrmTaskPlusService.save(openlistStrmTask);
         if (result)
         {
@@ -83,6 +85,8 @@ public class OpenlistStrmTaskRestController extends BaseController
         {
             return Result.error("任务不存在");
         }
+        // 同上；且表单里带着打开弹窗那一刻的旧值，原样写回会把期间刚完成的全量时间冲掉
+        openlistStrmTask.setLastFullScanTime(null);
         boolean result = openlistStrmTaskPlusService.updateById(openlistStrmTask);
         if (result)
         {
@@ -141,7 +145,8 @@ public class OpenlistStrmTaskRestController extends BaseController
             return Result.error("任务不存在");
         }
         logger.info("开始执行strm任务，任务ID：{}", id);
-        AsyncManager.me().execute(() -> strmService.strmDir(task.getStrmTaskPath()));
+        // 手动执行一律全量：用户点「执行」多半就是觉得有东西没生成出来，这时候跳过目录只会让他更困惑
+        AsyncManager.me().execute(() -> strmService.strmTask(task, true));
         return Result.success();
     }
 
@@ -162,7 +167,7 @@ public class OpenlistStrmTaskRestController extends BaseController
             {
                 logger.info("开始执行strm任务，任务ID：{}", id);
                 final OpenlistStrmTaskPlus taskCopy = task;
-                AsyncManager.me().execute(() -> strmService.strmDir(taskCopy.getStrmTaskPath()));
+                AsyncManager.me().execute(() -> strmService.strmTask(taskCopy, true));
             }
         }
         return Result.success();

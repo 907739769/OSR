@@ -246,6 +246,14 @@
             ? '当前筛选条件下没有条目'
             : `播出超过 ${report.overdueDays} 天的集都已入库或正在处理中`"
       />
+
+      <SubtitleHealthCard
+        :issues="subtitleIssues"
+        :loading="subtitleLoading"
+        :loaded="subtitleLoaded"
+        @load="loadSubtitles"
+        @open="openSubscription"
+      />
     </div>
 
     <!-- 单集详情。播出日期、逾期天数、处置建议在 PC 上挂在集号的 title 里，
@@ -287,6 +295,7 @@ import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { usePtHealth, bucketMeta, diagnosisMeta, posterUrl } from '@/composables/usePtHealth'
 import TmdbLink from '@/components/TmdbLink.vue'
+import SubtitleHealthCard from '@/components/SubtitleHealthCard.vue'
 import { useFirstLoad } from '@/composables/useFirstLoad'
 import type { EpisodeHealthItem, SubscriptionHealthItem } from '@/api/openlist/ptHealth'
 
@@ -296,7 +305,8 @@ const {
   bucketTabs, diagnosisTabs, autoSearchOffIds,
   batchActing, isActing, anyActing,
   includeIgnored, handleSetIgnored, toggleIncludeIgnored,
-  load, handleEnableAutoSearch, handleSearchNow, openSubscription, setBucket, setDiagnosis
+  load, handleEnableAutoSearch, handleSearchNow, openSubscription, setBucket, setDiagnosis,
+  subtitleIssues, subtitleLoading, subtitleLoaded, loadSubtitles
 } = usePtHealth()
 const { firstLoading, refreshing } = useFirstLoad(loading)
 
