@@ -24,7 +24,11 @@ public enum EpisodeHealthBucket {
     OVERDUE_MISSING("逾期缺失"),
 
     /**
-     * 已播出超过阈值天数、状态仍是在途（含洗版）。
+     * 已播出超过阈值天数、状态仍是在途，且<b>推送下载也已超过阈值天数</b>。
+     * <p>
+     * 推送时间这一条不能省：补老剧时播出日早就过了阈值，只看播出日的话种子刚推出去
+     * 就会被报成逾期（见 {@code EpisodeHealthService#dropRecentlyPushed}）。
+     * </p>
      * <p>
      * 与 OVERDUE_MISSING 分开是因为处置完全不同：这批已经推给下载器了，用户要去看的是
      * 下载器和上传链路，再补搜一次不解决任何问题。这一档已有 {@code LIBRARY_STUCK} 通知覆盖

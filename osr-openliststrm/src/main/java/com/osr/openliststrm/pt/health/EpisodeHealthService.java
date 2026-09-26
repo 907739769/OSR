@@ -1,8 +1,10 @@
 package com.osr.openliststrm.pt.health;
 
 import com.osr.common.utils.StringUtils;
+import com.osr.openliststrm.mybatisplus.domain.PtDownloadRecordPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
+import com.osr.openliststrm.mybatisplus.service.IPtDownloadRecordPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.osr.openliststrm.pt.filter.RejectCode;
@@ -61,6 +63,7 @@ public class EpisodeHealthService {
 
     private final IPtSubscriptionEpisodePlusService episodeService;
     private final IPtSubscriptionPlusService subscriptionService;
+    private final IPtDownloadRecordPlusService downloadRecordService;
 
     /**
      * 播出多少天后仍未入库才算「逾期」。
@@ -75,9 +78,11 @@ public class EpisodeHealthService {
 
     public EpisodeHealthService(IPtSubscriptionEpisodePlusService episodeService,
                                 IPtSubscriptionPlusService subscriptionService,
+                                IPtDownloadRecordPlusService downloadRecordService,
                                 @Value("${pt.health.overdue-days:3}") int overdueDays) {
         this.episodeService = episodeService;
         this.subscriptionService = subscriptionService;
+        this.downloadRecordService = downloadRecordService;
         this.overdueDays = Math.max(0, overdueDays);
     }
 
@@ -105,7 +110,8 @@ public class EpisodeHealthService {
      */
     List<SubscriptionHealth> scan(LocalDate today) {
         Date airedBefore = toDate(today.minusDays(overdueDays));
-        List<PtSubscriptionEpisodePlus> candidates = episodeService.listHealthCandidates(airedBefore);
+        List<PtSubscriptionEpisodePlus> candidates = dropRecentlyPushed(
+                episodeService.listHealthCandidates(airedBefore), airedBefore);
         if (candidates.isEmpty()) {
             return List.of();
         }
@@ -132,6 +138,43 @@ public class EpisodeHealthService {
             result.add(new SubscriptionHealth(sub, items));
         }
         return result;
+    }
+
+    /**
+     * 去掉推送下载还没满阈值天数的在途集。
+     * <p>
+     * 「在途逾期」要回答的是<b>推给下载器之后迟迟没入库</b>，逾期得从推送那一刻算，
+     * 而不是从播出日算：补老剧、中途追剧、补搜到早先的集时，播出日早已过了阈值，
+     * 只按播出日判会让刚推出去的种子在下一次首页刷新就被报成「在途逾期」。
+     * 这批集在推送前本就是逾期缺失、推送后正在正常走流程，不是问题，直接不进报告。
+     * </p>
+     * <p>
+     * 截止点与播出日共用同一个 {@code cutoff}（今天减阈值天数的零点），两把尺子口径一致。
+     * 查不到推送时间（{@code download_id} 为空、记录已删、存量行 {@code pushed_time} 为 NULL）
+     * 时保留原判定：宁可多报一条，也不让真正卡住的集因为缺一个字段就从体检里消失。
+     * </p>
+     */
+    private List<PtSubscriptionEpisodePlus> dropRecentlyPushed(List<PtSubscriptionEpisodePlus> candidates,
+                                                               Date cutoff) {
+        Set<Integer> downloadIds = candidates.stream()
+                .filter(e -> SubscriptionEpisodeState.IN_FLIGHT.value().equals(e.getState()))
+                .map(PtSubscriptionEpisodePlus::getDownloadId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (downloadIds.isEmpty()) {
+            return candidates;
+        }
+        Set<Integer> recentlyPushed = downloadRecordService.listByIds(downloadIds).stream()
+                .filter(r -> r.getPushedTime() != null && r.getPushedTime().after(cutoff))
+                .map(PtDownloadRecordPlus::getId)
+                .collect(Collectors.toSet());
+        if (recentlyPushed.isEmpty()) {
+            return candidates;
+        }
+        return candidates.stream()
+                .filter(e -> !SubscriptionEpisodeState.IN_FLIGHT.value().equals(e.getState())
+                        || !recentlyPushed.contains(e.getDownloadId()))
+                .toList();
     }
 
     /**
