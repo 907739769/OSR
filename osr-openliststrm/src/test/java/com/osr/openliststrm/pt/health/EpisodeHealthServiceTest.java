@@ -1,7 +1,9 @@
 package com.osr.openliststrm.pt.health;
 
+import com.osr.openliststrm.mybatisplus.domain.PtDownloadRecordPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
+import com.osr.openliststrm.mybatisplus.service.IPtDownloadRecordPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.osr.openliststrm.pt.health.dto.EpisodeHealthItem;
@@ -40,8 +42,11 @@ class EpisodeHealthServiceTest {
     @Mock
     private IPtSubscriptionPlusService subscriptionService;
 
+    @Mock
+    private IPtDownloadRecordPlusService downloadRecordService;
+
     private EpisodeHealthService service(int overdueDays) {
-        return new EpisodeHealthService(episodeService, subscriptionService, overdueDays);
+        return new EpisodeHealthService(episodeService, subscriptionService, downloadRecordService, overdueDays);
     }
 
     private static Date d(String iso) {
@@ -168,6 +173,53 @@ class EpisodeHealthServiceTest {
         assertEquals(EpisodeHealthDiagnosis.UPLOAD_PENDING.name(), items.get(0).diagnosis());
         assertEquals(EpisodeHealthDiagnosis.DOWNLOADING.name(), items.get(1).diagnosis());
         assertTrue(items.stream().allMatch(i -> EpisodeHealthBucket.OVERDUE_IN_FLIGHT.name().equals(i.bucket())));
+    }
+
+    private static PtDownloadRecordPlus record(int id, String pushedDate) {
+        PtDownloadRecordPlus r = new PtDownloadRecordPlus();
+        r.setId(id);
+        r.setPushedTime(pushedDate == null ? null : d(pushedDate));
+        return r;
+    }
+
+    @Test
+    void 刚推送的在途集不算逾期_即使播出日早已过了阈值() {
+        // 补老剧：播出日在一个月前，种子今天才推出去。在途逾期要从推送算起，
+        // 否则首页会在下载刚开始时就报「在途逾期」
+        PtSubscriptionEpisodePlus fresh = ep(1, 5, "2026-07-10", "IN_FLIGHT");
+        fresh.setDownloadId(11);
+        PtSubscriptionEpisodePlus stale = ep(1, 6, "2026-07-10", "IN_FLIGHT");
+        stale.setDownloadId(12);
+        given(List.of(fresh, stale), sub(1, "三体", "1"));
+        when(downloadRecordService.listByIds(any())).thenReturn(List.of(record(11, "2026-08-17"), record(12, "2026-08-10")));
+
+        EpisodeHealthItem item = only(service(3).scan(TODAY));
+
+        assertEquals(6, item.episode());
+        assertEquals(EpisodeHealthBucket.OVERDUE_IN_FLIGHT.name(), item.bucket());
+    }
+
+    @Test
+    void 订阅只剩刚推送的在途集时整条不进报告() {
+        PtSubscriptionEpisodePlus fresh = ep(1, 5, "2026-07-10", "IN_FLIGHT");
+        fresh.setDownloadId(11);
+        given(List.of(fresh), sub(1, "三体", "1"));
+        when(downloadRecordService.listByIds(any())).thenReturn(List.of(record(11, "2026-08-16")));
+
+        assertTrue(service(3).scan(TODAY).isEmpty());
+    }
+
+    @Test
+    void 查不到推送时间的在途集保留原判定_不因缺字段从体检里消失() {
+        PtSubscriptionEpisodePlus noRecord = ep(1, 5, "2026-08-10", "IN_FLIGHT");
+        noRecord.setDownloadId(11);
+        PtSubscriptionEpisodePlus nullPushed = ep(1, 6, "2026-08-10", "IN_FLIGHT");
+        nullPushed.setDownloadId(12);
+        PtSubscriptionEpisodePlus noDownloadId = ep(1, 7, "2026-08-10", "IN_FLIGHT");
+        given(List.of(noRecord, nullPushed, noDownloadId), sub(1, "三体", "1"));
+        when(downloadRecordService.listByIds(any())).thenReturn(List.of(record(12, null)));
+
+        assertEquals(3, service(3).scan(TODAY).get(0).episodes().size());
     }
 
     @Test
