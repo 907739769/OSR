@@ -60,6 +60,11 @@ describe('useDashboardTodo', () => {
     await t.load()
     expect(t.items.value.map((i) => [i.key, i.count])).toEqual([['downloader', 1], ['overdueMissing', 1], ['failedDownload', 4]])
     expect(t.items.value[0].hint).toBe('家里qB 连不上')
+    // 跳过去要带上与计数同口径的筛选，否则落到全部记录里找不到是哪几条
+    expect(t.items.value[2].path).toEqual({
+      path: '/p/openlist/ptDownloadRecord/index',
+      query: { state: 'FAILED', hideSuperseded: '1', hideIgnored: '1' }
+    })
   })
 
   it('待办信号某一路为 null 算没取到，不能当成没有问题', async () => {

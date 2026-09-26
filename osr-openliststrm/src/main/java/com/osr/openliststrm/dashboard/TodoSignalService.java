@@ -10,6 +10,7 @@ import com.osr.openliststrm.mybatisplus.service.IPtDownloaderPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtMediaServerPlusService;
 import com.osr.openliststrm.pt.downloader.DownloaderHealthRegistry;
 import com.osr.openliststrm.pt.stats.PtStatsScope;
+import com.osr.openliststrm.pt.task.DownloadRecordAdminService;
 import com.osr.openliststrm.pt.task.DownloadRecordState;
 import com.osr.openliststrm.pt.task.UnresolvedFailureSql;
 import lombok.extern.slf4j.Slf4j;
@@ -84,11 +85,15 @@ public class TodoSignalService {
         }
     }
 
-    /** 还没被后续推送接替的失败下载，口径同下载记录页与统计面板（{@link UnresolvedFailureSql}） */
+    /**
+     * 还没被后续推送接替、也没被用户忽略的失败下载。接替口径同下载记录页与统计面板（{@link UnresolvedFailureSql}）；
+     * 忽略只在这里与下载记录页的「隐藏已忽略」里扣掉，统计面板照算。
+     */
     private Long unresolvedFailedDownloads(PtStatsScope scope) {
         try {
             QueryWrapper<PtDownloadRecordPlus> wrapper = new QueryWrapper<PtDownloadRecordPlus>()
                     .eq("state", DownloadRecordState.FAILED.value())
+                    .ne("fail_ignored", DownloadRecordAdminService.FAIL_IGNORED)
                     .apply(UnresolvedFailureSql.NOT_SUPERSEDED);
             String visibleSubs = scope.visibleSubIdSql();
             if (visibleSubs != null) {

@@ -2,7 +2,9 @@ import { ref, computed } from 'vue'
 import { getPtHealthApi } from '@/api/openlist/ptHealth'
 import { getPtIndexerListApi } from '@/api/openlist/ptIndexer'
 import { getTodoSignalsApi, type TodoProblem } from '@/api/openlist/dashboard'
+import type { RouteLocationRaw } from 'vue-router'
 import { getRoutePathForComponent } from '@/router'
+import { downloadRecordLocation } from './usePtStatsNavigation'
 
 export interface TodoItem {
   key: string
@@ -10,7 +12,7 @@ export interface TodoItem {
   hint: string
   count: number
   tone: 'warning' | 'error'
-  path: string | null
+  path: RouteLocationRaw | null
 }
 
 /** 索引器是否处于异常：启用着、且上次轮询结果不是 OK（没轮询过的新索引器 lastStatus 为空，不算异常） */
@@ -90,7 +92,9 @@ export function useDashboardTodo() {
     const indexerPath = getRoutePathForComponent('openlist/ptIndexer/index')
     const downloaderPath = getRoutePathForComponent('openlist/ptDownloader/index')
     const mediaServerPath = getRoutePathForComponent('openlist/ptMediaServer/index')
-    const recordPath = getRoutePathForComponent('openlist/ptDownloadRecord/index')
+    // 带上与计数同口径的筛选（失败 + 隐藏已被接替的 + 隐藏已忽略的），否则跳过去是全部记录，
+    // 用户对着一页成功 / 已接替的失败根本找不到这 N 条是哪些
+    const failedRecordPath = downloadRecordLocation({ state: 'FAILED', hideSuperseded: true, hideIgnored: true })
     return [
       // 下载器离线排最前：它一掉，订阅命中了也推不下去、在途的也追踪不到，其余待办多半由它引起
       { key: 'downloader', label: '下载器离线', hint: describeProblems(offlineDownloaders.value, ' 连不上'), count: offlineDownloaders.value.length, tone: 'error' as const, path: downloaderPath },
@@ -99,7 +103,7 @@ export function useDashboardTodo() {
       { key: 'overdueInFlight', label: '在途逾期', hint: '已推送但迟迟没入库', count: overdueInFlight.value, tone: 'warning' as const, path: healthPath },
       { key: 'blocked', label: '需人工处理', hint: '连续失败已熔断', count: blocked.value, tone: 'error' as const, path: healthPath },
       { key: 'indexer', label: '索引器异常', hint: '上次轮询没成功', count: abnormalIndexers.value, tone: 'error' as const, path: indexerPath },
-      { key: 'failedDownload', label: '下载失败待处理', hint: '失败后还没被重新下载成功', count: unresolvedFailedDownloads.value, tone: 'warning' as const, path: recordPath }
+      { key: 'failedDownload', label: '下载失败待处理', hint: '失败后还没被重新下载成功，不想处理的可以忽略', count: unresolvedFailedDownloads.value, tone: 'warning' as const, path: failedRecordPath }
     ].filter((i) => i.count > 0)
   })
 

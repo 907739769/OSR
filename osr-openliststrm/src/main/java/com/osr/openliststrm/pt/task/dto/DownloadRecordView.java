@@ -36,6 +36,8 @@ public class DownloadRecordView {
     private Double progress;
     private String failReason;
     private String failReasonCode;
+    /** 失败已被用户忽略（只对 FAILED 记录有意义），忽略后不计入首页待办 */
+    private Boolean failIgnored;
     private Date pushedTime;
     private Date completedTime;
 

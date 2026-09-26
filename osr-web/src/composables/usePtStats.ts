@@ -55,6 +55,8 @@ export interface PtRecordFilter {
   endDate?: string
   /** 隐藏已被后续推送接替的失败，与统计卡的失败数同一口径 */
   hideSuperseded?: boolean
+  /** 隐藏用户已忽略的失败（首页待办用；统计卡的失败数不扣忽略，这里不带） */
+  hideIgnored?: boolean
 }
 
 export interface PtStatCard {

@@ -33,6 +33,7 @@ vi.mock('@/api/openlist/ptDownloadRecord', () => ({
   getPtDownloadRecordStatsApi: vi.fn().mockResolvedValue({ total: 0 }),
   retryPtDownloadRecordApi: vi.fn(),
   batchRetryPtDownloadRecordApi: vi.fn(),
+  batchIgnorePtDownloadRecordApi: vi.fn(),
   blacklistGuidApi: vi.fn(),
   blacklistReleaseGroupApi: vi.fn(),
   batchBlacklistGuidApi: vi.fn(),
@@ -53,7 +54,7 @@ vi.mock('@/api/openlist/ptDownloader', () => ({
 import { nextTick } from 'vue'
 import { usePtDownloadRecord } from '../usePtDownloadRecord'
 import {
-  batchRetryPtDownloadRecordApi, getPtDownloadRecordListApi,
+  batchRetryPtDownloadRecordApi, batchIgnorePtDownloadRecordApi, getPtDownloadRecordListApi,
   batchBlacklistGuidApi, batchBlacklistReleaseGroupApi,
   blacklistReleaseGroupApi, previewCleanupPtDownloadRecordApi, cleanupPtDownloadRecordApi
 } from '@/api/openlist/ptDownloadRecord'
@@ -257,6 +258,75 @@ describe('usePtDownloadRecord 实时状态推送', () => {
 
     const handlers = (usePtStatusSocket as any).mock.calls[0][0]
     expect(() => handlers.onDownload({ type: 'download', downloadId: 999, subId: 5, episode: 1, state: 'FAILED', failReason: '超时' })).not.toThrow()
+  })
+})
+
+describe('usePtDownloadRecord 的忽略失败', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(getPtDownloadRecordListApi as any).mockResolvedValue({ records: [], total: 0 })
+  })
+
+  afterEach(() => {
+    routeState.query = {}
+  })
+
+  it('单条忽略后原地标上已忽略；正在隐藏已忽略时当场移出列表并扣总数', async () => {
+    (batchIgnorePtDownloadRecordApi as any).mockResolvedValue(1)
+    const composable = usePtDownloadRecord()
+    await flush()
+    const row: any = { id: 1, state: 'FAILED' }
+    composable.taskList.value = [row, { id: 2, state: 'FAILED' }]
+    composable.total.value = 2
+    composable.queryParams.hideIgnored = true
+
+    await composable.handleIgnore(row)
+
+    expect(batchIgnorePtDownloadRecordApi).toHaveBeenCalledWith([1], true)
+    expect(composable.taskList.value.map((r: any) => r.id)).toEqual([2])
+    expect(composable.total.value).toBe(1)
+  })
+
+  it('取消忽略：标记清掉，不移出列表', async () => {
+    (batchIgnorePtDownloadRecordApi as any).mockResolvedValue(1)
+    const composable = usePtDownloadRecord()
+    await flush()
+    const row: any = { id: 1, state: 'FAILED', failIgnored: true }
+    composable.taskList.value = [row]
+
+    await composable.handleIgnore(row, false)
+
+    expect(batchIgnorePtDownloadRecordApi).toHaveBeenCalledWith([1], false)
+    expect(composable.taskList.value[0].failIgnored).toBe(false)
+  })
+
+  it('批量忽略只送还没着落、也没忽略过的失败记录', async () => {
+    (confirm as any).mockResolvedValue(undefined)
+    ;(batchIgnorePtDownloadRecordApi as any).mockResolvedValue(1)
+    const composable = usePtDownloadRecord()
+    composable.taskList.value = [
+      { id: 1, state: 'FAILED' },
+      { id: 2, state: 'FAILED', supersededById: 9 },
+      { id: 3, state: 'FAILED', failIgnored: true },
+      { id: 4, state: 'COMPLETED' }
+    ]
+    composable.selectedIds.value = [1, 2, 3, 4]
+
+    expect(composable.ignorableSelectedIds.value).toEqual([1])
+    await composable.handleBatchIgnore()
+
+    expect(batchIgnorePtDownloadRecordApi).toHaveBeenCalledWith([1], true)
+    expect(composable.selectedIds.value).toEqual([])
+  })
+
+  it('从首页待办带 hideIgnored 跳进来：首次加载就隐藏已忽略的', () => {
+    routeState.query = { state: 'FAILED', hideSuperseded: '1', hideIgnored: '1' }
+    const composable = usePtDownloadRecord()
+
+    expect(composable.queryParams.hideIgnored).toBe(true)
+    expect(getPtDownloadRecordListApi).toHaveBeenCalledWith(expect.objectContaining({
+      state: 'FAILED', hideSuperseded: true, hideIgnored: true
+    }))
   })
 })
 

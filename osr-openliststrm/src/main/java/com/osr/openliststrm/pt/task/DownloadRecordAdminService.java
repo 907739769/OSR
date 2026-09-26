@@ -50,6 +50,9 @@ public class DownloadRecordAdminService {
     private static final String STATE_FAILED = DownloadRecordState.FAILED.value();
     private static final String EP_STATE_BLOCKED = SubscriptionEpisodeState.BLOCKED.value();
     private static final String EP_STATE_MISSING = SubscriptionEpisodeState.MISSING.value();
+    /** {@code pt_download_record.fail_ignored} 的「已忽略」取值 */
+    public static final String FAIL_IGNORED = "1";
+    private static final String FAIL_NOT_IGNORED = "0";
 
     /** 清理旧记录允许的保留天数。下限 30 天：再短就会碰到还在对账、还在保种的那批 */
     public static final List<Integer> CLEANUP_ALLOWED_DAYS = List.of(30, 90, 180, 365);
@@ -256,6 +259,7 @@ public class DownloadRecordAdminService {
         view.setProgress(r.getProgress());
         view.setFailReason(r.getFailReason());
         view.setFailReasonCode(r.getFailReasonCode());
+        view.setFailIgnored(FAIL_IGNORED.equals(r.getFailIgnored()));
         view.setPushedTime(r.getPushedTime());
         view.setCompletedTime(r.getCompletedTime());
         view.setHrState(r.getHrState());
@@ -339,6 +343,26 @@ public class DownloadRecordAdminService {
         }
         log.info("批量重试下载记录完成：共 {} 条，重新推送 {} 条，跳过 {} 条", ids.size(), pushed, skipped);
         return new BatchRetryResult(ids.size(), pushed, skipped);
+    }
+
+    /**
+     * 忽略 / 取消忽略失败记录。只改 FAILED 的行（条件写在 WHERE 里，选中了别的状态的记录直接不计），
+     * 返回实际改到的条数。
+     * <p>
+     * 忽略只影响「待处理」口径（首页待办、下载记录页的待处理筛选），<b>不碰订阅的集状态</b>：
+     * 那一集照旧是缺失，自动补搜仍会继续找。统计仪表盘的失败数也照算——忽略是「不处理」，不是「没失败」。
+     * </p>
+     */
+    public int setFailIgnored(List<Integer> ids, boolean ignored) {
+        if (ids.isEmpty()) {
+            return 0;
+        }
+        int changed = recordService.getBaseMapper().update(null, new UpdateWrapper<PtDownloadRecordPlus>()
+                .in("id", ids)
+                .eq("state", STATE_FAILED)
+                .set("fail_ignored", ignored ? FAIL_IGNORED : FAIL_NOT_IGNORED));
+        log.info("{}失败下载记录：选中 {} 条，实际改动 {} 条", ignored ? "忽略" : "取消忽略", ids.size(), changed);
+        return changed;
     }
 
     /**

@@ -1,6 +1,7 @@
 package com.osr.openliststrm.dashboard;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.osr.openliststrm.mybatisplus.domain.PtDownloadRecordPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloaderPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtMediaServerPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtDownloadRecordPlusService;
@@ -10,6 +11,7 @@ import com.osr.openliststrm.pt.downloader.DownloaderHealthRegistry;
 import com.osr.openliststrm.pt.stats.PtStatsScope;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 import java.util.List;
 
@@ -18,6 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class TodoSignalServiceTest {
@@ -65,6 +68,20 @@ class TodoSignalServiceTest {
         assertNull(signals.unhealthyMediaServers().get(0).detail());
         assertEquals("连接 http://10.0.0.5:8096 超时",
                 service.signals(PtStatsScope.ALL).unhealthyMediaServers().get(0).detail());
+    }
+
+    /** 用户忽略掉的失败不该再挂在待办里，否则那一项永远消不掉 */
+    @Test
+    @SuppressWarnings("unchecked")
+    void 失败下载计数_扣掉已忽略的() {
+        ArgumentCaptor<Wrapper<PtDownloadRecordPlus>> captor = ArgumentCaptor.forClass(Wrapper.class);
+
+        assertEquals(3L, service.signals(PtStatsScope.ALL).unresolvedFailedDownloads());
+
+        verify(recordService).count(captor.capture());
+        String sql = captor.getValue().getSqlSegment();
+        assertTrue(sql.contains("fail_ignored <>"), sql);
+        assertTrue(sql.contains("NOT EXISTS"), sql);
     }
 
     @Test

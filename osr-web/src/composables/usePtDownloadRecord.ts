@@ -5,7 +5,7 @@ import { confirm } from '@/composables/useConfirm'
 import { useDebounce } from '@/composables/useDebounce'
 import {
   getPtDownloadRecordListApi, getPtDownloadRecordStatsApi,
-  retryPtDownloadRecordApi, batchRetryPtDownloadRecordApi,
+  retryPtDownloadRecordApi, batchRetryPtDownloadRecordApi, batchIgnorePtDownloadRecordApi,
   blacklistGuidApi, blacklistReleaseGroupApi,
   batchBlacklistGuidApi, batchBlacklistReleaseGroupApi,
   previewCleanupPtDownloadRecordApi, cleanupPtDownloadRecordApi, CLEANUP_DAY_OPTIONS
@@ -16,7 +16,7 @@ import { getPtIndexerListApi } from '@/api/openlist/ptIndexer'
 import { getPtDownloaderListApi } from '@/api/openlist/ptDownloader'
 import { useRecordList } from './useRecordList'
 import { usePtStatusSocket } from './usePtStatusSocket'
-import { canRetry } from './ptDownloadRecordLabels'
+import { canIgnore, canRetry } from './ptDownloadRecordLabels'
 import type { ListLoadOptions } from './useGridPageSize'
 
 /**
@@ -62,7 +62,7 @@ export function usePtDownloadRecord(options: ListLoadOptions = {}) {
     defaultQuery: {
       subId: undefined, state: undefined, title: undefined,
       failReasonCode: undefined, indexerId: undefined, downloaderId: undefined, hrState: undefined,
-      hideSuperseded: undefined, dateField: undefined,
+      hideSuperseded: undefined, hideIgnored: undefined, dateField: undefined,
       pageSize: 12
     }
   })
@@ -70,7 +70,7 @@ export function usePtDownloadRecord(options: ListLoadOptions = {}) {
   // ---------- 路由带进来的筛选 ----------
 
   /** 地址栏里认的筛选键，与 usePtStatsNavigation#downloadRecordLocation 写出的一致 */
-  const ROUTE_FILTER_KEYS = ['subId', 'subTitle', 'state', 'failReasonCode', 'hrState', 'dateField', 'beginDate', 'endDate', 'hideSuperseded'] as const
+  const ROUTE_FILTER_KEYS = ['subId', 'subTitle', 'state', 'failReasonCode', 'hrState', 'dateField', 'beginDate', 'endDate', 'hideSuperseded', 'hideIgnored'] as const
 
   const hasRouteFilters = (query: Record<string, unknown>) => ROUTE_FILTER_KEYS.some(k => query[k] !== undefined)
 
@@ -98,6 +98,7 @@ export function usePtDownloadRecord(options: ListLoadOptions = {}) {
       hrState: str('hrState'),
       dateField: str('dateField') as DownloadRecordDateField | undefined,
       hideSuperseded: str('hideSuperseded') === '1' ? true : undefined,
+      hideIgnored: str('hideIgnored') === '1' ? true : undefined,
       title: undefined,
       indexerId: undefined,
       downloaderId: undefined,
@@ -271,6 +272,67 @@ export function usePtDownloadRecord(options: ListLoadOptions = {}) {
     }
   }
 
+  // ---------- 忽略失败 ----------
+  // 有些失败看过之后决定不管了（不要这一集了、已从别处补上），但它永远不会被接替，
+  // 首页「下载失败待处理」就一直挂着。忽略只把它从待办里拿掉，订阅那一集的补搜照常
+
+  const ignoringIds = reactive(new Set<number>())
+
+  /** 改完原地更新标记；正在「隐藏已忽略」时刚忽略的那条已不属于这个列表，当场移除 */
+  const applyIgnored = (ids: number[], ignored: boolean) => {
+    const idSet = new Set(ids)
+    taskList.value.forEach((item: PtDownloadRecordView) => {
+      if (idSet.has(item.id) && item.state === 'FAILED') item.failIgnored = ignored
+    })
+    if (ignored && queryParams.hideIgnored) {
+      const before = taskList.value.length
+      taskList.value = taskList.value.filter((item: PtDownloadRecordView) => !(idSet.has(item.id) && item.failIgnored))
+      total.value = Math.max(0, total.value - (before - taskList.value.length))
+    }
+    refreshAfterStateChange()
+  }
+
+  const handleIgnore = async (row: PtDownloadRecordView, ignored = true) => {
+    ignoringIds.add(row.id)
+    try {
+      await batchIgnorePtDownloadRecordApi([row.id], ignored)
+      message.success(ignored ? '已忽略，不再计入首页待办；这一集的自动补搜不受影响' : '已取消忽略')
+      applyIgnored([row.id], ignored)
+    } catch (e) {
+      console.error(e)
+    } finally {
+      ignoringIds.delete(row.id)
+    }
+  }
+
+  /** 选中项里能忽略的部分，按钮上标出生效条数，口径同批量重试 */
+  const ignorableSelectedIds = computed(() =>
+    taskList.value
+      .filter((item: PtDownloadRecordView) => canIgnore(item) && selectedIds.value.includes(item.id))
+      .map((item: PtDownloadRecordView) => item.id)
+  )
+
+  const handleBatchIgnore = async () => {
+    const ids = ignorableSelectedIds.value
+    if (!ids.length) {
+      message.warning('选中的记录里没有可忽略的失败记录')
+      return
+    }
+    try {
+      await confirm({
+        message: `确认忽略选中的 ${ids.length} 条失败记录？忽略后不再计入首页待办，可随时取消忽略；订阅的自动补搜不受影响。`,
+        title: '提示',
+        type: 'warning'
+      })
+      const changed = await batchIgnorePtDownloadRecordApi(ids, true)
+      message.success(`已忽略 ${changed} 条失败记录`)
+      applyIgnored(ids, true)
+      clearSelection()
+    } catch (e) {
+      if (e !== 'cancel') console.error(e)
+    }
+  }
+
   // ---------- 拉黑（单条与批量共用一个弹窗，都能填原因） ----------
 
   type BlacklistKind = 'guid' | 'group'
@@ -429,6 +491,7 @@ export function usePtDownloadRecord(options: ListLoadOptions = {}) {
     selectionMode, toggleSelectionMode, selectedIds, toggleRecordSelect, handleCardClick, clearSelection,
     isAllPageSelected, toggleSelectAllPage,
     retryableSelectedIds, handleBatchRetry,
+    ignoringIds, handleIgnore, ignorableSelectedIds, handleBatchIgnore,
     handleBatchBlacklistGuid, handleBatchBlacklistReleaseGroup,
     handleBlacklistGuid, handleBlacklistReleaseGroup, blacklistDialog, submitBlacklist,
     copyTorrentHash,

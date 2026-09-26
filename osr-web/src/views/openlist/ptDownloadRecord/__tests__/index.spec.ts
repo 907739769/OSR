@@ -42,6 +42,10 @@ function baseComposable(overrides: Record<string, any> = {}) {
     toggleSelectAllPage: vi.fn(),
     retryableSelectedIds: computed(() => [] as number[]),
     handleBatchRetry: vi.fn(),
+    ignoringIds: reactive(new Set<number>()),
+    handleIgnore: vi.fn(),
+    ignorableSelectedIds: computed(() => [] as number[]),
+    handleBatchIgnore: vi.fn(),
     handleBatchBlacklistGuid: vi.fn(),
     handleBatchBlacklistReleaseGroup: vi.fn(),
     handleBlacklistGuid: vi.fn(),
@@ -311,6 +315,51 @@ describe('PtDownloadRecord 批量重试', () => {
     }))
     const wrapper = mount(PtDownloadRecordPage)
     expect(wrapper.find('.item-card').classes()).not.toContain('item-card--selectable')
+  })
+})
+
+describe('PtDownloadRecord 忽略失败', () => {
+  it('还没着落的失败给「忽略」，已忽略的改成「取消忽略」、标出已忽略且不再标红', async () => {
+    const handleIgnore = vi.fn()
+    ;(usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      taskList: ref([
+        { id: 1, title: 'A', state: 'FAILED', failReason: 'boom' },
+        { id: 2, title: 'B', state: 'FAILED', failReason: 'boom', failIgnored: true }
+      ]),
+      handleIgnore
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    const [pending, ignored] = wrapper.findAll('.item-card')
+    expect(pending.find('.ignore-btn').text()).toBe('忽略')
+    expect(ignored.find('.ignore-btn').text()).toBe('取消忽略')
+    expect(ignored.text()).toContain('已忽略')
+    expect(ignored.classes()).not.toContain('item-card--failed')
+
+    await pending.find('.ignore-btn').trigger('click')
+    expect(handleIgnore).toHaveBeenCalledWith(expect.objectContaining({ id: 1 }), true)
+  })
+
+  it('已被接替或非失败的记录不给忽略按钮', () => {
+    (usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      taskList: ref([
+        { id: 1, title: 'A', state: 'FAILED', failReason: 'boom', supersededById: 9 },
+        { id: 2, title: 'B', state: 'COMPLETED' }
+      ])
+    }))
+    expect(mount(PtDownloadRecordPage).find('.ignore-btn').exists()).toBe(false)
+  })
+
+  it('批量忽略按钮标出生效条数，点击调用 handleBatchIgnore', async () => {
+    const handleBatchIgnore = vi.fn()
+    ;(usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      selectionMode: ref(true),
+      ignorableSelectedIds: computed(() => [1, 2]),
+      handleBatchIgnore
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    expect(wrapper.find('.batch-ignore-btn').text()).toContain('2 条失败')
+    await wrapper.find('.batch-ignore-btn').trigger('click')
+    expect(handleBatchIgnore).toHaveBeenCalled()
   })
 })
 

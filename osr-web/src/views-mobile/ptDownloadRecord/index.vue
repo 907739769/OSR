@@ -110,6 +110,15 @@
             inset
             hide-details
           />
+          <!-- 忽略过的失败不再计入首页待办；从待办点进来时这一项是开着的 -->
+          <v-switch
+            v-model="queryParams.hideIgnored"
+            label="隐藏已忽略的失败"
+            color="primary"
+            density="compact"
+            inset
+            hide-details
+          />
         </v-form>
       </MobileSearchPanel>
 
@@ -155,6 +164,15 @@
           @click="handleBatchRetry"
         >
           批量重试{{ retryableSelectedIds.length ? `（${retryableSelectedIds.length}）` : '' }}
+        </v-btn>
+        <v-btn
+          variant="text"
+          size="small"
+          class="batch-ignore-btn"
+          :disabled="!ignorableSelectedIds.length"
+          @click="handleBatchIgnore"
+        >
+          批量忽略{{ ignorableSelectedIds.length ? `（${ignorableSelectedIds.length}）` : '' }}
         </v-btn>
         <v-btn variant="text" color="warning" size="small" class="batch-blacklist-guid-btn" :disabled="!selectedIds.length" @click="handleBatchBlacklistGuid">批量拉黑种子</v-btn>
         <v-btn variant="text" color="error" size="small" class="batch-blacklist-group-btn" :disabled="!selectedIds.length" @click="handleBatchBlacklistReleaseGroup">批量拉黑发布组</v-btn>
@@ -241,6 +259,7 @@
         <div class="card-fail" :class="{ 'card-fail--superseded': item.supersededById }" v-if="item.state === 'FAILED'">
           <v-icon icon="circle-alert" size="16" />
           <StatusChip v-if="item.failReasonCode" :type="failReasonTagType(item.failReasonCode)" :text="failReasonCodeLabel(item.failReasonCode)" />
+          <StatusChip v-if="item.failIgnored" type="default" text="已忽略" />
           <span>{{ item.failReason || '未知原因' }}</span>
         </div>
         <!-- 失败之后同一集已经有了新的推送：该看的是后面那条，这条不再给重试 -->
@@ -275,6 +294,15 @@
     <template #foot>
       <!-- 操作抽屉 -->
       <MobileActionSheet v-model="sheetOpen" :target="sheetTarget">
+        <!-- 不打算处理的失败：忽略后不再计入首页待办，订阅的补搜照常 -->
+        <v-btn
+          v-if="canIgnore(sheetTarget) || (sheetTarget.failIgnored && !sheetTarget.supersededById)"
+          block
+          prepend-icon="eye-off"
+          @click="run(() => handleIgnore(sheetTarget, !sheetTarget.failIgnored))"
+        >
+          {{ sheetTarget.failIgnored ? '取消忽略' : '忽略这条失败' }}
+        </v-btn>
         <v-btn
           v-if="sheetTarget.torrentHash"
           block
@@ -353,7 +381,7 @@ import { usePtDownloadRecord } from '@/composables/usePtDownloadRecord'
 import {
   DOWNLOAD_STATE_OPTIONS, FAIL_REASON_OPTIONS, HR_STATE_OPTIONS, DATE_FIELD_OPTIONS, SEEDERS_HINT,
   stateLabel, stateTagType, failReasonCodeLabel, failReasonTagType, hrStateLabel, hrTagType,
-  hrProgress, progressPercent, hasProgress, canRetry, stalePushedHint
+  hrProgress, progressPercent, hasProgress, canRetry, canIgnore, stalePushedHint
 } from '@/composables/ptDownloadRecordLabels'
 import { formatFileSize } from '@/composables/useRecordList'
 import { useActionSheet } from '@/composables/useActionSheet'
@@ -370,6 +398,7 @@ const {
   selectionMode, toggleSelectionMode, selectedIds, toggleRecordSelect, handleCardClick,
   isAllPageSelected, toggleSelectAllPage,
   retryableSelectedIds, handleBatchRetry,
+  handleIgnore, ignorableSelectedIds, handleBatchIgnore,
   handleBatchBlacklistGuid, handleBatchBlacklistReleaseGroup,
   totalPages, prevPage, nextPage, handleSizeChange,
   searchCollapsed,
