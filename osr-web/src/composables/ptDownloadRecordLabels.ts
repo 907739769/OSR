@@ -94,6 +94,12 @@ export const hasProgress = (item: PtDownloadRecordView) =>
  */
 export const canRetry = (item: PtDownloadRecordView) => item.state === 'FAILED' && !item.supersededById
 
+/**
+ * 能不能点「忽略」：只对还没着落（没被接替）、也还没忽略过的失败成立。
+ * 已被接替的本来就不计入待办，忽略它没有意义
+ */
+export const canIgnore = (item: PtDownloadRecordView) => canRetry(item) && !item.failIgnored
+
 /** 做种数是推送那一刻的快照，卡片上要说清楚，免得被当成实时数据 */
 export const SEEDERS_HINT = '做种数是推送那一刻索引器给出的快照，不随时间更新'
 

@@ -248,7 +248,7 @@
       />
 
       <SubtitleHealthCard
-        :issues="subtitleIssues"
+        :report="subtitleReport"
         :loading="subtitleLoading"
         :loaded="subtitleLoaded"
         @load="loadSubtitles"
@@ -306,7 +306,7 @@ const {
   batchActing, isActing, anyActing,
   includeIgnored, handleSetIgnored, toggleIncludeIgnored,
   load, handleEnableAutoSearch, handleSearchNow, openSubscription, setBucket, setDiagnosis,
-  subtitleIssues, subtitleLoading, subtitleLoaded, loadSubtitles
+  subtitleReport, subtitleLoading, subtitleLoaded, loadSubtitles
 } = usePtHealth()
 const { firstLoading, refreshing } = useFirstLoad(loading)
 

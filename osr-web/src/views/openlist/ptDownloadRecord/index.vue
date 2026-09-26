@@ -116,6 +116,16 @@
         hide-details
         class="hide-superseded-switch"
       />
+      <!-- 忽略过的失败不再计入首页待办；从待办点进来时这一项是开着的 -->
+      <v-switch
+        v-model="queryParams.hideIgnored"
+        label="隐藏已忽略的失败"
+        color="primary"
+        density="compact"
+        inset
+        hide-details
+        class="hide-superseded-switch"
+      />
     </SearchPanel>
 
     <!-- 列表 -->
@@ -162,6 +172,15 @@
         >
           批量重试{{ retryableSelectedIds.length ? `（${retryableSelectedIds.length} 条失败）` : '' }}
         </v-btn>
+        <v-btn
+          variant="text"
+          size="small"
+          class="batch-ignore-btn"
+          :disabled="!ignorableSelectedIds.length"
+          @click="handleBatchIgnore"
+        >
+          批量忽略{{ ignorableSelectedIds.length ? `（${ignorableSelectedIds.length} 条失败）` : '' }}
+        </v-btn>
         <v-btn variant="text" color="warning" size="small" class="batch-blacklist-guid-btn" :disabled="!selectedIds.length" @click="handleBatchBlacklistGuid">批量拉黑种子</v-btn>
         <v-btn variant="text" color="error" size="small" class="batch-blacklist-group-btn" :disabled="!selectedIds.length" @click="handleBatchBlacklistReleaseGroup">批量拉黑发布组</v-btn>
         <v-btn variant="text" size="small" class="batch-select-all-btn" @click="toggleSelectAllPage(!isAllPageSelected)">
@@ -181,7 +200,7 @@
           :key="item.id"
           class="item-card item-card--compact"
           :class="{
-            'item-card--failed': item.state === 'FAILED' && !item.supersededById,
+            'item-card--failed': item.state === 'FAILED' && !item.supersededById && !item.failIgnored,
             'item-card--selectable': selectionMode
           }"
           @click="selectionMode && handleCardClick($event, item.id)"
@@ -268,6 +287,7 @@
           <div class="record-fail" :class="{ 'record-fail--superseded': item.supersededById }" v-if="item.state === 'FAILED'">
             <v-icon icon="circle-alert" size="16" />
             <StatusChip v-if="item.failReasonCode" :type="failReasonTagType(item.failReasonCode)" :text="failReasonCodeLabel(item.failReasonCode)" />
+            <StatusChip v-if="item.failIgnored" type="default" text="已忽略" />
             <span>{{ item.failReason || '未知原因' }}</span>
           </div>
           <!-- 失败之后同一集已经有了新的推送：该看的是后面那条，这条不再给重试 -->
@@ -285,6 +305,17 @@
               @click="handleRetry(item)"
             >
               立即重试
+            </v-btn>
+            <!-- 不打算处理的失败：忽略后不再计入首页待办，订阅的补搜照常 -->
+            <v-btn
+              v-if="canIgnore(item) || (item.failIgnored && !item.supersededById)"
+              variant="text"
+              size="small"
+              class="ignore-btn"
+              :loading="ignoringIds.has(item.id)"
+              @click="handleIgnore(item, !item.failIgnored)"
+            >
+              {{ item.failIgnored ? '取消忽略' : '忽略' }}
             </v-btn>
             <v-btn
               variant="text"
@@ -364,7 +395,7 @@ import { usePtDownloadRecord } from '@/composables/usePtDownloadRecord'
 import {
   DOWNLOAD_STATE_OPTIONS, FAIL_REASON_OPTIONS, HR_STATE_OPTIONS, DATE_FIELD_OPTIONS, SEEDERS_HINT,
   stateLabel, stateTagType, failReasonCodeLabel, failReasonTagType, hrStateLabel, hrTagType,
-  hrProgress, progressPercent, hasProgress, canRetry, stalePushedHint
+  hrProgress, progressPercent, hasProgress, canRetry, canIgnore, stalePushedHint
 } from '@/composables/ptDownloadRecordLabels'
 import { formatFileSize } from '@/composables/useRecordList'
 import { useGridPageSize } from '@/composables/useGridPageSize'
@@ -388,6 +419,7 @@ const {
   selectionMode, toggleSelectionMode, selectedIds, toggleRecordSelect, handleCardClick,
   isAllPageSelected, toggleSelectAllPage,
   retryableSelectedIds, handleBatchRetry,
+  ignoringIds, handleIgnore, ignorableSelectedIds, handleBatchIgnore,
   handleBatchBlacklistGuid, handleBatchBlacklistReleaseGroup,
   handleBlacklistGuid, handleBlacklistReleaseGroup, blacklistDialog, submitBlacklist,
   copyTorrentHash,

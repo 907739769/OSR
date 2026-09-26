@@ -21,6 +21,7 @@ import java.time.OffsetDateTime;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -252,6 +253,95 @@ public class EmbyClient implements IMediaServerClient {
             }
         }
         return new WatchState(watched, last);
+    }
+
+    /**
+     * 带 {@code Fields=MediaStreams} 取条目的流信息。每个条目约 13 KB，所以只按一部作品取，不要全库拉。
+     * 同一集多个版本（或一个文件跨多集，{@code IndexNumberEnd}）都合并到对应集号上。
+     */
+    @Override
+    public Map<Integer, MediaStreamInfo> listStreamInfo(PtMediaServerPlus config, String tmdbId, Integer season,
+                                                        boolean movie) throws IOException {
+        JSONArray items;
+        if (movie) {
+            Map<String, String> query = new LinkedHashMap<>();
+            query.put("IncludeItemTypes", "Movie");
+            query.put("Recursive", "true");
+            query.put("AnyProviderIdEquals", "tmdb." + tmdbId);
+            query.put("Fields", "MediaStreams");
+            putUserId(config, query);
+            items = parseJsonObject(get(config, "/Items", query)).getJSONArray("Items");
+        } else {
+            String seriesId = findItemId(config, "Series", tmdbId);
+            if (seriesId == null) {
+                return new HashMap<>();
+            }
+            Map<String, String> query = new LinkedHashMap<>();
+            if (season != null) {
+                query.put("season", String.valueOf(season));
+            }
+            query.put("Fields", "MediaStreams");
+            putUserId(config, query);
+            items = parseJsonObject(get(config, "/Shows/" + seriesId + "/Episodes", query)).getJSONArray("Items");
+        }
+        return toStreamInfoMap(items, movie);
+    }
+
+    static Map<Integer, MediaStreamInfo> toStreamInfoMap(JSONArray items, boolean movie) {
+        Map<Integer, MediaStreamInfo> result = new HashMap<>();
+        if (items == null) {
+            return result;
+        }
+        for (int i = 0; i < items.size(); i++) {
+            JSONObject item = items.getJSONObject(i);
+            MediaStreamInfo info = toStreamInfo(item.getJSONArray("MediaStreams"));
+            if (movie) {
+                result.merge(0, info, MediaStreamInfo::merge);
+                continue;
+            }
+            Integer start = item.getInteger("IndexNumber");
+            if (start == null) {
+                continue;
+            }
+            Integer end = item.getInteger("IndexNumberEnd");
+            for (int no = start; no <= (end != null && end > start ? end : start); no++) {
+                result.merge(no, info, MediaStreamInfo::merge);
+            }
+        }
+        return result;
+    }
+
+    /** 有视频或音频流才算解析过：没解析过的 STRM 流列表是空的，这时说「没字幕」是错的 */
+    static MediaStreamInfo toStreamInfo(JSONArray streams) {
+        if (streams == null || streams.isEmpty()) {
+            return MediaStreamInfo.NOT_PROBED;
+        }
+        boolean probed = false;
+        List<String> audio = new ArrayList<>();
+        List<MediaStreamInfo.SubtitleTrack> subtitles = new ArrayList<>();
+        for (int i = 0; i < streams.size(); i++) {
+            JSONObject stream = streams.getJSONObject(i);
+            String type = stream.getString("Type");
+            if ("Video".equals(type)) {
+                probed = true;
+            } else if ("Audio".equals(type)) {
+                probed = true;
+                audio.add(stream.getString("Language"));
+            } else if ("Subtitle".equals(type)) {
+                String title = String.join(" ", StringUtils.defaultString(stream.getString("Title")),
+                        StringUtils.defaultString(stream.getString("DisplayTitle"))).trim();
+                subtitles.add(new MediaStreamInfo.SubtitleTrack(stream.getString("Language"), title,
+                        stream.getBooleanValue("IsExternal")));
+            }
+        }
+        // 只有外挂字幕、视频没解析的情况也算解析过：字幕本身是实打实的
+        return new MediaStreamInfo(probed || !subtitles.isEmpty(), audio, subtitles);
+    }
+
+    private static void putUserId(PtMediaServerPlus config, Map<String, String> query) {
+        if (StringUtils.isNotBlank(config.getUserId())) {
+            query.put("userId", config.getUserId());
+        }
     }
 
     /** Emby 的时间是 ISO-8601（带或不带小数秒、以 Z 结尾），解析不了当作没有 */

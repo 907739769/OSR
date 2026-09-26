@@ -2,11 +2,13 @@ package com.osr.openliststrm.pt.task;
 
 import com.osr.common.core.domain.PageResult;
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloadRecordPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloaderPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtIndexerPlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
+import com.osr.openliststrm.mybatisplus.mapper.PtDownloadRecordPlusMapper;
 import com.osr.openliststrm.mybatisplus.service.IPtDownloadRecordPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtDownloaderPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtIndexerPlusService;
@@ -483,5 +485,32 @@ class DownloadRecordAdminServiceTest {
 
         assertEquals(0, service().cleanup(180));
         verify(recordService, never()).remove(any(Wrapper.class));
+    }
+
+    // ---------- 忽略失败 ----------
+
+    /** 只改 FAILED 的行：选中里夹着别的状态的记录，条件更新自然不计它们 */
+    @Test
+    @SuppressWarnings("unchecked")
+    void 忽略失败_只改FAILED行_返回实际改动条数() {
+        PtDownloadRecordPlusMapper mapper = org.mockito.Mockito.mock(PtDownloadRecordPlusMapper.class);
+        when(recordService.getBaseMapper()).thenReturn(mapper);
+        when(mapper.update(any(), any(Wrapper.class))).thenReturn(2);
+        ArgumentCaptor<UpdateWrapper<PtDownloadRecordPlus>> captor = ArgumentCaptor.forClass(UpdateWrapper.class);
+
+        assertEquals(2, service().setFailIgnored(List.of(1, 2, 3), true));
+
+        verify(mapper).update(any(), captor.capture());
+        UpdateWrapper<PtDownloadRecordPlus> w = captor.getValue();
+        assertTrue(w.getSqlSegment().contains("state ="), w.getSqlSegment());
+        assertTrue(w.getSqlSet().contains("fail_ignored"), w.getSqlSet());
+        assertTrue(w.getParamNameValuePairs().containsValue("FAILED"));
+        assertTrue(w.getParamNameValuePairs().containsValue("1"));
+    }
+
+    @Test
+    void 忽略失败_空列表不打库() {
+        assertEquals(0, service().setFailIgnored(List.of(), true));
+        verify(recordService, never()).getBaseMapper();
     }
 }

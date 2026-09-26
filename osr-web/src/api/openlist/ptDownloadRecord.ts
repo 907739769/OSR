@@ -11,6 +11,8 @@ export interface PtDownloadRecordQuery extends SearchParams {
   hrState?: string
   /** 为 true 时隐藏已被后续推送接替的失败记录 */
   hideSuperseded?: boolean
+  /** 为 true 时隐藏用户已忽略的失败记录 */
+  hideIgnored?: boolean
   /** 日期区间落在哪一列，默认推送时间 */
   dateField?: DownloadRecordDateField
 }
@@ -38,6 +40,8 @@ export interface PtDownloadRecordView {
   progress?: number | null
   failReason?: string | null
   failReasonCode?: string | null
+  /** 失败已被用户忽略：不再计入首页待办，统计照算 */
+  failIgnored?: boolean
   pushedTime?: string | null
   completedTime?: string | null
   hrState?: string | null
@@ -80,6 +84,16 @@ export function retryPtDownloadRecordApi(id: number) {
 export function batchRetryPtDownloadRecordApi(ids: number[]) {
   return request.post<any, { batchId: string; accepted: number }>(
     '/openliststrm/pt-download-records/batchRetry', null, { params: { ids: ids.join(',') } }
+  )
+}
+
+/**
+ * 忽略 / 取消忽略选中的失败记录（非失败状态的不计），返回实际改动条数。
+ * 忽略只把它从首页待办里拿掉：订阅那一集照旧缺失、自动补搜照常，统计仪表盘的失败数也照算
+ */
+export function batchIgnorePtDownloadRecordApi(ids: number[], ignored = true) {
+  return request.post<any, number>(
+    '/openliststrm/pt-download-records/batchIgnore', null, { params: { ids: ids.join(','), ignored } }
   )
 }
 

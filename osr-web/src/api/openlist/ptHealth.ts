@@ -58,16 +58,27 @@ export interface SubtitleIssue {
   mediaType: string
   tmdbId: string | null
   posterPath: string | null
-  /** 未识别到中文字幕的集 */
+  /** 媒体服务器上没有中文字幕流的集 */
   noChinese: number[]
-  /** 有外挂字幕但认不出语言的集 */
+  /** 有字幕流但认不出语言的集 */
   unknownLanguage: number[]
-  /** 有集的判断只按标题（下载完成于字幕识别上线之前） */
-  titleOnly: boolean
+  /** 媒体服务器没解析过媒体信息、判断不了的集 */
+  noMediaInfo: number[]
 }
 
+export interface SubtitleReport {
+  issues: SubtitleIssue[]
+  checkedSubscriptions: number
+  checkedEpisodes: number
+  /** 各台媒体服务器的查询失败摘要 */
+  failures: string[]
+  /** 启用中的媒体服务器没有一台支持查字幕流 */
+  unsupported: boolean
+}
+
+/** 要逐部向媒体服务器取流信息，几十部作品会超过默认的 15 秒 */
 export function getSubtitleHealthApi() {
-  return request.get<any, SubtitleIssue[]>('/openliststrm/pt-health/subtitles')
+  return request.get<any, SubtitleReport>('/openliststrm/pt-health/subtitles', { timeout: 300000 })
 }
 
 export function getPtHealthApi(includeIgnored = false) {

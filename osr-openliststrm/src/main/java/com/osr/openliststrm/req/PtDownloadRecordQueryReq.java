@@ -34,6 +34,11 @@ public class PtDownloadRecordQueryReq {
      */
     private Boolean hideSuperseded;
     /**
+     * 为 true 时隐藏用户已忽略的失败记录，其余状态不受影响。首页待办「下载失败待处理」点进来时
+     * 与 {@link #hideSuperseded} 一起带上，列出来的条数与待办的数字一致。
+     */
+    private Boolean hideIgnored;
+    /**
      * 日期区间落在哪一列：PUSHED（默认，推送时间）/ COMPLETED（完成时间）/ FAILED（失败时间，即 FAILED 行的 update_time）。
      * 统计仪表盘的趋势图三条线各按自己的日期列分组，从图上点进来时必须按同一列筛，否则条数对不上。
      */

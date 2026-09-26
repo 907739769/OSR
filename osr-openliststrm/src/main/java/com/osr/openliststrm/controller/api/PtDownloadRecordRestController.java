@@ -104,6 +104,10 @@ public class PtDownloadRecordRestController extends BaseController {
             wrapper.and(w -> w.ne("state", DownloadRecordState.FAILED.value())
                     .or().apply(UnresolvedFailureSql.NOT_SUPERSEDED));
         }
+        if (Boolean.TRUE.equals(query.getHideIgnored())) {
+            wrapper.and(w -> w.ne("state", DownloadRecordState.FAILED.value())
+                    .or().ne("fail_ignored", DownloadRecordAdminService.FAIL_IGNORED));
+        }
         // 时间区间，开始 / 结束各自独立，只填一侧就是半开区间；格式不合法的一侧直接忽略
         String beginTime = QueryTimeRange.get(query.getParams(), "beginTime");
         String endTime = QueryTimeRange.get(query.getParams(), "endTime");
@@ -183,6 +187,23 @@ public class PtDownloadRecordRestController extends BaseController {
             PtStatusWebSocket.pushBatchRetryEvent(batchId, result.getTotal(), result.getPushedCount(), result.getSkippedCount());
         });
         return Result.success(Map.of("batchId", batchId, "accepted", accessible.size()));
+    }
+
+    /**
+     * 忽略 / 取消忽略选中的失败记录（非 FAILED 的不计），返回实际改动条数。
+     * 忽略后不再计入首页待办，统计照算，订阅的集状态不受影响，见 {@link DownloadRecordAdminService#setFailIgnored}。
+     */
+    @PostMapping("/batchIgnore")
+    public Result<Integer> batchIgnore(@RequestParam("ids") String ids,
+                                       @RequestParam(value = "ignored", defaultValue = "true") boolean ignored) {
+        if (StringUtils.isBlank(ids)) {
+            return Result.error("请选择要忽略的下载记录");
+        }
+        List<Integer> accessible = adminService.filterAccessible(parseIds(ids), scope());
+        if (accessible.isEmpty()) {
+            return Result.error(DENIED);
+        }
+        return Result.success(adminService.setFailIgnored(accessible, ignored));
     }
 
     /**

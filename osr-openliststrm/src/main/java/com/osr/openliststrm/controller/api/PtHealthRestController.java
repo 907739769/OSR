@@ -50,10 +50,11 @@ public class PtHealthRestController extends BaseController {
     }
 
     /**
-     * 字幕体检：已入库的集里，下载它的种子没识别到中文字幕的。只读。可见范围与缺集体检相同。
+     * 字幕体检：已入库的集里，媒体服务器上查不到中文字幕流的。只读，会逐部向媒体服务器取流信息。
+     * 可见范围与缺集体检相同。
      */
     @GetMapping("/subtitles")
-    public Result<List<SubtitleHealthService.SubtitleIssue>> subtitles() {
+    public Result<SubtitleHealthService.SubtitleReport> subtitles() {
         return Result.success(subtitleHealthService.report(this::canAccess));
     }
 

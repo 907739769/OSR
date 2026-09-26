@@ -96,6 +96,10 @@ public class PtDownloadRecordPlus extends BaseEntity {
     @TableField("fail_reason_code")
     private String failReasonCode;
 
+    /** 失败已被用户忽略：0-否 1-是，只对 FAILED 记录有意义。忽略后不再计入首页待办，统计照算 */
+    @TableField("fail_ignored")
+    private String failIgnored;
+
     /** 推送时间 */
     @TableField("pushed_time")
     private Date pushedTime;
@@ -132,11 +136,4 @@ public class PtDownloadRecordPlus extends BaseEntity {
      */
     @TableField("hr_limits_applied")
     private Boolean hrLimitsApplied;
-
-    /**
-     * 下载完成时识别到的字幕情况，取值见 {@code SubtitleStatus}；完成于 20260804 之前的记录为 null，
-     * 体检时按标题现算。
-     */
-    @TableField("subtitle")
-    private String subtitle;
 }
