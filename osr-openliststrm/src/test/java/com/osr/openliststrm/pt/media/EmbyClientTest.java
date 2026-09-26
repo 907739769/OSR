@@ -10,6 +10,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -121,6 +123,57 @@ class EmbyClientTest {
         server.enqueue(new MockResponse().setResponseCode(401));
 
         assertThrows(IOException.class, () -> client.listEpisodes(config(null), "12345", 1));
+    }
+
+    @Test
+    void listStreamInfo_按集号取字幕与音轨_多版本合并_跨集文件覆盖每一集() throws Exception {
+        server.enqueue(new MockResponse().setBody("{\"Items\":[{\"Id\":\"series-42\"}]}"));
+        server.enqueue(new MockResponse().setBody("""
+                {"Items":[
+                  {"IndexNumber":1,"MediaStreams":[
+                    {"Type":"Video"},{"Type":"Audio","Language":"eng"},
+                    {"Type":"Subtitle","Language":"eng","DisplayTitle":"English (SUBRIP)"}]},
+                  {"IndexNumber":1,"MediaStreams":[
+                    {"Type":"Video"},
+                    {"Type":"Subtitle","Language":"chi","Title":"简体","DisplayTitle":"Chinese Simplified","IsExternal":true}]},
+                  {"IndexNumber":2,"IndexNumberEnd":3,"MediaStreams":[{"Type":"Video"}]},
+                  {"IndexNumber":4,"MediaStreams":[]},
+                  {"Name":"特别篇","MediaStreams":[{"Type":"Video"}]}
+                ]}
+                """));
+
+        Map<Integer, MediaStreamInfo> infos = client.listStreamInfo(config("user-1"), "12345", 1, false);
+
+        assertEquals(Set.of(1, 2, 3, 4), infos.keySet());
+        MediaStreamInfo ep1 = infos.get(1);
+        assertTrue(ep1.probed());
+        assertEquals(List.of("eng"), ep1.audioLanguages());
+        assertEquals(2, ep1.subtitles().size());
+        assertEquals(new MediaStreamInfo.SubtitleTrack("chi", "简体 Chinese Simplified", true), ep1.subtitles().get(1));
+        assertTrue(infos.get(3).subtitles().isEmpty());
+        assertFalse(infos.get(4).probed(), "流列表为空是没解析过，不是没字幕");
+
+        server.takeRequest();
+        RecordedRequest episodes = server.takeRequest();
+        assertEquals("/Shows/series-42/Episodes", episodes.getRequestUrl().encodedPath());
+        assertEquals("MediaStreams", episodes.getRequestUrl().queryParameter("Fields"));
+        assertEquals("1", episodes.getRequestUrl().queryParameter("season"));
+        assertEquals("user-1", episodes.getRequestUrl().queryParameter("userId"));
+    }
+
+    @Test
+    void listStreamInfo_电影记在集号0_剧不在库里返回空表() throws Exception {
+        server.enqueue(new MockResponse().setBody("""
+                {"Items":[{"MediaStreams":[{"Type":"Video"},{"Type":"Subtitle","Language":"eng"}]}]}
+                """));
+        Map<Integer, MediaStreamInfo> movie = client.listStreamInfo(config(null), "7", null, true);
+        assertEquals(Set.of(0), movie.keySet());
+        RecordedRequest request = server.takeRequest();
+        assertEquals("tmdb.7", request.getRequestUrl().queryParameter("AnyProviderIdEquals"));
+        assertEquals("Movie", request.getRequestUrl().queryParameter("IncludeItemTypes"));
+
+        server.enqueue(new MockResponse().setBody("{\"Items\":[]}"));
+        assertTrue(client.listStreamInfo(config(null), "8", 1, false).isEmpty());
     }
 
     @Test

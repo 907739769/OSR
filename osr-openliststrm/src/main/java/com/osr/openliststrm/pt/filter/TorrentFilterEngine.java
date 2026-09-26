@@ -335,10 +335,9 @@ public class TorrentFilterEngine {
     }
 
     /**
-     * 一段文本（种子标题或描述）里有没有中文字幕标识。字幕体检（{@code pt/health/SubtitleDetector}）
-     * 也用它——「外语片需中字」拿它放行的种子，体检不该反过来说它没有中字。
+     * 一段文本（种子标题或描述）里有没有中文字幕标识。
      */
-    public static boolean hasChineseSubtitleMark(String text) {
+    static boolean hasChineseSubtitleMark(String text) {
         return StringUtils.isNotBlank(text) && CHINESE_SUBTITLE_PATTERN.matcher(text).find();
     }
 

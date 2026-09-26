@@ -4,6 +4,7 @@ import com.osr.openliststrm.mybatisplus.domain.PtMediaServerPlus;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -87,6 +88,20 @@ public interface IMediaServerClient {
      */
     default WatchState watchState(PtMediaServerPlus config, String tmdbId, Integer season, boolean movie)
             throws IOException {
+        return null;
+    }
+
+    /**
+     * 查询各集（电影为集号 0）的音轨与字幕流，供字幕体检用。
+     * <p>
+     * 返回 <b>null 表示这台服务器不支持</b>，与「支持、但这部作品不在库里」（空 Map）分开——
+     * 前者要在页面上说明「这台服务器查不了」，后者只是没东西可查。默认 null。
+     *
+     * @param season 季号；电影或不分季时传 null
+     * @throws IOException 网络异常或服务器返回非 2xx
+     */
+    default Map<Integer, MediaStreamInfo> listStreamInfo(PtMediaServerPlus config, String tmdbId, Integer season,
+                                                         boolean movie) throws IOException {
         return null;
     }
 }

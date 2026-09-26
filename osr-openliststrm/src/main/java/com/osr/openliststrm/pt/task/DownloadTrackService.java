@@ -20,7 +20,6 @@ import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.osr.openliststrm.pt.PtLogText;
 import com.osr.openliststrm.pt.PtNotifyText;
 import com.osr.openliststrm.pt.downloader.DownloaderClientFactory;
-import com.osr.openliststrm.pt.health.SubtitleDetector;
 import com.osr.openliststrm.pt.downloader.model.DownloaderTorrent;
 import com.osr.openliststrm.pt.downloader.model.DownloaderTorrentFile;
 import com.osr.openliststrm.pt.subscription.SubscriptionEpisodeState;
@@ -1080,7 +1079,6 @@ public class DownloadTrackService {
         set.setState(STATE_COMPLETED);
         set.setProgress(1.0);
         set.setCompletedTime(completedAt);
-        set.setSubtitle(detectSubtitle(record, downloader, matched).name());
         if (hitAndRun) {
             set.setHrState(HitAndRunState.PENDING.value());
             set.setHrSeedSeconds(matched.getSeedingSeconds());
@@ -1116,27 +1114,6 @@ public class DownloadTrackService {
         // 补缺集时集状态不动，仍是 IN_FLIGHT，等 Emby 对账确认入库（洗版则已在 finishUpgrade 收尾）；
         // 下载器关联了 STRM 任务时异步触发一次增量生成+提前对账，没关联时纯靠 LibrarySyncTask 下一轮兜底
         completionSyncTrigger.triggerAsync(record, downloader);
-    }
-
-    /**
-     * 下载完成时识别一次字幕情况，供字幕体检用（见 {@link SubtitleDetector}）。
-     * <p>
-     * 完成这一刻文件列表最齐，只拉这一次。拉取失败不影响完成本身，退回只看标题——
-     * 字幕体检是锦上添花，不能让一次下载器抖动把完成状态卡住。
-     * </p>
-     */
-    private SubtitleDetector.SubtitleStatus detectSubtitle(PtDownloadRecordPlus record, PtDownloaderPlus downloader,
-                                                           DownloaderTorrent matched) {
-        List<String> fileNames = List.of();
-        try {
-            if (matched != null && StringUtils.isNotBlank(matched.getHash())) {
-                fileNames = downloaderClientFactory.get(downloader).listFiles(downloader, matched.getHash())
-                        .stream().map(DownloaderTorrentFile::getName).toList();
-            }
-        } catch (Exception e) {
-            log.debug("识别字幕时拉取文件列表失败，只按标题判断：{}", e.getMessage());
-        }
-        return SubtitleDetector.detect(record.getTitle(), null, fileNames);
     }
 
     /**
