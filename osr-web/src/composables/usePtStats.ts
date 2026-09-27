@@ -96,6 +96,8 @@ const FAIL_REASON_TOKENS: Record<string, string> = {
   ZOMBIE_TIMEOUT: '--osr-warning',
   NO_TARGET_EPISODE: '--osr-info',
   METADATA_TIMEOUT: '--osr-primary',
+  // 用户自己删的：不是故障，用最淡的中性色，免得在饼图里与真失败抢眼
+  USER_DELETED: '--osr-text-placeholder',
   OTHER: '--osr-text-secondary'
 }
 
@@ -104,6 +106,7 @@ const FAIL_REASON_FALLBACK: Record<string, string> = {
   '--osr-warning': '#C98A1E',
   '--osr-info': '#4C6C93',
   '--osr-primary': '#B4690E',
+  '--osr-text-placeholder': '#94A3B8',
   '--osr-text-secondary': '#7A7A7A'
 }
 

@@ -1,6 +1,7 @@
 import type { RecordStatusOption } from '@/components/RecordStatusBar.vue'
 import { formatRelativeTime } from './relativeTime'
-import type { PtDownloadRecordView } from '@/api/openlist/ptDownloadRecord'
+import type { PtDownloadLiveView, PtDownloadRecordView } from '@/api/openlist/ptDownloadRecord'
+import { formatFileSize } from './useRecordList'
 
 /**
  * PT 下载记录的状态 / 失败原因 / H&R 标签，PC 与移动端共用这一份。
@@ -28,6 +29,8 @@ export const FAIL_REASON_OPTIONS: RecordStatusOption[] = [
   { value: 'ZOMBIE_TIMEOUT', title: '下载超时', type: 'warning' },
   { value: 'NO_TARGET_EPISODE', title: '无目标集', type: 'warning' },
   { value: 'METADATA_TIMEOUT', title: '种子无响应', type: 'warning' },
+  // 用户自己在下载记录页删掉的：不是故障，用中性色
+  { value: 'USER_DELETED', title: '用户删除', type: 'info' },
   { value: 'OTHER', title: '其他原因', type: 'error' }
 ]
 
@@ -99,6 +102,84 @@ export const canRetry = (item: PtDownloadRecordView) => item.state === 'FAILED' 
  * 已被接替的本来就不计入待办，忽略它没有意义
  */
 export const canIgnore = (item: PtDownloadRecordView) => canRetry(item) && !item.failIgnored
+
+// ---------- 实时速度 ----------
+
+/** 速度：复用记录页的体积格式再加 /s，两处单位写法一致 */
+export const formatSpeed = (bytesPerSecond: number) => `${formatFileSize(Math.max(0, bytesPerSecond))}/s`
+
+/** 剩余时间：只给两级精度，「剩余 1 小时 23 分 45 秒」的秒数每轮都在跳，读不出任何东西 */
+export const formatEta = (seconds?: number | null) => {
+  if (!seconds || seconds <= 0) return ''
+  if (seconds < 60) return '不到 1 分钟'
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 60) return `${minutes} 分钟`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} 小时${minutes % 60 ? ` ${minutes % 60} 分` : ''}`
+  const days = Math.floor(hours / 24)
+  return `${days} 天${hours % 24 ? ` ${hours % 24} 小时` : ''}`
+}
+
+/**
+ * 卡片进度条下方那一行实时状态，没有可说的时返回空串（整行不渲染）。
+ *
+ * 「已推送」的多集包在下载器里本来就是暂停态（等选完文件才启动），不能照实说成「已暂停」——
+ * 用户会以为是自己或别人点了暂停。所以已推送只在真的有速度时才说话；
+ * 下载中则把「用户在这里暂停」「在下载器里被暂停」「在跑但没速度」三种分开说。
+ */
+export const liveText = (item: PtDownloadRecordView, live?: PtDownloadLiveView) => {
+  if (!live?.found) return ''
+  const eta = formatEta(live.etaSeconds)
+  const running = `↓ ${formatSpeed(live.downloadSpeed)}${eta ? ` · 剩余 ${eta}` : ''}`
+  if (item.state === 'PUSHED') return live.downloadSpeed > 0 ? running : ''
+  if (item.state !== 'DOWNLOADING') return ''
+  if (item.userPaused) return '已暂停'
+  if (live.paused) return '已在下载器中暂停'
+  return live.downloadSpeed > 0 ? running : '暂无下载速度，正在等待连接做种者'
+}
+
+// ---------- 暂停 / 继续 / 删除 ----------
+
+/**
+ * 能不能暂停：只有下载中。已推送的多集包本来就是暂停态在等选文件；
+ * 已完成的暂停就是停止做种，H&R 考核的做种时长会跟着停——后端还会再按实时进度拦一次
+ */
+export const canPause = (item: PtDownloadRecordView) => item.state === 'DOWNLOADING' && !item.userPaused
+
+export const canResume = (item: PtDownloadRecordView) => item.state === 'DOWNLOADING' && !!item.userPaused
+
+/** H&R 考核中（或考核结果不明）的一律不给删，这是硬边界 */
+const hrBlocksDelete = (item: PtDownloadRecordView) => !!item.hrState && item.hrState !== 'SATISFIED'
+
+/** 种子还没下完：只有这种才允许连文件一起删（下完的文件可能正被媒体库 / STRM 用着） */
+const notDownloaded = (item: PtDownloadRecordView) =>
+  item.state === 'PUSHED' || item.state === 'DOWNLOADING' || (item.state === 'FAILED' && item.failReasonCode === 'ZOMBIE_TIMEOUT')
+
+/**
+ * 能不能点「删除下载」：记录的种子得还在下载器里才有东西可删。
+ * 失败记录里只有「下载超时」会把种子留在下载器（其余几类要么种子本来就没了、要么 OSR 已经顺手删掉），
+ * 给别的失败记录挂这个按钮，点下去只会得到一句「找不到种子」。
+ */
+export const canDeleteTorrent = (item: PtDownloadRecordView) =>
+  !!item.downloaderId && !hrBlocksDelete(item) && (notDownloaded(item) || item.state === 'COMPLETED')
+
+export const canDeleteFiles = notDownloaded
+
+/** 来源站点有没有 H&R 考核（索引器已删除时拿不到，按没有处理） */
+export const hasHitAndRun = (item: PtDownloadRecordView) =>
+  (item.hrSeedHoursRequired ?? 0) > 0 || (item.hrRatioRequired ?? 0) > 0
+
+/** 删除确认框的说明：三种状态删掉的东西不一样，要说清楚会发生什么 */
+export const deleteTorrentMessage = (item: PtDownloadRecordView) => {
+  const where = item.downloaderName ? `下载器「${item.downloaderName}」` : '下载器'
+  if (item.state === 'PUSHED' || item.state === 'DOWNLOADING') {
+    return `将从${where}删除这个下载。相关的集会退回缺失，之后的自动补搜或 RSS 可能会推送别的种子；这个种子本身不会再被自动选中。`
+  }
+  if (item.state === 'COMPLETED') {
+    return `将从${where}移除这个种子任务，不再做种。已下载的文件会保留：媒体库或 STRM 可能正在使用它们。`
+  }
+  return `这个下载已判失败，但种子仍留在${where}里。将把它从下载器移除。`
+}
 
 /** 做种数是推送那一刻的快照，卡片上要说清楚，免得被当成实时数据 */
 export const SEEDERS_HINT = '做种数是推送那一刻索引器给出的快照，不随时间更新'

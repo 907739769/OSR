@@ -156,7 +156,8 @@ public class TransmissionClient implements IDownloaderClient {
     /** 状态快照需要的字段清单，全量查询与单条查询共用一份，避免两处漂移 */
     private static final List<String> SNAPSHOT_FIELDS = List.of(
             "id", "name", "percentDone", "status", "downloadDir", "labels", "hashString",
-            "uploadRatio", "secondsSeeding", "uploadedEver", "sizeWhenDone");
+            "uploadRatio", "secondsSeeding", "uploadedEver", "sizeWhenDone",
+            "rateDownload", "rateUpload", "eta");
 
     /**
      * 执行一次 {@code torrent-get}。
@@ -198,8 +199,17 @@ public class TransmissionClient implements IDownloaderClient {
         torrent.setSize(Math.max(0L, item.getLongValue("sizeWhenDone")));
         // Transmission 没有 content_path 字段，交给 DownloaderTorrent#contentKey
         // 用 downloadDir + name 退化推导——对辅种而言这两项同样是一致的
+        torrent.setDownloadSpeed(Math.max(0L, item.getLongValue("rateDownload")));
+        torrent.setUploadSpeed(Math.max(0L, item.getLongValue("rateUpload")));
+        // eta：-1 = 不可用，-2 = 未知，都归一成 null
+        long eta = item.getLongValue("eta");
+        torrent.setEtaSeconds(eta > 0 ? eta : null);
+        torrent.setPaused(status == TR_STATUS_STOPPED);
         return torrent;
     }
+
+    /** Transmission status：已停止（用户暂停、或做种达到限额后停下） */
+    private static final int TR_STATUS_STOPPED = 0;
 
     /** Transmission status：等待校验 */
     private static final int TR_STATUS_CHECK_WAIT = 1;
@@ -353,6 +363,14 @@ public class TransmissionClient implements IDownloaderClient {
         args.put("ids", List.of(hash));
         call(config, "torrent-start", args);
         log.info("下载器[{}] 已启动种子[{}]", config.getName(), hash);
+    }
+
+    @Override
+    public void pauseTorrent(PtDownloaderPlus config, String hash) throws IOException {
+        JSONObject args = new JSONObject();
+        args.put("ids", List.of(hash));
+        call(config, "torrent-stop", args);
+        log.info("下载器[{}] 已暂停种子[{}]", config.getName(), hash);
     }
 
     @Override

@@ -88,6 +88,36 @@ public class DownloaderTorrent {
     private boolean checking;
 
     /**
+     * 当前下载速度（字节/秒），下载记录页的实时速度用。
+     * <p>
+     * 瞬时值，<b>不落库</b>：它每秒都在变，写进下载记录只会产生一串没有意义的 UPDATE，
+     * 而页面要的是「此刻多快」，由 {@code DownloadRecordControlService#live} 现问下载器即可。
+     * </p>
+     */
+    private long downloadSpeed;
+
+    /** 当前上传速度（字节/秒），瞬时值，不落库 */
+    private long uploadSpeed;
+
+    /**
+     * 预计剩余秒数；下载器给不出（速度为 0、qB 的 8640000「无穷」、TR 的 -1/-2）时为 {@code null}。
+     * <p>
+     * 必须归一成 null 而不是透传：qB 用 8640000（100 天）表示算不出来，原样给前端会显示成
+     * 「剩余 100 天」，看着像一个真实但离谱的估计，而实际意思是「不知道」。
+     * </p>
+     */
+    private Long etaSeconds;
+
+    /**
+     * 种子在下载器里是否处于暂停（qB 4.x 的 paused*、5.x 的 stopped*，TR 的 status=0）。
+     * <p>
+     * 只用来<b>对账用户暂停</b>：用户在 OSR 里点了暂停、后来又直接在下载器里点了继续，
+     * 下载记录上的暂停标记要跟着撤掉，否则僵尸超时会一直不计时。它不参与完成与失败判定。
+     * </p>
+     */
+    private boolean paused;
+
+    /**
      * 辅种分组键：优先用下载器给的 {@link #contentPath}，缺失时退化为「保存路径 + 种子名」。
      * <p>
      * 两者都拿不到时返回 hash，等于"这个种子自成一组"——宁可把一组拆散成多组

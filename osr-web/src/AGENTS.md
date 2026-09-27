@@ -434,6 +434,8 @@ ptTorrentBlacklist / wecomUser（即全部 `.card-grid` 页面）。新增卡片
 - **批量重试认领自己的 `batchId`**，别人发起的那批结果不提示。拉黑（单条 / 批量、种子 / 发布组）一律先过 `PtBlacklistDialog`、可填原因——拉黑发布组的影响面是该组今后所有种子，原先点一下就生效。
 - **地址栏带进来的筛选不只有 `subId`**：统计仪表盘的下钻（`composables/usePtStatsNavigation.ts`）会带 `state / failReasonCode / hrState / dateField / beginDate / endDate / hideSuperseded`，键名两边各有一份常量，改一边要改另一边。三条：**这个页开了 keep-alive**，第二次从统计页点进来时 setup 不会再跑，所以除了创建时读一次，还要 `watch(route.fullPath)` 重新应用（只认本页路径且带筛选键的那次，`dropRouteQuery` 抹参数那次不带筛选键、自然被忽略）；**首次加载由 `useGridPageSize` 直接调 `getList` 而不经过 `handleQuery`**，日期区间必须在创建时就落成 `params`，否则第一页是不带日期查的；**带筛选进来要展开搜索区**（`routeFilterTick` 用计数不用布尔量，理由同 keep-alive），那些条件都在搜索区里，收着的话用户看不见也关不掉。
 - **「已推送」停太久要提示**（`stalePushedHint`，阈值 60 分钟）：已推送是稳态标签、不带呼吸点，推送后十分钟与十小时在卡片上长得一模一样，而后者多半是下载器没接住。
+- **实时速度是 `composables/usePtDownloadLive.ts` 单独轮询的（5 秒），不走列表接口也不走 WebSocket**：速度不落库，WebSocket 由 30 秒一轮的下载追踪驱动，都太慢。只在当前页有已推送 / 下载中的记录、页面没被 keep-alive 切走、标签页可见时才问；拿到的实时进度顺手写回**下载中**的行（已推送的不写，否则凭空冒出一根进度条）。`liveText` 里**已推送不说「已暂停」**：多集包在下载器里本来就是暂停态在等选文件，照实说用户会以为是谁点了暂停。
+- **暂停 / 继续 / 删除下载的可见性判断都在 `ptDownloadRecordLabels.ts`**（`canPause` / `canResume` / `canDeleteTorrent` / `canDeleteFiles`），两端共用。三条：**暂停只给下载中**（已完成的暂停就是停止做种，H&R 做种时长跟着停）；**H&R 考核中或结果不明（`hrState` 非空且不是 SATISFIED）一律不给删**，这是用户定的硬边界，后端也会拦；**失败记录只有「下载超时」给删**，其余几类种子要么本来就没了、要么 OSR 已经删掉，挂按钮只会得到一句「找不到种子」。删除确认框是共用的 `PtDownloadDeleteDialog`，「同时删除文件」每次打开都从不勾开始、已下完的根本不显示这个勾选框。
 
 ### 弹窗
 - PC 三档：`max-width="480"`（确认类）/ `600`（表单类）/ `900`（数据表类）

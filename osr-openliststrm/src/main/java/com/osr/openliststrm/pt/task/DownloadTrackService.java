@@ -176,8 +176,14 @@ public class DownloadTrackService {
         long now = System.currentTimeMillis();
         for (PtDownloadRecordPlus record : active) {
             DownloaderTorrent matched = findByTag(torrents, record.getTrackingTag());
+            if (matched != null) {
+                syncUserPause(record, matched, now);
+            }
             long age = record.getPushedTime() == null
                     ? Long.MAX_VALUE : now - record.getPushedTime().getTime();
+            // 按时间判的两道兜底（僵尸超时、元数据超时）扣掉用户暂停的时长：暂停期间进度不涨是用户要的，
+            // 不扣的话暂停一天就被判僵尸。「找不到种子」的宽限期仍按墙上时间算——那与暂停无关
+            long activeAge = age == Long.MAX_VALUE ? age : age - pausedMillis(record, now);
             long zombieTimeoutMillis = resolveZombieTimeoutMillis(subCache.get(record.getSubId()));
             if (matched != null && matched.isCompleted()) {
                 // 设限要赶在判完成之前：complete() 会把记录移出本查询的范围，
@@ -210,12 +216,12 @@ public class DownloadTrackService {
                     // progress > 0 的种子绝不能走这条路：文件选择失败的原因也可能是下载器 API
                     // 临时故障（listFiles 抛异常），而种子本身在正常下载。那种情况下按超时中止
                     // 会连带把一个下得好好的种子删掉，比不做这个兜底糟得多
-                    if (age >= METADATA_TIMEOUT_MILLIS) {
+                    if (activeAge >= METADATA_TIMEOUT_MILLIS) {
                         abortMetadataTimeout(downloader, record, matched);
                     }
                     continue;
                 }
-                if (age >= zombieTimeoutMillis) {
+                if (activeAge >= zombieTimeoutMillis) {
                     fail(record, FailReasonCode.ZOMBIE_TIMEOUT,
                             "下载超过 " + (zombieTimeoutMillis / 3600000) + " 小时仍未完成，判定为僵尸种子");
                 } else {
@@ -482,8 +488,12 @@ public class DownloadTrackService {
             // 不启动它就永远不会开始下载；对没有暂停加入的种子（单集、磁力、电影）这是无害的空操作，
             // 因此不必记录"当初是不是暂停加进来的"。
             // 必须赶在 markFilesSelected 之前：这一步失败要留给下一轮重试，而一旦标了
-            // filesSelected 就再也不会进到本方法，暂停的种子将永远没人启动
-            downloaderClientFactory.get(downloader).resumeTorrent(downloader, matched.getHash());
+            // filesSelected 就再也不会进到本方法，暂停的种子将永远没人启动。
+            // 用户在下载记录页暂停了它就不启动：这里无条件 resume 会把用户的暂停悄悄撤掉。
+            // 跳过是安全的——用户点「继续」走 DownloadRecordControlService#resume，那里会启动它
+            if (!isUserPaused(record)) {
+                downloaderClientFactory.get(downloader).resumeTorrent(downloader, matched.getHash());
+            }
             reconcileClaims(record, sub, targets, actualEpisodes);
             markFilesSelected(record);
             // 必须排在 markFilesSelected 之后：那一步失败会走 catch 留给下一轮重试，
@@ -819,9 +829,78 @@ public class DownloadTrackService {
         log.debug("下载记录关联的 {} 个集已确认文件在种子内，卡死清扫将不再退回它们", ids.size());
     }
 
+    /**
+     * 只写 files_selected 一列，不用 {@code updateById(record)}：record 是本轮开头读出来的，
+     * 整行写回会把这期间用户点的暂停 / 继续（{@code user_paused_*}）用旧值盖掉
+     */
     private void markFilesSelected(PtDownloadRecordPlus record) {
         record.setFilesSelected(true);
-        recordService.updateById(record);
+        PtDownloadRecordPlus set = new PtDownloadRecordPlus();
+        set.setFilesSelected(true);
+        recordService.update(set, new UpdateWrapper<PtDownloadRecordPlus>().eq("id", record.getId()));
+    }
+
+    // ---------- 用户暂停 ----------
+
+    /** 下载记录页暂停之后多久内，不拿下载器的「未暂停」去撤销它（见 {@link #syncUserPause}） */
+    private static final long USER_PAUSE_SYNC_GRACE_MILLIS = 2 * 60 * 1000L;
+
+    static boolean isUserPaused(PtDownloadRecordPlus record) {
+        return record.getUserPausedTime() != null;
+    }
+
+    /** 累计的用户暂停时长（毫秒）：此前各次之和 + 当前这次已经暂停了多久 */
+    static long pausedMillis(PtDownloadRecordPlus record, long now) {
+        long total = record.getUserPausedSeconds() == null ? 0L : record.getUserPausedSeconds() * 1000L;
+        if (record.getUserPausedTime() != null) {
+            total += Math.max(0L, now - record.getUserPausedTime().getTime());
+        }
+        return total;
+    }
+
+    /**
+     * 用户在 OSR 里暂停之后，又直接去下载器里点了继续：把记录上的暂停标记撤掉、本次时长并入累计。
+     * <p>
+     * 不撤的话僵尸超时会一直停表，一个真的卡死的种子就再也不会被判失败。
+     * 两分钟宽限是为了躲开竞态：本轮的种子快照可能是在用户点暂停<b>之前</b>拉的，
+     * 那时它当然还在跑，据此撤销等于用户刚点完暂停就被系统改了回去。
+     * </p>
+     */
+    private void syncUserPause(PtDownloadRecordPlus record, DownloaderTorrent matched, long now) {
+        if (!isUserPaused(record) || matched.isPaused()
+                || now - record.getUserPausedTime().getTime() < USER_PAUSE_SYNC_GRACE_MILLIS) {
+            return;
+        }
+        if (clearUserPause(recordService, record, now)) {
+            log.info("下载记录[{}] 已在下载器里被继续下载，撤销 OSR 侧的暂停标记：{}", record.getId(), record.getTitle());
+        }
+    }
+
+    /**
+     * 撤销用户暂停：本次暂停时长并入 user_paused_seconds、user_paused_time 置空，并同步到内存里的 record。
+     * <p>
+     * 条件更新带 {@code user_paused_time IS NOT NULL}，与并发的另一路（页面点继续 / 追踪发现已继续）
+     * 只会有一路生效，累计时长不会被加两次。累加用 SQL 表达式而不是读改写，理由相同。
+     * </p>
+     *
+     * @return 是否真的撤销了（false = 已被另一路抢先）
+     */
+    static boolean clearUserPause(IPtDownloadRecordPlusService service, PtDownloadRecordPlus record, long now) {
+        if (record.getUserPausedTime() == null) {
+            return false;
+        }
+        long seconds = Math.max(0L, (now - record.getUserPausedTime().getTime()) / 1000L);
+        boolean changed = service.update(null, new UpdateWrapper<PtDownloadRecordPlus>()
+                .eq("id", record.getId())
+                .isNotNull("user_paused_time")
+                .setSql("user_paused_seconds = user_paused_seconds + " + seconds)
+                .set("user_paused_time", null));
+        if (changed) {
+            long before = record.getUserPausedSeconds() == null ? 0L : record.getUserPausedSeconds();
+            record.setUserPausedSeconds(before + seconds);
+            record.setUserPausedTime(null);
+        }
+        return changed;
     }
 
     private Integer toInt(String value) {
@@ -878,8 +957,17 @@ public class DownloadTrackService {
     private void markDownloading(PtDownloadRecordPlus record, double progress) {
         record.setState(STATE_DOWNLOADING);
         record.setProgress(progress);
-        recordService.updateById(record);
-        PtStatusWebSocket.pushDownloadEvent(record, STATE_DOWNLOADING, progress, null);
+        // 只写状态与进度两列，理由见 markFilesSelected。条件带上在途状态：本轮开头读出来之后，
+        // 用户可能已经在页面上把它删了（记录转 FAILED），无条件写会把它复活成下载中
+        PtDownloadRecordPlus set = new PtDownloadRecordPlus();
+        set.setState(STATE_DOWNLOADING);
+        set.setProgress(progress);
+        boolean changed = recordService.update(set, new UpdateWrapper<PtDownloadRecordPlus>()
+                .eq("id", record.getId())
+                .in("state", STATE_PUSHED, STATE_DOWNLOADING));
+        if (changed) {
+            PtStatusWebSocket.pushDownloadEvent(record, STATE_DOWNLOADING, progress, null);
+        }
     }
 
     private DownloaderTorrent findByTag(List<DownloaderTorrent> torrents, String trackingTag) {
@@ -1192,29 +1280,12 @@ public class DownloadTrackService {
      */
     private void doFail(PtDownloadRecordPlus record, FailReasonCode code, String reason,
                         boolean countFailure, String notice) {
-        // 1) 先回退关联集（幂等：只动 IN_FLIGHT / UPGRADING 的；普通集1条、季包多条统一处理）。
-        // 一次查出两类在途集再按状态分流，而不是分两条查询：补缺集与洗版的回退目标不同，
-        // 但"这条下载记录关联着哪些还没落定的集"是同一个问题，查两次既多一次往返，
-        // 也让"同一集同时出现在两个结果里"这种不可能的状态在代码里变得可表达。
-        List<PtSubscriptionEpisodePlus> pending = episodeService.list(
-                new QueryWrapper<PtSubscriptionEpisodePlus>()
-                        .eq("download_id", record.getId())
-                        .in("state", EP_IN_FLIGHT, EP_UPGRADING));
-        Rollback rollback = releaseInFlightEpisodes(pending, countFailure);
-        int upgradeReverted = revertUpgradingEpisodes(pending);
-        // 2) 再置记录 FAILED（条件更新门控通知，避免重叠轮询重复发）
-        PtDownloadRecordPlus set = new PtDownloadRecordPlus();
-        set.setState(STATE_FAILED);
-        set.setFailReason(reason);
-        set.setFailReasonCode(code.value());
-        boolean changed = recordService.update(set, new UpdateWrapper<PtDownloadRecordPlus>()
-                .eq("id", record.getId())
-                .in("state", STATE_PUSHED, STATE_DOWNLOADING));
-        if (!changed) {
+        FailOutcome outcome = markFailed(record, code, reason, countFailure, false);
+        if (outcome == null) {
             return; // 已被并发轮次置为终态，避免重复通知
         }
-        record.setFailReasonCode(code.value());
-        PtStatusWebSocket.pushDownloadEvent(record, STATE_FAILED, null, reason);
+        Rollback rollback = outcome.rollback();
+        int upgradeReverted = outcome.upgradeReverted();
         PtSubscriptionPlus sub = subOf(record);
         // 熔断提示拼进同一条而不是紧跟着再发一条：它们讲的是同一次失败，分两条发既让用户
         // 收到两次打扰，又因为原先那条走的是 GENERAL 类型，路由上和索引器故障混在一起
@@ -1235,6 +1306,76 @@ public class DownloadTrackService {
         log.warn("{} 下载失败（{} 个集回退缺失，{} 个集回退入库）：{}",
                 PtLogText.subject(sub, record.getEpisode(), record.getEpisodeEnd()),
                 rollback.released(), upgradeReverted, record.getTitle());
+    }
+
+    /**
+     * 用户在下载记录页删除了一个在途下载（种子已由调用方从下载器移除）：判失败并回退关联集。
+     * <p>
+     * 与自动失败的三处差别：<b>不累加 fail_count</b>（用户删的不是「这一集补不到」的证据，
+     * 累加会让几次手动删除把集熔断成 BLOCKED）；<b>不发失败通知</b>（用户自己刚点的）；
+     * <b>同时置 fail_ignored</b>（这是用户的决定，不该出现在首页「下载失败待处理」里）。
+     * </p>
+     *
+     * @return 是否真的改成了失败（false = 记录已不在途，被并发的追踪轮次抢先落了终态）
+     */
+    public boolean failByUser(PtDownloadRecordPlus record) {
+        FailOutcome outcome = markFailed(record, FailReasonCode.USER_DELETED,
+                "用户在下载记录页删除了这个下载", false, true);
+        if (outcome == null) {
+            return false;
+        }
+        log.info("{} 的下载已被用户删除（{} 个集回退缺失，{} 个集回退入库）：{}",
+                PtLogText.subject(subOf(record), record.getEpisode(), record.getEpisodeEnd()),
+                outcome.rollback().released(), outcome.upgradeReverted(), record.getTitle());
+        return true;
+    }
+
+    /**
+     * 失败落库的公共部分：先回退关联集，再条件更新记录为 FAILED，最后推 WebSocket。
+     * <p>
+     * 反转写序（先集、后记录）保证崩溃安全，见 {@link #fail}。
+     * 一次查出两类在途集再按状态分流，而不是分两条查询：补缺集与洗版的回退目标不同，
+     * 但"这条下载记录关联着哪些还没落定的集"是同一个问题，查两次既多一次往返，
+     * 也让"同一集同时出现在两个结果里"这种不可能的状态在代码里变得可表达。
+     * </p>
+     *
+     * @return 回退结果；记录已不在途（并发轮次抢先置了终态）时返回 null，调用方据此不再通知
+     */
+    private FailOutcome markFailed(PtDownloadRecordPlus record, FailReasonCode code, String reason,
+                                  boolean countFailure, boolean ignored) {
+        // 1) 先回退关联集（幂等：只动 IN_FLIGHT / UPGRADING 的；普通集1条、季包多条统一处理）
+        List<PtSubscriptionEpisodePlus> pending = episodeService.list(
+                new QueryWrapper<PtSubscriptionEpisodePlus>()
+                        .eq("download_id", record.getId())
+                        .in("state", EP_IN_FLIGHT, EP_UPGRADING));
+        Rollback rollback = releaseInFlightEpisodes(pending, countFailure);
+        int upgradeReverted = revertUpgradingEpisodes(pending);
+        // 2) 再置记录 FAILED（条件更新门控通知，避免重叠轮询重复发）
+        PtDownloadRecordPlus set = new PtDownloadRecordPlus();
+        set.setState(STATE_FAILED);
+        set.setFailReason(reason);
+        set.setFailReasonCode(code.value());
+        if (ignored) {
+            set.setFailIgnored(DownloadRecordAdminService.FAIL_IGNORED);
+        }
+        boolean changed = recordService.update(set, new UpdateWrapper<PtDownloadRecordPlus>()
+                .eq("id", record.getId())
+                .in("state", STATE_PUSHED, STATE_DOWNLOADING));
+        if (!changed) {
+            return null;
+        }
+        record.setState(STATE_FAILED);
+        record.setFailReason(reason);
+        record.setFailReasonCode(code.value());
+        if (ignored) {
+            record.setFailIgnored(DownloadRecordAdminService.FAIL_IGNORED);
+        }
+        PtStatusWebSocket.pushDownloadEvent(record, STATE_FAILED, null, reason);
+        return new FailOutcome(rollback, upgradeReverted);
+    }
+
+    /** 失败落库的结果：补缺集的回退情况 + 洗版集回退入库的条数 */
+    private record FailOutcome(Rollback rollback, int upgradeReverted) {
     }
 
     /** 回退结果：released=回退的集数，blocked=其中因连续失败达阈值而熔断的集数 */

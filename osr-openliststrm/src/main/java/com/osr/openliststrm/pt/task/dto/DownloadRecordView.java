@@ -38,6 +38,8 @@ public class DownloadRecordView {
     private String failReasonCode;
     /** 失败已被用户忽略（只对 FAILED 记录有意义），忽略后不计入首页待办 */
     private Boolean failIgnored;
+    /** 是否被用户在下载记录页暂停了（{@code user_paused_time} 非空） */
+    private Boolean userPaused;
     private Date pushedTime;
     private Date completedTime;
 

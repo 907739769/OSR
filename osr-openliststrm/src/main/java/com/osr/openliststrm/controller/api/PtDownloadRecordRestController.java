@@ -13,10 +13,13 @@ import com.osr.openliststrm.mybatisplus.service.IPtTorrentBlacklistPlusService;
 import com.osr.openliststrm.pt.stats.PtStatsScope;
 import com.osr.openliststrm.pt.subscription.dto.SupplementResult;
 import com.osr.openliststrm.pt.task.DownloadRecordAdminService;
+import com.osr.openliststrm.pt.task.DownloadRecordControlService;
 import com.osr.openliststrm.pt.task.DownloadRecordState;
 import com.osr.openliststrm.pt.task.UnresolvedFailureSql;
 import com.osr.openliststrm.pt.task.dto.BatchBlacklistResult;
 import com.osr.openliststrm.pt.task.dto.BatchRetryResult;
+import com.osr.openliststrm.pt.task.dto.DownloadDeleteResult;
+import com.osr.openliststrm.pt.task.dto.DownloadLiveView;
 import com.osr.openliststrm.pt.task.dto.DownloadRecordView;
 import com.osr.openliststrm.pt.ws.PtStatusWebSocket;
 import com.osr.openliststrm.req.BlacklistReq;
@@ -38,7 +41,8 @@ import java.util.UUID;
 
 /**
  * PT 下载记录 REST API 控制器：只读列表 + 失败重试 + 拉黑 + 按规则清理旧记录，
- * 不提供单条增删改（记录由下载追踪流程自动生成）。
+ * 以及对下载器里那个种子的实时速度 / 暂停 / 继续 / 删除（{@link DownloadRecordControlService}）。
+ * 不提供记录本身的单条增删改（记录由下载追踪流程自动生成）。
  * <p>
  * <b>全部端点按订阅归属隔离</b>：下载记录没有自己的归属列，跟着订阅走，判据与订阅页、统计面板同一条
  * （见 {@link DownloadRecordAdminService#canAccess}）。此前这里裸奔——任何登录用户都能列出全站的
@@ -62,6 +66,9 @@ public class PtDownloadRecordRestController extends BaseController {
 
     @Autowired
     private IPtTorrentBlacklistPlusService blacklistService;
+
+    @Autowired
+    private DownloadRecordControlService controlService;
 
     @GetMapping({"", "/list"})
     public Result<PageResult<DownloadRecordView>> list(PtDownloadRecordQueryReq query) {
@@ -157,6 +164,65 @@ public class PtDownloadRecordRestController extends BaseController {
         }
         try {
             return Result.success(adminService.retry(id));
+        } catch (IllegalArgumentException e) {
+            return Result.error(e.getMessage());
+        }
+    }
+
+    /**
+     * 一批在途记录此刻在下载器里的速度 / 剩余时间 / 进度，下载记录页每几秒拉一次。
+     * 只返回有权访问、且处于已推送 / 下载中的那部分；下载器连不上的记 found=false，不报错。
+     */
+    @GetMapping("/live")
+    public Result<List<DownloadLiveView>> live(@RequestParam("ids") String ids) {
+        if (StringUtils.isBlank(ids)) {
+            return Result.success(List.of());
+        }
+        List<Integer> requested = parseIds(ids);
+        if (requested.size() > DownloadRecordControlService.LIVE_MAX_IDS) {
+            requested = requested.subList(0, DownloadRecordControlService.LIVE_MAX_IDS);
+        }
+        return Result.success(controlService.live(adminService.filterAccessible(requested, scope())));
+    }
+
+    /** 暂停一个下载中的种子（下载追踪会据此停掉僵尸超时的计时），见 {@link DownloadRecordControlService#pause} */
+    @PostMapping("/{id}/pause")
+    public Result<Void> pause(@PathVariable("id") Integer id) {
+        return control(id, () -> controlService.pause(id));
+    }
+
+    /** 继续一个被用户暂停的下载 */
+    @PostMapping("/{id}/resume")
+    public Result<Void> resume(@PathVariable("id") Integer id) {
+        return control(id, () -> controlService.resume(id));
+    }
+
+    /**
+     * 从下载器删除这条记录对应的种子。H&R 考核中的拒绝；已下载完成的只移除任务、不删文件。
+     * 这是「OSR 从不删种」的受控例外之一，边界见 {@link DownloadRecordControlService#deleteTorrent}。
+     */
+    @PostMapping("/{id}/delete-torrent")
+    public Result<DownloadDeleteResult> deleteTorrent(@PathVariable("id") Integer id,
+                                                      @RequestParam(value = "deleteFiles", defaultValue = "false") boolean deleteFiles) {
+        Result<DownloadDeleteResult> denied = denyIfInaccessible(id);
+        if (denied != null) {
+            return denied;
+        }
+        try {
+            return Result.success(controlService.deleteTorrent(id, deleteFiles));
+        } catch (IllegalArgumentException e) {
+            return Result.error(e.getMessage());
+        }
+    }
+
+    private Result<Void> control(Integer id, Runnable action) {
+        Result<Void> denied = denyIfInaccessible(id);
+        if (denied != null) {
+            return denied;
+        }
+        try {
+            action.run();
+            return Result.success();
         } catch (IllegalArgumentException e) {
             return Result.error(e.getMessage());
         }

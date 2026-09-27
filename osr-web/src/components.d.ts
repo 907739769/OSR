@@ -36,6 +36,7 @@ declare module 'vue' {
     PtAutoAddRuleFormDialog: typeof import('./components/dialogs/PtAutoAddRuleFormDialog.vue')['default']
     PtBlacklistDialog: typeof import('./components/dialogs/PtBlacklistDialog.vue')['default']
     PtCleanRuleDialog: typeof import('./components/dialogs/PtCleanRuleDialog.vue')['default']
+    PtDownloadDeleteDialog: typeof import('./components/dialogs/PtDownloadDeleteDialog.vue')['default']
     PtDownloaderFormDialog: typeof import('./components/dialogs/PtDownloaderFormDialog.vue')['default']
     PtDownloadRecordCleanupDialog: typeof import('./components/dialogs/PtDownloadRecordCleanupDialog.vue')['default']
     PtIndexerFormDialog: typeof import('./components/dialogs/PtIndexerFormDialog.vue')['default']

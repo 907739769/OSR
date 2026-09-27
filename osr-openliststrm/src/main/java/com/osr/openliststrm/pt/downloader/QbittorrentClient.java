@@ -99,29 +99,57 @@ public class QbittorrentClient implements IDownloaderClient {
     /** downloaderId -> 探测出来的可用启动端点，首次成功后缓存，避免之后每次都先撞一个 404 */
     private final Map<Integer, String> startEndpointCache = new ConcurrentHashMap<>();
 
+    /** qB 4.x 的暂停端点，5.0 起改名为 {@link #STOP_ENDPOINT_MODERN}，与启动端点是同一次改名 */
+    private static final String STOP_ENDPOINT_LEGACY = "/api/v2/torrents/pause";
+
+    /** qB 5.x 的暂停端点 */
+    private static final String STOP_ENDPOINT_MODERN = "/api/v2/torrents/stop";
+
+    /** downloaderId -> 探测出来的可用暂停端点，理由同 {@link #startEndpointCache} */
+    private final Map<Integer, String> stopEndpointCache = new ConcurrentHashMap<>();
+
     @Override
     public void resumeTorrent(PtDownloaderPlus config, String hash) throws IOException {
-        String cached = startEndpointCache.get(config.getId());
+        postWithVersionFallback(config, hash, START_ENDPOINT_LEGACY, START_ENDPOINT_MODERN, startEndpointCache);
+        log.info("下载器[{}] 已启动种子[{}]", config.getName(), hash);
+    }
+
+    @Override
+    public void pauseTorrent(PtDownloaderPlus config, String hash) throws IOException {
+        postWithVersionFallback(config, hash, STOP_ENDPOINT_LEGACY, STOP_ENDPOINT_MODERN, stopEndpointCache);
+        log.info("下载器[{}] 已暂停种子[{}]", config.getName(), hash);
+    }
+
+    /**
+     * 调一个在 qB 5.0 被改过名的端点：先用缓存里探测成功过的那个；没有缓存时先试旧端点
+     * （存量用户多在 4.x），失败再试新的，成功的那个记下来。
+     * 两个都失败时把首次异常挂成 suppressed，免得"5.x 端点不存在"盖掉真正的网络故障
+     */
+    private void postWithVersionFallback(PtDownloaderPlus config, String hash, String legacy, String modern,
+                                         Map<Integer, String> cache) throws IOException {
+        // 未保存的临时配置（id 为 null）不走缓存，ConcurrentHashMap 不接受 null 键，理由见 executeWithSession
+        Integer id = config.getId();
+        String cached = id == null ? null : cache.get(id);
         if (cached != null) {
             post(config, cached, hashesBody(hash));
-            log.info("下载器[{}] 已启动种子[{}]", config.getName(), hash);
             return;
         }
-        // 先试旧端点（存量用户多在 4.x），404 再试新的，成功的那个记下来。
-        // 两个都失败时把首次异常挂成 suppressed，免得"5.x 端点不存在"盖掉真正的网络故障
         try {
-            post(config, START_ENDPOINT_LEGACY, hashesBody(hash));
-            startEndpointCache.put(config.getId(), START_ENDPOINT_LEGACY);
+            post(config, legacy, hashesBody(hash));
+            if (id != null) {
+                cache.put(id, legacy);
+            }
         } catch (IOException legacyFailed) {
             try {
-                post(config, START_ENDPOINT_MODERN, hashesBody(hash));
-                startEndpointCache.put(config.getId(), START_ENDPOINT_MODERN);
+                post(config, modern, hashesBody(hash));
+                if (id != null) {
+                    cache.put(id, modern);
+                }
             } catch (IOException modernFailed) {
                 modernFailed.addSuppressed(legacyFailed);
                 throw modernFailed;
             }
         }
-        log.info("下载器[{}] 已启动种子[{}]", config.getName(), hash);
     }
 
     @Override
@@ -196,9 +224,32 @@ public class QbittorrentClient implements IDownloaderClient {
             // 删掉它能腾出多少空间，而 OSR 会给多集包排除非目标集文件，因此必须用 size
             torrent.setSize(Math.max(0L, item.getLongValue("size")));
             torrent.setContentPath(item.getString("content_path"));
+            torrent.setDownloadSpeed(Math.max(0L, item.getLongValue("dlspeed")));
+            torrent.setUploadSpeed(Math.max(0L, item.getLongValue("upspeed")));
+            torrent.setEtaSeconds(normalizeEta(item.getLongValue("eta")));
+            torrent.setPaused(isPausedState(state));
             result.add(torrent);
         }
         return result;
+    }
+
+    /** qB 用 8640000（100 天）表示「算不出来」，速度为 0 时恒为此值 */
+    private static final long QB_ETA_INFINITY = 8_640_000L;
+
+    static Long normalizeEta(long eta) {
+        return eta <= 0 || eta >= QB_ETA_INFINITY ? null : eta;
+    }
+
+    /**
+     * 暂停态：4.x 叫 pausedDL/pausedUP，5.x 改名 stoppedDL/stoppedUP。按前缀匹配两代都认，
+     * 与启动端点那处的版本差异是同一次改名
+     */
+    static boolean isPausedState(String state) {
+        if (state == null) {
+            return false;
+        }
+        String s = state.toLowerCase();
+        return s.startsWith("paused") || s.startsWith("stopped");
     }
 
     @Override

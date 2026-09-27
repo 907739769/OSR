@@ -238,6 +238,10 @@
             />
             <span class="record-progress-text">{{ progressPercent(item) }}%</span>
           </div>
+          <!-- 实时速度：每几秒现问下载器，不落库。已暂停时说清楚是谁停的 -->
+          <div v-if="liveText(item, liveOf(item.id))" class="record-live" :class="{ 'record-live--paused': item.userPaused }">
+            {{ liveText(item, liveOf(item.id)) }}
+          </div>
           <!-- 「已推送」是稳态标签，推送后十分钟与十小时长得一样，后者多半是下载器没接住 -->
           <div v-if="stalePushedHint(item)" class="record-stale">
             <v-icon icon="clock" size="14" />
@@ -296,6 +300,19 @@
             已由后续推送 #{{ item.supersededById }} 接替
           </div>
           <div class="card-footer">
+            <!-- 暂停要经过 OSR：只有这里打的标记能让下载追踪把暂停时长从僵尸超时里扣掉 -->
+            <v-btn
+              v-if="canPause(item) || canResume(item)"
+              variant="text"
+              color="primary"
+              size="small"
+              class="pause-resume-btn"
+              :prepend-icon="item.userPaused ? 'play' : 'pause'"
+              :loading="controllingIds.has(item.id)"
+              @click="item.userPaused ? handleResume(item) : handlePause(item)"
+            >
+              {{ item.userPaused ? '继续' : '暂停' }}
+            </v-btn>
             <v-btn
               v-if="canRetry(item)"
               variant="text"
@@ -339,6 +356,17 @@
             >
               {{ item.releaseGroupBlacklisted ? `${item.releaseGroup} 已拉黑` : `拉黑发布组 ${item.releaseGroup}` }}
             </v-btn>
+            <!-- H&R 考核中的不给删（硬边界，后端也会拦）；种子已经不在下载器里的失败记录也不给 -->
+            <v-btn
+              v-if="canDeleteTorrent(item)"
+              variant="text"
+              color="error"
+              size="small"
+              class="delete-torrent-btn"
+              @click="openDeleteTorrent(item)"
+            >
+              删除下载
+            </v-btn>
           </div>
         </div>
         <v-empty-state v-if="!loading && taskList.length === 0" icon="inbox" title="暂无下载记录" />
@@ -381,6 +409,13 @@
       :submitting="cleanupDialog.submitting"
       @submit="submitCleanup"
     />
+    <PtDownloadDeleteDialog
+      v-model="deleteDialog.visible"
+      v-model:delete-files="deleteDialog.deleteFiles"
+      :record="deleteDialog.row"
+      :submitting="deleteDialog.submitting"
+      @submit="submitDeleteTorrent"
+    />
   </div>
 </template>
 
@@ -390,12 +425,14 @@ import StatusChip from '@/components/StatusChip.vue'
 import RecordStatusBar from '@/components/RecordStatusBar.vue'
 import PtBlacklistDialog from '@/components/dialogs/PtBlacklistDialog.vue'
 import PtDownloadRecordCleanupDialog from '@/components/dialogs/PtDownloadRecordCleanupDialog.vue'
+import PtDownloadDeleteDialog from '@/components/dialogs/PtDownloadDeleteDialog.vue'
 import { computed, watch } from 'vue'
 import { usePtDownloadRecord } from '@/composables/usePtDownloadRecord'
 import {
   DOWNLOAD_STATE_OPTIONS, FAIL_REASON_OPTIONS, HR_STATE_OPTIONS, DATE_FIELD_OPTIONS, SEEDERS_HINT,
   stateLabel, stateTagType, failReasonCodeLabel, failReasonTagType, hrStateLabel, hrTagType,
-  hrProgress, progressPercent, hasProgress, canRetry, canIgnore, stalePushedHint
+  hrProgress, progressPercent, hasProgress, canRetry, canIgnore, stalePushedHint,
+  liveText, canPause, canResume, canDeleteTorrent
 } from '@/composables/ptDownloadRecordLabels'
 import { formatFileSize } from '@/composables/useRecordList'
 import { useGridPageSize } from '@/composables/useGridPageSize'
@@ -423,6 +460,8 @@ const {
   handleBatchBlacklistGuid, handleBatchBlacklistReleaseGroup,
   handleBlacklistGuid, handleBlacklistReleaseGroup, blacklistDialog, submitBlacklist,
   copyTorrentHash,
+  liveOf, controllingIds, handlePause, handleResume,
+  deleteDialog, openDeleteTorrent, submitDeleteTorrent,
   cleanupDialog, cleanupDayOptions, openCleanup, submitCleanup
 } = usePtDownloadRecord({ autoLoad: false })
 
@@ -505,6 +544,18 @@ watch(routeFilterTick, (tick) => {
   text-align: right;
   font-size: 12px;
   color: var(--osr-text-secondary);
+}
+
+/* 实时速度：跟在进度条下面，数字等宽免得每轮刷新左右抖 */
+.record-live {
+  margin-top: -2px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--osr-text-secondary);
+}
+
+.record-live--paused {
+  color: var(--osr-warning);
 }
 
 .hash-value {

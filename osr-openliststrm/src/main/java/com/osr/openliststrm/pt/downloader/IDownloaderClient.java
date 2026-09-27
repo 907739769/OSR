@@ -55,6 +55,14 @@ public interface IDownloaderClient {
     void resumeTorrent(PtDownloaderPlus config, String hash) throws IOException;
 
     /**
+     * 暂停一个种子。只供下载记录页的「用户暂停」调用（{@code DownloadRecordControlService}）；
+     * OSR 的自动流程从不主动暂停种子——暂停加种走的是 {@link #addTorrent} 的 {@code paused} 参数。
+     *
+     * @throws IOException 网络异常或下载器拒绝
+     */
+    void pauseTorrent(PtDownloaderPlus config, String hash) throws IOException;
+
+    /**
      * 从下载器移除种子。
      * <p>
      * <b>调用它之前先读根目录 AGENTS.md 的「OSR 从不删种」。</b>只有两个受控例外：

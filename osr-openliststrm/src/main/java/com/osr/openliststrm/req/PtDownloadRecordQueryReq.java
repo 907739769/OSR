@@ -22,7 +22,7 @@ public class PtDownloadRecordQueryReq {
     private String state;
     /** 按种子标题模糊匹配 */
     private String title;
-    /** 失败原因分类 TORRENT_NOT_FOUND / ZOMBIE_TIMEOUT / NO_TARGET_EPISODE / METADATA_TIMEOUT / OTHER */
+    /** 失败原因分类 TORRENT_NOT_FOUND / ZOMBIE_TIMEOUT / NO_TARGET_EPISODE / METADATA_TIMEOUT / USER_DELETED / OTHER */
     private String failReasonCode;
     private Integer indexerId;
     private Integer downloaderId;

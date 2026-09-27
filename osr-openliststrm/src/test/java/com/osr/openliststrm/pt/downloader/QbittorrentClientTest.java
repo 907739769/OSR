@@ -343,4 +343,49 @@ class QbittorrentClientTest {
         server.takeRequest();
         assertEquals("/api/v2/sync/maindata?rid=0", server.takeRequest().getPath());
     }
+
+    @Test
+    void listByTag_带出实时速度与剩余时间_无穷大的eta归一成null() throws Exception {
+        server.enqueue(loginOk());
+        server.enqueue(new MockResponse().setBody("["
+                + "{\"hash\":\"A\",\"state\":\"downloading\",\"dlspeed\":2048000,\"upspeed\":1024,\"eta\":600,\"progress\":0.4},"
+                + "{\"hash\":\"B\",\"state\":\"stalledDL\",\"dlspeed\":0,\"eta\":8640000,\"progress\":0.1}"
+                + "]"));
+
+        List<DownloaderTorrent> list = client.listByTag(config(31), "osr-pt");
+
+        assertEquals(2048000, list.get(0).getDownloadSpeed());
+        assertEquals(1024, list.get(0).getUploadSpeed());
+        assertEquals(600L, list.get(0).getEtaSeconds());
+        // 8640000 是 qB 的「算不出来」，原样给前端会显示成「剩余 100 天」
+        assertEquals(null, list.get(1).getEtaSeconds());
+    }
+
+    @Test
+    void 暂停态_4x与5x两代状态名都认() {
+        assertTrue(QbittorrentClient.isPausedState("pausedDL"));
+        assertTrue(QbittorrentClient.isPausedState("stoppedDL"));
+        assertTrue(QbittorrentClient.isPausedState("pausedUP"));
+        assertFalse(QbittorrentClient.isPausedState("downloading"));
+        assertFalse(QbittorrentClient.isPausedState("stalledDL"));
+        assertFalse(QbittorrentClient.isPausedState(null));
+    }
+
+    @Test
+    void pauseTorrent_旧端点404时改用5x的stop_并记住() throws Exception {
+        server.enqueue(loginOk());
+        server.enqueue(new MockResponse().setResponseCode(404));
+        server.enqueue(new MockResponse().setBody(""));
+        server.enqueue(new MockResponse().setBody(""));
+
+        PtDownloaderPlus c = config(32);
+        client.pauseTorrent(c, "abc");
+        client.pauseTorrent(c, "abc");
+
+        server.takeRequest();
+        assertEquals("/api/v2/torrents/pause", server.takeRequest().getPath());
+        assertEquals("/api/v2/torrents/stop", server.takeRequest().getPath());
+        // 第二次直接用缓存下来的新端点，不再先撞一次 404
+        assertEquals("/api/v2/torrents/stop", server.takeRequest().getPath());
+    }
 }
