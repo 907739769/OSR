@@ -1,0 +1,82 @@
+# 使用官方镜像部署（推荐普通用户使用）。
+# 与 docker-compose.yml 的区别只在于 backend / frontend 直接拉取 Docker Hub 上的镜像，
+# 不需要先 mvn package 和 npm run build。修改服务配置时，两份文件要同步改。
+#
+# 用法：把本文件保存为 docker-compose.yml，同目录下按 .env.example 创建 .env，然后执行 docker compose up -d
+# 升级：docker compose pull && docker compose up -d
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: osr-mysql
+    restart: always
+    env_file:
+      - .env
+    environment:
+      MYSQL_DATABASE: ${MYSQL_DATABASE:-osr}
+      # 应用专用的最小权限账号：MySQL 官方镜像会自动创建该用户，并且只授予 MYSQL_DATABASE 库的权限
+      MYSQL_USER: ${DB_USERNAME:-osr_app}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_CHARSET: utf8mb4
+      MYSQL_COLLATION: utf8mb4_general_ci
+      TZ: Asia/Shanghai
+    # 默认不对外暴露数据库端口，后端通过容器网络访问。需要用外部工具连接数据库时再打开下面两行
+    # ports:
+    #   - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    command:
+      - --default-authentication-plugin=mysql_native_password
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_general_ci
+      - --max-connections=500
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    image: jacksaoding/osr-backend:latest
+    container_name: osr-backend
+    restart: always
+    # 内存上限，与镜像里的 JAVA_OPTS=-XX:MaxRAMPercentage=70 配套：堆上限 = 该值 × 70%。
+    # 内存紧张或媒体库很大时，可以在 .env 里用 BACKEND_MEM_LIMIT 覆盖
+    mem_limit: ${BACKEND_MEM_LIMIT:-2g}
+    ports:
+      - "6895:6895"
+    env_file:
+      - .env
+    environment:
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_USERNAME: ${DB_USERNAME:-osr_app}
+      DB_PASSWORD: ${DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+      TZ: Asia/Shanghai
+    depends_on:
+      mysql:
+        condition: service_healthy
+    volumes:
+      - /data:/data
+    # 首次启动要跑完全部数据库迁移脚本，所以 start_period 设得比较长
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:6895/api/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 180s
+
+  frontend:
+    image: jacksaoding/osr-frontend:latest
+    container_name: osr-frontend
+    restart: always
+    ports:
+      - "80:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  mysql-data:
