@@ -1,8 +1,84 @@
-## 平台简介
+<div align="center">
 
-OSR (OpenList STRM Relay)：影视 STRM 管理系统。技术栈：Java 25 (Spring Boot 4.0.6) + Vue 3 + Vuetify 3 + MyBatis-Plus + JWT，Docker 双容器部署。
+# OSR · OpenList STRM Relay
 
-## 内置功能
+**网盘党的全自动影视库：PT 追剧 → 传网盘 → 生成 STRM → 刮削入库，一套系统走完。**
+
+订阅没下下来？OSR 会告诉你**为什么**。
+
+[![GitHub Stars](https://img.shields.io/github/stars/907739769/OSR?style=flat&logo=github)](https://github.com/907739769/OSR/stargazers)
+[![Docker Pulls](https://img.shields.io/docker/pulls/jacksaoding/osr-backend?logo=docker)](https://hub.docker.com/r/jacksaoding/osr-backend)
+[![Release](https://img.shields.io/github/v/release/907739769/OSR)](https://github.com/907739769/OSR/releases)
+[![License](https://img.shields.io/github/license/907739769/OSR)](LICENSE)
+
+[快速开始](#-快速开始) · [上手教程](https://blog.jackding.cn/archives/osr-shang-shou-zhi-nan-yong-yi-tao-xi-tong-ba-pt-xia-zai-wang-pan-tong-bu-strm-sheng-cheng-he-gua-xue-chong-ming-ming-chuan-qi-lai) · [Wiki](https://github.com/907739769/OSR/wiki) · [完整功能](#完整功能) · [截图](#演示图)
+
+<img src="https://github.com/user-attachments/assets/b349904a-054e-48f4-9133-fe77f0dac5f8" width="90%"/>
+
+</div>
+
+## ✨ 为什么用 OSR
+
+**☁️ 为网盘 + STRM 而生，不靠插件拼凑**
+OpenList 挂载的网盘是一等公民：本地 ↔ 网盘文件夹同步、STRM 生成（支持增量扫描）、TMDb 重命名刮削、孤儿文件扫描。qBittorrent 下载完成后，自动完成「同步 → 传网盘 → 生成 STRM」整条链路。
+
+**🔍 订阅卡住时能看到原因，不是一个黑盒**
+- **一键诊断**：逐集列出最近一轮搜到多少候选、每个候选因为什么被淘汰
+- **过滤规则回放**：改规则之前，先用真实候选看看会多放过、多挡掉哪些种子
+- **缺集体检 / 字幕体检**：播出多日还没入库的集会被列出来并附上原因，没有中字的集也会标出来
+
+**📱 远程管理：手机、TG、企微、AI 助手都能用**
+PWA 移动端；Telegram / 企业微信的通知自带「重试」「拉黑」「补搜」按钮；内置 MCP 服务端，Claude、Cursor 等 AI 助手可以直接查追剧进度、触发任务。
+
+## 🚀 快速开始
+
+需要 Docker 20.10+ 和 Docker Compose v2。
+
+**1. 新建目录，下载 compose 文件和环境变量模板**
+
+```bash
+mkdir osr && cd osr
+curl -fsSL -o docker-compose.yml https://raw.githubusercontent.com/907739769/OSR/master/docker-compose.image.yml
+curl -fsSL -o .env https://raw.githubusercontent.com/907739769/OSR/master/.env.example
+```
+
+> 下载不了的话，也可以直接在仓库里打开 [docker-compose.image.yml](docker-compose.image.yml) 和 [.env.example](.env.example)，复制内容保存为 `docker-compose.yml` 和 `.env`。
+
+**2. 编辑 `.env`**，至少把这四项的占位值换成你自己的随机字符串：
+
+```ini
+MYSQL_ROOT_PASSWORD=改成随机字符串
+DB_PASSWORD=改成随机字符串
+JWT_SECRET=改成至少32位的随机字符串
+PT_CREDENTIAL_SECRET=改成至少32位的随机字符串
+```
+
+**3. 启动**
+
+```bash
+docker compose up -d
+```
+
+首次启动要初始化数据库，大约需要 1～3 分钟。`docker compose ps` 里 backend 显示 `(healthy)` 后，浏览器打开 `http://<你的IP>`，用 `admin` 登录（默认密码见[上手教程](https://blog.jackding.cn/archives/osr-shang-shou-zhi-nan-yong-yi-tao-xi-tong-ba-pt-xia-zai-wang-pan-tong-bu-strm-sheng-cheng-he-gua-xue-chong-ming-ming-chuan-qi-lai)），**登录后请立即修改密码**。
+
+> 起不来？Java 异常写在容器内的 `/data/logs/sys-error.log`，不在 `docker logs` 里。更多排查方法见[上手教程](https://blog.jackding.cn/archives/osr-shang-shou-zhi-nan-yong-yi-tao-xi-tong-ba-pt-xia-zai-wang-pan-tong-bu-strm-sheng-cheng-he-gua-xue-chong-ming-ming-chuan-qi-lai)。
+
+## 🤔 和 MoviePilot 怎么选
+
+两者都能做 PT 自动追剧，侧重点不同：
+
+| | OSR | MoviePilot |
+|---|---|---|
+| 设计重心 | 网盘 + STRM 工作流 | PT 自动化中枢 |
+| STRM 生成 | 内置（增量扫描、孤儿文件扫描） | 主要依靠社区插件 |
+| 订阅排障 | 逐集淘汰原因、规则回放、缺集 / 字幕体检 | 以查看日志为主 |
+| 站点接入 | 通过 Jackett / Prowlarr（Torznab） | 内置大量站点适配 ✅ |
+| 扩展能力 | 无插件机制 | 插件生态丰富 ✅ |
+| 部署 | 3 个容器（含 MySQL） | 单容器 ✅ |
+
+**如果你的媒体库放在网盘、用 STRM 播放，或者经常搞不清「这集为什么没下」，OSR 会更顺手；如果你是纯本地硬盘，并且重度依赖插件生态，MoviePilot 更合适。** 两者也可以共存：用 MoviePilot 下载，用 OSR 处理网盘同步和 STRM。
+
+## 完整功能
 
 ### 🎬 STRM 文件生成
 - 支持定时任务自动执行、前端页面手动触发、Telegram Bot 指令执行
@@ -89,7 +165,7 @@ OSR (OpenList STRM Relay)：影视 STRM 管理系统。技术栈：Java 25 (Spri
 - [X] 配置备份与恢复
 - [X] 移动端适配（H5/PWA）
 
-## 安装配置
+## 详细教程
 
 安装配置请查看[wiki](https://github.com/907739769/OSR/wiki)，从零开始的完整教程见[博客：OSR 上手指南](https://blog.jackding.cn/archives/osr-shang-shou-zhi-nan-yong-yi-tao-xi-tong-ba-pt-xia-zai-wang-pan-tong-bu-strm-sheng-cheng-he-gua-xue-chong-ming-ming-chuan-qi-lai)
 
