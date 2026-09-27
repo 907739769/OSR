@@ -87,6 +87,21 @@ public class StrmBot extends AbilityBot {
         return Long.parseLong(adminUserId);
     }
 
+    /**
+     * 会话停止时由 {@code DefaultBotSession#stop()} 回调。父类只关了发送线程池，
+     * <b>不会关 AbilityBot 自带的 MapDB 文件库</b>（库文件名固定是 "bot"），
+     * 不关的话热重载新建的实例会因文件被锁而起不来，所以这里补上。
+     */
+    @Override
+    public void onClosing() {
+        super.onClosing();
+        try {
+            db.close();
+        } catch (Exception e) {
+            log.warn("关闭 Telegram 机器人本地库失败：{}", e.getMessage(), e);
+        }
+    }
+
     public Ability strm() {
         return Ability.builder()
                 .name("strm")

@@ -3,6 +3,7 @@ package com.osr.system.service.impl;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.osr.common.constant.Constants;
 import com.osr.common.constant.UserConstants;
+import com.osr.common.core.domain.event.SysConfigChangedEvent;
 import com.osr.common.core.text.Convert;
 import com.osr.common.exception.ServiceException;
 import com.osr.common.utils.CacheUtils;
@@ -12,9 +13,13 @@ import com.osr.system.mapper.SysConfigMapper;
 import com.osr.system.service.ISysConfigService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 
 /**
@@ -27,6 +32,10 @@ public class SysConfigServiceImpl implements ISysConfigService
 {
     @Autowired
     private SysConfigMapper configMapper;
+
+    /** 配置变更后发布 {@link SysConfigChangedEvent}，业务模块据此热更新（如 Telegram 机器人） */
+    @Autowired
+    private ApplicationEventPublisher eventPublisher;
 
     /**
      * 项目启动时，初始化参数到缓存
@@ -114,6 +123,7 @@ public class SysConfigServiceImpl implements ISysConfigService
         if (row > 0)
         {
             CacheUtils.put(getCacheName(), getCacheKey(config.getConfigKey()), config.getConfigValue());
+            eventPublisher.publishEvent(new SysConfigChangedEvent(new HashSet<>(Arrays.asList(config.getConfigKey()))));
         }
         return row;
     }
@@ -137,6 +147,8 @@ public class SysConfigServiceImpl implements ISysConfigService
         if (row > 0)
         {
             CacheUtils.put(getCacheName(), getCacheKey(config.getConfigKey()), config.getConfigValue());
+            // 改了键名时新旧两个键都算变更
+            eventPublisher.publishEvent(new SysConfigChangedEvent(new HashSet<>(Arrays.asList(temp.getConfigKey(), config.getConfigKey()))));
         }
         return row;
     }
@@ -150,6 +162,7 @@ public class SysConfigServiceImpl implements ISysConfigService
     public void deleteConfigByIds(String ids)
     {
         Long[] configIds = Convert.toLongArray(ids);
+        List<String> deletedKeys = new ArrayList<>();
         for (Long configId : configIds)
         {
             SysConfig config = selectConfigById(configId);
@@ -159,6 +172,11 @@ public class SysConfigServiceImpl implements ISysConfigService
             }
             configMapper.deleteConfigById(configId);
             CacheUtils.remove(getCacheName(), getCacheKey(config.getConfigKey()));
+            deletedKeys.add(config.getConfigKey());
+        }
+        if (!deletedKeys.isEmpty())
+        {
+            eventPublisher.publishEvent(new SysConfigChangedEvent(new HashSet<>(deletedKeys)));
         }
     }
 
@@ -192,6 +210,8 @@ public class SysConfigServiceImpl implements ISysConfigService
     {
         clearConfigCache();
         loadingConfigCache();
+        // 可能有人直接改了库再点「刷新缓存」，无法知道哪些键变了
+        eventPublisher.publishEvent(SysConfigChangedEvent.all());
     }
 
     /**

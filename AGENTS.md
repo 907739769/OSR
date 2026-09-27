@@ -90,6 +90,7 @@
 | `…/openliststrm/controller/` | REST 端点：继承来的增删改开放范围、统计接口、批量删除 |
 | `…/openliststrm/mybatisplus/` | 数据层 Wrapper 的陷阱 |
 | `…/openliststrm/wecom/` | 企业微信回调鉴权 |
+| `…/openliststrm/tg/` | Telegram 机器人：配置热重载、AbilityBot 本地库的关闭 |
 | `…/openliststrm/backup/` | 配置备份：分区与恢复顺序、按名字引用、敏感字段语义、订阅重建不补搜 |
 | `…/openliststrm/chat/` | 企微与 TG 共用的订阅聊天指令：按钮会话 id、补搜异步、TG 身份与回调校验 |
 | `osr-quartz/AGENTS.md` | 定时任务：两条执行路径、手动执行异步化与并发闸门、执行记录的时间列 |
