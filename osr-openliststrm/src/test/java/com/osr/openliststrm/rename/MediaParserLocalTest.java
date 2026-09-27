@@ -349,6 +349,34 @@ class MediaParserLocalTest {
     }
 
     @Test
+    void parseLocal_声道残片或音轨数挨着发布组_不算进组名() {
+        // normalize 把 5.1 拆成 "5 1"，声道没被音频编码摘走时结尾段是 "1-DST"，曾整段被当成组名
+        assertEquals("FULLBRUTALiTY", parser.parseLocal(
+                "Four Minus Three 2026 1080p Blu-ray AVC DTS-HD MA 5.1-FULLBRUTALiTY").getReleaseGroup());
+        assertEquals("DST", parser.parseLocal(
+                "We'll Find Happiness 2025 1080p WEB-DL H.264 DD 5.1-DST").getReleaseGroup());
+        assertEquals("HHWEB", parser.parseLocal(
+                "The Great Ruler S01E92 2023 2160p WEB-DL H.265 HDR DDP5.1 2Audios-HHWEB").getReleaseGroup());
+        assertEquals("HDH", parser.parseLocal(
+                "Hard Boiled 1992 2160p GBR UHD Blu-ray REMUX HEVC Atmos TrueHD7.1-HDH").getReleaseGroup());
+    }
+
+    @Test
+    void parseLocal_DD声道_识别为AC3() {
+        MediaInfo info = parser.parseLocal("We'll Find Happiness 2025 1080p WEB-DL H.264 DD 5.1-DST");
+        assertEquals("AC3", info.getAudioCodec());
+        assertEquals("DST", info.getReleaseGroup());
+        // DDP 仍按 ddp 命中，不被 dd 抢先
+        assertEquals("EAC3", parser.parseLocal("Some.Show.S01E05.1080p.WEB-DL.DDP5.1.H.264-CHDWEB").getAudioCodec());
+    }
+
+    @Test
+    void parseLocal_集号区间结尾_仍不当发布组() {
+        MediaInfo info = parser.parseLocal("Some.Show.S01E01-03.1080p");
+        assertNull(info.getReleaseGroup());
+    }
+
+    @Test
     void parseLocal_at引导的发布组_带空格与不带空格都能识别() {
         assertEquals("Group", parser.parseLocal("Some.Show.S01E05.1080p.WEB-DL @ Group").getReleaseGroup());
         assertEquals("Group", parser.parseLocal("Some.Show.S01E05.1080p.WEB-DL@Group").getReleaseGroup());

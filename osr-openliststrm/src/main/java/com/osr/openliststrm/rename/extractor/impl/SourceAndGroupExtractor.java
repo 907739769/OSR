@@ -58,7 +58,18 @@ public class SourceAndGroupExtractor implements Extractor {
             "^(?:WEB-?DL|WEB-?RIP|BLU-?RAY|DTS-?HD(?:-?MA)?|DTS-?X|DD-?EX|E-?AC-?3|MPEG-?2|HDR10-?\\+?|H-?26[45]|X-?26[45]|\\d+-?bit)$",
             Pattern.CASE_INSENSITIVE);
 
-    private static final Pattern GROUP_BRACKET = Pattern.compile("^\\[([A-Za-z0-9_\\.-]+)\\]");
+    /**
+     * 结尾段里第一个连字符之前是"声道残片"或"音轨数"时，那个连字符其实是引导符，组名在它后面。
+     * <p>
+     * {@code MediaParser#normalize} 会把 {@code 5.1} 拆成 {@code 5 1}，声道没被音频编码一并摘走时
+     * （{@code DTS-HD MA 5.1}、{@code DD 5.1}，或同一标题里先命中了 {@code Atmos} 的 {@code TrueHD7.1}），
+     * 结尾段就成了 {@code 1-DST}；{@code DDP5.1 2Audios-HHWEB} 则剩下 {@code 2Audios-HHWEB}。
+     * 按"内部有连字符就整段是组名"会解析出 {@code 1-DST}、{@code 2Audios-HHWEB}，发布组黑名单全等匹配命不中。
+     * </p>
+     */
+    private static final Pattern LEADING_NOISE = Pattern.compile("^(?:\\d{1,2}|\\d{1,2}Audios?)-", Pattern.CASE_INSENSITIVE);
+
+    private static final Pattern GROUP_BRACKET =Pattern.compile("^\\[([A-Za-z0-9_\\.-]+)\\]");
 
     @Override
     public String extract(String name, MediaInfo info) {
@@ -139,6 +150,9 @@ public class SourceAndGroupExtractor implements Extractor {
         } else if (candidate.indexOf('-') < 0) {
             // 既没有引导符、内部也没有连字符，没有任何证据表明这是发布组
             return null;
+        } else if (!EPISODE_LIKE.matcher(candidate).matches()) {
+            // 先判集号区间（"01-03" 整段是区间，不能把 "01-" 当残片剥掉），再剥段首的声道残片/音轨数
+            candidate = LEADING_NOISE.matcher(candidate).replaceFirst("");
         }
         if (candidate.isEmpty()
                 || EPISODE_LIKE.matcher(candidate).matches()

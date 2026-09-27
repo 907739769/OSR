@@ -13,7 +13,8 @@ public class CodecExtractor implements Extractor {
 
     // 音频编码：支持 aac, ac3, ddp, dts 等，并支持可选的声道后缀 (如 2.0, 5.1, 7.1)
     // (?:[ .]?\d[ .]\d)? 匹配可选的 "2.0" " 5.1" "2 0" 等格式
-    private static final Pattern AUDIO = Pattern.compile("\\b((?:aac|ddp|dd\\+|ac3|dts-?hd|dts-?x|dts|truehd|atmos|opus|vorbis|flac|pcm|mp3|eac3)(?:[ .]?\\d[ .]\\d)?)\\b", Pattern.CASE_INSENSITIVE);
+    // dd（Dolby Digital，即 AC3）放在 ddp/dd+ 之后，保证 DDP5.1 仍先按 ddp 命中
+    private static final Pattern AUDIO = Pattern.compile("\\b((?:aac|ddp|dd\\+|ac3|dts-?hd|dts-?x|dts|truehd|atmos|opus|vorbis|flac|pcm|mp3|eac3|dd)(?:[ .]?\\d[ .]\\d)?)\\b", Pattern.CASE_INSENSITIVE);
 
     @Override
     public String extract(String name, MediaInfo info) {
