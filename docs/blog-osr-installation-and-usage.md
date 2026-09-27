@@ -209,7 +209,7 @@ docker cp osr-backend:/data/logs ./tmp
 | `openlist.openai.apikey` | 空 | |
 | `openlist.openai.model` | `gpt-5-mini` | |
 
-> 注意：**Telegram Bot 相关参数改完需要重启后端才生效**；TMDb / OpenAI 参数在每次重命名时实时读取，改完立即生效。
+> 这些参数改完都**不用重启**：TMDb / OpenAI 在每次重命名时实时读取；Telegram Bot 与企业微信的参数保存后自动生效（Telegram 约 2 秒后按新配置重连，v3.4.29 起）。
 
 ### 3.2 值得了解的性能与行为开关
 
@@ -692,7 +692,7 @@ OSR 有五条通知渠道：Telegram Bot、企业微信自建应用、通用 Web
 
 ### 7.2 Telegram Bot
 
-参数管理里配 `openlist.tg.token` 和 `openlist.tg.userid`，**重启后端**生效。支持的指令：
+参数管理里配 `openlist.tg.token` 和 `openlist.tg.userid`，保存后约 2 秒自动生效，不用重启（v3.4.29 起；更早的版本需要重启后端）。支持的指令：
 
 | 指令 | 作用 |
 |---|---|
