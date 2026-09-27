@@ -260,6 +260,7 @@ public class DownloadRecordAdminService {
         view.setFailReason(r.getFailReason());
         view.setFailReasonCode(r.getFailReasonCode());
         view.setFailIgnored(FAIL_IGNORED.equals(r.getFailIgnored()));
+        view.setUserPaused(r.getUserPausedTime() != null);
         view.setPushedTime(r.getPushedTime());
         view.setCompletedTime(r.getCompletedTime());
         view.setHrState(r.getHrState());

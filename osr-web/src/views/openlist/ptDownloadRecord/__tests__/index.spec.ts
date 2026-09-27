@@ -64,6 +64,13 @@ function baseComposable(overrides: Record<string, any> = {}) {
     cleanupDayOptions: [30, 90, 180, 365],
     openCleanup: vi.fn(),
     submitCleanup: vi.fn(),
+    liveOf: () => undefined,
+    controllingIds: reactive(new Set<number>()),
+    handlePause: vi.fn(),
+    handleResume: vi.fn(),
+    deleteDialog: reactive({ visible: false, row: null, deleteFiles: false, submitting: false }),
+    openDeleteTorrent: vi.fn(),
+    submitDeleteTorrent: vi.fn(),
     ...overrides
   }
 }
@@ -471,6 +478,69 @@ describe('PtDownloadRecord 接替与筛选条', () => {
     const wrapper = mount(PtDownloadRecordPage)
     expect(wrapper.find('.record-sub-link').exists()).toBe(false)
     expect(wrapper.find('.record-sub').text()).toContain('订阅已删除')
+  })
+})
+
+describe('PtDownloadRecord 实时速度 / 暂停 / 删除', () => {
+  const live = { id: 1, found: true, downloadSpeed: 2 * 1024 * 1024, uploadSpeed: 0, etaSeconds: 600, progress: 0.4, paused: false }
+
+  it('下载中的卡片显示实时速度与剩余时间', () => {
+    (usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      taskList: ref([{ id: 1, title: 'A', state: 'DOWNLOADING', progress: 0.4, downloaderId: 1 }]),
+      liveOf: () => live
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    expect(wrapper.find('.record-live').text()).toBe('↓ 2.0 MB/s · 剩余 10 分钟')
+  })
+
+  it('用户暂停的卡片显示「已暂停」并给「继续」', async () => {
+    const handleResume = vi.fn()
+    ;(usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      taskList: ref([{ id: 1, title: 'A', state: 'DOWNLOADING', progress: 0.4, downloaderId: 1, userPaused: true }]),
+      liveOf: () => ({ ...live, paused: true, downloadSpeed: 0 }),
+      handleResume
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    expect(wrapper.find('.record-live').text()).toBe('已暂停')
+    const btn = wrapper.find('.pause-resume-btn')
+    expect(btn.text()).toContain('继续')
+    await btn.trigger('click')
+    expect(handleResume).toHaveBeenCalled()
+  })
+
+  it('已完成的卡片不给暂停（暂停等于停止做种）', () => {
+    (usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      taskList: ref([{ id: 1, title: 'A', state: 'COMPLETED', downloaderId: 1 }])
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    expect(wrapper.find('.pause-resume-btn').exists()).toBe(false)
+  })
+
+  it('H&R 保种考核中的卡片不给删除', () => {
+    (usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      taskList: ref([{ id: 1, title: 'A', state: 'COMPLETED', downloaderId: 1, hrState: 'PENDING' }])
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    expect(wrapper.find('.delete-torrent-btn').exists()).toBe(false)
+  })
+
+  it('H&R 已达标的卡片可以删除，点了打开确认框', async () => {
+    const openDeleteTorrent = vi.fn()
+    ;(usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      taskList: ref([{ id: 1, title: 'A', state: 'COMPLETED', downloaderId: 1, hrState: 'SATISFIED' }]),
+      openDeleteTorrent
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    await wrapper.find('.delete-torrent-btn').trigger('click')
+    expect(openDeleteTorrent).toHaveBeenCalled()
+  })
+
+  it('种子已不在下载器里的失败记录不给删除', () => {
+    (usePtDownloadRecord as any).mockReturnValue(baseComposable({
+      taskList: ref([{ id: 1, title: 'A', state: 'FAILED', downloaderId: 1, failReasonCode: 'TORRENT_NOT_FOUND' }])
+    }))
+    const wrapper = mount(PtDownloadRecordPage)
+    expect(wrapper.find('.delete-torrent-btn').exists()).toBe(false)
   })
 })
 

@@ -49,6 +49,15 @@ public enum FailReasonCode {
      */
     METADATA_TIMEOUT("METADATA_TIMEOUT", false, "种子无响应"),
     /**
+     * 用户在下载记录页主动删除了这个下载（{@code DownloadRecordControlService#deleteTorrent}）。
+     * <p>
+     * <b>不可重试。</b>用户刚把它删掉，RSS 下一轮又把同一个种子推回来就是在跟用户对着干。
+     * 这一集照旧退回缺失、可以被<b>别的</b>种子补上；想要回这一个，下载记录页的「重试」仍然可用。
+     * 落库时同时置 {@code fail_ignored}：这是用户自己的决定，不是一件待处理的失败。
+     * </p>
+     */
+    USER_DELETED("USER_DELETED", false, "用户删除"),
+    /**
      * 兜底分类：为将来的失败路径（如推送失败落记录）预留。
      * <p>
      * <b>不可重试</b>——分类未知时保持"失败即不再选"的既有行为，是最保守的默认值；

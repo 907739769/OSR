@@ -33,6 +33,7 @@ import java.util.List;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -46,6 +47,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.same;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
@@ -101,6 +103,29 @@ class DownloadTrackServiceTest {
         t.setProgress(progress);
         t.setTags(tags);
         return t;
+    }
+
+    /**
+     * 本轮对下载记录的全部 {@code update(set, wrapper)} 里的 set（null set 的那几种——转移认领、撤销暂停——跳过）。
+     * <p>
+     * markDownloading / markFilesSelected 不再 {@code updateById(record)} 整行写回：record 是本轮开头读的，
+     * 整行写回会把期间用户点的暂停、删除用旧值盖掉。断言因此都落在 set 上。
+     * </p>
+     */
+    private List<PtDownloadRecordPlus> recordSets() {
+        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
+        verify(recordService, atLeast(0)).update(captor.capture(), any(Wrapper.class));
+        return captor.getAllValues().stream().filter(java.util.Objects::nonNull).toList();
+    }
+
+    /** markDownloading 写下的那些 set */
+    private List<PtDownloadRecordPlus> downloadingSets() {
+        return recordSets().stream().filter(s -> "DOWNLOADING".equals(s.getState())).toList();
+    }
+
+    /** 本轮有没有把记录判成失败 */
+    private boolean anyFailedSet() {
+        return recordSets().stream().anyMatch(s -> "FAILED".equals(s.getState()));
     }
 
     // ---------- 洗版 ----------
@@ -504,10 +529,10 @@ class DownloadTrackServiceTest {
 
         service().track(downloader(), List.of(torrent("osr-pt,osr-pt-aaa", 0.35)));
 
-        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
-        verify(recordService).updateById(captor.capture());
-        assertEquals("DOWNLOADING", captor.getValue().getState());
-        assertEquals(0.35, captor.getValue().getProgress());
+        List<PtDownloadRecordPlus> sets = downloadingSets();
+        assertEquals(1, sets.size());
+        assertEquals(0.35, sets.get(0).getProgress());
+        verify(recordService, never()).updateById(any());
     }
 
     @Test
@@ -520,9 +545,7 @@ class DownloadTrackServiceTest {
 
         service().track(downloader(), List.of(torrent("osr-pt,osr-pt-aaa", 0.8)));
 
-        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
-        verify(recordService).updateById(captor.capture());
-        assertEquals(0.8, captor.getValue().getProgress());
+        assertEquals(0.8, downloadingSets().get(0).getProgress());
     }
 
     @Test
@@ -611,9 +634,8 @@ class DownloadTrackServiceTest {
 
         service().track(downloader(), List.of(torrent("osr-pt,osr-pt-aaa", 0.5)));
 
-        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
-        verify(recordService).updateById(captor.capture());
-        assertEquals("DOWNLOADING", captor.getValue().getState());
+        assertEquals(1, downloadingSets().size());
+        assertFalse(anyFailedSet());
         verify(episodeService, never()).update(any(), any(Wrapper.class));
     }
 
@@ -697,11 +719,8 @@ class DownloadTrackServiceTest {
 
         // 唯一的视频文件就是目标集，不该被排除，更不该中止
         verify(downloaderClient, never()).excludeFiles(any(), any(), any());
-        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
-        verify(recordService, atLeastOnce()).updateById(captor.capture());
-        assertTrue(captor.getAllValues().stream().noneMatch(rec -> "FAILED".equals(rec.getState())),
-                "不该被判成 FAILED");
-        assertTrue(captor.getAllValues().stream().anyMatch(rec -> Boolean.TRUE.equals(rec.getFilesSelected())),
+        assertFalse(anyFailedSet(), "不该被判成 FAILED");
+        assertTrue(recordSets().stream().anyMatch(rec -> Boolean.TRUE.equals(rec.getFilesSelected())),
                 "应正常完成文件选择");
     }
 
@@ -776,9 +795,12 @@ class DownloadTrackServiceTest {
         ArgumentCaptor<Set<Integer>> captor = ArgumentCaptor.forClass(Set.class);
         verify(downloaderClient).excludeFiles(any(), eq("h"), captor.capture());
         assertEquals(Set.of(0, 3), captor.getValue());
-        ArgumentCaptor<PtDownloadRecordPlus> recordCaptor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
-        verify(recordService, times(2)).updateById(recordCaptor.capture());
-        assertEquals(true, recordCaptor.getAllValues().get(0).getFilesSelected());
+        // 先标 selected、再置下载中，两次都只写各自那几列
+        List<PtDownloadRecordPlus> sets = recordSets();
+        assertEquals(2, sets.size());
+        assertEquals(true, sets.get(0).getFilesSelected());
+        assertNull(sets.get(0).getState());
+        assertEquals("DOWNLOADING", sets.get(1).getState());
     }
 
     @Test
@@ -792,9 +814,10 @@ class DownloadTrackServiceTest {
         service().track(downloader(), List.of(torrent("osr-pt,osr-pt-pack", 0.1)));
 
         verify(downloaderClient, never()).excludeFiles(any(), any(), any());
-        ArgumentCaptor<PtDownloadRecordPlus> recordCaptor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
-        verify(recordService, times(1)).updateById(recordCaptor.capture());
-        assertNull(recordCaptor.getValue().getFilesSelected());
+        // 只有置下载中那一次写入，没有标 selected
+        List<PtDownloadRecordPlus> sets = recordSets();
+        assertEquals(1, sets.size());
+        assertNull(sets.get(0).getFilesSelected());
     }
 
     @Test
@@ -999,8 +1022,8 @@ class DownloadTrackServiceTest {
         verify(episodeService, times(2)).update(eps.capture(), any(Wrapper.class));
         assertTrue(eps.getAllValues().stream().allMatch(e -> "MISSING".equals(e.getState())));
         assertTrue(eps.getAllValues().stream().allMatch(e -> e.getFailCount() == null));
-        // 已是终态，绝不能再往下走 markDownloading（无条件 updateById，会把它复活成 DOWNLOADING）
-        verify(recordService, never()).updateById(any());
+        // 已是终态，绝不能再往下走 markDownloading（上面 verify 已钉住只有判失败那一次写入）
+        assertTrue(downloadingSets().isEmpty());
     }
 
     // ---------- 暂停加种：选完文件才启动 ----------
@@ -1024,10 +1047,111 @@ class DownloadTrackServiceTest {
         order.verify(downloaderClient).excludeFiles(any(), eq("h"), any());
         order.verify(downloaderClient).resumeTorrent(any(), eq("h"));
         // 启动失败必须留给下一轮重试，所以它得排在 markFilesSelected 之前——
-        // 一旦标了 selected 就再也不会进 trySelectFiles，暂停的种子将永远没人启动。
-        // 用 atLeastOnce 而不是按内容匹配：markFilesSelected 与 markDownloading 传的是同一个
-        // record 实例，Mockito 验证时读到的是它被改过的最终状态，两次调用无法用 argThat 区分
-        order.verify(recordService, atLeastOnce()).updateById(any());
+        // 一旦标了 selected 就再也不会进 trySelectFiles，暂停的种子将永远没人启动
+        order.verify(recordService).update(
+                argThat(s -> s != null && Boolean.TRUE.equals(s.getFilesSelected())), any(Wrapper.class));
+    }
+
+    @Test
+    void 用户暂停中_选完文件也不自动启动() throws Exception {
+        // 选完文件那一步原本无条件 resume，会把用户在下载记录页点的暂停悄悄撤掉
+        PtDownloadRecordPlus r = record(100, -1, "osr-pt-pack", "DOWNLOADING", 60_000);
+        r.setUserPausedTime(new Date(System.currentTimeMillis() - 10_000));
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of(episodeRow(501, 0, 2)));
+        when(downloaderClientFactory.get(any())).thenReturn(downloaderClient);
+        when(downloaderClient.listFiles(any(), eq("h"))).thenReturn(List.of(
+                file(0, "Show.Name.S01E01.1080p.mkv"),
+                file(1, "Show.Name.S01E02.1080p.mkv")));
+        DownloaderTorrent paused = torrent("osr-pt,osr-pt-pack", 0.1);
+        paused.setPaused(true);
+
+        DownloadTrackService svc = service();
+        when(subscriptionService.listByIds(any())).thenReturn(List.of(tvSub(10)));
+        svc.track(downloader(), List.of(paused));
+
+        verify(downloaderClient).excludeFiles(any(), eq("h"), eq(Set.of(0)));
+        verify(downloaderClient, never()).resumeTorrent(any(), any());
+        // 文件照样选完、标记照样打上：用户点继续时由 DownloadRecordControlService 启动它
+        assertTrue(recordSets().stream().anyMatch(s -> Boolean.TRUE.equals(s.getFilesSelected())));
+    }
+
+    @Test
+    void 用户暂停的时长不计入僵尸超时() {
+        // 推送 30 小时、其中暂停了 10 小时：实际下载 20 小时，没到 24 小时的僵尸线
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+        PtDownloadRecordPlus r = record(100, 2, "osr-pt-aaa", "DOWNLOADING", 30L * 3600_000);
+        r.setFilesSelected(true);
+        r.setUserPausedSeconds(10L * 3600);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+
+        service().track(downloader(), List.of(torrent("osr-pt,osr-pt-aaa", 0.5)));
+
+        assertFalse(anyFailedSet(), "扣掉暂停时长后没到僵尸超时，不该判失败");
+        assertEquals(1, downloadingSets().size());
+    }
+
+    @Test
+    void 当前正暂停的时长同样不计入僵尸超时() {
+        // 推送 25 小时，从第 5 小时起一直暂停到现在
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+        PtDownloadRecordPlus r = record(100, 2, "osr-pt-aaa", "DOWNLOADING", 25L * 3600_000);
+        r.setFilesSelected(true);
+        r.setUserPausedTime(new Date(System.currentTimeMillis() - 20L * 3600_000));
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        DownloaderTorrent paused = torrent("osr-pt,osr-pt-aaa", 0.3);
+        paused.setPaused(true);
+
+        service().track(downloader(), List.of(paused));
+
+        assertFalse(anyFailedSet());
+    }
+
+    @Test
+    void 暂停时长扣完仍超僵尸超时_照常判失败() {
+        // 扣除只是把表停下来，不是豁免：实际下载时长照样要受僵尸超时约束
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
+        PtDownloadRecordPlus r = record(100, 2, "osr-pt-aaa", "DOWNLOADING", 30L * 3600_000);
+        r.setFilesSelected(true);
+        r.setUserPausedSeconds(3600L);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+
+        service().track(downloader(), List.of(torrent("osr-pt,osr-pt-aaa", 0.5)));
+
+        assertTrue(recordSets().stream().anyMatch(s -> "FAILED".equals(s.getState())
+                && "ZOMBIE_TIMEOUT".equals(s.getFailReasonCode())));
+    }
+
+    @Test
+    void 用户在下载器里自己点了继续_撤销暂停标记() {
+        // 否则僵尸超时一直停表，一个真卡死的种子就再也不会被判失败
+        when(recordService.update(any(), any(Wrapper.class))).thenReturn(true);
+        PtDownloadRecordPlus r = record(100, 2, "osr-pt-aaa", "DOWNLOADING", 3600_000);
+        r.setFilesSelected(true);
+        r.setUserPausedSeconds(0L);
+        r.setUserPausedTime(new Date(System.currentTimeMillis() - 10 * 60_000));
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+
+        service().track(downloader(), List.of(torrent("osr-pt,osr-pt-aaa", 0.5)));
+
+        // 撤销走的是 update(null, wrapper)：累加用 SQL 表达式，避免两路并发时加两次
+        verify(recordService).update(isNull(), any(Wrapper.class));
+        assertNull(r.getUserPausedTime());
+        assertTrue(r.getUserPausedSeconds() >= 600);
+    }
+
+    @Test
+    void 刚点暂停_快照里还没停下_不撤销标记() {
+        // 本轮快照可能是在用户点暂停之前拉的，那时它当然还在跑
+        PtDownloadRecordPlus r = record(100, 2, "osr-pt-aaa", "DOWNLOADING", 3600_000);
+        r.setFilesSelected(true);
+        r.setUserPausedTime(new Date(System.currentTimeMillis() - 5_000));
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+
+        service().track(downloader(), List.of(torrent("osr-pt,osr-pt-aaa", 0.5)));
+
+        verify(recordService, never()).update(isNull(), any(Wrapper.class));
+        assertNotNull(r.getUserPausedTime());
     }
 
     @Test
@@ -1044,9 +1168,7 @@ class DownloadTrackServiceTest {
         when(subscriptionService.listByIds(any())).thenReturn(List.of(tvSub(10)));
         svc.track(downloader(), List.of(torrent("osr-pt,osr-pt-pack", 0.1)));
 
-        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
-        verify(recordService, atLeastOnce()).updateById(captor.capture());
-        assertTrue(captor.getAllValues().stream().noneMatch(rec -> Boolean.TRUE.equals(rec.getFilesSelected())));
+        assertTrue(recordSets().stream().noneMatch(rec -> Boolean.TRUE.equals(rec.getFilesSelected())));
     }
 
     @Test
@@ -1061,7 +1183,7 @@ class DownloadTrackServiceTest {
 
         service().track(downloader(), List.of(torrent("osr-pt,osr-pt-pack", 0.0)));
 
-        verify(recordService, never()).updateById(any());
+        assertTrue(recordSets().isEmpty());
     }
 
     @Test
@@ -1096,11 +1218,9 @@ class DownloadTrackServiceTest {
         service().track(downloader(), List.of(torrent("osr-pt,osr-pt-pack", 0.4)));
 
         verify(downloaderClient, never()).deleteTorrent(any(), any(), anyBoolean());
-        verify(recordService, never()).update(any(PtDownloadRecordPlus.class), any(Wrapper.class));
+        assertFalse(anyFailedSet());
         // 有进度就照常推进下载中，与改造前的行为一致
-        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
-        verify(recordService).updateById(captor.capture());
-        assertEquals("DOWNLOADING", captor.getValue().getState());
+        assertEquals(1, downloadingSets().size());
     }
 
     @Test
@@ -1139,7 +1259,7 @@ class DownloadTrackServiceTest {
         svc.track(downloader(), List.of(torrent("osr-pt,osr-pt-pack", 0.1)));
 
         verify(downloaderClient).excludeFiles(any(), eq("h"), eq(Set.of(0)));
-        verify(recordService, never()).update(any(PtDownloadRecordPlus.class), any(Wrapper.class));
+        assertFalse(anyFailedSet());
     }
 
     // ---------- 通知文案 ----------
@@ -1303,9 +1423,8 @@ class DownloadTrackServiceTest {
 
         service().track(downloader(), List.of(torrent("osr-pt,osr-pt-aaa", 0.5)));
 
-        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
-        verify(recordService).updateById(captor.capture());
-        assertEquals("DOWNLOADING", captor.getValue().getState());
+        assertEquals(1, downloadingSets().size());
+        assertFalse(anyFailedSet());
     }
 
     @Test
@@ -1319,9 +1438,8 @@ class DownloadTrackServiceTest {
 
         service().track(downloader(), List.of(torrent("osr-pt,osr-pt-aaa", 0.5)));
 
-        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
-        verify(recordService).updateById(captor.capture());
-        assertEquals("DOWNLOADING", captor.getValue().getState());
+        assertEquals(1, downloadingSets().size());
+        assertFalse(anyFailedSet());
     }
 
     @Test
@@ -1332,15 +1450,15 @@ class DownloadTrackServiceTest {
 
         service().track(downloader(), List.of(torrent("osr-pt,osr-pt-aaa", 0.5)));
 
-        ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
-        verify(recordService).updateById(captor.capture());
-        assertEquals("DOWNLOADING", captor.getValue().getState());
+        assertEquals(1, downloadingSets().size());
+        assertFalse(anyFailedSet());
     }
 
     // ---------- WebSocket 状态推送 ----------
 
     @Test
     void 下载中更新_推送WebSocket下载事件() {
+        when(recordService.update(any(PtDownloadRecordPlus.class), any(Wrapper.class))).thenReturn(true);
         PtDownloadRecordPlus r = record(100, 2, "osr-pt-aaa", "PUSHED", 60_000);
         when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
 
@@ -1348,6 +1466,20 @@ class DownloadTrackServiceTest {
             service().track(downloader(), List.of(torrent("osr-pt,osr-pt-aaa", 0.35)));
 
             ws.verify(() -> PtStatusWebSocket.pushDownloadEvent(same(r), eq("DOWNLOADING"), eq(0.35), isNull()));
+        }
+    }
+
+    @Test
+    void 下载中更新_记录已不在途_不写也不推() {
+        // 本轮开头读出来之后，用户在页面上把它删了（已转 FAILED）：条件更新落空，
+        // 绝不能再推一条「下载中」把页面上的状态改回去
+        PtDownloadRecordPlus r = record(100, 2, "osr-pt-aaa", "DOWNLOADING", 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+
+        try (MockedStatic<PtStatusWebSocket> ws = mockStatic(PtStatusWebSocket.class)) {
+            service().track(downloader(), List.of(torrent("osr-pt,osr-pt-aaa", 0.35)));
+
+            ws.verifyNoInteractions();
         }
     }
 

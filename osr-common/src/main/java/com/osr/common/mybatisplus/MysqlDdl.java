@@ -130,7 +130,8 @@ public class MysqlDdl extends SimpleDdl {
                 "sql/20260805-pt-subscription-watch-state.sql",
                 "sql/20260806-ai-features.sql",
                 "sql/20260807-pt-seed-snapshot.sql",
-                "sql/20260808-pt-download-record-fail-ignored.sql"
+                "sql/20260808-pt-download-record-fail-ignored.sql",
+                "sql/20260809-pt-download-record-user-pause.sql"
         );
     }
 }

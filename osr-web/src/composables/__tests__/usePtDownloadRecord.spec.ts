@@ -40,6 +40,10 @@ vi.mock('@/api/openlist/ptDownloadRecord', () => ({
   batchBlacklistReleaseGroupApi: vi.fn(),
   previewCleanupPtDownloadRecordApi: vi.fn(),
   cleanupPtDownloadRecordApi: vi.fn(),
+  getPtDownloadLiveApi: vi.fn().mockResolvedValue([]),
+  pausePtDownloadApi: vi.fn().mockResolvedValue(undefined),
+  resumePtDownloadApi: vi.fn().mockResolvedValue(undefined),
+  deletePtDownloadTorrentApi: vi.fn(),
   CLEANUP_DAY_OPTIONS: [30, 90, 180, 365]
 }))
 
@@ -56,7 +60,8 @@ import { usePtDownloadRecord } from '../usePtDownloadRecord'
 import {
   batchRetryPtDownloadRecordApi, batchIgnorePtDownloadRecordApi, getPtDownloadRecordListApi,
   batchBlacklistGuidApi, batchBlacklistReleaseGroupApi,
-  blacklistReleaseGroupApi, previewCleanupPtDownloadRecordApi, cleanupPtDownloadRecordApi
+  blacklistReleaseGroupApi, previewCleanupPtDownloadRecordApi, cleanupPtDownloadRecordApi,
+  getPtDownloadLiveApi, pausePtDownloadApi, deletePtDownloadTorrentApi
 } from '@/api/openlist/ptDownloadRecord'
 import { usePtStatusSocket } from '../usePtStatusSocket'
 import { getPtIndexerListApi } from '@/api/openlist/ptIndexer'
@@ -649,5 +654,150 @@ describe('已推送迟迟不开始的提示', () => {
     const { stalePushedHint } = await import('../ptDownloadRecordLabels')
     expect(stalePushedHint(record({ state: 'DOWNLOADING', pushedTime: '2026-09-22 09:00:00' }), NOW)).toBe('')
     expect(stalePushedHint(record({ pushedTime: null }), NOW)).toBe('')
+  })
+})
+
+describe('实时速度 / 暂停 / 删除下载', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    ;(getPtDownloadRecordListApi as any).mockResolvedValue({ records: [], total: 0 })
+    ;(getPtDownloadLiveApi as any).mockResolvedValue([])
+  })
+
+  it('列表里有下载中的记录就去问一次实时状态，并把更新的进度写回行上', async () => {
+    (getPtDownloadLiveApi as any).mockResolvedValue([
+      { id: 1, found: true, downloadSpeed: 1024, uploadSpeed: 0, etaSeconds: 60, progress: 0.7, paused: false }
+    ])
+    const composable = usePtDownloadRecord({ autoLoad: false })
+    composable.taskList.value = [
+      { id: 1, state: 'DOWNLOADING', progress: 0.5 },
+      { id: 2, state: 'COMPLETED', progress: 1 }
+    ] as any
+    await nextTick()
+    await flush()
+
+    // 已完成的不问：速度只对在途的有意义
+    expect(getPtDownloadLiveApi).toHaveBeenCalledWith([1])
+    expect(composable.liveOf(1)?.downloadSpeed).toBe(1024)
+    expect(composable.taskList.value[0].progress).toBe(0.7)
+  })
+
+  it('没有在途记录时不打实时接口', async () => {
+    const composable = usePtDownloadRecord({ autoLoad: false })
+    composable.taskList.value = [{ id: 2, state: 'COMPLETED' }] as any
+    await nextTick()
+    await flush()
+
+    expect(getPtDownloadLiveApi).not.toHaveBeenCalled()
+  })
+
+  it('暂停成功后行上打上暂停标记', async () => {
+    const composable = usePtDownloadRecord({ autoLoad: false })
+    const row = { id: 1, state: 'DOWNLOADING' } as any
+    composable.taskList.value = [row]
+
+    await composable.handlePause(composable.taskList.value[0])
+
+    expect(pausePtDownloadApi).toHaveBeenCalledWith(1)
+    expect(composable.taskList.value[0].userPaused).toBe(true)
+    expect(composable.controllingIds.has(1)).toBe(false)
+  })
+
+  it('打开删除框时「同时删除文件」总是不勾', () => {
+    const composable = usePtDownloadRecord({ autoLoad: false })
+    composable.deleteDialog.deleteFiles = true
+    composable.openDeleteTorrent({ id: 1, state: 'DOWNLOADING' } as any)
+
+    expect(composable.deleteDialog.visible).toBe(true)
+    expect(composable.deleteDialog.deleteFiles).toBe(false)
+  })
+
+  it('删除在途下载后，行原地变成「用户删除」的已忽略失败', async () => {
+    (deletePtDownloadTorrentApi as any).mockResolvedValue({ filesDeleted: true, recordFailed: true })
+    const composable = usePtDownloadRecord({ autoLoad: false })
+    composable.taskList.value = [{ id: 1, state: 'DOWNLOADING' }] as any
+    composable.openDeleteTorrent(composable.taskList.value[0])
+    composable.deleteDialog.deleteFiles = true
+
+    await composable.submitDeleteTorrent()
+
+    expect(deletePtDownloadTorrentApi).toHaveBeenCalledWith(1, true)
+    const row = composable.taskList.value[0]
+    expect(row.state).toBe('FAILED')
+    expect(row.failReasonCode).toBe('USER_DELETED')
+    expect(row.failIgnored).toBe(true)
+    expect(composable.deleteDialog.visible).toBe(false)
+    expect(message.success).toHaveBeenCalledWith('已删除下载及已下载的文件，相关集已退回缺失')
+  })
+
+  it('删除已完成的记录只移除任务，记录状态不变', async () => {
+    (deletePtDownloadTorrentApi as any).mockResolvedValue({ filesDeleted: false, recordFailed: false })
+    const composable = usePtDownloadRecord({ autoLoad: false })
+    composable.taskList.value = [{ id: 1, state: 'COMPLETED' }] as any
+    composable.openDeleteTorrent(composable.taskList.value[0])
+
+    await composable.submitDeleteTorrent()
+
+    expect(composable.taskList.value[0].state).toBe('COMPLETED')
+    expect(message.success).toHaveBeenCalledWith('已从下载器移除种子，文件保留')
+  })
+
+  it('删除被后端拒绝（如 H&R 考核中）时弹窗留着，记录不动', async () => {
+    (deletePtDownloadTorrentApi as any).mockRejectedValue(new Error('该种子正在 H&R 保种考核中'))
+    const composable = usePtDownloadRecord({ autoLoad: false })
+    composable.taskList.value = [{ id: 1, state: 'COMPLETED' }] as any
+    composable.openDeleteTorrent(composable.taskList.value[0])
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await composable.submitDeleteTorrent()
+
+    expect(composable.deleteDialog.visible).toBe(true)
+    expect(composable.deleteDialog.submitting).toBe(false)
+    expect(composable.taskList.value[0].state).toBe('COMPLETED')
+  })
+})
+
+describe('实时速度与删除的文案', () => {
+  const row = (patch: Record<string, any>) => ({ id: 1, subId: 1, title: 'x', state: 'DOWNLOADING', ...patch }) as any
+  const live = (patch: Record<string, any> = {}) => ({
+    id: 1, found: true, downloadSpeed: 3 * 1024 * 1024, uploadSpeed: 0, etaSeconds: 5400, progress: 0.3, paused: false, ...patch
+  })
+
+  it('剩余时间只给两级精度', async () => {
+    const { formatEta } = await import('../ptDownloadRecordLabels')
+    expect(formatEta(30)).toBe('不到 1 分钟')
+    expect(formatEta(600)).toBe('10 分钟')
+    expect(formatEta(5400)).toBe('1 小时 30 分')
+    expect(formatEta(7200)).toBe('2 小时')
+    expect(formatEta(90000)).toBe('1 天 1 小时')
+    expect(formatEta(null)).toBe('')
+  })
+
+  it('下载中：有速度报速度，暂停分清是谁停的', async () => {
+    const { liveText } = await import('../ptDownloadRecordLabels')
+    expect(liveText(row({}), live())).toBe('↓ 3.0 MB/s · 剩余 1 小时 30 分')
+    expect(liveText(row({ userPaused: true }), live({ paused: true }))).toBe('已暂停')
+    expect(liveText(row({}), live({ paused: true }))).toBe('已在下载器中暂停')
+    expect(liveText(row({}), live({ downloadSpeed: 0, etaSeconds: null }))).toContain('暂无下载速度')
+    expect(liveText(row({}), live({ found: false }))).toBe('')
+  })
+
+  it('已推送的多集包在下载器里本来就是暂停态，不能说成「已暂停」', async () => {
+    const { liveText } = await import('../ptDownloadRecordLabels')
+    expect(liveText(row({ state: 'PUSHED' }), live({ paused: true, downloadSpeed: 0 }))).toBe('')
+    expect(liveText(row({ state: 'PUSHED' }), live())).toContain('MB/s')
+  })
+
+  it('删除按钮：H&R 考核中或结果不明的不给，种子已不在下载器里的失败记录也不给', async () => {
+    const { canDeleteTorrent, canDeleteFiles } = await import('../ptDownloadRecordLabels')
+    expect(canDeleteTorrent(row({ downloaderId: 1 }))).toBe(true)
+    expect(canDeleteTorrent(row({ state: 'COMPLETED', downloaderId: 1, hrState: 'PENDING' }))).toBe(false)
+    expect(canDeleteTorrent(row({ state: 'COMPLETED', downloaderId: 1, hrState: 'VIOLATED' }))).toBe(false)
+    expect(canDeleteTorrent(row({ state: 'COMPLETED', downloaderId: 1, hrState: 'SATISFIED' }))).toBe(true)
+    expect(canDeleteTorrent(row({ state: 'FAILED', downloaderId: 1, failReasonCode: 'ZOMBIE_TIMEOUT' }))).toBe(true)
+    expect(canDeleteTorrent(row({ state: 'FAILED', downloaderId: 1, failReasonCode: 'TORRENT_NOT_FOUND' }))).toBe(false)
+    // 已下完的只移除任务：文件可能正被媒体库 / STRM 用着
+    expect(canDeleteFiles(row({ state: 'COMPLETED' }))).toBe(false)
+    expect(canDeleteFiles(row({}))).toBe(true)
   })
 })

@@ -42,6 +42,8 @@ export interface PtDownloadRecordView {
   failReasonCode?: string | null
   /** 失败已被用户忽略：不再计入首页待办，统计照算 */
   failIgnored?: boolean
+  /** 被用户在下载记录页暂停了（下载追踪据此停掉僵尸超时的计时） */
+  userPaused?: boolean
   pushedTime?: string | null
   completedTime?: string | null
   hrState?: string | null
@@ -55,6 +57,56 @@ export interface PtDownloadRecordView {
   releaseGroupBlacklisted?: boolean
   /** 失败记录之后接替它的那条下载记录 id */
   supersededById?: number | null
+}
+
+/** 与后端 DownloadLiveView 一一对应：一条在途记录此刻在下载器里的状态，全是瞬时值 */
+export interface PtDownloadLiveView {
+  id: number
+  /** 这一轮在下载器里找到了没有（下载器连不上 / 种子还在解析元数据时为 false） */
+  found: boolean
+  /** 字节/秒 */
+  downloadSpeed: number
+  uploadSpeed: number
+  /** 预计剩余秒数，下载器算不出来时为 null */
+  etaSeconds?: number | null
+  progress: number
+  /** 种子在下载器里是否处于暂停 */
+  paused: boolean
+}
+
+/** 删除下载的结果：recordFailed=在途记录因此转成失败（关联集已退回缺失） */
+export interface PtDownloadDeleteResult {
+  filesDeleted: boolean
+  recordFailed: boolean
+}
+
+/**
+ * 一批在途记录此刻的速度 / 剩余时间 / 进度。页面每几秒拉一次，所以是 silent 的：
+ * 下载器离线时每一轮都会失败，逐次弹错误提示就是刷屏，离线告警交给首页待办
+ */
+export function getPtDownloadLiveApi(ids: number[]) {
+  return request.get<any, PtDownloadLiveView[]>(
+    '/openliststrm/pt-download-records/live', { params: { ids: ids.join(',') }, silent: true }
+  )
+}
+
+/** 暂停一个下载中的种子 */
+export function pausePtDownloadApi(id: number) {
+  return request.post<any, void>(`/openliststrm/pt-download-records/${id}/pause`)
+}
+
+/** 继续一个被用户暂停的下载 */
+export function resumePtDownloadApi(id: number) {
+  return request.post<any, void>(`/openliststrm/pt-download-records/${id}/resume`)
+}
+
+/**
+ * 从下载器删除这条记录的种子。H&R 考核中的后端会拒绝；已下载完成的只移除任务、不删文件
+ */
+export function deletePtDownloadTorrentApi(id: number, deleteFiles: boolean) {
+  return request.post<any, PtDownloadDeleteResult>(
+    `/openliststrm/pt-download-records/${id}/delete-torrent`, null, { params: { deleteFiles } }
+  )
 }
 
 export function getPtDownloadRecordListApi(params: PtDownloadRecordQuery) {

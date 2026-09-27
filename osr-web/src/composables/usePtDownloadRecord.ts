@@ -8,7 +8,8 @@ import {
   retryPtDownloadRecordApi, batchRetryPtDownloadRecordApi, batchIgnorePtDownloadRecordApi,
   blacklistGuidApi, blacklistReleaseGroupApi,
   batchBlacklistGuidApi, batchBlacklistReleaseGroupApi,
-  previewCleanupPtDownloadRecordApi, cleanupPtDownloadRecordApi, CLEANUP_DAY_OPTIONS
+  previewCleanupPtDownloadRecordApi, cleanupPtDownloadRecordApi, CLEANUP_DAY_OPTIONS,
+  pausePtDownloadApi, resumePtDownloadApi, deletePtDownloadTorrentApi
 } from '@/api/openlist/ptDownloadRecord'
 import type { BatchBlacklistResult, DownloadRecordDateField, PtDownloadRecordQuery, PtDownloadRecordView } from '@/api/openlist/ptDownloadRecord'
 import type { SearchParams } from '@/types'
@@ -16,11 +17,13 @@ import { getPtIndexerListApi } from '@/api/openlist/ptIndexer'
 import { getPtDownloaderListApi } from '@/api/openlist/ptDownloader'
 import { useRecordList } from './useRecordList'
 import { usePtStatusSocket } from './usePtStatusSocket'
+import { usePtDownloadLive } from './usePtDownloadLive'
 import { canIgnore, canRetry } from './ptDownloadRecordLabels'
 import type { ListLoadOptions } from './useGridPageSize'
 
 /**
- * PT 下载记录 composable：只读列表 + 失败重试 + 拉黑 + 按规则清理旧记录，没有单条增删改。
+ * PT 下载记录 composable：只读列表 + 失败重试 + 拉黑 + 按规则清理旧记录，没有单条增删改；
+ * 另有对下载器里那个种子的实时速度、暂停 / 继续、删除下载。
  *
  * 列表/分页/搜索/选择/统计条底座复用 useRecordList（含 keep-alive 返回时的静默刷新）。
  * 重试与拉黑的交互跟 useRecordList 内置的通用流程不同——单条重试不弹确认、
@@ -419,6 +422,72 @@ export function usePtDownloadRecord(options: ListLoadOptions = {}) {
     }
   }
 
+  // ---------- 实时速度 ----------
+  const { liveOf, refreshLive } = usePtDownloadLive(taskList)
+
+  // ---------- 暂停 / 继续 ----------
+  // 暂停必须经过 OSR 而不是让用户去下载器里点：下载追踪按「推送至今」判僵尸超时，
+  // 只有这里打上的标记能让它把暂停时长扣掉
+  const controllingIds = reactive(new Set<number>())
+
+  const runControl = async (row: PtDownloadRecordView, action: () => Promise<unknown>, done: () => void) => {
+    controllingIds.add(row.id)
+    try {
+      await action()
+      done()
+      refreshLive()
+    } catch (e) {
+      console.error(e)
+    } finally {
+      controllingIds.delete(row.id)
+    }
+  }
+
+  const handlePause = (row: PtDownloadRecordView) => runControl(row, () => pausePtDownloadApi(row.id), () => {
+    row.userPaused = true
+    message.success('已暂停，暂停期间不计入下载超时')
+  })
+
+  const handleResume = (row: PtDownloadRecordView) => runControl(row, () => resumePtDownloadApi(row.id), () => {
+    row.userPaused = false
+    message.success('已继续下载')
+  })
+
+  // ---------- 删除下载 ----------
+  const deleteDialog = reactive({
+    visible: false,
+    row: null as PtDownloadRecordView | null,
+    deleteFiles: false,
+    submitting: false
+  })
+
+  /** 「同时删除文件」每次都从不勾开始：上一条勾过不代表这一条也要删文件 */
+  const openDeleteTorrent = (row: PtDownloadRecordView) => {
+    Object.assign(deleteDialog, { visible: true, row, deleteFiles: false, submitting: false })
+  }
+
+  const submitDeleteTorrent = async () => {
+    const row = deleteDialog.row
+    if (!row) return
+    deleteDialog.submitting = true
+    try {
+      const result = await deletePtDownloadTorrentApi(row.id, deleteDialog.deleteFiles)
+      if (result.recordFailed) {
+        // 与后端 failByUser 落库的一致，页面不用等整页刷新
+        Object.assign(row, { state: 'FAILED', failReasonCode: 'USER_DELETED', failIgnored: true, userPaused: false })
+        message.success(`已删除下载${result.filesDeleted ? '及已下载的文件' : ''}，相关集已退回缺失`)
+      } else {
+        message.success(`已从下载器移除种子${result.filesDeleted ? '及已下载的文件' : '，文件保留'}`)
+      }
+      deleteDialog.visible = false
+      refreshAfterStateChange()
+    } catch (e) {
+      console.error(e)
+    } finally {
+      deleteDialog.submitting = false
+    }
+  }
+
   // ---------- 复制种子 hash ----------
   const copyTorrentHash = async (row: PtDownloadRecordView) => {
     if (!row.torrentHash) return
@@ -495,6 +564,8 @@ export function usePtDownloadRecord(options: ListLoadOptions = {}) {
     handleBatchBlacklistGuid, handleBatchBlacklistReleaseGroup,
     handleBlacklistGuid, handleBlacklistReleaseGroup, blacklistDialog, submitBlacklist,
     copyTorrentHash,
+    liveOf, controllingIds, handlePause, handleResume,
+    deleteDialog, openDeleteTorrent, submitDeleteTorrent,
     cleanupDialog, cleanupDayOptions: CLEANUP_DAY_OPTIONS, openCleanup, submitCleanup,
     totalPages, prevPage, nextPage, handleSizeChange, searchCollapsed
   }

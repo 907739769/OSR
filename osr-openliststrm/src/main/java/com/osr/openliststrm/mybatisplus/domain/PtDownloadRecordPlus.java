@@ -100,6 +100,20 @@ public class PtDownloadRecordPlus extends BaseEntity {
     @TableField("fail_ignored")
     private String failIgnored;
 
+    /**
+     * 用户在下载记录页暂停这个种子的时间，{@code null} 表示没有处于用户暂停。
+     * <p>
+     * 必须落库：下载追踪的僵尸超时按推送至今的时长判，暂停期间进度不涨，
+     * 不扣掉暂停时长的话暂停一天就会被判成僵尸、进而被当成废种从下载器里删掉。
+     * </p>
+     */
+    @TableField("user_paused_time")
+    private Date userPausedTime;
+
+    /** 此前各次用户暂停累计的秒数，继续时把本次时长并进来；僵尸超时判定时扣除 */
+    @TableField("user_paused_seconds")
+    private Long userPausedSeconds;
+
     /** 推送时间 */
     @TableField("pushed_time")
     private Date pushedTime;
