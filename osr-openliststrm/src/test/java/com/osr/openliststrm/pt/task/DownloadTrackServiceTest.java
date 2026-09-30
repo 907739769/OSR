@@ -1017,6 +1017,8 @@ class DownloadTrackServiceTest {
         verify(recordService).update(rec.capture(), any(Wrapper.class));
         assertEquals("FAILED", rec.getValue().getState());
         assertEquals("NO_TARGET_EPISODE", rec.getValue().getFailReasonCode());
+        // 同时落成已忽略：没有需要人处理的事，不该挂在首页「下载失败待处理」里
+        assertEquals("1", rec.getValue().getFailIgnored());
         // 占位集退回缺失，但不累加 fail_count：占位范围估错了，不是这一集补不到货
         ArgumentCaptor<PtSubscriptionEpisodePlus> eps = ArgumentCaptor.forClass(PtSubscriptionEpisodePlus.class);
         verify(episodeService, times(2)).update(eps.capture(), any(Wrapper.class));

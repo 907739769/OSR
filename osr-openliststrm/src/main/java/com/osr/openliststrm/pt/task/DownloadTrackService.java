@@ -1280,7 +1280,11 @@ public class DownloadTrackService {
      */
     private void doFail(PtDownloadRecordPlus record, FailReasonCode code, String reason,
                         boolean countFailure, String notice) {
-        FailOutcome outcome = markFailed(record, code, reason, countFailure, false);
+        // 「无目标集」直接落成已忽略：种子已删、相关集已退回重新匹配，没有任何需要人处理的事。
+        // 不置的话它会挂在首页「下载失败待处理」里，而且季包失败只被后续季包接替，
+        // 那几集由单集补上后它仍永远算「未接替」，只能等用户手动忽略
+        FailOutcome outcome = markFailed(record, code, reason, countFailure,
+                code == FailReasonCode.NO_TARGET_EPISODE);
         if (outcome == null) {
             return; // 已被并发轮次置为终态，避免重复通知
         }
