@@ -106,7 +106,7 @@ public class SubscriptionService {
      * </p>
      * <p>播出当天算已播出：air_date 是当地日期，当天已经放送过了。</p>
      */
-    static boolean aired(PtSubscriptionEpisodePlus episode, LocalDate today) {
+    public static boolean aired(PtSubscriptionEpisodePlus episode, LocalDate today) {
         Date airDate = episode.getAirDate();
         if (airDate == null) {
             return true;
@@ -556,7 +556,9 @@ public class SubscriptionService {
         }
         subscriptionService.update(new UpdateWrapper<PtSubscriptionPlus>()
                 .in("id", ids)
-                .set("auto_search", enabled ? "1" : "0"));
+                .set("auto_search", enabled ? "1" : "0")
+                // 用户手动操作过：开关从此归用户，缺集体检不会再把它关掉（见 HealthAutoSearchService）
+                .set("health_auto_search_time", null));
         log.info("批量{}自动补搜，订阅 {} 条：{}", enabled ? "开启" : "关闭", ids.size(), ids);
         return ids.size();
     }

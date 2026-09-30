@@ -45,6 +45,7 @@ import com.osr.common.utils.Threads;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
@@ -1096,12 +1097,22 @@ public class SubscriptionEngine {
         // 季包/区间：只统计本次目标范围内的集，范围外的状态与这条判定无关
         Map<String, Integer> counts = new LinkedHashMap<>();
         int total = 0;
+        boolean anyUnaired = false;
+        LocalDate today = LocalDate.now();
         for (PtSubscriptionEpisodePlus ep : allEpisodes) {
             if (match.getEpisodeEnd() != null
                     && (ep.getEpisode() < match.getEpisode() || ep.getEpisode() > match.getEpisodeEnd())) {
                 continue;
             }
             total++;
+            // 季包只占已播出的缺失集（见 resolveTargets），未播的缺失集要单独点名，
+            // 否则会写出「本季 12 集无一缺失：3 集已入库、9 集缺失」这种自相矛盾的话
+            if (match.getEpisodeEnd() == null && STATE_MISSING.equals(ep.getState())
+                    && !SubscriptionService.aired(ep, today)) {
+                anyUnaired = true;
+                counts.merge("未播出", 1, Integer::sum);
+                continue;
+            }
             counts.merge(SubscriptionEpisodeState.labelOf(ep.getState()), 1, Integer::sum);
         }
         if (total == 0) {
@@ -1113,7 +1124,7 @@ public class SubscriptionEngine {
         String detail = counts.entrySet().stream()
                 .map(e -> e.getValue() + " 集" + e.getKey())
                 .collect(Collectors.joining("、"));
-        return scope + " " + total + " 集无一缺失：" + detail;
+        return scope + " " + total + " 集" + (anyUnaired ? "没有已播出的缺失集：" : "无一缺失：") + detail;
     }
 
     private List<PtSubscriptionEpisodePlus> resolveTargets(MatchResult match,
@@ -1131,8 +1142,12 @@ public class SubscriptionEngine {
             return targets;
         }
         if (match.getEpisode() == SubscriptionMatcher.SEASON_PACK) {
+            // 只占已播出的缺失集：包里不可能有还没播的集。占上的话，等文件列表回来又要把它们退回缺失、
+            // 发一条「季包实际不含全季」的假警报，而在那之前刚播出的新集也没法被 RSS 认领（已是在途）。
+            // 判据与补搜侧共用 SubscriptionService#aired（air_date 为空按已播出）
+            LocalDate today = LocalDate.now();
             for (PtSubscriptionEpisodePlus ep : allEpisodes) {
-                if (STATE_MISSING.equals(ep.getState())) {
+                if (STATE_MISSING.equals(ep.getState()) && SubscriptionService.aired(ep, today)) {
                     targets.add(ep);
                 }
             }

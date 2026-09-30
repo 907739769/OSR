@@ -127,4 +127,39 @@ public interface IPtSubscriptionPlusService extends IService<PtSubscriptionPlus>
      * 调用方手里是同步开始时的快照，整实体写回会冲掉补搜链路其间写入的时间。
      */
     void updateWatchState(Integer subId, Integer watchedCount, Date lastWatchedTime);
+
+    /**
+     * 把季包策略从 AUTO 条件更新为 EPISODE_LEARNED（季包被证实不含目标集后自动转单集优先）。
+     * <p>
+     * 条件更新而不是先查后写：用户手动设过的 EPISODE 不能被覆盖成「系统学来的」，
+     * 已经是 EPISODE_LEARNED 的也不重复写——返回值因此能直接当「这次是不是刚转过来」用，
+     * 只在刚转的那一次写日志、在通知里加一句。
+     * </p>
+     *
+     * @return 这次调用是否真的把策略改了
+     */
+    boolean learnEpisodeFirst(Integer subId);
+
+    /**
+     * 缺集体检自动开启补搜：只动 {@code auto_search} 与 {@code health_auto_search_time} 两列，
+     * 且只对当前没开的订阅生效（{@code auto_search <> '1'}）——用户已经手动开着的不能被记成「体检开的」，
+     * 否则补齐后会被体检关掉。理由同 {@link #updateOverdueNotifyState}，不能整实体写回。
+     *
+     * @return 实际开启的条数
+     */
+    int enableAutoSearchByHealth(List<Integer> subIds, Date enabledAt);
+
+    /**
+     * 关掉体检自己打开的自动补搜。条件带 {@code health_auto_search_time IS NOT NULL}：
+     * 查询与更新之间用户若手动操作过开关（那一步会清空这一列），这里不再动它。
+     *
+     * @return 是否真的关了
+     */
+    boolean disableHealthAutoSearch(Integer subId);
+
+    /** 用户手动操作过自动补搜开关：清掉「体检开的」标记，开关从此归用户所有 */
+    void clearHealthAutoSearchMark(List<Integer> subIds);
+
+    /** 查自动补搜由体检打开的订阅（{@code health_auto_search_time IS NOT NULL}） */
+    List<PtSubscriptionPlus> listHealthAutoSearched();
 }

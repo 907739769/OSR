@@ -152,6 +152,11 @@
         <v-btn block @click="run(() => showDiagnosis(sheetTarget))">一键诊断</v-btn>
         <v-btn block @click="run(() => showSearchLogs(sheetTarget))">匹配日志</v-btn>
         <v-btn block @click="run(() => openFilterOverride(sheetTarget))">过滤规则</v-btn>
+        <v-btn
+          v-if="sheetTarget.mediaType !== 'MOVIE'"
+          block
+          @click="run(() => toggleSeasonPackPolicy(sheetTarget))"
+        >{{ isEpisodeFirst(sheetTarget) ? '恢复季包优先' : '改为单集优先' }}</v-btn>
         <v-btn color="error" block @click="run(() => handleRemove(sheetTarget))">删除</v-btn>
       </MobileActionSheet>
 
@@ -211,7 +216,7 @@ const router = useRouter()
 // 弹窗子组件共享这同一个实例（见 ptSubscriptionContext）
 const {
   taskList, loading, total, queryParams,
-  handleQuery, resetQuery, openSubscribeDialog, showProgressById, showSearchLogs, showDiagnosis,
+  handleQuery, resetQuery, openSubscribeDialog, showProgressById, showSearchLogs, showDiagnosis, isEpisodeFirst, toggleSeasonPackPolicy,
   openFilterOverride,
   openSeasonSearch,
   handleRefresh, handlePause, handleResume, handleRemove, handleResetMovie,

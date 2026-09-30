@@ -269,6 +269,26 @@ class SubscriptionEngineLogNoiseTest {
         assertTrue(reason.getValue().contains("1 集在途"), reason.getValue());
     }
 
+    /** 缺失集都还没播时，季包无可占位的原因要点名「未播出」，不能写成「无一缺失：…集缺失」 */
+    @Test
+    void 季包无可占位_缺失集都未播出时点名未播出() {
+        when(subscriptionService.listActive()).thenReturn(List.of(tvSub(10, "Some Show", 1, 3)));
+        PtSubscriptionEpisodePlus unaired = episode(103, 3, "MISSING");
+        unaired.setAirDate(java.util.Date.from(java.time.LocalDate.now().plusDays(7).atStartOfDay(java.time.ZoneId.systemDefault()).toInstant()));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(
+                episode(101, 1, "IN_LIBRARY"),
+                episode(102, 2, "IN_LIBRARY"),
+                unaired));
+
+        engine.process(List.of(torrent("Some.Show.S01.1080p.WEB-DL", "g1")));
+
+        org.mockito.ArgumentCaptor<String> reason = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(searchLogService).recordSummary(any(), anyInt(), anyString(), reason.capture());
+        assertTrue(reason.getValue().contains("没有已播出的缺失集"), reason.getValue());
+        assertTrue(reason.getValue().contains("1 集未播出"), reason.getValue());
+        assertTrue(reason.getValue().contains("2 集已入库"), reason.getValue());
+    }
+
     /** 手动/补搜路径不去重：用户刚按下按钮，等的就是这个回音 */
     @Test
     void 手动路径的无可占位每次都落库() {

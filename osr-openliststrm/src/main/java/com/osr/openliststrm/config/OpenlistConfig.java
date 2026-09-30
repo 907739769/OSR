@@ -167,6 +167,11 @@ public class OpenlistConfig {
         return sysConfigService.selectConfigByKey("openlist.openai.pt-title-fallback");
     }
 
+    /** 缺集体检自动开启补搜开关 '1' 开，其余关（sys_config 的 'openlist.pt.health.autosearch'，默认关） */
+    public boolean isHealthAutoSearchEnabled() {
+        return "1".equals(sysConfigService.selectConfigByKey("openlist.pt.health.autosearch"));
+    }
+
     // OpenAI model name (stored in sys_config as 'openlist.openai.model'). If empty, clients should use a sensible default.
     public String getOpenAiModel() {
         return sysConfigService.selectConfigByKey("openlist.openai.model");

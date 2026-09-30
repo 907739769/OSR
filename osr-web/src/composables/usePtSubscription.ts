@@ -933,6 +933,32 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
     }
   }
 
+  /** 季包策略非 AUTO 即单集优先（EPISODE 用户设的，EPISODE_LEARNED 系统学来的） */
+  const isEpisodeFirst = (row: any): boolean => !!row?.seasonPackPolicy && row.seasonPackPolicy !== 'AUTO'
+
+  /** 卡片上「单集优先」标记的说明，区分来源——用户没设过却变了，不写明会被当成 bug */
+  const seasonPackPolicyHint = (row: any): string =>
+    row?.seasonPackPolicy === 'EPISODE_LEARNED'
+      ? '这部剧推过的季包实际不含要补的集（常见于只有半季的动漫季包），已自动改为补搜时先搜单集、季包只作兜底。可在「更多」里改回季包优先'
+      : '补搜时不论缺几集都先搜单集，季包只作兜底'
+
+  /**
+   * 在「季包优先（按缺集数自动判）」与「单集优先」之间切换。改回 AUTO 同时清掉系统学来的单集优先。
+   * 乐观更新与回滚同 toggleAutoSearch。
+   */
+  const toggleSeasonPackPolicy = async (row: any) => {
+    const next = isEpisodeFirst(row) ? 'AUTO' : 'EPISODE'
+    const prev = row.seasonPackPolicy
+    row.seasonPackPolicy = next
+    try {
+      await updatePtSubscriptionApi({ id: row.id, seasonPackPolicy: next })
+      message.success(next === 'AUTO' ? '已恢复季包优先（缺集多时先搜季包）' : '已改为单集优先')
+    } catch (e) {
+      row.seasonPackPolicy = prev
+      console.error(e)
+    }
+  }
+
   // ---------- 行操作 ----------
 
   const handleRefresh = async (row: any) => {
@@ -1187,6 +1213,7 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
     candidateDialogOpen, candidates, pushingSelected, pushSelectedCandidate, formatSize, posterUrl,
     // 一键补齐全部缺集
     searchAllMissingLoading, handleSearchAllMissing, toggleAutoSearch, toggleUpgrade,
+    isEpisodeFirst, seasonPackPolicyHint, toggleSeasonPackPolicy,
     searchAllMissingDone, searchAllMissingTotal, searchAllMissingAborted, abortSearchAllMissing,
     searchAllMissingSeasonPhase,
     // 行操作

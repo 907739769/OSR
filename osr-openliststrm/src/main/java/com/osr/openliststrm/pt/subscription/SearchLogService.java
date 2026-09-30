@@ -9,6 +9,7 @@ import com.osr.openliststrm.pt.filter.TorrentFilterEngine;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -131,6 +132,37 @@ public class SearchLogService {
             log.warn("读取匹配日志水位线失败（不影响主流程），订阅[{}]：{}", subId, e.getMessage());
             return 0L;
         }
+    }
+
+    /**
+     * 该订阅每一集在指定来源下最近一条日志的 id（集号 → 最大 id），没有日志的集不在结果里。
+     * <p>
+     * 供单集补发做轮换（{@code SearchSupplementService#fallbackPerEpisode}）：id 越小说明越久没被搜过。
+     * 日志按订阅削旧，被削掉记录的集会被当成「从没搜过」排到最前——削的恰恰是最旧的行，
+     * 与「最久没搜的先搜」同向，不会打乱顺序。
+     * </p>
+     * <p>投影用 {@code QueryWrapper} 传列名，理由同 {@link #prune}（lambda 版 select 在纯单测里拿不到实体缓存）。</p>
+     */
+    public Map<Integer, Long> latestIdByEpisode(Integer subId, String source) {
+        Map<Integer, Long> result = new HashMap<>();
+        if (subId == null) {
+            return result;
+        }
+        try {
+            List<Map<String, Object>> rows = logService.listMaps(new QueryWrapper<PtSearchLogPlus>()
+                    .select("episode", "MAX(id) AS max_id")
+                    .eq("sub_id", subId)
+                    .eq("source", source)
+                    .groupBy("episode"));
+            for (Map<String, Object> row : rows) {
+                if (row != null && row.get("episode") instanceof Number ep && row.get("max_id") instanceof Number id) {
+                    result.put(ep.intValue(), id.longValue());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("读取各集最近搜索记录失败（不影响主流程，本轮按集号顺序补发），订阅[{}]：{}", subId, e.getMessage());
+        }
+        return result;
     }
 
     /**

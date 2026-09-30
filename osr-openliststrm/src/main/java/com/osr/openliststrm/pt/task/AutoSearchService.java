@@ -1,5 +1,6 @@
 package com.osr.openliststrm.pt.task;
 
+import com.osr.common.utils.FaultThrottle;
 import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.helper.TgHelper;
 import com.osr.openliststrm.notify.NotificationType;
@@ -63,6 +64,12 @@ public class AutoSearchService {
      */
     private static final String NO_CANDIDATE_SIGN = "NO_CANDIDATE";
 
+    /** 「没有启用中的索引器」的节流键，本类只有这一个故障源 */
+    private static final String NO_INDEXER_KEY = "no-indexer";
+
+    /** 每 48 轮（心跳 30 分钟，约一天）重提一次，别让长期停用彻底消失在日志里 */
+    private final FaultThrottle noIndexerFaults = new FaultThrottle(48);
+
     private final IPtSubscriptionPlusService subscriptionService;
     private final IPtFilterConfigPlusService filterConfigService;
     private final SearchSupplementService searchSupplementService;
@@ -116,8 +123,16 @@ public class AutoSearchService {
         // 搜索流程、各自得到「0 个候选」，日志里看起来像是「站上都没资源」，
         // 而实际上一个请求都没发出去过——用户会照着去改过滤规则和关键词
         if (indexerService.listEnabled().isEmpty()) {
-            log.warn("没有启用中的索引器，本轮自动补搜跳过（共 {} 个待搜订阅）", candidates.size());
+            // 过 FaultThrottle：索引器全停用是持续状态，不节流的话每 30 分钟心跳一条逐字相同的 WARN
+            FaultThrottle.Decision decision = noIndexerFaults.onFailure(NO_INDEXER_KEY);
+            if (decision.shouldReport()) {
+                log.warn("没有启用中的索引器，本轮自动补搜跳过（共 {} 个待搜订阅，已连续 {} 轮）",
+                        candidates.size(), decision.consecutiveFailures());
+            }
             return new RoundOutcome(candidates.size(), 0, 0);
+        }
+        if (noIndexerFaults.onSuccess(NO_INDEXER_KEY)) {
+            log.info("已有启用中的索引器，自动补搜恢复");
         }
         int intervalHours = resolveIntervalHours();
         long now = System.currentTimeMillis();
@@ -133,14 +148,22 @@ public class AutoSearchService {
             if (budgetExhausted(deadline)) {
                 // 放弃必须说出口，理由同 SearchSupplementService#runPlanOn：只写 debug 的话，
                 // 用户看到的是「补搜好像不按周期跑」，而日志里一切正常
-                log.warn("自动补搜已用满 {}ms 单轮预算，本轮搜了 {} 个订阅，剩余 {} 个候选留到下一轮"
+                // 只数到期的：候选里多数是没到期的，把它们算进「留到下一轮」会把积压报得虚高
+                long remainingDue = candidates.subList(i, candidates.size()).stream()
+                        .filter(c -> isDue(c, intervalHours, now))
+                        .count();
+                log.warn("自动补搜已用满 {}ms 单轮预算，本轮搜了 {} 个订阅，剩余 {} 个到期订阅留到下一轮"
                                 + "（它们的 last_search_time 未改动，下轮心跳会接着搜）",
-                        roundBudgetMillis, searched, candidates.size() - i);
+                        roundBudgetMillis, searched, remainingDue);
                 return new RoundOutcome(candidates.size(), searched, failed);
             }
             try {
-                trySearch(sub, intervalHours);
-                searched++;
+                // 跳过（只剩未播集等）不算「已检索」：它一个请求都没发，也不写 last_search_time，
+                // 下轮心跳照样到期——计进来的话每 30 分钟都会报一次「1 个到期并已检索」，
+                // RoundHeartbeat 的静默汇报整个被架空
+                if (trySearch(sub, intervalHours)) {
+                    searched++;
+                }
             } catch (Exception e) {
                 failed++;
                 log.warn("{} 自动补搜失败：{}", PtLogText.subject(sub), e.getMessage());
@@ -183,18 +206,20 @@ public class AutoSearchService {
      * 本轮开始时查的，{@code last_search_time} 已被本次搜索更新过，整实体写回会把它覆盖成旧值，
      * 让订阅永远"到期"、每次心跳都重搜（原因见该方法的 javadoc）。
      * </p>
+     *
+     * @return 是否真正发起了检索；{@code false} 表示本轮被跳过
      */
-    private void trySearch(PtSubscriptionPlus sub, int intervalHours) {
+    private boolean trySearch(PtSubscriptionPlus sub, int intervalHours) {
         SearchAndPushSummary summary = searchSupplementService.searchAndPushMissing(sub.getId());
         if (summary.isSkipped()) {
-            return;
+            return false;
         }
         int streak = missStreakOf(sub);
         if (summary.anyPushed()) {
             if (streak > 0 || sub.getLastAutoSearchRejectSign() != null) {
                 subscriptionService.updateAutoSearchMissState(sub.getId(), 0, null);
             }
-            return;
+            return true;
         }
 
         String sign = StringUtils.isBlank(summary.getRejectSignature())
@@ -204,6 +229,7 @@ public class AutoSearchService {
             notifySafely(describeNoResult(sub, summary.getRejectSummary(), nextStreak, intervalHours), sub);
         }
         subscriptionService.updateAutoSearchMissState(sub.getId(), nextStreak, sign);
+        return true;
     }
 
     /**

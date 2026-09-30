@@ -95,6 +95,8 @@ export const CONFIG_META: Record<string, ConfigMeta> = {
   'openlist.openai.endpoint': { type: 'text', hint: 'OpenAI 接口地址，默认 https://api.openai.com' },
   'openlist.openai.model': { type: 'text', hint: 'OpenAI 模型名称，例如 gpt-5-mini' },
   'openlist.openai.pt-title-fallback': { type: 'switch', hint: '本地解析不出的 PT 种子标题交给 AI 兜底。后台排队、结果缓存，不拖慢 RSS 与补搜，下次搜到同一个种子时生效' },
+  // PT 订阅
+  'openlist.pt.health.autosearch': { type: 'switch', hint: '每天缺集体检时，对播出多日仍缺集、却没开自动补搜的订阅自动打开补搜。补齐后（订阅完结，或 7 天内既无缺集也无新下载）自动关掉；只关它自己打开的，手动开过的不动' },
   // TMDb
   'openlist.tmdb.apikey': { type: 'password', hint: 'TMDb API Key' },
   'openlist.tmdb.image.language': { type: 'select', options: tmdbImageLangOptions, hint: 'TMDb 图片语言偏好' },
@@ -146,6 +148,8 @@ export const SECTION_RULES: Array<{ key: string; title: string; icon: string; ta
     prefixes: ['openlist.openai.'] },
   { key: 'rsshub', title: 'RSSHub 服务', icon: 'rss', tab: 'external',
     prefixes: ['openlist.rsshub.'] },
+  { key: 'pt', title: 'PT 订阅', icon: 'tv', tab: 'pt',
+    prefixes: ['openlist.pt.'] },
   { key: 'security', title: '登录与安全', icon: 'shield-check', tab: 'security',
     prefixes: ['sys.login.', 'sys.account.'] },
   { key: 'other', title: '其他', icon: 'ellipsis', tab: 'other', prefixes: [] }
@@ -163,6 +167,7 @@ export const CONFIG_TABS: Array<{ key: string; title: string; icon: string }> = 
   { key: 'copy', title: '复制 & STRM', icon: 'arrow-left-right' },
   { key: 'notify', title: '通知与机器人', icon: 'bell' },
   { key: 'external', title: '外部服务', icon: 'plug' },
+  { key: 'pt', title: 'PT 订阅', icon: 'tv' },
   { key: 'security', title: '登录与安全', icon: 'shield-check' },
   { key: 'other', title: '其他', icon: 'ellipsis' }
 ]

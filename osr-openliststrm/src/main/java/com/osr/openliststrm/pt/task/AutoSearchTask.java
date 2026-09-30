@@ -83,7 +83,7 @@ public class AutoSearchTask {
                 }
             }
         } catch (Exception e) {
-            log.error("AutoSearchTask poll error", e);
+            log.error("自动补搜本轮执行异常：{}", e.getMessage(), e);
         } finally {
             running.set(false);
         }

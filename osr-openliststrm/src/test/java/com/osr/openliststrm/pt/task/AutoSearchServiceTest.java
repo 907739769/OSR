@@ -21,6 +21,8 @@ import org.mockito.quality.Strictness;
 import java.util.Date;
 import java.util.List;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -304,10 +306,14 @@ class AutoSearchServiceTest {
         when(filterConfigService.getConfig()).thenReturn(config(24));
         when(searchSupplementService.searchAndPushMissing(NO_JITTER_ID)).thenReturn(SearchAndPushSummary.skip());
 
-        service().run();
+        AutoSearchService.RoundOutcome outcome = service().run();
 
         // 跳过既不是"落空"也不是"命中"，不该覆盖上一次真正搜索留下的状态
         verify(subscriptionService, never()).updateAutoSearchMissState(any(), anyInt(), any());
+        // 也不算「已检索」：跳过的订阅不写 last_search_time、每轮都到期，
+        // 计进来的话只剩未播集的连载剧会让每 30 分钟心跳都打一条 INFO
+        assertEquals(0, outcome.searched());
+        assertFalse(outcome.changed());
     }
 
     @Test

@@ -771,6 +771,8 @@ class DownloadTrackServiceTest {
         assertTrue(captor.getAllValues().stream().anyMatch(rec -> "FAILED".equals(rec.getState())
                         && FailReasonCode.NO_TARGET_EPISODE.value().equals(rec.getFailReasonCode())),
                 "包里确实没有目标集时仍应中止");
+        // 单集记录对不上是这一个种子标错了，不说明这部剧的季包切法有问题——不转单集优先
+        verify(subscriptionService, never()).learnEpisodeFirst(any());
     }
 
     // ---------- 按目标集数过滤季包文件 ----------
@@ -877,6 +879,8 @@ class DownloadTrackServiceTest {
         assertTrue(released.stream().allMatch(ep -> ep.getFailCount() == null));
         // 包内真有的集必须留下确认标记，否则上传慢时会被 12 小时后的清扫误判成卡死重下
         assertTrue(captor.getAllValues().stream().anyMatch(ep -> "1".equals(ep.getFileConfirmed())));
+        // 季包不全含目标集：这部剧的季包切法不可靠，此后补搜改单集优先
+        verify(subscriptionService).learnEpisodeFirst(10);
     }
 
     @Test
@@ -1006,10 +1010,14 @@ class DownloadTrackServiceTest {
 
         DownloadTrackService svc = service();
         when(subscriptionService.listByIds(any())).thenReturn(List.of(tvSub(10)));
+        when(subscriptionService.learnEpisodeFirst(10)).thenReturn(true);
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
             svc.track(downloader(), List.of(torrent("osr-pt,osr-pt-pack", 0.1)));
             tg.verify(() -> TgHelper.sendMsg(any(), argThat(m -> m.contains("不含任何目标集")), any(), anyList()));
+            // 刚转成单集优先要在同一条通知里说一声，否则用户会奇怪为什么不再下季包
+            tg.verify(() -> TgHelper.sendMsg(any(), argThat(m -> m.contains("单集优先")), any(), anyList()));
         }
+        verify(subscriptionService).learnEpisodeFirst(10);
 
         verify(downloaderClient, never()).excludeFiles(any(), any(), any());
         // 记录判失败，失败码不可重试——这个包与本订阅当前要补的集确实无关
@@ -1017,6 +1025,8 @@ class DownloadTrackServiceTest {
         verify(recordService).update(rec.capture(), any(Wrapper.class));
         assertEquals("FAILED", rec.getValue().getState());
         assertEquals("NO_TARGET_EPISODE", rec.getValue().getFailReasonCode());
+        // 同时落成已忽略：没有需要人处理的事，不该挂在首页「下载失败待处理」里
+        assertEquals("1", rec.getValue().getFailIgnored());
         // 占位集退回缺失，但不累加 fail_count：占位范围估错了，不是这一集补不到货
         ArgumentCaptor<PtSubscriptionEpisodePlus> eps = ArgumentCaptor.forClass(PtSubscriptionEpisodePlus.class);
         verify(episodeService, times(2)).update(eps.capture(), any(Wrapper.class));

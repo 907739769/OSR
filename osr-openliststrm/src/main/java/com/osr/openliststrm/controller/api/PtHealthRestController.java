@@ -168,7 +168,9 @@ public class PtHealthRestController extends BaseController {
         }
         subscriptionService.update(new LambdaUpdateWrapper<PtSubscriptionPlus>()
                 .in(PtSubscriptionPlus::getId, accessible)
-                .set(PtSubscriptionPlus::getAutoSearch, "1"));
+                .set(PtSubscriptionPlus::getAutoSearch, "1")
+                // 用户手动开的：开关从此归用户，体检补齐后不会再把它关掉（见 HealthAutoSearchService）
+                .set(PtSubscriptionPlus::getHealthAutoSearchTime, null));
         log.info("批量开启自动补搜，订阅 {} 条：{}", accessible.size(), accessible);
         return Result.success(accessible.size());
     }

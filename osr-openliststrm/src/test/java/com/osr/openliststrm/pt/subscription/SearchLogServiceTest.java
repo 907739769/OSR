@@ -14,7 +14,9 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -157,5 +159,28 @@ class SearchLogServiceTest {
         service().recordSummary(10, 1, SearchLogService.SOURCE_RSS, "test");
 
         verify(logService, never()).removeByIds(any());
+    }
+
+    @Test
+    void latestIdByEpisode_按集号汇总最近一条日志id() {
+        Map<String, Object> ep3 = new HashMap<>();
+        ep3.put("episode", 3);
+        ep3.put("max_id", 120L);
+        Map<String, Object> ep5 = new HashMap<>();
+        // MySQL 驱动给 MAX() 回的是 BigInteger/Long 都可能，按 Number 取
+        ep5.put("episode", 5);
+        ep5.put("max_id", java.math.BigInteger.valueOf(88));
+        when(logService.listMaps(any(Wrapper.class))).thenReturn(List.of(ep3, ep5));
+
+        Map<Integer, Long> latest = service().latestIdByEpisode(10, SearchLogService.SOURCE_SUPPLEMENT);
+
+        assertEquals(Map.of(3, 120L, 5, 88L), latest);
+    }
+
+    @Test
+    void latestIdByEpisode_查库失败时返回空表_不影响补搜() {
+        when(logService.listMaps(any(Wrapper.class))).thenThrow(new RuntimeException("db down"));
+
+        assertTrue(service().latestIdByEpisode(10, SearchLogService.SOURCE_SUPPLEMENT).isEmpty());
     }
 }

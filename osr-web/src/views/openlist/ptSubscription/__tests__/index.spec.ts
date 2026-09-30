@@ -103,6 +103,9 @@ function baseComposable(overrides: Record<string, any> = {}) {
     openEpisodeSearch: vi.fn(),
     confirmSearch: vi.fn(),
     toggleAutoSearch: vi.fn(),
+    isEpisodeFirst: (row: any) => !!row?.seasonPackPolicy && row.seasonPackPolicy !== 'AUTO',
+    seasonPackPolicyHint: () => '',
+    toggleSeasonPackPolicy: vi.fn(),
     handleRefresh: vi.fn(),
     handlePause: vi.fn(),
     handleResume: vi.fn(),
@@ -341,7 +344,7 @@ describe('PtSubscription 按钮收纳', () => {
     await new Promise((r) => setTimeout(r, 0))
     const dropdownItemTexts = body().findAll('.v-list-item').map(i => i.text()).filter(Boolean)
     // 「缺集诊断」只对订阅中的剧集出现（体检页不收电影与非订阅中）；「一键诊断」不设门槛
-    expect(dropdownItemTexts).toEqual(['暂停', '搜索补齐', '对账', '一键诊断', '缺集诊断', '匹配日志', '过滤规则', '删除'])
+    expect(dropdownItemTexts).toEqual(['暂停', '搜索补齐', '对账', '一键诊断', '缺集诊断', '匹配日志', '过滤规则', '改为单集优先', '删除'])
   })
 
   it('已暂停的订阅在「更多」里显示恢复而不是暂停', async () => {
@@ -388,6 +391,19 @@ describe('PtSubscription 卡片进度', () => {
     }))
     const wrapper = mount(PtSubscriptionPage)
     expect(wrapper.find('.sub-flag').exists()).toBe(true)
+  })
+
+  it('季包策略非 AUTO 时卡片标出「单集优先」，AUTO 与电影不标', () => {
+    (usePtSubscription as any).mockReturnValue(baseComposable({
+      taskList: ref([
+        { id: 1, title: 'A', status: 'ACTIVE', mediaType: 'TV', season: 1, totalEpisodes: 12, seasonPackPolicy: 'EPISODE_LEARNED' },
+        { id: 2, title: 'B', status: 'ACTIVE', mediaType: 'TV', season: 1, totalEpisodes: 12, seasonPackPolicy: 'AUTO' },
+        { id: 3, title: 'C', status: 'ACTIVE', mediaType: 'MOVIE', season: 0, totalEpisodes: 1, seasonPackPolicy: 'EPISODE' }
+      ])
+    }))
+    const wrapper = mount(PtSubscriptionPage)
+    const flags = wrapper.findAll('.sub-flag').filter(f => f.text().includes('单集优先'))
+    expect(flags).toHaveLength(1)
   })
 
   it('filterOverride 是空 JSON 时不算有覆盖', () => {
