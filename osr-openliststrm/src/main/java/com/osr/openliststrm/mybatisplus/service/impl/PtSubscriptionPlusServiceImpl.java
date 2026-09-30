@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.osr.openliststrm.mybatisplus.mapper.PtSubscriptionPlusMapper;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
+import com.osr.openliststrm.pt.subscription.SeasonPackPolicy;
 import org.springframework.stereotype.Service;
 
 import java.util.Date;
@@ -112,6 +113,60 @@ public class PtSubscriptionPlusServiceImpl extends ServiceImpl<PtSubscriptionPlu
     public List<PtSubscriptionPlus> listOverdueNotified() {
         return lambdaQuery()
                 .isNotNull(PtSubscriptionPlus::getLastOverdueNotifySign)
+                .list();
+    }
+
+    @Override
+    public boolean learnEpisodeFirst(Integer subId) {
+        if (subId == null) {
+            return false;
+        }
+        return update(new LambdaUpdateWrapper<PtSubscriptionPlus>()
+                .eq(PtSubscriptionPlus::getId, subId)
+                .and(w -> w.eq(PtSubscriptionPlus::getSeasonPackPolicy, SeasonPackPolicy.AUTO.name())
+                        .or().isNull(PtSubscriptionPlus::getSeasonPackPolicy))
+                .set(PtSubscriptionPlus::getSeasonPackPolicy, SeasonPackPolicy.EPISODE_LEARNED.name()));
+    }
+
+    @Override
+    public int enableAutoSearchByHealth(List<Integer> subIds, Date enabledAt) {
+        if (subIds == null || subIds.isEmpty()) {
+            return 0;
+        }
+        return getBaseMapper().update(null, new LambdaUpdateWrapper<PtSubscriptionPlus>()
+                .in(PtSubscriptionPlus::getId, subIds)
+                .and(w -> w.ne(PtSubscriptionPlus::getAutoSearch, "1").or().isNull(PtSubscriptionPlus::getAutoSearch))
+                .set(PtSubscriptionPlus::getAutoSearch, "1")
+                .set(PtSubscriptionPlus::getHealthAutoSearchTime, enabledAt));
+    }
+
+    @Override
+    public boolean disableHealthAutoSearch(Integer subId) {
+        if (subId == null) {
+            return false;
+        }
+        return update(new LambdaUpdateWrapper<PtSubscriptionPlus>()
+                .eq(PtSubscriptionPlus::getId, subId)
+                .isNotNull(PtSubscriptionPlus::getHealthAutoSearchTime)
+                .set(PtSubscriptionPlus::getAutoSearch, "0")
+                .set(PtSubscriptionPlus::getHealthAutoSearchTime, null));
+    }
+
+    @Override
+    public void clearHealthAutoSearchMark(List<Integer> subIds) {
+        if (subIds == null || subIds.isEmpty()) {
+            return;
+        }
+        update(new LambdaUpdateWrapper<PtSubscriptionPlus>()
+                .in(PtSubscriptionPlus::getId, subIds)
+                .isNotNull(PtSubscriptionPlus::getHealthAutoSearchTime)
+                .set(PtSubscriptionPlus::getHealthAutoSearchTime, null));
+    }
+
+    @Override
+    public List<PtSubscriptionPlus> listHealthAutoSearched() {
+        return lambdaQuery()
+                .isNotNull(PtSubscriptionPlus::getHealthAutoSearchTime)
                 .list();
     }
 }

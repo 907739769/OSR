@@ -96,6 +96,20 @@ public class PtSubscriptionPlus extends BaseEntity {
     @TableField("auto_search")
     private String autoSearch;
 
+    /**
+     * 补搜时季包与单集谁先上：AUTO / EPISODE / EPISODE_LEARNED，取值与含义见
+     * {@code SeasonPackPolicy}。非 AUTO 时不论缺几集都先单集、季包只作兜底。
+     */
+    @TableField("season_pack_policy")
+    private String seasonPackPolicy;
+
+    /**
+     * 自动补搜被缺集体检自动打开的时刻；NULL 表示不是体检打开的。
+     * 体检只关它自己打开的那些，用户手动动过开关后清空（见 {@code HealthAutoSearchService}）。
+     */
+    @TableField("health_auto_search_time")
+    private Date healthAutoSearchTime;
+
     /** 上次发起搜索补集的时间，用于自动补搜到期判断与前端展示 */
     @TableField("last_search_time")
     private Date lastSearchTime;

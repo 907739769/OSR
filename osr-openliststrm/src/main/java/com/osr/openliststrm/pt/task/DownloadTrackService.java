@@ -509,6 +509,43 @@ public class DownloadTrackService {
         return false;
     }
 
+    /** 季包策略刚被自动转成单集优先时，附在那条通知末尾的一句 */
+    private static final String LEARNED_NOTE = "\n这部剧的季包切法与集号对不上，此后补搜改为单集优先（季包只作兜底），"
+            + "可在订阅卡片「更多」里改回";
+
+    /**
+     * 整季包被文件列表证实不含（或不全含）目标集时，把这条订阅的季包策略自动转成单集优先。
+     * <p>
+     * 典型是动漫：站上的「季包」标题写 {@code S01}、实际只有半季。季包优先的判据是「缺几集」，
+     * 缺得越多越先推季包，于是「推包 → 包里没有 → 退回 → 下一轮换个字幕组的包再推」，
+     * 每个版本各白跑一整个补搜周期，其间逐集分支一次都轮不到。一次证实就够转：
+     * 判据来自下载器的真实文件列表，不是猜的。
+     * </p>
+     * <p>
+     * 只认 {@code episode == SEASON_PACK} 的记录：区间包的集号是从种子标题解析的，
+     * 对不上是那一个种子标错了，不说明这部剧的季包切法有问题。
+     * </p>
+     *
+     * @return 这次是否刚转过来（已经是单集优先、或用户手动设过的都返回 false）
+     */
+    private boolean learnEpisodeFirst(PtDownloadRecordPlus record, PtSubscriptionPlus sub) {
+        if (sub == null || record.getEpisode() == null || record.getEpisode() != SubscriptionMatcher.SEASON_PACK) {
+            return false;
+        }
+        try {
+            boolean learned = subscriptionService.learnEpisodeFirst(sub.getId());
+            if (learned) {
+                log.info("{} 季包被证实不含全部目标集（下载记录[{}]），补搜此后改为单集优先",
+                        PtLogText.subject(sub), record.getId());
+            }
+            return learned;
+        } catch (Exception e) {
+            // 转不成只是少一次优化，不能影响中止/对账本身
+            log.warn("{} 自动转为单集优先失败：{}", PtLogText.subject(sub), e.getMessage(), e);
+            return false;
+        }
+    }
+
     /**
      * 种子里能解析出集号的文件，与本记录要补的集<b>一个都对不上</b>吗？
      * <p>
@@ -552,13 +589,15 @@ public class DownloadTrackService {
         String target = joinEpisodes(targetEpisodes);
         log.info("下载记录[{}] 包内实际含第 {} 集，与本次目标第 {} 集无交集，已中止：{}",
                 record.getId(), actual, target, record.getTitle());
+        boolean learned = learnEpisodeFirst(record, sub);
         doFail(record, FailReasonCode.NO_TARGET_EPISODE,
                 "种子内不含任何目标集（包内第 " + actual + " 集，本次要补第 " + target + " 集）",
                 false,
                 "📦 种子内不含任何目标集：" + PtNotifyText.subject(sub, record.getEpisode(), record.getEpisodeEnd()) + "\n"
                         + StringUtils.escapeHtml(record.getTitle())
                         + "\n包内实际是第 " + actual + " 集，本次的目标是第 " + target
-                        + " 集，已中止下载，相关集将重新参与后续匹配");
+                        + " 集，已中止下载，相关集将重新参与后续匹配"
+                        + (learned ? LEARNED_NOTE : ""));
         // 多集包是暂停态推送的，走到这里它一个字节都没下过，删掉不留痕
         removeUselessTorrent(downloader, record, matched);
     }
@@ -684,11 +723,13 @@ public class DownloadTrackService {
                 .collect(Collectors.joining("、"));
         log.info("下载记录[{}] 实际只含 {} 集，多占的 {} 个集已退回缺失（第 {} 集）：{}",
                 record.getId(), actualEpisodes.size(), released, episodeList, record.getTitle());
+        boolean learned = learnEpisodeFirst(record, sub);
         notifySafely(NotificationType.SUBSCRIPTION_HIT, "📦 季包实际不含全季："
                 + PtNotifyText.subject(sub, SubscriptionMatcher.SEASON_PACK, null) + "\n"
                 + StringUtils.escapeHtml(record.getTitle())
                 + "\n包内实际 " + actualEpisodes.size() + " 集，多占的第 " + episodeList
-                + " 集已退回缺失，将继续自动搜索补齐", sub.getOwnerUserId());
+                + " 集已退回缺失，将继续自动搜索补齐"
+                + (learned ? LEARNED_NOTE : ""), sub.getOwnerUserId());
     }
 
     /**

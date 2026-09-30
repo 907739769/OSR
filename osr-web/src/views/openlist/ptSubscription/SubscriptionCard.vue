@@ -63,6 +63,15 @@
             prepend-icon="funnel"
             title="该订阅有自己的过滤规则覆盖，未覆盖的项仍沿用全局配置"
           >过滤覆盖</v-chip>
+          <!-- 季包策略非默认时标出来：系统自动转的尤其要看得见，否则用户会奇怪为什么不下季包了 -->
+          <v-chip
+            v-if="item.mediaType !== 'MOVIE' && isEpisodeFirst(item)"
+            class="sub-flag"
+            size="x-small"
+            color="info"
+            variant="tonal"
+            :title="seasonPackPolicyHint(item)"
+          >单集优先</v-chip>
         </div>
         <!-- 入库进度：列表接口已带进度计数，不必逐条点开进度弹窗才知道还缺几集 -->
         <div v-if="item.inLibraryCount !== undefined && item.inLibraryCount !== null" class="sub-progress">
@@ -148,6 +157,10 @@
           >缺集诊断</v-list-item>
           <v-list-item @click="handleMoreCommand('logs', item)">匹配日志</v-list-item>
           <v-list-item @click="handleMoreCommand('filter', item)">过滤规则</v-list-item>
+          <v-list-item
+            v-if="item.mediaType !== 'MOVIE'"
+            @click="handleMoreCommand('seasonPack', item)"
+          >{{ isEpisodeFirst(item) ? '恢复季包优先' : '改为单集优先' }}</v-list-item>
           <v-divider class="my-1" />
           <!-- 删除置底并单独分隔：它会连带删掉集数追踪记录，与「进度」这类高频动作并排太容易误点 -->
           <v-list-item class="more-actions-danger" @click="handleMoreCommand('remove', item)">删除</v-list-item>
@@ -174,6 +187,7 @@ const {
   handleRemove,
   handleResetMovie,
   handleResume,
+  isEpisodeFirst,
   isSubSelected,
   openFilterOverride,
   openSeasonSearch,
@@ -182,7 +196,9 @@ const {
   showProgress,
   showSearchLogs,
   showDiagnosis,
+  seasonPackPolicyHint,
   toggleAutoSearch,
+  toggleSeasonPackPolicy,
   toggleSubSelect,
   toggleUpgrade
 ,
@@ -258,6 +274,7 @@ const handleMoreCommand = (cmd: string, row: any) => {
     case 'logs': showSearchLogs(row); break
     case 'diagnose': showDiagnosis(row); break
     case 'filter': openFilterOverride(row); break
+    case 'seasonPack': toggleSeasonPackPolicy(row); break
     case 'search': openSeasonSearch(row); break
     case 'pause': handlePause(row); break
     case 'resume': handleResume(row); break

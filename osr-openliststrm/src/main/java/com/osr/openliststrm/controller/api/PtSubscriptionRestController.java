@@ -14,6 +14,7 @@ import com.osr.openliststrm.mybatisplus.service.IPtSearchLogPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.osr.openliststrm.pt.subscription.PushOutcome;
+import com.osr.openliststrm.pt.subscription.SeasonPackPolicy;
 import com.osr.openliststrm.pt.subscription.SearchSupplementService;
 import com.osr.openliststrm.pt.subscription.SubscriptionSearchOnCreateTrigger;
 import com.osr.openliststrm.pt.PtLogText;
@@ -214,6 +215,38 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
                 // 非管理员只看得到自己的与公共的，没有「别人」可标
                 ownerService.fillOwnerNames(page.getRecords(), getUserId());
             }
+        }
+        return result;
+    }
+
+    /**
+     * 修改订阅（卡片上的开关与季包策略走这里，只带 id 与改动的那一列）。
+     * <p>
+     * 覆写基类补三件事：归属校验（基类按 id 直改）；季包策略只接受用户能选的两个值——
+     * {@code EPISODE_LEARNED} 只能由系统在季包被证实不含目标集时写入，前端传它进来等于伪造来源；
+     * 动过自动补搜开关就清掉「体检开的」标记，开关从此归用户，体检不会再把它关掉。
+     * </p>
+     */
+    @Override
+    @PutMapping
+    public Result<Void> edit(@RequestBody PtSubscriptionPlus entity) {
+        if (entity.getId() == null) {
+            return Result.error("订阅ID不能为空");
+        }
+        Result<Void> denied = denyIfInaccessible(entity.getId());
+        if (denied != null) {
+            return denied;
+        }
+        String policy = entity.getSeasonPackPolicy();
+        if (policy != null && !SeasonPackPolicy.AUTO.name().equals(policy)
+                && !SeasonPackPolicy.EPISODE.name().equals(policy)) {
+            return Result.error("季包策略只能是 AUTO 或 EPISODE");
+        }
+        // 这一列只由体检写，接口上一律不收
+        entity.setHealthAutoSearchTime(null);
+        Result<Void> result = super.edit(entity);
+        if (result.getCode() == 200 && entity.getAutoSearch() != null) {
+            service.clearHealthAutoSearchMark(List.of(entity.getId()));
         }
         return result;
     }

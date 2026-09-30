@@ -63,6 +63,15 @@
           variant="tonal"
           prepend-icon="funnel"
         >过滤覆盖</v-chip>
+        <!-- 季包策略非默认时标出来：系统自动转的尤其要看得见，否则用户会奇怪为什么不下季包了 -->
+        <v-chip
+          v-if="item.mediaType !== 'MOVIE' && isEpisodeFirst(item)"
+          class="sub-flag"
+          size="x-small"
+          color="info"
+          variant="tonal"
+          :title="seasonPackPolicyHint(item)"
+        >单集优先</v-chip>
       </div>
       <!-- 入库进度：列表接口已带进度计数，不必逐条点开进度弹窗才知道还缺几集 -->
       <div v-if="item.inLibraryCount !== undefined && item.inLibraryCount !== null" class="sub-progress">
@@ -138,8 +147,10 @@ const props = defineProps<{ item: any }>()
 const emit = defineEmits<{ more: [item: any] }>()
 
 const {
+  isEpisodeFirst,
   isSubSelected,
   posterUrl,
+  seasonPackPolicyHint,
   selectionMode,
   showProgress,
   toggleAutoSearch,

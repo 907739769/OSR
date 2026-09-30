@@ -1193,6 +1193,64 @@ class SearchSupplementServiceTest {
     }
 
     /**
+     * 用户实际遇到的：动漫的「季包」标题写 S01、实际只有半季。缺 13~16 集（≥ 阈值）时本该季包优先，
+     * 但这部剧的季包已被证实不含目标集（EPISODE_LEARNED），于是不论缺几集都先推单集——
+     * 否则「推包 → 包里没有 → 退回 → 下一轮换个字幕组的包再推」，逐集分支一次都轮不到。
+     */
+    @Test
+    void 季包策略为单集优先时_缺集再多也先推单集() throws Exception {
+        PtSubscriptionPlus sub = tvSub(10, 1, 16);
+        sub.setSeasonPackPolicy(SeasonPackPolicy.EPISODE_LEARNED.name());
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        List<PtSubscriptionEpisodePlus> before = new java.util.ArrayList<>();
+        List<PtSubscriptionEpisodePlus> after = new java.util.ArrayList<>();
+        for (int i = 13; i <= 16; i++) {
+            before.add(episode(i, "MISSING"));
+            after.add(episode(i, "IN_FLIGHT"));
+        }
+        when(episodeService.listBySubscription(10)).thenReturn(before, after);
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+
+        List<TorrentInfo> pool = new java.util.ArrayList<>();
+        TorrentInfo pack = torrent("Some.Show.S01.1080p");
+        pack.setParsedSeason(1);
+        pack.setParsedTitle("Some Show");
+        pool.add(pack);
+        for (int i = 13; i <= 16; i++) {
+            TorrentInfo single = torrent("Some.Show.S01E" + i + ".1080p");
+            single.setParsedSeason(1);
+            single.setParsedEpisode(i);
+            single.setParsedTitle("Some Show");
+            pool.add(single);
+        }
+        when(torznabClient.search(any(), anyString())).thenReturn(pool);
+        when(subscriptionEngine.pushBest(eq(sub), org.mockito.ArgumentMatchers.intThat(ep -> ep > 0), anyList()))
+                .thenReturn(true);
+
+        SearchAndPushSummary summary = withSeasonPackThreshold(3).searchAndPushMissing(10);
+
+        for (int i = 13; i <= 16; i++) {
+            verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(i), anyList());
+        }
+        // 缺口已经被单集补上，兜底不再推季包
+        verify(subscriptionEngine, never()).pushBest(any(), eq(SubscriptionMatcher.SEASON_PACK), anyList());
+        assertFalse(summary.isSeasonPushed());
+        assertEquals(4, summary.getEpisodesPushed());
+    }
+
+    @Test
+    void 季包优先的判据_策略非AUTO恒为单集优先_AUTO按缺集数() {
+        SearchSupplementService service = withSeasonPackThreshold(3);
+        assertTrue(service.seasonPackFirst(SeasonPackPolicy.AUTO, 3));
+        assertFalse(service.seasonPackFirst(SeasonPackPolicy.AUTO, 2));
+        assertFalse(service.seasonPackFirst(SeasonPackPolicy.EPISODE, 30));
+        assertFalse(service.seasonPackFirst(SeasonPackPolicy.EPISODE_LEARNED, 30));
+        // 存量行 NULL 与认不出的值都按 AUTO
+        assertEquals(SeasonPackPolicy.AUTO, SeasonPackPolicy.of(null));
+        assertEquals(SeasonPackPolicy.AUTO, SeasonPackPolicy.of("xxx"));
+    }
+
+    /**
      * 降级成次选，不是关掉：候选池里没有精确的单集资源时，一个整季包仍远比什么都不下强。
      */
     @Test

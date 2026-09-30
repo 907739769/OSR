@@ -3,6 +3,7 @@ package com.osr.openliststrm.pt.health;
 import com.osr.common.utils.ThreadTraceIdUtil;
 import com.osr.common.utils.Threads;
 import com.osr.common.utils.spring.SpringUtils;
+import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.slf4j.MDC;
@@ -13,10 +14,12 @@ import org.springframework.stereotype.Component;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.stream.Collectors;
 
 /**
- * 逾期缺集提醒的心跳。
+ * 逾期缺集提醒的心跳，顺带跑缺集体检的自动开关补搜（{@link HealthAutoSearchService}）。
  *
  * @author Jack
  */
@@ -46,13 +49,16 @@ public class EpisodeHealthNotifyTask {
     private static final Duration INITIAL_DELAY = Duration.ofSeconds(600);
 
     private final EpisodeHealthNotifyService notifyService;
+    private final HealthAutoSearchService autoSearchService;
 
     private final TaskScheduler scheduler = SpringUtils.getBean("virtualScheduledExecutor");
 
     private final AtomicBoolean running = new AtomicBoolean(false);
 
-    public EpisodeHealthNotifyTask(EpisodeHealthNotifyService notifyService) {
+    public EpisodeHealthNotifyTask(EpisodeHealthNotifyService notifyService,
+                                   HealthAutoSearchService autoSearchService) {
         this.notifyService = notifyService;
+        this.autoSearchService = autoSearchService;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -74,7 +80,17 @@ public class EpisodeHealthNotifyTask {
             return;
         }
         try {
-            int sent = notifyService.notifyOverdue();
+            // 先开关补搜、再发提醒：刚替用户打开的要在提醒里说一声。
+            // 开关失败不能连带吞掉提醒——提醒是这个任务本来的职责
+            Set<Integer> autoEnabled = Set.of();
+            try {
+                autoEnabled = autoSearchService.apply().enabled().stream()
+                        .map(PtSubscriptionPlus::getId)
+                        .collect(Collectors.toSet());
+            } catch (Exception e) {
+                log.error("缺集体检自动开关补搜失败：{}", e.getMessage(), e);
+            }
+            int sent = notifyService.notifyOverdue(autoEnabled);
             if (sent > 0) {
                 log.info("逾期缺集提醒完成，共发出 {} 条", sent);
             }

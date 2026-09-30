@@ -87,6 +87,14 @@ public class EpisodeHealthNotifyService {
      * @return 实际发出的消息条数（按收件人计）
      */
     public int notifyOverdue() {
+        return notifyOverdue(Set.of());
+    }
+
+    /**
+     * @param autoEnabled 本轮刚由体检自动开启补搜的订阅 id，消息里对它们注明一句
+     *                    （否则「原因：未开启自动补搜」读起来像还得用户自己去开）
+     */
+    public int notifyOverdue(Set<Integer> autoEnabled) {
         if (!enabled) {
             return 0;
         }
@@ -134,7 +142,7 @@ public class EpisodeHealthNotifyService {
             log.info("逾期缺集提醒：归属人[{}] 共 {} 部剧，{}",
                     entry.getKey() == null ? "默认" : entry.getKey(), group.size(),
                     group.stream().map(h -> h.subscription().getTitle()).toList());
-            if (notifySafely(buildMessage(group), entry.getKey(), buildActions(group))) {
+            if (notifySafely(buildMessage(group, autoEnabled), entry.getKey(), buildActions(group))) {
                 sent++;
             }
             // 通知时间与指纹在发送后才落库。发送失败时不落，下一轮会重试——
@@ -188,6 +196,10 @@ public class EpisodeHealthNotifyService {
 
     /** 文案按 Telegram 的 HTML parse_mode 写，其余渠道由各自的 toPlainText 还原 */
     String buildMessage(List<SubscriptionHealth> group) {
+        return buildMessage(group, Set.of());
+    }
+
+    String buildMessage(List<SubscriptionHealth> group, Set<Integer> autoEnabled) {
         StringBuilder msg = new StringBuilder("📺 有 ").append(group.size())
                 .append(" 部剧播出超过 ").append(healthService.getOverdueDays())
                 .append(" 天仍未匹配到资源");
@@ -207,9 +219,14 @@ public class EpisodeHealthNotifyService {
             if (days != null) {
                 msg.append("，已播出 ").append(days).append(" 天");
             }
-            String diagnoses = diagnosisLabels(health, overdue);
-            if (StringUtils.isNotBlank(diagnoses)) {
-                msg.append("\n原因：").append(StringUtils.escapeHtml(diagnoses));
+            if (autoEnabled.contains(sub.getId())) {
+                // 诊断标签是开启之后扫的，这时读出来是「等待下一轮补搜」，单写一句才看得出是刚替用户开的
+                msg.append("\n已自动开启自动补搜，稍后开始搜索");
+            } else {
+                String diagnoses = diagnosisLabels(health, overdue);
+                if (StringUtils.isNotBlank(diagnoses)) {
+                    msg.append("\n原因：").append(StringUtils.escapeHtml(diagnoses));
+                }
             }
         }
         if (group.size() > shown) {

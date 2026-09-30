@@ -192,6 +192,22 @@ class EpisodeHealthNotifyServiceTest {
         assertTrue(msg.contains("Tom &amp; &lt;b&gt;Jerry&lt;/b&gt;"), msg);
     }
 
+    /** 刚被体检自动开了补搜的：写明已开启，不再列「原因：未开启自动补搜」 */
+    @Test
+    void 刚自动开启补搜的订阅_消息里注明已开启而不是列原因() {
+        SubscriptionHealth a = new SubscriptionHealth(sub(1, "甲", null),
+                List.of(item(1, EpisodeHealthBucket.OVERDUE_MISSING, 5)));
+        SubscriptionHealth b = new SubscriptionHealth(sub(2, "乙", null),
+                List.of(item(1, EpisodeHealthBucket.OVERDUE_MISSING, 5)));
+
+        String msg = service(true, 7).buildMessage(List.of(a, b), java.util.Set.of(1));
+
+        String partA = msg.substring(msg.indexOf("甲"), msg.indexOf("乙"));
+        assertTrue(partA.contains("已自动开启自动补搜"), msg);
+        assertTrue(!partA.contains("原因："), msg);
+        assertTrue(msg.substring(msg.indexOf("乙")).contains("原因："), msg);
+    }
+
     /** 补搜只对订阅中的生效：已暂停的给了按钮，按下去只会得到一句拒绝 */
     @Test
     void 快捷操作_只给订阅中的剧_且有上限() {

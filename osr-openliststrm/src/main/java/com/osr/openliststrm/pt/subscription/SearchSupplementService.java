@@ -729,11 +729,15 @@ public class SearchSupplementService {
         long missingCount = episodes.stream()
                 .filter(ep -> SubscriptionService.STATE_MISSING.equals(ep.getState()) && aired(ep, today))
                 .count();
-        boolean seasonPackFirst = seasonPackMinMissing <= 0 || missingCount >= seasonPackMinMissing;
+        SeasonPackPolicy policy = SeasonPackPolicy.of(sub.getSeasonPackPolicy());
+        boolean seasonPackFirst = seasonPackFirst(policy, missingCount);
 
         boolean seasonPushed = false;
         if (seasonPackFirst) {
             seasonPushed = trySeasonPack(sub, candidates);
+        } else if (policy.episodeFirst()) {
+            log.debug("{} 季包策略为 {}，本轮缺 {} 集仍先试单集资源，季包留作兜底",
+                    PtLogText.subject(sub), policy, missingCount);
         } else {
             log.debug("{} 本轮只缺 {} 集（阈值 {}），先试单集资源，季包留作兜底",
                     PtLogText.subject(sub), missingCount, seasonPackMinMissing);
@@ -814,6 +818,22 @@ public class SearchSupplementService {
                 digest.summary(), digest.signature());
         summary.setCandidateCount(candidates.size());
         return summary;
+    }
+
+    /**
+     * 本轮是否季包优先。
+     * <p>
+     * 订阅策略非 AUTO（用户设了单集优先，或季包曾被证实不含目标集）时恒为 false——
+     * 那类订阅（典型是切成半季的动漫季包）按缺集数判的话，缺得越多越先推季包，
+     * 而恰恰是缺得多的时候「推包 → 包里没有 → 退回 → 下一轮换个字幕组再推」这个循环转得最久，
+     * 其间逐集分支一次都轮不到。季包仍保留兜底资格，见方法末尾的兜底分支。
+     * </p>
+     */
+    boolean seasonPackFirst(SeasonPackPolicy policy, long missingCount) {
+        if (policy.episodeFirst()) {
+            return false;
+        }
+        return seasonPackMinMissing <= 0 || missingCount >= seasonPackMinMissing;
     }
 
     /**
