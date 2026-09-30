@@ -1266,7 +1266,7 @@ class SearchSupplementServiceTest {
         ep2.setParsedTitle("Some Show");
         // 季粒度关键词只带回第 1 集；第 2 集只有拿「Some Show S01E02」去搜才返回
         when(torznabClient.search(any(), anyString())).thenAnswer(inv ->
-                String.valueOf(inv.getArgument(1)).contains("E02") ? List.of(ep2) : List.of(ep1));
+                inv.<String>getArgument(1).contains("E02") ? List.of(ep2) : List.of(ep1));
         when(subscriptionEngine.pushBest(eq(sub), anyInt(), anyList())).thenReturn(true);
 
         SearchAndPushSummary summary = withFallback(5).searchAndPushMissing(10);
@@ -1314,6 +1314,47 @@ class SearchSupplementServiceTest {
         verify(torznabClient, atLeastOnce()).search(any(), eq("Some Show S01E02"));
         verify(torznabClient, never()).search(any(), eq("Some Show S01E03"));
         verify(torznabClient, never()).search(any(), eq("Some Show S01E04"));
+    }
+
+    /**
+     * 超出上限时最久没搜过的集先搜：单纯按集号取前 N 集的话，前 N 集站上确实没有单集资源时
+     * 每一轮都只补发它们、每一轮都落空，后面站上有的集一次请求都发不出去。
+     */
+    @Test
+    void 补发超出上限时_按最近搜索记录轮换_最久未搜的先搜() throws Exception {
+        PtSubscriptionPlus sub = tvSub(10, 1, 4);
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(
+                episode(1, "MISSING"), episode(2, "MISSING"),
+                episode(3, "MISSING"), episode(4, "MISSING")));
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+        when(torznabClient.search(any(), anyString())).thenReturn(List.of());
+        // 第 1、2 集上一轮刚补发过（id 大），第 3 集更早搜过，第 4 集从没搜过
+        when(searchLogService.latestIdByEpisode(10, SearchLogService.SOURCE_SUPPLEMENT))
+                .thenReturn(Map.of(1, 900L, 2, 901L, 3, 100L));
+
+        withFallback(2).searchAndPushMissing(10);
+
+        verify(torznabClient, atLeastOnce()).search(any(), eq("Some Show S01E04"));
+        verify(torznabClient, atLeastOnce()).search(any(), eq("Some Show S01E03"));
+        verify(torznabClient, never()).search(any(), eq("Some Show S01E01"));
+        verify(torznabClient, never()).search(any(), eq("Some Show S01E02"));
+    }
+
+    /** 季搜索一个应答都没拿到（站点全挂）时不补发：再打 N 集 × 三级请求只会同样落空 */
+    @Test
+    void 季搜索所有请求都失败_不补发单集检索() throws Exception {
+        PtSubscriptionPlus sub = tvSub(10, 1, 2);
+        when(subscriptionService.getById(10)).thenReturn(sub);
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(
+                episode(1, "MISSING"), episode(2, "MISSING")));
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+        when(torznabClient.search(any(), anyString())).thenThrow(new java.io.IOException("connect timed out"));
+
+        withFallback(5).searchAndPushMissing(10);
+
+        verify(torznabClient, never()).search(any(), eq("Some Show S01E01"));
+        verify(torznabClient, never()).search(any(), eq("Some Show S01E02"));
     }
 
     /** 未播出的集不进补发——补发比本地匹配贵得多，更不该浪费在必然落空的集上 */

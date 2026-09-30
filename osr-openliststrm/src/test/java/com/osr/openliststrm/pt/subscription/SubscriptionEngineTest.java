@@ -918,6 +918,25 @@ class SubscriptionEngineTest {
         verify(episodeService, times(2)).update(any(), any(Wrapper.class));
     }
 
+    /** 季包不可能含还没播的集：占上的话文件列表回来又要退回、发一条「季包实际不含全季」的假警报 */
+    @Test
+    void pushBest_季包目标_不占位未播出的缺失集() throws Exception {
+        PtSubscriptionPlus sub = tvSub(10, "Some Show", 1, 4);
+        PtSubscriptionEpisodePlus unaired = episode(104, 4, "MISSING");
+        unaired.setAirDate(java.util.Date.from(java.time.LocalDate.now().plusDays(7).atStartOfDay(java.time.ZoneId.systemDefault()).toInstant()));
+        PtSubscriptionEpisodePlus airedToday = episode(103, 3, "MISSING");
+        airedToday.setAirDate(java.util.Date.from(java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant()));
+        when(episodeService.listBySubscription(10)).thenReturn(List.of(
+                episode(101, 1, "IN_LIBRARY"), episode(102, 2, "MISSING"), airedToday, unaired));
+
+        boolean pushed = engine.pushBest(sub, SubscriptionMatcher.SEASON_PACK,
+                List.of(torrent("Some.Show.S01.1080p", "g-pack", 10, "1080p")));
+
+        assertTrue(pushed);
+        // 只占第 2 集（无播出日期按已播）与第 3 集（当天播出算已播），第 4 集下周才播
+        verify(episodeService, times(2)).update(any(), any(Wrapper.class));
+    }
+
     @Test
     void resolveTargets_集数区间_只占位区间内的缺失集() throws Exception {
         // 种子标题 S01E02-04（区间 2~4），订阅缺 1、2、3、4 集：只有 2、3、4 该被占位，1 不动

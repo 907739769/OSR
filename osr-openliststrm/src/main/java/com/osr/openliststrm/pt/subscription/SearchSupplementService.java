@@ -53,6 +53,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 /**
@@ -719,7 +720,8 @@ public class SearchSupplementService {
         }
 
         // 单次全季节搜索（三级回退：ID → 中文 → 英文/原语言）
-        List<TorrentInfo> candidates = searchSeasonCandidates(sub, indexerIds, extraKeyword);
+        SeasonSearch seasonSearch = searchSeasonCandidates(sub, indexerIds, extraKeyword);
+        List<TorrentInfo> candidates = seasonSearch.candidates();
 
         // 季包优先还是单集优先，只看这一轮要补几集（判据与理由见 seasonPackMinMissing）。
         // 缺得少时把季包推到后面当兜底，否则「季包占位 → 对账发现不含这一集 → 退回 →
@@ -777,8 +779,15 @@ public class SearchSupplementService {
             }
         }
 
-        // 候选池里一集都没匹配上的，补发真正的单集检索
-        episodesPushed += fallbackPerEpisode(sub, unmatched, indexerIds);
+        // 候选池里一集都没匹配上的，补发真正的单集检索。
+        // 季搜索一个应答都没拿到（索引器全挂、全超时）时不补发：那不是「季粒度关键词命不中单集」，
+        // 而是站点根本不通，补发只会再对着同一批故障站点打满 5 集 × 三级请求、等满预算后同样落空
+        if (seasonSearch.anyResponded()) {
+            episodesPushed += fallbackPerEpisode(sub, unmatched, indexerIds);
+        } else if (!unmatched.isEmpty()) {
+            log.warn("{} 季搜索没有任何索引器成功应答，本轮不补发单集检索（{} 集留到下一轮）",
+                    PtLogText.subject(sub), unmatched.size());
+        }
 
         // 单集优先模式下的兜底：逐集与补发都没能覆盖的集，仍然交给季包。
         // 「候选池里没有精确的单集资源」时，一个整季包仍然远比什么都不下强——
@@ -869,9 +878,15 @@ public class SearchSupplementService {
      * 「手动点能搜到、后台补搜搜不到」，而这正是本次要修的现象本身。
      * </p>
      * <p>
-     * 集号升序取前 N 集：连载剧从前往后补最符合观看顺序，也让"补齐进度"是单调推进的。
+     * <b>最久没被补搜碰过的集先搜</b>（按该集最近一条 {@code SUPPLEMENT} 日志的 id，从没搜过的最前），
+     * 同样久的按集号升序——连载剧从前往后补最符合观看顺序。原先是单纯按集号升序取前 N 集，
+     * 而被挡下的集「下一轮从同样的位置接着走」：前 N 集在站上确实没有单集资源时，
+     * 每一轮都只补发这 N 集、每一轮都落空，后面那些站上明明有的集<b>一次请求都发不出去</b>，
+     * 连续落空还会触发退避把周期越拉越长。按最近搜索时间轮换之后，本轮搜过的集下一轮自然排到后面。
+     * </p>
+     * <p>
      * 被上限或预算挡下的集<b>必须 warn 出来</b>——静默截断会读成"这些集都搜过了、站上没有"，
-     * 而真相是压根没发出去过请求。它们不会饿死，下一轮补搜从同样的位置接着走。
+     * 而真相是压根没发出去过请求。
      * </p>
      *
      * @return 补发阶段成功推送的集数
@@ -881,14 +896,29 @@ public class SearchSupplementService {
         if (perEpisodeFallbackLimit <= 0 || unmatched.isEmpty()) {
             return 0;
         }
-        List<PtSubscriptionEpisodePlus> targets = unmatched.stream()
-                .sorted(Comparator.comparingInt(PtSubscriptionEpisodePlus::getEpisode))
+        // 只在确实要截断时才查库排轮换：全部都能补发的话顺序无所谓，省下一次查询
+        List<PtSubscriptionEpisodePlus> ordered;
+        if (unmatched.size() > perEpisodeFallbackLimit) {
+            Map<Integer, Long> lastSearched = searchLogService.latestIdByEpisode(
+                    sub.getId(), SearchLogService.SOURCE_SUPPLEMENT);
+            ordered = unmatched.stream()
+                    .sorted(Comparator.<PtSubscriptionEpisodePlus>comparingLong(
+                                    ep -> lastSearched.getOrDefault(ep.getEpisode(), 0L))
+                            .thenComparingInt(PtSubscriptionEpisodePlus::getEpisode))
+                    .toList();
+        } else {
+            ordered = unmatched.stream()
+                    .sorted(Comparator.comparingInt(PtSubscriptionEpisodePlus::getEpisode))
+                    .toList();
+        }
+        List<PtSubscriptionEpisodePlus> targets = ordered.stream()
                 .limit(perEpisodeFallbackLimit)
                 .toList();
         if (targets.size() < unmatched.size()) {
-            log.warn("{} 季搜索未覆盖 {} 集，本轮只补发前 {} 集的单集检索"
-                            + "（上限 pt.search.per-episode-fallback-limit），其余留到下一轮",
-                    PtLogText.subject(sub), unmatched.size(), targets.size());
+            log.warn("{} 季搜索未覆盖 {} 集，本轮只补发最久未搜的 {} 集（第 {} 集）"
+                            + "的单集检索（上限 pt.search.per-episode-fallback-limit），其余轮换到下一轮",
+                    PtLogText.subject(sub), unmatched.size(), targets.size(),
+                    targets.stream().map(ep -> String.valueOf(ep.getEpisode())).collect(Collectors.joining("、")));
         }
 
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(perEpisodeFallbackBudgetMillis);
@@ -925,13 +955,25 @@ public class SearchSupplementService {
      * 自动补搜周期，拉长实际补全时间。返回结果不经 {@code filterByTarget} 过滤，供调用方自行
      * 按季包/逐集匹配。候选已做过 {@link SubscriptionEngine#fillParsed}。
      *
-     * @return 搜索到的全部候选种子（已去重）；全为空返回空列表
+     * @return 搜索到的全部候选种子（已去重），以及是否至少有一次请求成功应答
      */
-    private List<TorrentInfo> searchSeasonCandidates(PtSubscriptionPlus sub, Set<Integer> indexerIds,
-                                                     String extraKeyword) {
-        List<TorrentInfo> merged = dedupeByIndexerGuid(executePlan(seasonPlan(sub, extraKeyword), indexerIds));
+    private SeasonSearch searchSeasonCandidates(PtSubscriptionPlus sub, Set<Integer> indexerIds,
+                                                String extraKeyword) {
+        AtomicBoolean responded = new AtomicBoolean(false);
+        Map<StepKind, List<TorrentInfo>> grouped =
+                executePlanByKind(seasonPlan(sub, extraKeyword), indexerIds, responded);
+        List<TorrentInfo> all = new ArrayList<>();
+        grouped.values().forEach(all::addAll);
+        List<TorrentInfo> merged = dedupeByIndexerGuid(all);
         fillParsedAll(merged);
-        return merged;
+        return new SeasonSearch(merged, responded.get());
+    }
+
+    /**
+     * 季搜索的结果。{@code anyResponded} 区分「站点应答了、只是没有结果」与「一个请求都没成功」——
+     * 两者候选池都是空的，但后者补发单集检索毫无意义（见 {@link #searchAndPushMissing}）。
+     */
+    private record SeasonSearch(List<TorrentInfo> candidates, boolean anyResponded) {
     }
 
     /**
@@ -1159,6 +1201,15 @@ public class SearchSupplementService {
      * 两个键恒存在，无对应步时为空表。
      */
     private Map<StepKind, List<TorrentInfo>> executePlanByKind(List<SearchStep> plan, Set<Integer> indexerIds) {
+        return executePlanByKind(plan, indexerIds, new AtomicBoolean());
+    }
+
+    /**
+     * 同上，{@code responded} 在任一索引器的任一步成功返回（不论有没有结果）时置为 true；
+     * 不适用而跳过的步（返回 null）与抛异常的步都不算应答。
+     */
+    private Map<StepKind, List<TorrentInfo>> executePlanByKind(List<SearchStep> plan, Set<Integer> indexerIds,
+                                                               AtomicBoolean responded) {
         Map<StepKind, List<TorrentInfo>> grouped = new EnumMap<>(StepKind.class);
         for (StepKind kind : StepKind.values()) {
             grouped.put(kind, new ArrayList<>());
@@ -1184,7 +1235,7 @@ public class SearchSupplementService {
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             List<CompletableFuture<Void>> futures = indexers.stream()
                     .map(indexer -> CompletableFuture.runAsync(
-                            Threads.wrap(() -> runPlanOn(indexer, plan, perStep, deadline)), executor))
+                            Threads.wrap(() -> runPlanOn(indexer, plan, perStep, deadline, responded)), executor))
                     .toList();
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
         }
@@ -1232,7 +1283,7 @@ public class SearchSupplementService {
      * 一个索引器不支持某种检索、或某次请求超时，不该让它剩下的几步也一并放弃。
      */
     private void runPlanOn(PtIndexerPlus indexer, List<SearchStep> plan,
-                           List<List<TorrentInfo>> perStep, long deadline) {
+                           List<List<TorrentInfo>> perStep, long deadline, AtomicBoolean responded) {
         for (int i = 0; i < plan.size(); i++) {
             SearchStep step = plan.get(i);
             if (budgetExhausted(deadline)) {
@@ -1245,6 +1296,7 @@ public class SearchSupplementService {
             try {
                 List<TorrentInfo> found = step.op().apply(indexer);
                 if (found != null) {
+                    responded.set(true);
                     perStep.get(i).addAll(found);
                 }
             } catch (Exception e) {
