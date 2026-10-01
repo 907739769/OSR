@@ -7,6 +7,7 @@ import com.osr.openliststrm.mybatisplus.domain.PtMediaServerPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtMediaServerPlusService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.TaskScheduler;
 import org.springframework.stereotype.Component;
 
@@ -62,6 +63,7 @@ public class LibraryRefreshNotifier {
     private final IPtMediaServerPlusService serverService;
     private final MediaServerClientFactory clientFactory;
     private final TaskScheduler scheduler;
+    private final ApplicationEventPublisher events;
 
     /** 待通知的目录（OSR 视角、已规范化），并发写入 */
     private final Set<String> pending = ConcurrentHashMap.newKeySet();
@@ -98,10 +100,12 @@ public class LibraryRefreshNotifier {
 
     public LibraryRefreshNotifier(IPtMediaServerPlusService serverService,
                                   MediaServerClientFactory clientFactory,
-                                  @Qualifier("virtualScheduledExecutor") TaskScheduler scheduler) {
+                                  @Qualifier("virtualScheduledExecutor") TaskScheduler scheduler,
+                                  ApplicationEventPublisher events) {
         this.serverService = serverService;
         this.clientFactory = clientFactory;
         this.scheduler = scheduler;
+        this.events = events;
     }
 
     /** 报告一个新写入（或改写）的文件；按它所在的目录通知 */
@@ -192,8 +196,13 @@ public class LibraryRefreshNotifier {
             log.debug("没有开启「入库后通知刷新」的媒体服务器，跳过 {} 个目录", dirs.size());
             return;
         }
+        int sent = 0;
         for (PtMediaServerPlus server : servers) {
-            notifyServer(server, dirs);
+            sent += notifyServer(server, dirs);
+        }
+        // 真发出去了才通知对账提前跑一轮：全部被库目录过滤掉、或全部发送失败时，媒体库不会有变化
+        if (sent > 0) {
+            events.publishEvent(new LibraryRefreshedEvent(sent));
         }
     }
 
@@ -227,8 +236,12 @@ public class LibraryRefreshNotifier {
         return cur == null ? null : LibraryPathMapping.normalizeLocal(cur.toString());
     }
 
-    /** 一台服务器的处理；失败只影响这一台 */
-    private void notifyServer(PtMediaServerPlus server, List<String> dirs) {
+    /**
+     * 一台服务器的处理；失败只影响这一台。
+     *
+     * @return 实际通知出去的目标数，没发或发送失败为 0
+     */
+    private int notifyServer(PtMediaServerPlus server, List<String> dirs) {
         String key = String.valueOf(server.getId());
         try {
             IMediaServerClient client = clientFactory.get(server);
@@ -237,12 +250,12 @@ public class LibraryRefreshNotifier {
                 if (unsupported.firstTime(String.valueOf(server.getId()))) {
                     log.warn("媒体服务器「{}」（{}）不支持通知刷新，已跳过", server.getName(), server.getType());
                 }
-                return;
+                return 0;
             }
             Plan plan = plan(server, roots, dirs);
             reportUnmatched(server, plan);
             if (plan.targets().isEmpty()) {
-                return;
+                return 0;
             }
             client.refreshPaths(server, plan.targets());
             log.info("已通知媒体服务器「{}」刷新 {} 处：{}{}", server.getName(), plan.targets().size(),
@@ -251,6 +264,7 @@ public class LibraryRefreshNotifier {
             if (failures.onSuccess(key)) {
                 log.info("媒体服务器「{}」的刷新通知已恢复", server.getName());
             }
+            return plan.targets().size();
         } catch (Exception e) {
             // 发不出去时把库目录缓存一并作废：多半是服务器换了地址或重建过，下一批重新拉
             rootsCache.remove(server.getId());
@@ -259,6 +273,7 @@ public class LibraryRefreshNotifier {
                 log.warn("通知媒体服务器「{}」刷新失败（连续 {} 次），本批 {} 个目录未通知：{}", server.getName(),
                         decision.consecutiveFailures(), dirs.size(), e.getMessage(), e);
             }
+            return 0;
         }
     }
 

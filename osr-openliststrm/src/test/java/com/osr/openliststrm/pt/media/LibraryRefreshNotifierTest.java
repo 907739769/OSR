@@ -6,6 +6,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.scheduling.TaskScheduler;
 
 import java.io.IOException;
@@ -39,6 +40,7 @@ class LibraryRefreshNotifierTest {
     private IPtMediaServerPlusService serverService;
     private MediaServerClientFactory factory;
     private TaskScheduler scheduler;
+    private ApplicationEventPublisher events;
     private LibraryRefreshNotifier notifier;
 
     @BeforeEach
@@ -46,7 +48,8 @@ class LibraryRefreshNotifierTest {
         serverService = mock(IPtMediaServerPlusService.class);
         factory = mock(MediaServerClientFactory.class);
         scheduler = mock(TaskScheduler.class);
-        notifier = new LibraryRefreshNotifier(serverService, factory, scheduler);
+        events = mock(ApplicationEventPublisher.class);
+        notifier = new LibraryRefreshNotifier(serverService, factory, scheduler, events);
     }
 
     private static PtMediaServerPlus server(int id, String notify, String mapping) {
@@ -217,6 +220,42 @@ class LibraryRefreshNotifierTest {
         notifier.flushNow();
 
         verify(factory, never()).get(any());
+    }
+
+    // ---------------- 提前对账事件 ----------------
+
+    /** 真发出去了才让对账提前跑：媒体库没收到通知就不会有变化，白跑一轮对账 */
+    @Test
+    void 事件_发出通知后发布一次_带上目标数() throws Exception {
+        PtMediaServerPlus on = server(1, "1", null);
+        when(serverService.listActive()).thenReturn(List.of(on));
+        IMediaServerClient client = mock(IMediaServerClient.class);
+        when(factory.get(any())).thenReturn(client);
+        when(client.listLibraryRoots(same(on))).thenReturn(List.of(TV, MOVIE));
+
+        notifier.submitDir(Path.of("/media/电视剧/a"));
+        notifier.submitDir(Path.of("/media/电影/b"));
+        notifier.flushNow();
+
+        verify(events, times(1)).publishEvent(new LibraryRefreshedEvent(2));
+    }
+
+    @Test
+    void 事件_全部不在库下或发送失败时不发布() throws Exception {
+        PtMediaServerPlus on = server(1, "1", null);
+        when(serverService.listActive()).thenReturn(List.of(on));
+        IMediaServerClient client = mock(IMediaServerClient.class);
+        when(factory.get(any())).thenReturn(client);
+        when(client.listLibraryRoots(same(on))).thenReturn(List.of(TV));
+
+        notifier.submitDir(Path.of("/data/strm/a"));
+        notifier.flushNow();
+
+        doThrow(new IOException("500")).when(client).refreshPaths(same(on), anyList());
+        notifier.submitDir(Path.of("/media/电视剧/a"));
+        notifier.flushNow();
+
+        verify(events, never()).publishEvent(any(Object.class));
     }
 
     // ---------------- 删除 ----------------
