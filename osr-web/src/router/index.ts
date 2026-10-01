@@ -135,6 +135,10 @@ const componentMap: Record<string, Component | (() => Promise<any>)> = {
   'openlist/ptTransferRule/index': createDeviceView(
     () => import('@/views/openlist/ptTransferRule/index.vue'),
     () => import('@/views-mobile/ptTransferRule/index.vue')
+  ),
+  'openlist/ptSearch/index': createDeviceView(
+    () => import('@/views/openlist/ptSearch/index.vue'),
+    () => import('@/views-mobile/ptSearch/index.vue')
   )
 }
 

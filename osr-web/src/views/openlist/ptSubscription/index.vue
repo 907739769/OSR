@@ -192,6 +192,7 @@
 <script setup lang="ts">
 import PageHeader from '@/components/PageHeader.vue'
 import { computed, onMounted } from 'vue'
+import { useSubscribeDeepLink } from '@/composables/useSubscribeDeepLink'
 import { useRouter, useRoute } from 'vue-router'
 import { getRoutePathForComponent } from '@/router'
 import { usePtSubscriptionProvider } from '@/composables/ptSubscriptionContext'
@@ -214,7 +215,7 @@ const route = useRoute()
 const { showSearch } = useSearchPanel()
 
 const {
-  taskList, loading, total, queryParams, getList, handleQuery, resetQuery, openSubscribeDialog, showProgressById, handleDelete,
+  taskList, loading, total, queryParams, getList, handleQuery, resetQuery, openSubscribeDialog, openSubscribeWith, showProgressById, handleDelete,
   selectedIds, selectionMode, toggleSelectionMode,
   handleBatchPause, handleBatchResume,
   handleBatchAutoSearch, handleBatchSearchMissing, abortBatchSearch,
@@ -251,6 +252,9 @@ onMounted(() => {
   const subId = Number(route.query.id)
   if (subId) showProgressById(subId, Number(route.query.episode) || undefined)
 })
+
+// 资源搜索页「转为订阅」带 ?subscribe=片名 跳过来：打开建订阅弹窗并搜好 TMDb
+useSubscribeDeepLink(openSubscribeWith)
 
 /** 缺集体检页的路径。菜单没授权时反查不到，页头那个入口就整个不渲染 */
 const healthPath = computed(() => getRoutePathForComponent('openlist/ptHealth/index'))

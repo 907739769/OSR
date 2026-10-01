@@ -105,6 +105,17 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
     subscribeOpen.value = true
   }
 
+  /**
+   * 带着片名打开建订阅弹窗并直接搜好 TMDb（资源搜索页「转为订阅」走这里）。
+   * 用户落到弹窗里时已经能看到候选，只差点选一部——再让他手打一遍片名是白费功夫。
+   */
+  const openSubscribeWith = (keyword: string, mediaType: 'TV' | 'MOVIE') => {
+    openSubscribeDialog()
+    searchForm.mediaType = mediaType
+    searchForm.keyword = keyword
+    return doSearch()
+  }
+
   const doSearch = async () => {
     if (!searchForm.keyword?.trim()) {
       message.warning('请输入片名')
@@ -1183,7 +1194,7 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
     ownerItems, ownerFilterVisible,
     // 建订阅向导
     subscribeOpen, searchLoading, subscribeLoading, searchResults, searchForm,
-    picked, pickedSeason, openSubscribeDialog, doSearch, pick, confirmSubscribe,
+    picked, pickedSeason, openSubscribeDialog, openSubscribeWith, doSearch, pick, confirmSubscribe,
     pickedSeasonEpisodeCount, pickedSeasonCountLoading,
     // 进度
     progressOpen, progressLoading, progress, currentSubscription, showProgress, showProgressById,

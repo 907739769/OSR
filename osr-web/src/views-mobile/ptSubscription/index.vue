@@ -191,6 +191,7 @@
 
 <script setup lang="ts">
 import { computed, onMounted } from 'vue'
+import { useSubscribeDeepLink } from '@/composables/useSubscribeDeepLink'
 import { useRoute, useRouter } from 'vue-router'
 import { getRoutePathForComponent } from '@/router'
 import MobileListPage from '@/components/mobile/MobileListPage.vue'
@@ -216,7 +217,7 @@ const router = useRouter()
 // 弹窗子组件共享这同一个实例（见 ptSubscriptionContext）
 const {
   taskList, loading, total, queryParams,
-  handleQuery, resetQuery, openSubscribeDialog, showProgressById, showSearchLogs, showDiagnosis, isEpisodeFirst, toggleSeasonPackPolicy,
+  handleQuery, resetQuery, openSubscribeDialog, openSubscribeWith, showProgressById, showSearchLogs, showDiagnosis, isEpisodeFirst, toggleSeasonPackPolicy,
   openFilterOverride,
   openSeasonSearch,
   handleRefresh, handlePause, handleResume, handleRemove, handleResetMovie,
@@ -257,6 +258,9 @@ onMounted(() => {
   const subId = Number(route.query.id)
   if (subId) showProgressById(subId, Number(route.query.episode) || undefined)
 })
+
+// 资源搜索页「转为订阅」带 ?subscribe=片名 跳过来：打开建订阅弹窗并搜好 TMDb
+useSubscribeDeepLink(openSubscribeWith)
 
 // 新增按钮并在悬浮底栏右侧（原先是压在内容上的右下角悬浮按钮），见 useMobilePageAction
 useMobilePageAction(() => ({ icon: 'plus', label: '新增订阅', onClick: () => openSubscribeDialog() }))

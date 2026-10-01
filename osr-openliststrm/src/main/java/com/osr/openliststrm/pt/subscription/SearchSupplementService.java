@@ -480,6 +480,26 @@ public class SearchSupplementService {
                 ? episode : absolutes.toLocalOrSelf(episode);
         validateEpisode(sub, targetEpisode);
 
+        TorrentInfo torrent = torrentOf(request);
+        subscriptionEngine.fillParsed(torrent);
+        PushTarget target = resolvePushTarget(sub, targetEpisode, torrent, absolutes);
+        // 走 pushManual 而不是 pushBest：手动推送要拿到未推送的真实原因，
+        // 且不受「该种子有一条不可重试的失败记录」这层自动路径护栏约束
+        PushOutcome outcome = subscriptionEngine.pushManual(
+                sub, target.episode(), target.episodeEnd(), List.of(torrent));
+
+        log.info("{} 手动选择推送[{}]：{}",
+                PtLogText.subject(sub, target.episode(), target.episodeEnd()), torrent.getTitle(),
+                outcome.pushed() ? "已推送" : "推送失败（" + outcome.reason() + "）");
+        return outcome;
+    }
+
+    /**
+     * 把前端回传的候选还原成 {@link TorrentInfo}（解析字段由调用方随后 {@code fillParsed} 补上）。
+     * 订阅内的手动推送与资源搜索页的直接下载共用这一份——字段漏抄一个（description、files）
+     * 两边的重新解析就会给出不同答案，见 {@code SearchCandidateDTO#description} 的说明。
+     */
+    public static TorrentInfo torrentOf(PushSelectedRequest request) {
         TorrentInfo torrent = new TorrentInfo();
         torrent.setTitle(request.getTitle());
         torrent.setSize(request.getSize());
@@ -493,18 +513,7 @@ public class SearchSupplementService {
         torrent.setDescription(request.getDescription());
         torrent.setPubDate(request.getPubDate());
         torrent.setFiles(request.getFiles());
-
-        subscriptionEngine.fillParsed(torrent);
-        PushTarget target = resolvePushTarget(sub, targetEpisode, torrent, absolutes);
-        // 走 pushManual 而不是 pushBest：手动推送要拿到未推送的真实原因，
-        // 且不受「该种子有一条不可重试的失败记录」这层自动路径护栏约束
-        PushOutcome outcome = subscriptionEngine.pushManual(
-                sub, target.episode(), target.episodeEnd(), List.of(torrent));
-
-        log.info("{} 手动选择推送[{}]：{}",
-                PtLogText.subject(sub, target.episode(), target.episodeEnd()), torrent.getTitle(),
-                outcome.pushed() ? "已推送" : "推送失败（" + outcome.reason() + "）");
-        return outcome;
+        return torrent;
     }
 
     /**
@@ -598,9 +607,9 @@ public class SearchSupplementService {
 
     /**
      * 将 TorrentInfo 列表转换为前端展示用的 SearchCandidateDTO 列表，
-     * 附带索引器名称用于展示。
+     * 附带索引器名称用于展示。订阅内的候选弹窗与资源搜索页共用。
      */
-    private List<SearchCandidateDTO> toCandidateDtos(List<TorrentInfo> torrents) {
+    public List<SearchCandidateDTO> toCandidateDtos(List<TorrentInfo> torrents) {
         // 预加载索引器 ID→名称映射，避免逐条查库
         Map<Integer, String> indexerNames = indexerService.list().stream()
                 .collect(Collectors.toMap(PtIndexerPlus::getId, PtIndexerPlus::getName,
@@ -627,6 +636,9 @@ public class SearchSupplementService {
                         .files(t.getFiles())
                         .parsedEpisode(t.getParsedEpisode())
                         .parsedEpisodeEnd(t.getParsedEpisodeEnd())
+                        .parsedTitle(t.getParsedTitle())
+                        .parsedSeason(t.getParsedSeason())
+                        .hitAndRun(t.isHitAndRun())
                         .build())
                 .toList();
     }
@@ -1135,6 +1147,22 @@ public class SearchSupplementService {
      */
     public List<TorrentInfo> searchAcrossIndexers(String keyword) {
         return executePlan(List.of(keywordStep(keyword)));
+    }
+
+    /**
+     * 不挂订阅的关键词搜索（资源搜索页）：按站点范围并发搜、按 {@code (indexerId, guid)} 去重、填好解析字段。
+     * <p>
+     * 不做任何「是不是这部作品」的过滤——没有订阅可比，标题、季集号、年份由用户自己看。
+     * 站点范围的语义与订阅内手动搜索相同（{@link #resolveIndexerScope}）：勾选的全部不可用时报错、不退回搜全部。
+     * </p>
+     *
+     * @throws IllegalArgumentException 所选站点全部已停用或删除
+     */
+    public List<TorrentInfo> searchKeyword(String keyword, Collection<Integer> indexerIds) {
+        IndexerScope scope = resolveIndexerScope(indexerIds);
+        List<TorrentInfo> found = dedupeByIndexerGuid(executePlan(List.of(keywordStep(keyword)), scope.ids()));
+        fillParsedAll(found);
+        return found;
     }
 
     /**
