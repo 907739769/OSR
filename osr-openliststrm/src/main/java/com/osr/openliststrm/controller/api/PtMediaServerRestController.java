@@ -6,6 +6,8 @@ import com.osr.common.core.domain.Result;
 import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.mybatisplus.domain.PtMediaServerPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtMediaServerPlusService;
+import com.osr.openliststrm.pt.media.LibraryMappingCheckService;
+import com.osr.openliststrm.pt.media.LibraryPathMapping;
 import com.osr.openliststrm.pt.media.MediaServerClientFactory;
 import com.osr.openliststrm.pt.media.MediaServerProbe;
 import com.osr.openliststrm.pt.media.MediaServerUser;
@@ -31,6 +33,9 @@ public class PtMediaServerRestController extends BaseCrudRestController<IPtMedia
     @Autowired
     private MediaServerClientFactory mediaServerClientFactory;
 
+    @Autowired
+    private LibraryMappingCheckService libraryMappingCheckService;
+
     /**
      * 媒体服务器配置存着 Emby/Jellyfin 的 API Key，且它是订阅「已入库」判定的唯一数据来源，
      * 写操作限管理员。读仍放开——{@link #maskSensitiveFields} 已经把 apikey 抹掉了。
@@ -50,6 +55,12 @@ public class PtMediaServerRestController extends BaseCrudRestController<IPtMedia
         if (StringUtils.isBlank(incoming.getApiKey())) {
             incoming.setApiKey(existing.getApiKey());
         }
+    }
+
+    /** 路径映射写错了的话通知会静默失效，保存时当场拦下 */
+    @Override
+    protected String validateWrite(PtMediaServerPlus entity) {
+        return LibraryPathMapping.validate(entity.getPathMapping());
     }
 
     @Override
@@ -119,7 +130,36 @@ public class PtMediaServerRestController extends BaseCrudRestController<IPtMedia
     }
 
     /**
-     * 两个探测类端点共用的准备：回填已保存的 API Key，并校验必填项。
+     * 检查路径映射：把 OSR 会写新文件的目录逐条映射，列出各自落在哪个媒体库。用的是请求体里（表单上还没保存）的映射。
+     * <p>
+     * 限管理员的理由与 {@link #test} 逐字相同。
+     * </p>
+     */
+    @PostMapping("/check-mapping")
+    public Result<LibraryMappingCheckService.Result> checkMapping(@RequestBody PtMediaServerPlus entity) {
+        Result<LibraryMappingCheckService.Result> denied = denyIfNotAdmin();
+        if (denied != null) {
+            return denied;
+        }
+        Result<LibraryMappingCheckService.Result> invalid = prepareForProbe(entity);
+        if (invalid != null) {
+            return invalid;
+        }
+        String mappingError = LibraryPathMapping.validate(entity.getPathMapping());
+        if (mappingError != null) {
+            return Result.error(mappingError);
+        }
+        try {
+            return Result.success(libraryMappingCheckService.check(entity));
+        } catch (IllegalArgumentException e) {
+            return Result.error(e.getMessage());
+        } catch (IOException e) {
+            return Result.error("获取媒体库列表失败：" + e.getMessage());
+        }
+    }
+
+    /**
+     * 探测类端点共用的准备：回填已保存的 API Key，并校验必填项。
      *
      * @return 校验不通过时的错误响应；通过则返回 null
      */

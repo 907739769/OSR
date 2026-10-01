@@ -7,6 +7,7 @@ import com.osr.framework.manager.AsyncManager;
 import com.osr.openliststrm.config.OpenlistConfig;
 import com.osr.openliststrm.mybatisplus.domain.RenameDetailPlus;
 import com.osr.openliststrm.mybatisplus.service.IRenameDetailPlusService;
+import com.osr.openliststrm.pt.media.LibraryRefreshNotifier;
 import com.osr.openliststrm.rename.cleanup.ArtifactPaths;
 import com.osr.openliststrm.rename.model.MediaInfo;
 import lombok.extern.slf4j.Slf4j;
@@ -30,6 +31,9 @@ public class ScrapeService {
 
     @Autowired
     private NfoGenerator nfoGenerator;
+
+    @Autowired
+    private LibraryRefreshNotifier libraryRefreshNotifier;
 
     @Autowired
     private MediaImageDownloader imageDownloader;
@@ -87,6 +91,10 @@ public class ScrapeService {
                     }
                     updateScrapeStatus(detailId, "2", msg);
                 }
+            } finally {
+                // 刮削完再通知媒体服务器：先通知的话它会抢在 NFO 写好之前联网匹配，之后写入的 NFO
+                // 要等下一次元数据刷新才生效。刮削失败也照样通知——文件本身已经在库里了
+                libraryRefreshNotifier.submitFile(destFile);
             }
         });
     }
@@ -278,6 +286,7 @@ public class ScrapeService {
             if (Files.exists(file)) {
                 Files.delete(file);
                 log.debug("已删除刮削文件: {}", file);
+                libraryRefreshNotifier.submitDeleted(file);
                 return 1;
             }
         } catch (IOException e) {

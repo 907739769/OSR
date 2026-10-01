@@ -7,8 +7,10 @@ import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.mybatisplus.domain.PtMediaServerPlus;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.HttpUrl;
+import okhttp3.MediaType;
 import okhttp3.OkHttpClient;
 import okhttp3.Request;
+import okhttp3.RequestBody;
 import okhttp3.Response;
 import okhttp3.ResponseBody;
 import org.springframework.stereotype.Component;
@@ -37,6 +39,7 @@ import java.util.Set;
 @Component
 public class EmbyClient implements IMediaServerClient {
     private static final String TYPE = "EMBY";
+    private static final MediaType JSON = MediaType.parse("application/json");
 
     private final OkHttpClient httpClient;
 
@@ -338,6 +341,65 @@ public class EmbyClient implements IMediaServerClient {
         return new MediaStreamInfo(probed || !subtitles.isEmpty(), audio, subtitles);
     }
 
+    /**
+     * {@code /Library/VirtualFolders} 返回各库的 {@code Locations}，Emby 与 Jellyfin 同名同结构。
+     * 要管理员权限，服务器级的 API Key 本来就是。
+     */
+    @Override
+    public List<LibraryRoot> listLibraryRoots(PtMediaServerPlus config) throws IOException {
+        JSONArray folders;
+        String body = get(config, "/Library/VirtualFolders", Map.of());
+        try {
+            folders = JSONArray.parse(body);
+        } catch (JSONException e) {
+            throw new IOException("返回的响应不是合法 JSON，该地址可能并非 Emby/Jellyfin：" + truncate(body), e);
+        }
+        List<LibraryRoot> roots = new ArrayList<>();
+        if (folders == null) {
+            return roots;
+        }
+        for (int i = 0; i < folders.size(); i++) {
+            JSONObject folder = folders.getJSONObject(i);
+            JSONArray locations = folder.getJSONArray("Locations");
+            if (locations == null) {
+                continue;
+            }
+            for (int j = 0; j < locations.size(); j++) {
+                String location = locations.getString(j);
+                if (StringUtils.isNotBlank(location)) {
+                    roots.add(new LibraryRoot(folder.getString("Name"), location, folder.getString("ItemId")));
+                }
+            }
+        }
+        return roots;
+    }
+
+    /**
+     * {@code POST /Library/Media/Updated}：一次请求带上全部目录，媒体服务器自己排队、合并后扫描对应目录。
+     * 发的是目录而不是文件——一季 20 集只算一处，且 .strm、NFO、海报都在同一个目录里，扫一遍全带上。
+     * <p>
+     * 删除也走这里：通知方已把「被删文件所在目录」上溯到最近一个还存在的目录，于是这里发出去的永远是
+     * 「请重扫这个存在的目录」，扫的时候已不在磁盘上的条目会被移出库。UpdateType 因此一律写 Created——
+     * Jellyfin 的 {@code PostUpdatedMedia} 只取 Path、不看这个字段，Emby 与它同源。
+     * </p>
+     */
+    @Override
+    public void refreshPaths(PtMediaServerPlus config, List<RefreshTarget> targets) throws IOException {
+        if (targets.isEmpty()) {
+            return;
+        }
+        JSONArray updates = new JSONArray();
+        for (RefreshTarget target : targets) {
+            JSONObject update = new JSONObject();
+            update.put("Path", target.effectivePath());
+            update.put("UpdateType", "Created");
+            updates.add(update);
+        }
+        JSONObject body = new JSONObject();
+        body.put("Updates", updates);
+        post(config, "/Library/Media/Updated", body.toJSONString());
+    }
+
     private static void putUserId(PtMediaServerPlus config, Map<String, String> query) {
         if (StringUtils.isNotBlank(config.getUserId())) {
             query.put("userId", config.getUserId());
@@ -394,6 +456,19 @@ public class EmbyClient implements IMediaServerClient {
             }
             ResponseBody body = response.body();
             return body == null ? "{}" : body.string();
+        }
+    }
+
+    private void post(PtMediaServerPlus config, String path, String json) throws IOException {
+        Request request = new Request.Builder()
+                .url(parseUrl(config.baseUrl() + path).build())
+                .header("X-Emby-Token", config.getApiKey())
+                .post(RequestBody.create(JSON, json))
+                .build();
+        try (Response response = httpClient.newCall(request).execute()) {
+            if (!response.isSuccessful()) {
+                throw new MediaServerHttpException(response.code());
+            }
         }
     }
 

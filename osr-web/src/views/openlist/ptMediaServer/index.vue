@@ -3,7 +3,7 @@
     <PageHeader
       icon="server"
       title="媒体服务器"
-      desc="配置 Emby / Jellyfin，用于入库对账。启用的服务器全部参与查询，任一台命中即算已入库"
+      desc="配置 Emby / Jellyfin / Plex，用于入库对账与新文件刷新通知。启用的服务器全部参与查询，任一台命中即算已入库"
     />
 
     <!-- Search Panel -->
@@ -78,6 +78,10 @@
             <div class="card-row">
               <span class="label">服务器地址</span>
               <span class="value" :title="item.url">{{ item.url }}</span>
+            </div>
+            <div class="card-row">
+              <span class="label">刷新通知</span>
+              <span class="value">{{ item.libraryNotify === '1' ? '入库后通知' : '未开启' }}</span>
             </div>
             <!-- 「创建时间」换成对账状态：媒体服务器挂掉的唯一可见症状是订阅进度不动，
                  而这一行是页面上唯一能看出它挂了的地方 -->

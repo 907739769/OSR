@@ -26,3 +26,33 @@ export function testPtMediaServerApi(data: any) {
 export function listPtMediaServerUsersApi(data: any) {
   return request.post<any, { id: string; name?: string }[]>('/openliststrm/pt-media-servers/users', data)
 }
+
+export interface LibraryRoot {
+  name?: string
+  path: string
+  key?: string
+}
+
+export interface MappingCheckRow {
+  /** 目录是谁的：「STRM 全局输出目录」「重命名任务#2 目标目录」 */
+  source: string
+  localPath: string
+  mappedPath: string
+  /** 命中的映射规则；null 表示按原路径比对 */
+  rule?: string | null
+  /** 落在哪个媒体库；null 表示不在任何库下 */
+  libraryName?: string | null
+  libraryPath?: string | null
+  /** 目录本身不在库下、但它下面有库目录时的那些库名 */
+  nestedLibraries: string[]
+}
+
+export interface MappingCheckResult {
+  libraries: LibraryRoot[]
+  rows: MappingCheckRow[]
+}
+
+/** 用表单上（未保存）的路径映射，把 OSR 会写新文件的目录逐条映射，看各自落在哪个媒体库 */
+export function checkPtMediaServerMappingApi(data: any) {
+  return request.post<any, MappingCheckResult>('/openliststrm/pt-media-servers/check-mapping', data)
+}

@@ -19,6 +19,7 @@ import com.osr.openliststrm.mybatisplus.service.IOpenlistCopyPlusService;
 import com.osr.openliststrm.mybatisplus.service.IOpenlistStrmDirSnapshotPlusService;
 import com.osr.openliststrm.mybatisplus.service.IOpenlistStrmPlusService;
 import com.osr.openliststrm.mybatisplus.service.IOpenlistStrmTaskPlusService;
+import com.osr.openliststrm.pt.media.LibraryRefreshNotifier;
 import com.osr.openliststrm.rename.cleanup.ArtifactPaths;
 import com.osr.openliststrm.service.BatchRemoveOutcome;
 import com.osr.openliststrm.service.IStrmService;
@@ -149,6 +150,10 @@ public class StrmServiceImpl implements IStrmService {
 
     @Autowired
     private MediaExtensionProvider mediaExtensions;
+
+    /** 写成功的 .strm / 字幕报给它，攒批后通知媒体服务器刷新；STRM 输出目录不是媒体库时它会自己跳过 */
+    @Autowired
+    private LibraryRefreshNotifier libraryRefreshNotifier;
 
     private static final Pattern ILLEGAL_PATTERN = Pattern.compile("[\\\\/:*?\"<>|]");
 
@@ -368,6 +373,7 @@ public class StrmServiceImpl implements IStrmService {
             String content = config.getOpenListUrl() + "/d" + encodePath;
             writeAtomically(strmFile, content);
             strmHelper.addStrm(filePath, name, "1", null, fileSize);
+            libraryRefreshNotifier.submitFile(strmFile);
         } catch (Exception e) {
             log.error("生成 .strm 文件失败 {}", strmFile, e);
             strmHelper.addStrm(filePath, name, "0", StrmHelper.failReason("写入 .strm 文件失败", e), fileSize);
@@ -400,6 +406,7 @@ public class StrmServiceImpl implements IStrmService {
             Path outFile = targetDir.resolve(localBaseName(name) + name.substring(name.lastIndexOf('.')));
             downloadSubtitle(data.getString("raw_url"), outFile.toString());
             strmHelper.addStrm(filePath, name, "1", null, size);
+            libraryRefreshNotifier.submitFile(outFile);
         } catch (Exception e) {
             log.error("重新下载字幕失败 {}", path, e);
             strmHelper.addStrm(filePath, name, "0", StrmHelper.failReason("下载字幕失败", e), null);
@@ -862,6 +869,7 @@ public class StrmServiceImpl implements IStrmService {
                 String content = ctx.baseUrl() + "/d" + encodePath;
                 writeAtomically(strmFile, content);
                 records.add(strmHelper.newRecord(currentPath, rawName, "1", size, null));
+                libraryRefreshNotifier.submitFile(strmFile);
             } catch (Exception e) {
                 log.error("写入 .strm 文件失败 {}", strmFile, e);
                 records.add(strmHelper.newRecord(currentPath, rawName, "0", size, StrmHelper.failReason("写入 .strm 文件失败", e)));
@@ -877,6 +885,7 @@ public class StrmServiceImpl implements IStrmService {
                     File outFile = new File(currentLocalPath + File.separator + fileName + rawName.substring(rawName.lastIndexOf(".")));
                     downloadSubtitle(url, outFile.getAbsolutePath());
                     records.add(strmHelper.newRecord(currentPath, rawName, "1", size, null));
+                    libraryRefreshNotifier.submitFile(outFile.toPath());
                 } else {
                     // 查不到字幕文件（OpenList 无响应或文件刚被删）时不落记录，下次全量会再试；
                     // 增量这边也得让这个目录下次照常列，否则它会被一直跳过

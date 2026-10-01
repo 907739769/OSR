@@ -8,8 +8,10 @@ import {
   updatePtMediaServerApi,
   deletePtMediaServerApi,
   testPtMediaServerApi,
-  listPtMediaServerUsersApi
+  listPtMediaServerUsersApi,
+  checkPtMediaServerMappingApi
 } from '@/api/openlist/ptMediaServer'
+import type { MappingCheckResult } from '@/api/openlist/ptMediaServer'
 import type { SearchParams } from '@/types'
 import type { ListLoadOptions } from './useGridPageSize'
 
@@ -51,7 +53,9 @@ export function usePtMediaServer(options: ListLoadOptions = {}) {
       url: undefined,
       apiKey: undefined,
       userId: undefined,
-      enabled: '1'
+      enabled: '1',
+      libraryNotify: '0',
+      pathMapping: undefined
     }),
     rules: {
       name: [{ required: true, message: '名称不能为空', trigger: 'blur' }],
@@ -118,6 +122,30 @@ export function usePtMediaServer(options: ListLoadOptions = {}) {
     }
   }
 
+  // ---------- 检查路径映射 ----------
+  //
+  // 通知刷新最怕「配了但没生效」：库外的路径媒体服务器照样回成功，日志里一切正常。
+  // 这里用表单上还没保存的映射逐条核对，保存前就能看到每个目录落在哪个库
+  const mappingCheck = ref<MappingCheckResult | null>(null)
+  const mappingCheckLoading = ref(false)
+
+  const handleCheckMapping = async () => {
+    if (!base.form.value.url || (!base.form.value.apiKey && !base.form.value.id)) {
+      message.warning('请先填写服务器地址与 API Key')
+      return
+    }
+    mappingCheckLoading.value = true
+    try {
+      mappingCheck.value = await checkPtMediaServerMappingApi(base.form.value)
+    } catch (e) {
+      // 具体原因（映射第几行写错、拉媒体库失败）已由拦截器弹出
+      mappingCheck.value = null
+      console.error('[PT媒体服务器] 检查路径映射失败:', e)
+    } finally {
+      mappingCheckLoading.value = false
+    }
+  }
+
   // ---------- 「最后一台启用中」的提醒 ----------
   //
   // 判据取当前列表里 enabled === '1' 的条数。列表只有当前页，但这张表实际只有个位数行、
@@ -169,14 +197,16 @@ export function usePtMediaServer(options: ListLoadOptions = {}) {
     return base.submitForm()
   }
 
-  /** 打开弹窗时清掉上一台服务器的用户列表，否则会把 A 的用户显示在 B 的表单里 */
+  /** 打开弹窗时清掉上一台服务器的用户列表与映射检查结果，否则会把 A 的显示在 B 的表单里 */
   const handleAdd = (title: string) => {
     users.value = []
+    mappingCheck.value = null
     return base.handleAdd(title)
   }
 
   const handleUpdate = (row?: any, title?: string) => {
     users.value = []
+    mappingCheck.value = null
     return base.handleUpdate(row, title)
   }
 
@@ -214,6 +244,7 @@ export function usePtMediaServer(options: ListLoadOptions = {}) {
     handleDelete, submitForm, handleAdd, handleUpdate,
     testLoading, handleTest,
     users, usersLoading, handleLoadUsers,
+    mappingCheck, mappingCheckLoading, handleCheckMapping,
     totalPages, prevPage, nextPage, handleSizeChange,
     searchCollapsed
   }

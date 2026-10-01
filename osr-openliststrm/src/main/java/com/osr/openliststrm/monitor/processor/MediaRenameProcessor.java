@@ -7,6 +7,7 @@ import com.osr.common.utils.spring.SpringUtils;
 import com.osr.openliststrm.config.OpenlistConfig;
 import com.osr.openliststrm.helper.OpenListHelper;
 import com.osr.openliststrm.mybatisplus.domain.RenameCategoryRulePlus;
+import com.osr.openliststrm.pt.media.LibraryRefreshNotifier;
 import com.osr.openliststrm.mybatisplus.domain.RenameDetailPlus;
 import com.osr.openliststrm.mybatisplus.domain.RenameTaskPlus;
 import com.osr.openliststrm.mybatisplus.service.IRenameCategoryRulePlusService;
@@ -54,6 +55,7 @@ public class MediaRenameProcessor implements FileProcessor {
     private final IRenameCategoryRulePlusService categoryRuleService;
     private final IRenameTemplateConfigService templateConfigService;
     private ScrapeService scrapeService;
+    private final LibraryRefreshNotifier libraryRefreshNotifier;
 
     /** 按目标路径加锁，使用引用计数避免"释放后又被新线程复用同一把已失效锁"的竞态 */
     private static final ConcurrentMap<String, LockEntry> FILE_LOCKS = new ConcurrentHashMap<>();
@@ -129,6 +131,7 @@ public class MediaRenameProcessor implements FileProcessor {
         this.categoryRuleService = SpringUtils.getBean(IRenameCategoryRulePlusService.class);
         this.templateConfigService = SpringUtils.getBean(IRenameTemplateConfigService.class);
         this.scrapeService = SpringUtils.getBean(ScrapeService.class);
+        this.libraryRefreshNotifier = SpringUtils.getBean(LibraryRefreshNotifier.class);
     }
 
     @Override
@@ -397,10 +400,15 @@ public class MediaRenameProcessor implements FileProcessor {
                 log.warn("重命名成功回调失败：{}", e.getMessage());
             }
         }
+        boolean scraping = false;
         try {
-            scrapeAsyncFile(destFile, info, mediaType, outputDir, detailId);
+            scraping = scrapeAsyncFile(destFile, info, mediaType, outputDir, detailId);
         } catch (Exception e) {
             log.warn("启动刮削失败: {}", e.getMessage());
+        }
+        // 要刮削的由 ScrapeService 在刮完之后通知，这里先通知会让媒体服务器抢在 NFO 写好之前联网匹配
+        if (!scraping) {
+            libraryRefreshNotifier.submitFile(destFile);
         }
     }
 
@@ -417,19 +425,21 @@ public class MediaRenameProcessor implements FileProcessor {
     /**
      * 异步触发刮削（NFO + 图片下载）。
      * 从任务配置中读取 scrape 开关。
+     *
+     * @return 是否真的交给了刮削（交给了的话由刮削收尾时通知媒体服务器）
      */
-    private void scrapeAsyncFile(Path destFile, MediaInfo info, String mediaType, Path outputDir, Integer detailId) {
+    private boolean scrapeAsyncFile(Path destFile, MediaInfo info, String mediaType, Path outputDir, Integer detailId) {
         try {
             RenameTaskPlus task = resolveTask();
             if (task == null) {
                 log.warn("未找到 targetRoot={} 对应的重命名任务，跳过刮削", targetRoot);
-                return;
+                return false;
             }
 
             // 检查刮削配置：只有启用了刮削才执行
             if (!"1".equals(task.getScrapeEnabled())) {
                 log.debug("任务 {} 未启用刮削，跳过", task.getId());
-                return;
+                return false;
             }
 
             scrapeService.scrapeAsync(
@@ -437,8 +447,10 @@ public class MediaRenameProcessor implements FileProcessor {
                     task.getScrapeEnabled(), task.getScrapeNfo(), task.getScrapeImages(),
                     "1".equals(task.getScrapeForceOverwrite())
             );
+            return true;
         } catch (Exception e) {
             log.warn("查询任务配置失败: {}", e.getMessage());
+            return false;
         }
     }
 

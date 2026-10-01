@@ -7,6 +7,7 @@ import com.osr.openliststrm.mybatisplus.domain.OpenlistStrmPlus;
 import com.osr.openliststrm.mybatisplus.domain.RenameDetailPlus;
 import com.osr.openliststrm.mybatisplus.service.IOpenlistStrmPlusService;
 import com.osr.openliststrm.mybatisplus.service.IRenameDetailPlusService;
+import com.osr.openliststrm.pt.media.LibraryRefreshNotifier;
 import com.osr.openliststrm.scrape.ScrapeService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -40,6 +41,8 @@ class RenameCleanupServiceTest {
     private OpenlistConfig config;
     @Mock
     private OpenListHelper openListHelper;
+    @Mock
+    private LibraryRefreshNotifier libraryRefreshNotifier;
 
     private RenameCleanupService service;
 
@@ -60,6 +63,7 @@ class RenameCleanupServiceTest {
         inject("openlistStrmService", openlistStrmService);
         inject("config", config);
         inject("openListHelper", openListHelper);
+        inject("libraryRefreshNotifier", libraryRefreshNotifier);
         // 真实实现按扩展名判定，这里照抄同样的语义，避免测试依赖字典表
         when(openListHelper.isStrm(any())).thenAnswer(i -> i.getArgument(0, String.class).toLowerCase().endsWith(".strm"));
 
@@ -154,6 +158,18 @@ class RenameCleanupServiceTest {
         assertEquals(0, result.records());
         // 定位不到是哪一条记录时宁可留着：删错记录会让日后重新出现的同路径文件永远生不出 .strm
         verify(openlistStrmService, never()).removeByIds(any());
+    }
+
+    /** 删掉的主文件要报给刷新通知，否则媒体库里会留着一个点开就播不了的条目 */
+    @Test
+    void 清理产物_删掉的文件报给媒体库刷新通知_没删成的不报() throws IOException {
+        Path episode = seasonDir.resolve("某剧 S01E01.strm");
+        Files.writeString(episode, "x");
+
+        service.purge(List.of(detail(1, seasonDir, "某剧 S01E01.strm"), detail(2, seasonDir, "早就不在了.strm")), false);
+
+        verify(libraryRefreshNotifier).submitDeleted(episode.toAbsolutePath().normalize());
+        verify(libraryRefreshNotifier, never()).submitDeleted(seasonDir.resolve("早就不在了.strm").toAbsolutePath().normalize());
     }
 
     @Test

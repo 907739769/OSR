@@ -203,6 +203,42 @@ public class PlexClient implements IMediaServerClient {
         return result;
     }
 
+    /** {@code /library/sections} 里每个库的 {@code Location} 数组；key 是局部刷新要用的 section key */
+    @Override
+    public List<LibraryRoot> listLibraryRoots(PtMediaServerPlus config) throws IOException {
+        List<LibraryRoot> roots = new ArrayList<>();
+        JSONArray sections = container(get(config, "/library/sections", Map.of())).getJSONArray("Directory");
+        if (sections == null) {
+            return roots;
+        }
+        for (int s = 0; s < sections.size(); s++) {
+            JSONObject section = sections.getJSONObject(s);
+            JSONArray locations = section.getJSONArray("Location");
+            if (locations == null) {
+                continue;
+            }
+            for (int i = 0; i < locations.size(); i++) {
+                String path = locations.getJSONObject(i).getString("path");
+                if (StringUtils.isNotBlank(path)) {
+                    roots.add(new LibraryRoot(section.getString("title"), path, section.getString("key")));
+                }
+            }
+        }
+        return roots;
+    }
+
+    /**
+     * {@code /library/sections/{key}/refresh?path=目录}：Plex 的局部扫描只认目录、一次一个，按目标逐个发。
+     * 整库时不带 path。
+     */
+    @Override
+    public void refreshPaths(PtMediaServerPlus config, List<RefreshTarget> targets) throws IOException {
+        for (RefreshTarget target : targets) {
+            Map<String, String> query = target.path() == null ? Map.of() : Map.of("path", target.path());
+            get(config, "/library/sections/" + target.root().key() + "/refresh", query);
+        }
+    }
+
     /** 某类条目的「TMDb ID → ratingKey 列表」索引，带缓存 */
     private Map<String, List<String>> index(PtMediaServerPlus config, int itemType) throws IOException {
         String key = config.getId() + "|" + itemType;
