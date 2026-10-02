@@ -11,12 +11,15 @@ import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.osr.openliststrm.pt.health.EpisodeHealthService;
 import com.osr.openliststrm.pt.health.SubtitleHealthService;
 import com.osr.openliststrm.pt.health.dto.EpisodeHealthReport;
+import com.osr.openliststrm.pt.upgrade.ChineseSubtitleUpgradeService;
 import com.osr.openliststrm.pt.subscription.SearchSupplementService;
+import com.osr.openliststrm.pt.subscription.SubscriptionService;
 import com.osr.openliststrm.pt.subscription.dto.SearchAndPushSummary;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -38,15 +41,18 @@ public class PtHealthRestController extends BaseController {
     private final IPtSubscriptionPlusService subscriptionService;
     private final SearchSupplementService searchSupplementService;
     private final SubtitleHealthService subtitleHealthService;
+    private final ChineseSubtitleUpgradeService chineseSubtitleUpgradeService;
 
     public PtHealthRestController(EpisodeHealthService healthService,
                                   IPtSubscriptionPlusService subscriptionService,
                                   SearchSupplementService searchSupplementService,
-                                  SubtitleHealthService subtitleHealthService) {
+                                  SubtitleHealthService subtitleHealthService,
+                                  ChineseSubtitleUpgradeService chineseSubtitleUpgradeService) {
         this.healthService = healthService;
         this.subscriptionService = subscriptionService;
         this.searchSupplementService = searchSupplementService;
         this.subtitleHealthService = subtitleHealthService;
+        this.chineseSubtitleUpgradeService = chineseSubtitleUpgradeService;
     }
 
     /**
@@ -56,6 +62,32 @@ public class PtHealthRestController extends BaseController {
     @GetMapping("/subtitles")
     public Result<SubtitleHealthService.SubtitleReport> subtitles() {
         return Result.success(subtitleHealthService.report(this::canAccess));
+    }
+
+    /**
+     * 字幕体检的处置：给没有中文字幕的集从 PT 站重新下一个带中字的版本（{@link ChineseSubtitleUpgradeService}，走洗版通道）。
+     * 体检本身仍是只读的，这里显式调用洗版侧的服务。可见范围与体检相同——订阅的主人本来就能在订阅页推送下载。
+     */
+    @PostMapping("/{subId}/subtitles/upgrade")
+    public Result<ChineseSubtitleUpgradeService.Result> upgradeForSubtitles(@PathVariable("subId") Integer subId,
+                                                                            @RequestBody SubtitleUpgradeRequest request) {
+        PtSubscriptionPlus sub = subscriptionService.getById(subId);
+        if (!canAccess(sub)) {
+            return Result.error("订阅不存在或无权访问");
+        }
+        List<Integer> episodes = request == null || request.episodes() == null ? List.of() : request.episodes();
+        if (episodes.isEmpty() && !SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType())) {
+            return Result.error("没有要处理的集");
+        }
+        try {
+            return Result.success(chineseSubtitleUpgradeService.fetch(sub, episodes));
+        } catch (IllegalArgumentException e) {
+            return Result.error(e.getMessage());
+        }
+    }
+
+    /** @param episodes 要换版本的集号；电影可不传 */
+    public record SubtitleUpgradeRequest(List<Integer> episodes) {
     }
 
     /**

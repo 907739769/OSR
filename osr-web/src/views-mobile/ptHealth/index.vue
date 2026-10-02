@@ -251,7 +251,10 @@
         :report="subtitleReport"
         :loading="subtitleLoading"
         :loaded="subtitleLoaded"
+        :upgrading-id="subtitleUpgradingId"
+        :upgrade-results="subtitleUpgradeResults"
         @load="loadSubtitles"
+        @upgrade="upgradeForSubtitles"
         @open="openSubscription"
       />
     </div>
@@ -306,7 +309,8 @@ const {
   batchActing, isActing, anyActing,
   includeIgnored, handleSetIgnored, toggleIncludeIgnored,
   load, handleEnableAutoSearch, handleSearchNow, openSubscription, setBucket, setDiagnosis,
-  subtitleReport, subtitleLoading, subtitleLoaded, loadSubtitles
+  subtitleReport, subtitleLoading, subtitleLoaded, loadSubtitles,
+  subtitleUpgradingId, subtitleUpgradeResults, upgradeForSubtitles
 } = usePtHealth()
 const { firstLoading, refreshing } = useFirstLoad(loading)
 

@@ -267,7 +267,7 @@ public class UpgradeScanService {
      * 它们的质量基线根本没被比较过。
      * </p>
      */
-    private boolean matchesEpisode(PtSubscriptionPlus sub, int episode, TorrentInfo torrent) {
+    static boolean matchesEpisode(PtSubscriptionPlus sub, int episode, TorrentInfo torrent) {
         if (SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType())) {
             return torrent.getParsedSeason() == null && torrent.getParsedEpisode() == null
                     && StringUtils.isNotBlank(torrent.getParsedYear())
@@ -284,14 +284,14 @@ public class UpgradeScanService {
                 || torrent.getParsedEpisodeEnd() <= torrent.getParsedEpisode();
     }
 
-    private String buildKeyword(PtSubscriptionPlus sub, int episode) {
+    static String buildKeyword(PtSubscriptionPlus sub, int episode) {
         if (SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType())) {
             return sub.getTitle();
         }
         return sub.getTitle() + " S" + pad(sub.getSeason()) + "E" + pad(episode);
     }
 
-    private String pad(Integer number) {
+    private static String pad(Integer number) {
         int n = number == null ? 0 : number;
         return n < 10 ? "0" + n : String.valueOf(n);
     }

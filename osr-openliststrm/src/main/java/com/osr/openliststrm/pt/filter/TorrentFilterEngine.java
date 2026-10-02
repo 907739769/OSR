@@ -337,7 +337,7 @@ public class TorrentFilterEngine {
     /**
      * 一段文本（种子标题或描述）里有没有中文字幕标识。
      */
-    static boolean hasChineseSubtitleMark(String text) {
+    public static boolean hasChineseSubtitleMark(String text) {
         return StringUtils.isNotBlank(text) && CHINESE_SUBTITLE_PATTERN.matcher(text).find();
     }
 

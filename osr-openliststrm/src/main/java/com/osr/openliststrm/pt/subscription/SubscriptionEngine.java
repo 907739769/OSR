@@ -351,8 +351,15 @@ public class SubscriptionEngine {
      * @return 是否成功推送了一个种子
      */
     public boolean pushUpgrade(PtSubscriptionPlus sub, int episode, List<TorrentInfo> candidates) {
-        return push(sub, episode, candidates, PushMode.UPGRADE,
-                SearchLogService.SOURCE_SUPPLEMENT).pushed();
+        return pushUpgradeOutcome(sub, episode, candidates).pushed();
+    }
+
+    /**
+     * 同 {@link #pushUpgrade}，但带回没推成的原因。给用户当面点按钮的入口用（字幕体检的「找中字版本」）：
+     * 原因与落进匹配日志的是同一句话，不要在调用方另编一句泛化文案。
+     */
+    public PushOutcome pushUpgradeOutcome(PtSubscriptionPlus sub, int episode, List<TorrentInfo> candidates) {
+        return push(sub, episode, candidates, PushMode.UPGRADE, SearchLogService.SOURCE_SUPPLEMENT);
     }
 
     /**
