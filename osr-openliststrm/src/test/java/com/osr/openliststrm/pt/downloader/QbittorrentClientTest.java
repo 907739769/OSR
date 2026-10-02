@@ -345,6 +345,24 @@ class QbittorrentClientTest {
     }
 
     @Test
+    void freeSpace_取maindata的free_space_on_disk() throws Exception {
+        server.enqueue(loginOk());
+        server.enqueue(new MockResponse().setBody("{\"rid\":1,\"server_state\":{\"free_space_on_disk\":53687091200}}"));
+
+        assertEquals(53687091200L, client.freeSpace(config(22)));
+        server.takeRequest();
+        assertEquals("/api/v2/sync/maindata?rid=0", server.takeRequest().getPath());
+    }
+
+    @Test
+    void freeSpace_旧版没有这个字段时返回null而不是0() throws Exception {
+        server.enqueue(loginOk());
+        server.enqueue(new MockResponse().setBody("{\"rid\":1,\"server_state\":{\"alltime_ul\":1}}"));
+
+        assertEquals(null, client.freeSpace(config(23)));
+    }
+
+    @Test
     void listByTag_带出实时速度与剩余时间_无穷大的eta归一成null() throws Exception {
         server.enqueue(loginOk());
         server.enqueue(new MockResponse().setBody("["

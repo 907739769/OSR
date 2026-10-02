@@ -26,6 +26,12 @@ export function describeProblems(problems: TodoProblem[], suffix: string): strin
   return problems.length > 2 ? `${names} 等 ${problems.length} 台${suffix}` : `${names}${suffix}`
 }
 
+/** 空间不足的提示：只有一台时把「剩多少 / 告警线多少」写出来，多台时只列名字 */
+export function describeLowSpace(problems: TodoProblem[]): string {
+  if (problems.length === 1 && problems[0].detail) return `${problems[0].name} ${problems[0].detail}`
+  return describeProblems(problems, ' 剩余空间低于告警线')
+}
+
 /**
  * 首页「待办提醒」：把散在各页面里、需要用户动手的事汇到一处。
  *
@@ -44,6 +50,7 @@ export function useDashboardTodo() {
   const offlineDownloaders = ref<TodoProblem[]>([])
   const unhealthyMediaServers = ref<TodoProblem[]>([])
   const unresolvedFailedDownloads = ref(0)
+  const lowSpaceDownloaders = ref<TodoProblem[]>([])
 
   async function load() {
     // 刷新时保留旧数字，只有首次加载才进入加载态
@@ -76,7 +83,9 @@ export function useDashboardTodo() {
       offlineDownloaders.value = s.offlineDownloaders ?? []
       unhealthyMediaServers.value = s.unhealthyMediaServers ?? []
       unresolvedFailedDownloads.value = s.unresolvedFailedDownloads ?? 0
-      if (s.offlineDownloaders == null || s.unhealthyMediaServers == null || s.unresolvedFailedDownloads == null) {
+      lowSpaceDownloaders.value = s.lowSpaceDownloaders ?? []
+      if (s.offlineDownloaders == null || s.unhealthyMediaServers == null || s.unresolvedFailedDownloads == null
+        || s.lowSpaceDownloaders == null) {
         anyFailed = true
       }
     } else {
@@ -98,6 +107,8 @@ export function useDashboardTodo() {
     return [
       // 下载器离线排最前：它一掉，订阅命中了也推不下去、在途的也追踪不到，其余待办多半由它引起
       { key: 'downloader', label: '下载器离线', hint: describeProblems(offlineDownloaders.value, ' 连不上'), count: offlineDownloaders.value.length, tone: 'error' as const, path: downloaderPath },
+      // 空间不足紧随其后：写满之后新任务会卡住或失败，而它是提前看得见的
+      { key: 'lowSpace', label: '下载器空间不足', hint: describeLowSpace(lowSpaceDownloaders.value), count: lowSpaceDownloaders.value.length, tone: 'warning' as const, path: downloaderPath },
       { key: 'mediaServer', label: '媒体服务器连不上', hint: describeProblems(unhealthyMediaServers.value, ' 最近一次访问失败，入库对账会停'), count: unhealthyMediaServers.value.length, tone: 'error' as const, path: mediaServerPath },
       { key: 'overdueMissing', label: '逾期缺集', hint: '已播出仍没搜到资源', count: overdueMissing.value, tone: 'warning' as const, path: healthPath },
       { key: 'overdueInFlight', label: '在途逾期', hint: '已推送但迟迟没入库', count: overdueInFlight.value, tone: 'warning' as const, path: healthPath },

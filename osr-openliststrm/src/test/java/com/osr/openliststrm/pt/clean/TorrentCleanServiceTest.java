@@ -259,6 +259,78 @@ class TorrentCleanServiceTest {
         assertTrue(service.cleanAll().isEmpty());
     }
 
+    // ---------- 按空间删种 ----------
+
+    private PtDownloaderPlus spaceDownloader(double belowGb) {
+        PtDownloaderPlus downloader = downloader();
+        downloader.setAutoDeleteFreeBelowGb(BigDecimal.valueOf(belowGb));
+        return downloader;
+    }
+
+    @Test
+    void 按空间删种_剩余空间充足时一个都不删() throws Exception {
+        givenRules(rule(0, null, 0));
+        givenTorrents(torrent("a", "/data/A", 10 * GB, 3600));
+        when(client.freeSpace(any())).thenReturn(200 * GB);
+
+        List<CleanGroupDecision> decisions = service.evaluate(spaceDownloader(100));
+
+        assertEquals(CleanSkipReason.SPACE_SUFFICIENT, decisions.get(0).getSkipReason());
+        assertEquals(0, service.clean(spaceDownloader(100)).getDeletedGroups());
+    }
+
+    /** 从大到小删、腾够就停：缺 25G 时删掉 30G 那组就够了，10G 那组留到下次 */
+    @Test
+    void 按空间删种_从大到小删到腾够为止() throws Exception {
+        givenRules(rule(0, null, 0));
+        givenTorrents(torrent("small", "/data/S", 10 * GB, 3600), torrent("big", "/data/B", 30 * GB, 3600));
+        when(client.freeSpace(any())).thenReturn(75 * GB);
+
+        CleanSummary summary = service.clean(spaceDownloader(100));
+
+        assertEquals(1, summary.getDeletedGroups());
+        verify(client).deleteTorrent(any(), eq("big"), eq(true));
+        verify(client, never()).deleteTorrent(any(), eq("small"), anyBoolean());
+        assertEquals(CleanSkipReason.SPACE_TARGET_REACHED, service.evaluate(spaceDownloader(100)).get(1).getSkipReason());
+    }
+
+    /** 只删种子不删文件的组腾不出空间，不能拿它凑数提前收手 */
+    @Test
+    void 按空间删种_不删文件的组不计入腾出量() throws Exception {
+        PtCleanRulePlus keepFiles = rule(20, null, 0);
+        keepFiles.setDeleteFiles("0");
+        givenRules(keepFiles, rule(0, 20.0, 0));
+        givenTorrents(torrent("noFiles", "/data/N", 50 * GB, 3600), torrent("withFiles", "/data/W", 10 * GB, 3600));
+        when(client.freeSpace(any())).thenReturn(95 * GB);
+
+        List<CleanGroupDecision> decisions = service.evaluate(spaceDownloader(100));
+
+        assertTrue(decisions.stream().allMatch(CleanGroupDecision::isDeletable),
+                "50G 那组不删文件、腾不出空间，10G 那组仍要删");
+    }
+
+    /** 判据缺失不动手 */
+    @Test
+    void 按空间删种_读不到剩余空间时一个都不删() throws Exception {
+        givenRules(rule(0, null, 0));
+        givenTorrents(torrent("a", "/data/A", 10 * GB, 3600));
+        when(client.freeSpace(any())).thenReturn(null);
+
+        assertEquals(CleanSkipReason.FREE_SPACE_UNKNOWN, service.evaluate(spaceDownloader(100)).get(0).getSkipReason());
+
+        when(client.freeSpace(any())).thenThrow(new java.io.IOException("timeout"));
+        assertEquals(CleanSkipReason.FREE_SPACE_UNKNOWN, service.evaluate(spaceDownloader(100)).get(0).getSkipReason());
+    }
+
+    @Test
+    void 没设删种线时不读剩余空间_行为与引入前一致() throws Exception {
+        givenRules(rule(0, null, 0));
+        givenTorrents(torrent("a", "/data/A", 10 * GB, 3600));
+
+        assertTrue(service.evaluate(downloader()).get(0).isDeletable());
+        verify(client, never()).freeSpace(any());
+    }
+
     // ---------- 夹具 ----------
 
     private void givenRules(PtCleanRulePlus... rules) {

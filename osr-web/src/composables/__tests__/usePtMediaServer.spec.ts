@@ -17,7 +17,8 @@ vi.mock('@/api/openlist/ptMediaServer', () => ({
   updatePtMediaServerApi: vi.fn().mockResolvedValue(undefined),
   deletePtMediaServerApi: vi.fn().mockResolvedValue(undefined),
   testPtMediaServerApi: vi.fn(),
-  listPtMediaServerUsersApi: vi.fn()
+  listPtMediaServerUsersApi: vi.fn(),
+  checkPtMediaServerMappingApi: vi.fn()
 }))
 
 /**
@@ -193,5 +194,58 @@ describe('usePtMediaServer 的「最后一台启用中」提醒', () => {
 
       expect(ctx.users.value).toEqual([])
     })
+  })
+})
+
+/**
+ * 「检查路径映射」：通知刷新配错时媒体服务器照样回成功，这个按钮是保存前唯一能看到结论的地方。
+ */
+describe('usePtMediaServer 的检查路径映射', () => {
+  const RESULT = {
+    libraries: [{ name: '电视剧', path: '/media/电视剧' }],
+    rows: [{ source: 'STRM 全局输出目录', localPath: '/data/strm', mappedPath: '/data/strm', nestedLibraries: [] }]
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('用表单上还没保存的映射去检查', async () => {
+    vi.mocked(api.checkPtMediaServerMappingApi).mockResolvedValue(RESULT as any)
+    const ctx = usePtMediaServer({ autoLoad: false })
+    ctx.form.value = { id: 1, url: 'http://emby:8096', pathMapping: '/data/media => /media' } as any
+
+    await ctx.handleCheckMapping()
+
+    expect(vi.mocked(api.checkPtMediaServerMappingApi).mock.calls[0][0]).toMatchObject({ pathMapping: '/data/media => /media' })
+    expect(ctx.mappingCheck.value).toEqual(RESULT)
+  })
+
+  it('没填地址时不发请求', async () => {
+    const ctx = usePtMediaServer({ autoLoad: false })
+    ctx.form.value = { url: undefined } as any
+
+    await ctx.handleCheckMapping()
+
+    expect(api.checkPtMediaServerMappingApi).not.toHaveBeenCalled()
+  })
+
+  it('打开另一台的弹窗时清掉上一台的检查结果', async () => {
+    vi.mocked(api.checkPtMediaServerMappingApi).mockResolvedValue(RESULT as any)
+    const ctx = usePtMediaServer({ autoLoad: false })
+    ctx.form.value = { id: 1, url: 'http://emby:8096' } as any
+    await ctx.handleCheckMapping()
+
+    ctx.handleAdd('新增媒体服务器')
+
+    expect(ctx.mappingCheck.value).toBeNull()
+  })
+
+  it('新增时默认不开启通知', () => {
+    const ctx = usePtMediaServer({ autoLoad: false })
+
+    ctx.handleAdd('新增媒体服务器')
+
+    expect(ctx.form.value.libraryNotify).toBe('0')
   })
 })

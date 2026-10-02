@@ -7,8 +7,11 @@ import {
   updatePtDownloaderApi,
   deletePtDownloaderApi,
   testPtDownloaderApi,
-  validateSavePathApi
+  validateSavePathApi,
+  getDownloaderSpaceApi,
+  type DownloaderSpace
 } from '@/api/openlist/ptDownloader'
+import { formatSize } from './sizeUnits'
 import type { SearchParams } from '@/types'
 import type { ListLoadOptions } from './useGridPageSize'
 
@@ -78,7 +81,9 @@ export function usePtDownloader(options: ListLoadOptions = {}) {
       role: 'DOWNLOAD',
       autoDeleteEnabled: '0',
       autoDeleteExcludeTags: undefined,
-      autoDeleteMaxPerRound: 20
+      autoDeleteMaxPerRound: 20,
+      freeSpaceWarnGb: null,
+      autoDeleteFreeBelowGb: null
     }),
     rules: {
       name: [{ required: true, message: '名称不能为空', trigger: 'blur' }],
@@ -167,6 +172,37 @@ export function usePtDownloader(options: ListLoadOptions = {}) {
     }
   })
 
+  // ---------- 剩余空间 ----------
+  //
+  // 后端每 15 分钟读一次、只放内存，这里跟着列表一起拉一份。拉失败不影响列表本身，卡片上显示「未读取」。
+  const spaces = ref<Record<number, DownloaderSpace>>({})
+
+  const loadSpaces = async () => {
+    try {
+      const list = (await getDownloaderSpaceApi()) || []
+      spaces.value = Object.fromEntries(list.map(s => [s.id, s]))
+    } catch (e) {
+      console.error('[PT下载器] 加载剩余空间失败:', e)
+    }
+  }
+  watch(base.taskList, loadSpaces)
+
+  /** 卡片上那一行：读到了写「120.5 GB」，低于告警线时由 spaceLow 着色；刚启动或这台读不到写「未读取」 */
+  const spaceText = (row: any) => {
+    const s = spaces.value[row?.id]
+    return s ? formatSize(s.freeBytes) : '未读取'
+  }
+  const spaceLow = (row: any) => !!spaces.value[row?.id]?.low
+
+  // 两个阈值清空后 v-model.number 给的是空串，统一落成 null：后端这两列允许清空（= 不告警 / 不看空间）
+  watch(
+    () => [base.form.value?.freeSpaceWarnGb, base.form.value?.autoDeleteFreeBelowGb],
+    ([warn, below]) => {
+      if (warn === '') base.form.value.freeSpaceWarnGb = null
+      if (below === '') base.form.value.autoDeleteFreeBelowGb = null
+    }
+  )
+
   // ---------- 移动端 - 分页辅助 ----------
   const totalPages = computed(() => Math.ceil(base.total.value / base.queryParams.pageSize) || 1)
 
@@ -208,6 +244,7 @@ export function usePtDownloader(options: ListLoadOptions = {}) {
 
   return {
     ...base, testLoading, handleTest, savePathWarning, handleSavePathBlur, handleAdd, handleUpdate,
+    spaces, spaceText, spaceLow,
     cleanRuleTarget, cleanRuleOpen, openCleanRules,
     totalPages, prevPage, nextPage, handleSizeChange,
     searchCollapsed

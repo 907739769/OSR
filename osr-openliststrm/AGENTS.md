@@ -3,7 +3,7 @@
 > 本文件只剩**模块总则**。**下列子包各有自己的 `AGENTS.md`，改到那个目录才载入**，
 > 新增知识点写进对应子包，不要搬回这里：
 > `pt/`（PT 总则）、`pt/subscription/`、`pt/task/`、`pt/indexer/`、`pt/downloader/`、`pt/filter/`、
-> `pt/clean/`、`pt/upgrade/`、`pt/transfer/`、`pt/media/`、`pt/health/`、`pt/autoadd/`、`pt/stats/`、`pt/calendar/`、
+> `pt/clean/`、`pt/upgrade/`、`pt/transfer/`、`pt/media/`、`pt/health/`、`pt/search/`、`pt/autoadd/`、`pt/stats/`、`pt/calendar/`、
 > `rename/`、`rename/cleanup/`、`scrape/`、`orphan/`、`tmdb/`、`notify/`、`mcp/`、`monitor/`、
 > `service/`、`helper/`、`controller/`、`mybatisplus/`、`wecom/`、`chat/`、`backup/`。
 > 全局约定与日志纲领见仓库根 `AGENTS.md`。
@@ -65,6 +65,7 @@ com/osr/openliststrm/
 | PT 订阅管理 | `pt/` | Downloader/Indexer/Subscription/MediaServer |
 | PT 自动删种 | `pt/clean/` | TorrentCleanService（判定+执行）, TorrentCleanTask（默认每 60 分钟） |
 | PT 缺集体检 | `pt/health/` | EpisodeHealthService（纯查询分档+诊断）, EpisodeHealthNotifyService/Task（每 24 小时） |
+| PT 资源搜索 | `pt/search/` | ResourceSearchService（搜索 + 规则标注 + 直接下载）, PtResourceSearchRestController |
 | 文件刮削 | `scrape/` | ScrapeService, TMDb 刮削/文件删除 |
 | 任务监控 | `monitor/` | MediaRenameProcessor 等处理器 |
 | 任务配置 | `mybatisplus/domain/` + `controller/` | 所有 *Plus 实体 |

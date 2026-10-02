@@ -16,3 +16,9 @@
 - **REACHED 是终态，判定条件一变就必须重置**（`UpgradeConfigAdminService#resetEvaluations`：REACHED/PENDING → PENDING，并清空退避）。触发点两处：本页的目标质量或维度顺序变了、过滤规则页的三个优先级变了。不重置的话把目标从 1080p 提到 2160p，此前达标的集一集都不会再洗，用户只会以为配置没生效。NO_BASELINE 不动，它与判定条件无关。
 - **两道预算缺一不可**：`max_concurrent` 限推送数，`max_searches_per_round` 限搜索次数。只有前者时，搜不到更好版本的集不占名额，每轮会把全部 PENDING 集对所有索引器挨个搜一遍。待评估集按 `upgrade_searched_at` 升序轮转（NULL 在前），连续落空按 `UpgradeBackoff` 指数退避（周期 × 2^n，封顶 7 天，判到期时让一小时余量——searched_at 比本轮开始晚几秒，不留余量会白白错过一整个周期）；推送成功清零。搜索名额用完后仍把剩下的集判一遍 REACHED/NO_BASELINE，那两步不发请求。订阅级开关与暂停状态在 SQL 里先筛（`UPGRADABLE_SUB_IDS_SQL`，概览统计同一口径）。
 - **手动扫描走 `UpgradeScanTask#triggerNow`，与定时心跳共用同一个 `running` 闸门**，最近一次结果存在 `lastScan` 供页面展示（进程内状态，重启即清空，这是可接受的）。扫描失败过 `FaultThrottle`。
+- **「找中字版本」（`ChineseSubtitleUpgradeService`，字幕体检页按钮）复用洗版通道，但不受洗版开关、目标质量与退避约束**：它是用户针对这几集的当面动作，要的是中字而不是更高画质，所以**不过 `UpgradeEvaluator`**（新版本画质可以更低）。选它而不是「补外挂字幕」，是因为国内字幕源基本都停了、Emby/Jellyfin 的字幕插件搜不出东西（第一版就是那么做的，被用户否掉），而 PT 站上同一集几乎总有带中字的发布。五条不要改坏的：
+  1. **候选只认本集单集资源**（复用 `UpgradeScanService#matchesEpisode`、关键词复用 `#buildKeyword`），理由同洗版：季包会连带动到没打算换的集。
+  2. **中字判据只有 `TorrentFilterEngine#hasChineseSubtitleMark` 一份**（标题或描述），与「外语片需中字」那条过滤共用；各写一份的表现是「过滤说有中字、这里说没有」。
+  3. **照样过过滤规则**（全局 + 订阅级覆盖 + 黑名单），被挡掉时单独报 `ALL_FILTERED`——与「站上没有中字版」处置方向相反（一个去松规则，一个只能等）。择优用 `TorrentFilterEngine#pickBest` 按订阅的排序维度。
+  4. **只处理已入库（IN_LIBRARY）的集，且在搜索之前就判**：洗版通道只认这个状态，不先判的话要白打一轮全站搜索才在推送那一步落空。推送失败的原因取 `SubscriptionEngine#pushUpgradeOutcome` 带回的那一句，与匹配日志同一句话。
+  5. **一次最多 6 集、一次只处理一部**：每集一轮全站搜索（单站 30 秒预算），前端只等 300 秒；超出的集明说「下次再点」。与洗版一样**不删旧文件**，页面说明与成功提示里都要写出来。

@@ -35,7 +35,7 @@ const PAIRS = [
   'renameTask', 'renameDetail', 'renameOrphan', 'renameConfig',
   'ptIndexer', 'ptDownloader', 'ptMediaServer', 'ptSubscription',
   'ptDownloadRecord', 'ptStatsDashboard', 'ptTorrentBlacklist', 'ptAutoAddRule', 'ptCalendar', 'ptHealth',
-  'ptTransferRule', 'notifyRoute', 'wecomUser'
+  'ptTransferRule', 'ptSearch', 'notifyRoute', 'wecomUser'
 ]
 
 /**

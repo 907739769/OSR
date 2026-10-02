@@ -104,4 +104,26 @@ public interface IMediaServerClient {
                                                          boolean movie) throws IOException {
         return null;
     }
+
+    /**
+     * 列出各媒体库的目录（媒体服务器视角），供「新文件在不在某个库下」的判定用。
+     * <p>
+     * 返回 <b>null 表示这台服务器不支持通知刷新</b>，与「支持、但一个库都没建」（空表）分开。默认 null。
+     * </p>
+     *
+     * @throws IOException 网络异常或服务器返回非 2xx
+     */
+    default List<LibraryRoot> listLibraryRoots(PtMediaServerPlus config) throws IOException {
+        return null;
+    }
+
+    /**
+     * 通知媒体服务器按目录局部刷新。调用方保证每个目标都已映射成媒体服务器视角、且落在某个库目录下——
+     * 库外的路径媒体服务器多半照样回 2xx 而什么都不做，这一层分不出来。
+     * 只有 {@link #listLibraryRoots} 不返回 null 的实现才会被调到。
+     *
+     * @throws IOException 网络异常或服务器返回非 2xx
+     */
+    default void refreshPaths(PtMediaServerPlus config, List<RefreshTarget> targets) throws IOException {
+    }
 }

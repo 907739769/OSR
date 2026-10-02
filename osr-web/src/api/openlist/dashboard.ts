@@ -12,6 +12,8 @@ export interface TodoSignals {
   offlineDownloaders: TodoProblem[] | null
   unhealthyMediaServers: TodoProblem[] | null
   unresolvedFailedDownloads: number | null
+  /** 剩余空间低于告警线的下载器 */
+  lowSpaceDownloaders: TodoProblem[] | null
 }
 
 export function getTodoSignalsApi() {

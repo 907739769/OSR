@@ -7,11 +7,17 @@ import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloaderPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtDownloaderPlusService;
 import com.osr.openliststrm.pt.downloader.DownloaderClientFactory;
+import com.osr.openliststrm.pt.downloader.DownloaderSpaceRegistry;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.ArrayList;
+import java.util.Date;
+import java.util.List;
 
 /**
  * PT 下载器配置 REST API 控制器
@@ -25,6 +31,9 @@ public class PtDownloaderRestController extends BaseCrudRestController<IPtDownlo
 
     @Autowired
     private DownloaderClientFactory downloaderClientFactory;
+
+    @Autowired
+    private DownloaderSpaceRegistry downloaderSpaceRegistry;
 
     /**
      * 下载器配置存着 qB/TR 的账号密码，且它决定订阅往哪台机器推种、哪台机器开自动删种，
@@ -68,6 +77,33 @@ public class PtDownloaderRestController extends BaseCrudRestController<IPtDownlo
      * 等于给出一个把下载器密码送到任意地址的接口。
      * </p>
      */
+    /**
+     * 各下载器最近一次读到的剩余空间，下载器卡片用。只读内存里的登记（每 15 分钟由空间检查任务刷新），
+     * 不现读下载器——列表页每打开一次就去拉一遍 qB 的 maindata 不值得。还没读到过的下载器不出现在结果里。
+     */
+    @GetMapping("/space")
+    public Result<List<SpaceView>> space() {
+        List<SpaceView> views = new ArrayList<>();
+        for (PtDownloaderPlus d : service.list()) {
+            DownloaderSpaceRegistry.Snapshot snap = downloaderSpaceRegistry.snapshot(d.getId());
+            if (snap == null) {
+                continue;
+            }
+            DownloaderSpaceRegistry.LowState low = downloaderSpaceRegistry.low(d.getId());
+            views.add(new SpaceView(d.getId(), snap.freeBytes(), snap.checkedAt(), d.freeSpaceWarnBytes(),
+                    low != null, low == null ? null : low.since()));
+        }
+        return Result.success(views);
+    }
+
+    /**
+     * @param warnBytes 告警线（字节），没设为 null
+     * @param low       是否低于告警线
+     * @param lowSince  从什么时候开始低于告警线
+     */
+    public record SpaceView(Integer id, long freeBytes, Date checkedAt, Long warnBytes, boolean low, Date lowSince) {
+    }
+
     @PostMapping("/test")
     public Result<Void> test(@RequestBody PtDownloaderPlus entity) {
         Result<Void> denied = denyIfNotAdmin();

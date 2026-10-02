@@ -34,7 +34,16 @@ public enum CleanSkipReason {
     SEED_TIME_NOT_REACHED("做种时长未达标"),
 
     /** 本轮删除数量已达下载器配置的上限，留到下一轮 */
-    ROUND_LIMIT("已达本轮删除上限");
+    ROUND_LIMIT("已达本轮删除上限"),
+
+    /** 开了「按空间删种」，而剩余空间还在删种线以上 */
+    SPACE_SUFFICIENT("剩余空间充足，暂不删除"),
+
+    /** 开了「按空间删种」，排在前面的组已足够把剩余空间腾回删种线以上 */
+    SPACE_TARGET_REACHED("前面的组已腾够空间，留到下次"),
+
+    /** 开了「按空间删种」，却读不到剩余空间：判据缺失不动手 */
+    FREE_SPACE_UNKNOWN("读不到剩余空间，按空间删种时不删");
 
     private final String desc;
 

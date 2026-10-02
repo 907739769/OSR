@@ -351,8 +351,15 @@ public class SubscriptionEngine {
      * @return 是否成功推送了一个种子
      */
     public boolean pushUpgrade(PtSubscriptionPlus sub, int episode, List<TorrentInfo> candidates) {
-        return push(sub, episode, candidates, PushMode.UPGRADE,
-                SearchLogService.SOURCE_SUPPLEMENT).pushed();
+        return pushUpgradeOutcome(sub, episode, candidates).pushed();
+    }
+
+    /**
+     * 同 {@link #pushUpgrade}，但带回没推成的原因。给用户当面点按钮的入口用（字幕体检的「找中字版本」）：
+     * 原因与落进匹配日志的是同一句话，不要在调用方另编一句泛化文案。
+     */
+    public PushOutcome pushUpgradeOutcome(PtSubscriptionPlus sub, int episode, List<TorrentInfo> candidates) {
+        return push(sub, episode, candidates, PushMode.UPGRADE, SearchLogService.SOURCE_SUPPLEMENT);
     }
 
     /**
@@ -803,17 +810,24 @@ public class SubscriptionEngine {
      * 同一订阅的所有季会落在同一个年份目录下，不会因为当前抓取到哪一季而漂移。
      */
     private String resolveSavePath(PtDownloaderPlus downloader, PtSubscriptionPlus sub) {
+        return savePathFor(downloader, SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType()), sub.getYear());
+    }
+
+    /**
+     * 智能分类的落盘目录，订阅推送与资源搜索页的直接下载共用——两边各拼一份的话，同一部片子
+     * 因为「从哪儿推的」落进不同目录，下游按目录触发的同步/STRM 链路会长出两棵树。
+     *
+     * @param year 年份；空时按 CATEGORY_YEAR 级别落进「未分类」目录
+     */
+    public static String savePathFor(PtDownloaderPlus downloader, boolean movie, String year) {
         String base = downloader.getSavePath();
         PtSmartClassifyLevelEnum level = PtSmartClassifyLevelEnum.getByCode(downloader.getSmartClassifyLevel());
         if (level == PtSmartClassifyLevelEnum.NONE) {
             return base;
         }
-        String category = SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType())
-                ? CLASSIFY_CATEGORY_MOVIE : CLASSIFY_CATEGORY_TV;
-        String path = stripTrailingSlash(base) + "/" + category;
+        String path = stripTrailingSlash(base) + "/" + (movie ? CLASSIFY_CATEGORY_MOVIE : CLASSIFY_CATEGORY_TV);
         if (level == PtSmartClassifyLevelEnum.CATEGORY_YEAR) {
-            String year = com.osr.common.utils.StringUtils.isNotBlank(sub.getYear()) ? sub.getYear() : CLASSIFY_YEAR_UNKNOWN;
-            path = path + "/" + year;
+            path = path + "/" + (com.osr.common.utils.StringUtils.isNotBlank(year) ? year : CLASSIFY_YEAR_UNKNOWN);
         }
         return path;
     }

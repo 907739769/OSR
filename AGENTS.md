@@ -42,6 +42,7 @@
 | PT 统计仪表盘 | `osr-openliststrm/src/main/java/com/osr/openliststrm/pt/stats/` + `osr-web/src/composables/usePtStats.ts` | 聚合查询（含归属隔离）+ 两端共用的图表选项 |
 | 追剧日历 | `osr-openliststrm/src/main/java/com/osr/openliststrm/pt/calendar/` | 播出日期同步 + 按日期区间查排播 |
 | 缺集体检 | `osr-openliststrm/src/main/java/com/osr/openliststrm/pt/health/` | 逾期未入库的分档诊断 + 每日聚合提醒 |
+| PT 资源搜索 | `osr-openliststrm/src/main/java/com/osr/openliststrm/pt/search/` | 不建订阅按关键词搜全部站点，规则只标注不淘汰，可直接下载或转为订阅 |
 | 配置备份与恢复 | `osr-openliststrm/src/main/java/com/osr/openliststrm/backup/` + `osr-web/src/views/system/backup/` | 导出配置与订阅为 JSON，恢复按业务键合并、先预览后写入 |
 | MCP 服务端 | `osr-openliststrm/src/main/java/com/osr/openliststrm/mcp/` | 端点 `/mcp`，令牌鉴权 + 33 个工具，供本地 AI 助理连接 |
 | 安全/认证 | `osr-framework/src/main/java/com/osr/framework/security/` | Spring Security + JWT（无 Shiro，早期文档写的 shiro/ 目录并不存在） |
@@ -74,6 +75,7 @@
 | `…/pt/transfer/` | 转移做种 |
 | `…/pt/media/` | 媒体服务器接入：多台查询语义、被动连通状态、对账源不可用时的降级 |
 | `…/pt/health/` | 缺集体检 |
+| `…/pt/search/` | 资源搜索：与订阅内搜索共用实现、规则只标注、直接下载不建记录、转订阅深链 |
 | `…/pt/autoadd/` | 热门自动订阅 + RSSHub 地址 |
 | `…/pt/stats/` | 统计仪表盘（后端口径与归属隔离） |
 | `…/pt/calendar/` | 追剧日历 |

@@ -54,6 +54,14 @@ public class PtMediaServerPlus extends BaseEntity {
     @TableField("enabled")
     private String enabled;
 
+    /** 新文件落盘后是否通知这台服务器刷新媒体库 0-否 1-是，见 {@code LibraryRefreshNotifier} */
+    @TableField("library_notify")
+    private String libraryNotify;
+
+    /** 路径映射，每行「OSR路径 => 媒体服务器路径」；空表示两边路径一致。语法见 {@code LibraryPathMapping} */
+    @TableField("path_mapping")
+    private String pathMapping;
+
     /** 上次被业务实际访问的时间；null 表示还没用到过 */
     @TableField("last_check_time")
     private Date lastCheckTime;
@@ -89,5 +97,15 @@ public class PtMediaServerPlus extends BaseEntity {
      */
     public boolean lastCheckFailed() {
         return "0".equals(lastCheckOk);
+    }
+
+    /**
+     * 是否要在新文件落盘后通知这台服务器刷新。
+     * <p>
+     * 不叫 {@code isLibraryNotify()}，理由同 {@link #lastCheckFailed()}。
+     * </p>
+     */
+    public boolean libraryNotifyOn() {
+        return "1".equals(libraryNotify);
     }
 }

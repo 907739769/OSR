@@ -7,6 +7,7 @@ import com.osr.openliststrm.mybatisplus.domain.OpenlistStrmPlus;
 import com.osr.openliststrm.mybatisplus.domain.RenameDetailPlus;
 import com.osr.openliststrm.mybatisplus.service.IOpenlistStrmPlusService;
 import com.osr.openliststrm.mybatisplus.service.IRenameDetailPlusService;
+import com.osr.openliststrm.pt.media.LibraryRefreshNotifier;
 import com.osr.openliststrm.orphan.StrmSourcePathResolver;
 import com.osr.openliststrm.scrape.ScrapeService;
 import lombok.extern.slf4j.Slf4j;
@@ -59,6 +60,10 @@ public class RenameCleanupService {
 
     @Autowired
     private OpenListHelper openListHelper;
+
+    /** 删掉的文件报给它，攒批后通知媒体服务器重扫所在目录，被删的条目才会从媒体库里消失 */
+    @Autowired
+    private LibraryRefreshNotifier libraryRefreshNotifier;
 
     /**
      * {@link #purgeStrmSource} 的结果。
@@ -409,7 +414,12 @@ public class RenameCleanupService {
 
     private boolean deleteFile(Path file) {
         try {
-            return Files.deleteIfExists(file);
+            boolean deleted = Files.deleteIfExists(file);
+            if (deleted) {
+                // 回收空目录在这之后才发生，通知方发送时会上溯到还存在的目录，这里不必等
+                libraryRefreshNotifier.submitDeleted(file);
+            }
+            return deleted;
         } catch (IOException e) {
             log.warn("删除文件失败: {}", file, e);
             return false;

@@ -86,6 +86,16 @@
       <FormField tip="「仅做种」的下载器不参与订阅下载的负载均衡，用于接收 IYUU 转移/辅种过来的种子">
         <v-select v-model="form.role" label="分工" :items="ROLE_OPTIONS" />
       </FormField>
+      <FormField tip="剩余空间低于它时进首页待办并发通知（刚低于、持续每满一天、恢复时各一次）。留空不告警">
+        <v-text-field
+          v-model.number="form.freeSpaceWarnGb"
+          label="剩余空间告警线（GB）"
+          type="number"
+          min="0"
+          step="0.01"
+          clearable
+        />
+      </FormField>
       <FormField
         label="自动删种"
         tip="按「删种规则」定期清理已达标的种子。仍在 H&R 考核中的种子永远不删；辅种整组同删。开启后请先用规则弹窗里的「预览」确认判定结果"
@@ -101,6 +111,16 @@
             v-model="form.autoDeleteExcludeTags"
             label="删种排除标签"
             placeholder="如：keep,手动保留"
+          />
+        </FormField>
+        <FormField tip="设了之后只在剩余空间低于它时才删，且从大到小删到腾够为止；读不到剩余空间时不删。留空则不看空间，照旧按规则删">
+          <v-text-field
+            v-model.number="form.autoDeleteFreeBelowGb"
+            label="仅在剩余空间低于（GB）时删种"
+            type="number"
+            min="0"
+            step="0.01"
+            clearable
           />
         </FormField>
         <FormField tip="0 表示不限。规则配错时最多损失一轮的量，不会一次清空整个保种盘">

@@ -339,4 +339,30 @@ class TransmissionClientTest {
 
         assertEquals(987654321L, client.cumulativeUploaded(config(21)));
     }
+
+    @Test
+    void freeSpace_按保存路径调free_space() throws Exception {
+        server.enqueue(sessionRequired());
+        server.enqueue(new MockResponse().setBody(
+                "{\"result\":\"success\",\"arguments\":{\"path\":\"/downloads\",\"size-bytes\":107374182400}}"));
+        PtDownloaderPlus config = config(22);
+        config.setSavePath("/downloads");
+
+        assertEquals(107374182400L, client.freeSpace(config));
+        server.takeRequest();
+        String body = server.takeRequest().getBody().readUtf8();
+        assertTrue(body.contains("\"free-space\"") && body.contains("/downloads"), body);
+    }
+
+    /** 路径在 Transmission 那台机器上不存在时它回 -1：那是读不到，不是写满了 */
+    @Test
+    void freeSpace_返回负数当作读不到() throws Exception {
+        server.enqueue(sessionRequired());
+        server.enqueue(new MockResponse().setBody(
+                "{\"result\":\"success\",\"arguments\":{\"path\":\"/nope\",\"size-bytes\":-1}}"));
+        PtDownloaderPlus config = config(23);
+        config.setSavePath("/nope");
+
+        assertEquals(null, client.freeSpace(config));
+    }
 }

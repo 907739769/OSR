@@ -12,7 +12,9 @@ vi.mock('@/api/openlist/ptHealth', () => ({
   getPtHealthApi: vi.fn(),
   enableAutoSearchApi: vi.fn(),
   searchMissingApi: vi.fn(),
-  setHealthIgnoredApi: vi.fn()
+  setHealthIgnoredApi: vi.fn(),
+  getSubtitleHealthApi: vi.fn(),
+  upgradeForSubtitlesApi: vi.fn()
 }))
 
 // usePtHealth 在 setup 阶段就 useRouter()，测试里没装路由插件
@@ -409,3 +411,43 @@ describe('usePtHealth 只看一条订阅', () => {
   })
 })
 
+
+describe('usePtHealth 找中字版本', () => {
+  const issue = (subId: number) => ({
+    subId, title: '三体', year: '2023', season: 1, mediaType: 'TV', tmdbId: '1', posterPath: null,
+    noChinese: [3, 4], unknownLanguage: [], noMediaInfo: []
+  })
+
+  it('只处理「没有中文字幕」那几集，结果按订阅存下来，提示里说旧版本不删', async () => {
+    const api = await import('@/api/openlist/ptHealth')
+    vi.mocked(api.upgradeForSubtitlesApi).mockResolvedValue({
+      results: [{ episode: 3, status: 'PUSHED', detail: 'x' }, { episode: 4, status: 'NO_CHINESE_RELEASE', detail: '没中字' }]
+    })
+    const ctx = usePtHealth()
+    await flush()
+
+    await ctx.upgradeForSubtitles(issue(7) as any)
+
+    expect(api.upgradeForSubtitlesApi).toHaveBeenCalledWith(7, [3, 4])
+    expect(ctx.subtitleUpgradeResults.value[7].results).toHaveLength(2)
+    expect(vi.mocked(message.success).mock.calls[0][0]).toContain('旧版本不会自动删除')
+    expect(ctx.subtitleUpgradingId.value).toBeNull()
+  })
+
+  /** 每集都要打一轮全站搜索：一部还在处理时，点另一部不发请求 */
+  it('一次只处理一部', async () => {
+    const api = await import('@/api/openlist/ptHealth')
+    let release: (v: any) => void = () => {}
+    vi.mocked(api.upgradeForSubtitlesApi).mockReturnValue(new Promise(r => { release = r }) as any)
+    const ctx = usePtHealth()
+    await flush()
+
+    const first = ctx.upgradeForSubtitles(issue(7) as any)
+    await ctx.upgradeForSubtitles(issue(8) as any)
+    expect(api.upgradeForSubtitlesApi).toHaveBeenCalledTimes(1)
+
+    release({ results: [] })
+    await first
+    expect(message.warning).toHaveBeenCalled()
+  })
+})

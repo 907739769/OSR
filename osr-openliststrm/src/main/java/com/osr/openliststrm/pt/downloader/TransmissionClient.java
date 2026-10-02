@@ -280,6 +280,31 @@ public class TransmissionClient implements IDownloaderClient {
         return cumulative == null ? null : cumulative.getLong("uploadedBytes");
     }
 
+    /**
+     * RPC {@code free-space}（Transmission 2.80+）。路径取下载器上配的保存路径——那正是 OSR 推种子时
+     * 告诉它的目录；没配时退回会话的默认下载目录。
+     */
+    @Override
+    public Long freeSpace(PtDownloaderPlus config) throws IOException {
+        String path = config.getSavePath();
+        if (StringUtils.isBlank(path)) {
+            JSONObject session = call(config, "session-get", null).getJSONObject("arguments");
+            path = session == null ? null : session.getString("download-dir");
+        }
+        if (StringUtils.isBlank(path)) {
+            return null;
+        }
+        JSONObject args = new JSONObject();
+        args.put("path", path);
+        JSONObject result = call(config, "free-space", args).getJSONObject("arguments");
+        if (result == null || !result.containsKey("size-bytes")) {
+            return null;
+        }
+        long bytes = result.getLongValue("size-bytes");
+        // 路径在 Transmission 那台机器上不存在时它回 -1，那是「读不到」不是「写满了」
+        return bytes < 0 ? null : bytes;
+    }
+
     @Override
     public void recheckTorrent(PtDownloaderPlus config, String hash) throws IOException {
         JSONObject args = new JSONObject();

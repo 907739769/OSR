@@ -76,6 +76,30 @@ export interface SubtitleReport {
   unsupported: boolean
 }
 
+/** 找中字版本一集的结果 */
+export interface SubtitleUpgradeEpisode {
+  episode: number
+  /**
+   * PUSHED 已推送 / NO_CHINESE_RELEASE 有本集资源但都没中字 / ALL_FILTERED 带中字的都被过滤规则挡掉 /
+   * NOT_FOUND 没搜到本集资源 / NOT_IN_LIBRARY 不是已入库的集 / FAILED 推送失败 / SKIPPED 超出本次上限
+   */
+  status: 'PUSHED' | 'NO_CHINESE_RELEASE' | 'ALL_FILTERED' | 'NOT_FOUND' | 'NOT_IN_LIBRARY' | 'FAILED' | 'SKIPPED'
+  /** 推送成功时是种子标题，其余是原因 */
+  detail: string
+}
+
+export interface SubtitleUpgradeResult {
+  results: SubtitleUpgradeEpisode[]
+}
+
+/**
+ * 给没有中文字幕的集从 PT 站重新下一个带中字的版本（走洗版通道，旧版本不删）。
+ * 每集要向全部站点打一轮搜索，超时与字幕体检一样放宽到 300 秒
+ */
+export function upgradeForSubtitlesApi(subId: number, episodes: number[]) {
+  return request.post<any, SubtitleUpgradeResult>(`/openliststrm/pt-health/${subId}/subtitles/upgrade`, { episodes }, { timeout: 300000 })
+}
+
 /** 要逐部向媒体服务器取流信息，几十部作品会超过默认的 15 秒 */
 export function getSubtitleHealthApi() {
   return request.get<any, SubtitleReport>('/openliststrm/pt-health/subtitles', { timeout: 300000 })

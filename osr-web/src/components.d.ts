@@ -46,6 +46,7 @@ declare module 'vue' {
     RecordDetailDrawer: typeof import('./components/RecordDetailDrawer.vue')['default']
     RecordStatusBar: typeof import('./components/RecordStatusBar.vue')['default']
     RenameTaskFormDialog: typeof import('./components/dialogs/RenameTaskFormDialog.vue')['default']
+    ResourcePushDialog: typeof import('./components/dialogs/ResourcePushDialog.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     SearchPanel: typeof import('./components/SearchPanel.vue')['default']

@@ -202,4 +202,17 @@ public interface IDownloaderClient {
     default Long cumulativeUploaded(PtDownloaderPlus config) throws IOException {
         return null;
     }
+
+    /**
+     * 下载目录所在磁盘的剩余空间（字节），取不到时返回 null。
+     * <p>
+     * null 与 0 是两回事：null 表示「这台读不到」（不支持、或下载器没给这个字段），按空间删种在这种情况下
+     * 一个都不删——判据缺失不动手；0 是真的写满了。
+     * </p>
+     *
+     * @throws IOException 网络异常或下载器拒绝
+     */
+    default Long freeSpace(PtDownloaderPlus config) throws IOException {
+        return null;
+    }
 }

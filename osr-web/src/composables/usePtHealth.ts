@@ -9,7 +9,10 @@ import {
   searchMissingApi,
   setHealthIgnoredApi,
   getSubtitleHealthApi,
+  upgradeForSubtitlesApi,
   type SubtitleReport,
+  type SubtitleIssue,
+  type SubtitleUpgradeResult,
   type EpisodeHealthReport,
   type SubscriptionHealthItem
 } from '@/api/openlist/ptHealth'
@@ -382,6 +385,33 @@ export function usePtHealth() {
     }
   }
 
+  // ---------- 找中字版本 ----------
+  // 一次只处理一部：每集都要向全部站点打一轮搜索，几部一起点只会互相抢索引器的限流名额
+
+  const subtitleUpgradingId = ref<number | null>(null)
+  const subtitleUpgradeResults = ref<Record<number, SubtitleUpgradeResult>>({})
+
+  async function upgradeForSubtitles(item: SubtitleIssue) {
+    if (subtitleUpgradingId.value != null) return
+    subtitleUpgradingId.value = item.subId
+    try {
+      const result = await upgradeForSubtitlesApi(item.subId, item.noChinese)
+      subtitleUpgradeResults.value = { ...subtitleUpgradeResults.value, [item.subId]: result }
+      const pushed = result.results.filter(r => r.status === 'PUSHED').length
+      if (pushed > 0) {
+        // 旧版本不会被删，这一点要当场说：不说的话用户会以为已经替换好了，过几天才发现库里有两份
+        message.success(`已为 ${pushed} 集推送带中字的版本，下完自动换上；旧版本不会自动删除`)
+      } else {
+        message.warning('没有推送任何一集，原因见列表')
+      }
+    } catch (e) {
+      // 拦截器已提示（多半是没有启用的索引器）
+      console.error(e)
+    } finally {
+      subtitleUpgradingId.value = null
+    }
+  }
+
   load()
 
   return {
@@ -391,6 +421,7 @@ export function usePtHealth() {
     actingSubId, batchActing, isActing, anyActing,
     includeIgnored, handleSetIgnored, toggleIncludeIgnored,
     load, handleEnableAutoSearch, handleSearchNow, openSubscription, setBucket, setDiagnosis,
-    subtitleReport, subtitleLoading, subtitleLoaded, loadSubtitles
+    subtitleReport, subtitleLoading, subtitleLoaded, loadSubtitles,
+    subtitleUpgradingId, subtitleUpgradeResults, upgradeForSubtitles
   }
 }

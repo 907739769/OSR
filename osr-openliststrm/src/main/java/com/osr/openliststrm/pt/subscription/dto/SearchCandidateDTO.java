@@ -90,4 +90,18 @@ public class SearchCandidateDTO {
 
     /** 区间匹配的区间结尾集号（如 S01E01-E02 对应 parsedEpisode=1, parsedEpisodeEnd=2）；非区间匹配为 null */
     private Integer parsedEpisodeEnd;
+    /** 解析出的片名，资源搜索页「转为订阅」时拿它去搜 TMDb */
+    private String parsedTitle;
+    /** 解析出的季号；为 null 且也没有集号时多半是电影 */
+    private Integer parsedSeason;
+    /** 来源站点开了 H&R 考核 */
+    private boolean hitAndRun;
+    /**
+     * 资源搜索页专用：按全局过滤规则这条会被怎样淘汰的短标签（{@code RejectCode#label}，如「分辨率不在白名单」），
+     * null 表示会被放行。资源搜索页<b>只标注、不淘汰</b>——用户正是来看「站上到底有什么」的；
+     * 订阅内的候选列表已经按规则滤过，不填这一列。
+     */
+    private String ruleRejection;
+    /** 同上的完整原因（带实际值与阈值），页面上作悬浮提示 */
+    private String ruleRejectionDetail;
 }

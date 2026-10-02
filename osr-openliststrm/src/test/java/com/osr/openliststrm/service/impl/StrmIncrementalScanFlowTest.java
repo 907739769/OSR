@@ -9,6 +9,7 @@ import com.osr.openliststrm.helper.OpenListHelper;
 import com.osr.openliststrm.helper.StrmHelper;
 import com.osr.openliststrm.mybatisplus.domain.OpenlistStrmDirSnapshotPlus;
 import com.osr.openliststrm.mybatisplus.service.IOpenlistStrmDirSnapshotPlusService;
+import com.osr.openliststrm.pt.media.LibraryRefreshNotifier;
 import com.osr.openliststrm.service.StrmIncrementalScan;
 import com.osr.openliststrm.service.StrmIncrementalScan.Mode;
 import com.osr.openliststrm.service.StrmSettings;
@@ -62,6 +63,7 @@ class StrmIncrementalScanFlowTest {
     @Mock private StrmHelper strmHelper;
     @Mock private IOpenlistStrmDirSnapshotPlusService snapshotService;
     @Mock private MediaExtensionProvider mediaExtensions;
+    @Mock private LibraryRefreshNotifier libraryRefreshNotifier;
 
     private StrmServiceImpl service;
     private StrmSettings settings;
@@ -77,6 +79,7 @@ class StrmIncrementalScanFlowTest {
         ReflectionTestUtils.setField(service, "strmHelper", strmHelper);
         ReflectionTestUtils.setField(service, "snapshotService", snapshotService);
         ReflectionTestUtils.setField(service, "mediaExtensions", mediaExtensions);
+        ReflectionTestUtils.setField(service, "libraryRefreshNotifier", libraryRefreshNotifier);
         doReturn(List.of()).when(service).loadExistingRecords(anyString());
 
         when(config.getOpenListUrl()).thenReturn("http://ol");
@@ -144,6 +147,15 @@ class StrmIncrementalScanFlowTest {
         assertEquals(4, stats.listedDirs());
         assertEquals(2, stats.generated());
         verifyNoInteractions(snapshotService);
+    }
+
+    /** 写成功的每个 .strm 都报给刷新通知；STRM 输出目录是不是媒体库由通知那边按库目录判断 */
+    @Test
+    void 生成的strm报给媒体库刷新通知() {
+        service.scan("/lib", settings, Mode.FULL);
+
+        verify(libraryRefreshNotifier).submitFile(out.resolve("lib").resolve("电影A").resolve("a.strm"));
+        verify(libraryRefreshNotifier).submitFile(out.resolve("lib").resolve("三体").resolve("Season 1").resolve("e1.strm"));
     }
 
     /** 只有叶子目录记快照：非叶子目录（三体）与根目录每次都要列，否则它们底下的新季、新剧就看不见了 */
