@@ -1,6 +1,21 @@
 import request from '@/api/request'
 import type { PageResult, SearchParams } from '@/types'
 
+/** 一台下载器最近一次读到的剩余空间（每 15 分钟由后端空间检查刷新；还没读到过的不在结果里） */
+export interface DownloaderSpace {
+  id: number
+  freeBytes: number
+  checkedAt: string
+  /** 告警线（字节），没设为 null */
+  warnBytes: number | null
+  low: boolean
+  lowSince: string | null
+}
+
+export function getDownloaderSpaceApi() {
+  return request.get<any, DownloaderSpace[]>('/openliststrm/pt-downloaders/space')
+}
+
 export function getPtDownloaderListApi(params: SearchParams) {
   return request.get<any, PageResult<any>>('/openliststrm/pt-downloaders', { params })
 }

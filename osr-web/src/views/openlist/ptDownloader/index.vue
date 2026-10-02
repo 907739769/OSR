@@ -99,6 +99,10 @@
               <span class="value">{{ roleLabel(item.role) }}</span>
             </div>
             <div class="card-row">
+              <span class="label">剩余空间</span>
+              <span class="value" :class="{ 'text-warning': spaceLow(item) }" :title="spaceLow(item) ? '低于告警线' : undefined">{{ spaceText(item) }}</span>
+            </div>
+            <div class="card-row">
               <span class="label">自动删种</span>
               <span class="value">{{ item.autoDeleteEnabled === '1' ? '已开启' : '未开启' }}</span>
             </div>
@@ -171,7 +175,8 @@ const {
   selectedIds, notOneSelected, noneSelected, toggleSelect,
   isAllPageSelected, toggleSelectAllPage,
   handleAdd, handleUpdate, handleDelete,
-  cleanRuleOpen, cleanRuleTarget, openCleanRules
+  cleanRuleOpen, cleanRuleTarget, openCleanRules,
+  spaceText, spaceLow
 } = usePageStateProvider(usePtDownloader({ autoLoad: false }))
 
 // 每页条数按网格实际列数取整到整行，窗口宽度变了跟着重算

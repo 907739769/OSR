@@ -95,6 +95,10 @@
             <span class="value">{{ roleLabel(item.role) }}</span>
           </div>
           <div class="detail-row">
+            <span class="label">剩余空间</span>
+            <span class="value" :class="{ 'text-warning': spaceLow(item) }">{{ spaceText(item) }}{{ spaceLow(item) ? '（低于告警线）' : '' }}</span>
+          </div>
+          <div class="detail-row">
             <span class="label">自动删种</span>
             <span class="value">{{ item.autoDeleteEnabled === '1' ? '已开启' : '未开启' }}</span>
           </div>
@@ -154,6 +158,7 @@ const {
   isAllPageSelected, toggleSelectAllPage,
   handleAdd, handleUpdate, handleDelete,
   cleanRuleOpen, cleanRuleTarget, openCleanRules,
+  spaceText, spaceLow,
   totalPages, prevPage, nextPage, handleSizeChange,
   searchCollapsed
 } = usePageStateProvider(usePtDownloader())

@@ -1,5 +1,6 @@
 package com.osr.openliststrm.mybatisplus.domain;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.baomidou.mybatisplus.annotation.IdType;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
@@ -9,6 +10,8 @@ import com.osr.openliststrm.enums.PtDownloaderRoleEnum;
 import com.osr.openliststrm.mybatisplus.handler.EncryptedStringTypeHandler;
 import lombok.Getter;
 import lombok.Setter;
+
+import java.math.BigDecimal;
 
 /**
  * <p>
@@ -94,6 +97,20 @@ public class PtDownloaderPlus extends BaseEntity {
     private Integer autoDeleteMaxPerRound;
 
     /**
+     * 剩余空间告警线（GB），低于它时进首页待办并发通知；null 不告警。
+     * <p>
+     * 这两列是 {@code ALWAYS}：「清空」本身有含义（不告警 / 不看空间），而默认的 NOT_NULL 会让清空静默存不进去——
+     * 页面提示保存成功、刷新后值又回来了。下载器只在编辑表单里整实体更新，不存在拿半个实体 updateById 的调用点。
+     * </p>
+     */
+    @TableField(value = "free_space_warn_gb", updateStrategy = FieldStrategy.ALWAYS)
+    private BigDecimal freeSpaceWarnGb;
+
+    /** 只在剩余空间低于此值（GB）时自动删种，删够即停；null 不看空间、照旧按规则删 */
+    @TableField(value = "auto_delete_free_below_gb", updateStrategy = FieldStrategy.ALWAYS)
+    private BigDecimal autoDeleteFreeBelowGb;
+
+    /**
      * 是否参与订阅下载的负载均衡。
      * <p>
      * {@code SEED_ONLY} 的下载器只接收 IYUU 转移/辅种过来的种子，绝不能被订阅推送选中。
@@ -106,6 +123,23 @@ public class PtDownloaderPlus extends BaseEntity {
     /** 自动删种是否已开启 */
     public boolean autoDeleteOn() {
         return "1".equals(autoDeleteEnabled);
+    }
+
+    /** 告警线换算成字节；未配置或非正数返回 null（= 不告警）。不叫 getXxx，理由见 PlusEntityReflectorTest */
+    public Long freeSpaceWarnBytes() {
+        return gbToBytes(freeSpaceWarnGb);
+    }
+
+    /** 按空间删种的线换算成字节；未配置或非正数返回 null（= 不看空间） */
+    public Long autoDeleteFreeBelowBytes() {
+        return gbToBytes(autoDeleteFreeBelowGb);
+    }
+
+    private static Long gbToBytes(BigDecimal gb) {
+        if (gb == null || gb.signum() <= 0) {
+            return null;
+        }
+        return gb.multiply(BigDecimal.valueOf(1024L * 1024 * 1024)).longValue();
     }
 
     /**

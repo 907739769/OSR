@@ -10,7 +10,7 @@ import { getPtIndexerListApi } from '@/api/openlist/ptIndexer'
 import { getTodoSignalsApi } from '@/api/openlist/dashboard'
 import { useDashboardTodo, isIndexerAbnormal, describeProblems } from '../useDashboardTodo'
 
-const NO_SIGNALS = { offlineDownloaders: [], unhealthyMediaServers: [], unresolvedFailedDownloads: 0 }
+const NO_SIGNALS = { offlineDownloaders: [], unhealthyMediaServers: [], unresolvedFailedDownloads: 0, lowSpaceDownloaders: [] }
 
 describe('isIndexerAbnormal', () => {
   it('启用且上次轮询非 OK 才算异常', () => {
@@ -54,7 +54,8 @@ describe('useDashboardTodo', () => {
     vi.mocked(getTodoSignalsApi).mockResolvedValue({
       offlineDownloaders: [{ name: '家里qB', since: null, detail: null }],
       unhealthyMediaServers: [],
-      unresolvedFailedDownloads: 4
+      unresolvedFailedDownloads: 4,
+      lowSpaceDownloaders: []
     } as any)
     const t = useDashboardTodo()
     await t.load()
@@ -65,6 +66,23 @@ describe('useDashboardTodo', () => {
       path: '/p/openlist/ptDownloadRecord/index',
       query: { state: 'FAILED', hideSuperseded: '1', hideIgnored: '1' }
     })
+  })
+
+  /** 写满之前就看得见：排在离线之后、其余之前；只有一台时把剩多少 / 告警线写出来 */
+  it('下载器空间不足单列一项，紧跟在离线之后', async () => {
+    vi.mocked(getPtHealthApi).mockResolvedValue({ bucketCounts: { OVERDUE_MISSING: 1 } } as any)
+    vi.mocked(getPtIndexerListApi).mockResolvedValue({ records: [] } as any)
+    vi.mocked(getTodoSignalsApi).mockResolvedValue({
+      ...NO_SIGNALS,
+      offlineDownloaders: [{ name: 'trA', since: null, detail: null }],
+      lowSpaceDownloaders: [{ name: '家里qB', since: null, detail: '剩 8.0 GB，告警线 50.0 GB' }]
+    } as any)
+    const t = useDashboardTodo()
+    await t.load()
+    expect(t.items.value.map((i) => i.key)).toEqual(['downloader', 'lowSpace', 'overdueMissing'])
+    expect(t.items.value[1].hint).toBe('家里qB 剩 8.0 GB，告警线 50.0 GB')
+    expect(t.items.value[1].path).toBe('/p/openlist/ptDownloader/index')
+    expect(t.failed.value).toBe(false)
   })
 
   it('待办信号某一路为 null 算没取到，不能当成没有问题', async () => {

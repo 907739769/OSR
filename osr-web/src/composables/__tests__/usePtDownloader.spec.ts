@@ -9,7 +9,8 @@ vi.mock('@/api/openlist/ptDownloader', () => ({
   updatePtDownloaderApi: vi.fn(),
   deletePtDownloaderApi: vi.fn(),
   testPtDownloaderApi: vi.fn(),
-  validateSavePathApi: vi.fn()
+  validateSavePathApi: vi.fn(),
+  getDownloaderSpaceApi: vi.fn().mockResolvedValue([])
 }))
 
 import { usePtDownloader } from '../usePtDownloader'
@@ -106,5 +107,34 @@ describe('usePtDownloader 的保存路径警告生命周期', () => {
     await nextTick()
 
     expect(composable.form.value.maxConcurrent).toBe(0)
+  })
+})
+
+describe('usePtDownloader 剩余空间', () => {
+  it('随列表一起拉剩余空间：读到的写体积，低于告警线标出来，没读到写「未读取」', async () => {
+    const api = await import('@/api/openlist/ptDownloader')
+    vi.mocked(api.getDownloaderSpaceApi).mockResolvedValue([
+      { id: 1, freeBytes: 8 * 1024 ** 3, checkedAt: '', warnBytes: 50 * 1024 ** 3, low: true, lowSince: null }
+    ])
+    const ctx = usePtDownloader({ autoLoad: false })
+    ctx.taskList.value = [{ id: 1 }, { id: 2 }] as any
+    await new Promise(r => setTimeout(r, 0))
+
+    expect(ctx.spaceText({ id: 1 })).toBe('8.00 GB')
+    expect(ctx.spaceLow({ id: 1 })).toBe(true)
+    expect(ctx.spaceText({ id: 2 })).toBe('未读取')
+    expect(ctx.spaceLow({ id: 2 })).toBe(false)
+  })
+
+  it('阈值清空后落成 null：后端靠 null 表示不告警 / 不看空间', async () => {
+    const ctx = usePtDownloader({ autoLoad: false })
+    ctx.form.value = { freeSpaceWarnGb: 50, autoDeleteFreeBelowGb: 100 } as any
+    await nextTick()
+    ctx.form.value.freeSpaceWarnGb = '' as any
+    ctx.form.value.autoDeleteFreeBelowGb = '' as any
+    await nextTick()
+
+    expect(ctx.form.value.freeSpaceWarnGb).toBeNull()
+    expect(ctx.form.value.autoDeleteFreeBelowGb).toBeNull()
   })
 })

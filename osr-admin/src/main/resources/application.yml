@@ -189,6 +189,10 @@ pt:
     # 调到分钟级只会让每一轮把整个保种盘的种子列表白拉一遍。
     # 是否真的删种由每个下载器自己的开关与规则决定，这里只是扫描节奏
     interval-minutes: 60
+  downloader:
+    # 剩余空间检查（DownloaderSpaceTask）的间隔，供首页待办、下载器卡片与空间告警使用。
+    # qBittorrent 只能从 sync/maindata 取剩余空间，那个接口连带全部种子、响应不小，所以不往下压。
+    space-check-minutes: 15
   library:
     # 媒体库对账（LibrarySyncTask，每 10 分钟）同时处理几条订阅。
     # 这里能并发而自动补搜不能，差别在下游是谁：补搜打索引器、受全局 IndexerRateLimiter 约束，

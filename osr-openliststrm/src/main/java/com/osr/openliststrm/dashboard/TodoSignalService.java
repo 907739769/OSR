@@ -9,6 +9,8 @@ import com.osr.openliststrm.mybatisplus.service.IPtDownloadRecordPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtDownloaderPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtMediaServerPlusService;
 import com.osr.openliststrm.pt.downloader.DownloaderHealthRegistry;
+import com.osr.openliststrm.pt.downloader.DownloaderSpaceRegistry;
+import com.osr.openliststrm.pt.downloader.DownloaderSpaceService;
 import com.osr.openliststrm.pt.stats.PtStatsScope;
 import com.osr.openliststrm.pt.task.DownloadRecordAdminService;
 import com.osr.openliststrm.pt.task.DownloadRecordState;
@@ -36,13 +38,16 @@ public class TodoSignalService {
     private final IPtMediaServerPlusService mediaServerService;
     private final IPtDownloadRecordPlusService recordService;
     private final DownloaderHealthRegistry downloaderHealth;
+    private final DownloaderSpaceRegistry downloaderSpace;
 
     public TodoSignalService(IPtDownloaderPlusService downloaderService, IPtMediaServerPlusService mediaServerService,
-                             IPtDownloadRecordPlusService recordService, DownloaderHealthRegistry downloaderHealth) {
+                             IPtDownloadRecordPlusService recordService, DownloaderHealthRegistry downloaderHealth,
+                             DownloaderSpaceRegistry downloaderSpace) {
         this.downloaderService = downloaderService;
         this.mediaServerService = mediaServerService;
         this.recordService = recordService;
         this.downloaderHealth = downloaderHealth;
+        this.downloaderSpace = downloaderSpace;
     }
 
     /**
@@ -51,7 +56,33 @@ public class TodoSignalService {
      */
     public TodoSignals signals(PtStatsScope scope) {
         return new TodoSignals(offlineDownloaders(scope.all()), unhealthyMediaServers(scope.all()),
-                unresolvedFailedDownloads(scope));
+                unresolvedFailedDownloads(scope), lowSpaceDownloaders());
+    }
+
+    /**
+     * 剩余空间低于告警线的下载器。详情是「剩多少 / 告警线多少」，不含地址，所有人都给。
+     * 判据取空间检查任务写下的低位状态（{@code DownloaderSpaceService}），这里不现读下载器——
+     * 首页每次打开都去拉一遍 qB 的 maindata 不值得。
+     */
+    private List<Problem> lowSpaceDownloaders() {
+        try {
+            List<Problem> result = new ArrayList<>();
+            for (PtDownloaderPlus d : downloaderService.list(new LambdaQueryWrapper<PtDownloaderPlus>()
+                    .eq(PtDownloaderPlus::getEnabled, "1"))) {
+                DownloaderSpaceRegistry.LowState low = downloaderSpace.low(d.getId());
+                if (low == null) {
+                    continue;
+                }
+                DownloaderSpaceRegistry.Snapshot snap = downloaderSpace.snapshot(d.getId());
+                String detail = "剩 " + DownloaderSpaceService.formatSize(snap == null ? null : snap.freeBytes())
+                        + "，告警线 " + DownloaderSpaceService.formatSize(d.freeSpaceWarnBytes());
+                result.add(new Problem(d.getName(), low.since(), detail));
+            }
+            return result;
+        } catch (Exception e) {
+            log.warn("首页待办：查询下载器剩余空间失败：{}", e.getMessage(), e);
+            return null;
+        }
     }
 
     private List<Problem> offlineDownloaders(boolean withDetail) {
@@ -112,9 +143,10 @@ public class TodoSignalService {
      * @param offlineDownloaders       连续拉取失败的下载器
      * @param unhealthyMediaServers    最近一次访问失败的媒体服务器
      * @param unresolvedFailedDownloads 还没着落的失败下载数
+     * @param lowSpaceDownloaders      剩余空间低于告警线的下载器
      */
     public record TodoSignals(List<Problem> offlineDownloaders, List<Problem> unhealthyMediaServers,
-                              Long unresolvedFailedDownloads) {
+                              Long unresolvedFailedDownloads, List<Problem> lowSpaceDownloaders) {
     }
 
     /**

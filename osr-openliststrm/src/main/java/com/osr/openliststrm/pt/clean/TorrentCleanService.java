@@ -171,7 +171,70 @@ public class TorrentCleanService {
                     hrProtected, uploadProtected));
         }
         decisions.sort(Comparator.comparingLong(CleanGroupDecision::sizeBytes).reversed());
-        return applyRoundLimit(decisions, downloader.getAutoDeleteMaxPerRound());
+        return applyRoundLimit(applyFreeSpaceTarget(downloader, decisions), downloader.getAutoDeleteMaxPerRound());
+    }
+
+    /**
+     * 「按空间删种」：只在剩余空间低于删种线时删，且从大到小删到腾够为止。没开（线为空）时原样返回。
+     * <p>
+     * 三条：<b>读不到剩余空间一个都不删</b>（判据缺失不动手，与 {@link #isBusy} 读不出状态按「忙」处理同一取向）；
+     * <b>只删种子不删文件的组不计入腾出量</b>——它们照规则可删，但删了一个字节都腾不出来，不能拿它们凑数提前收手；
+     * 判定排在本轮上限<b>之前</b>，上限截掉的是「真正需要删的」那一批里排在后面的。
+     * 预览与执行走同一份判定（{@link #evaluate}），所以预览里看到的正是这一轮会删的。
+     * </p>
+     */
+    private List<CleanGroupDecision> applyFreeSpaceTarget(PtDownloaderPlus downloader, List<CleanGroupDecision> decisions) {
+        Long threshold = downloader.autoDeleteFreeBelowBytes();
+        if (threshold == null || decisions.stream().noneMatch(CleanGroupDecision::isDeletable)) {
+            return decisions;
+        }
+        Long free;
+        try {
+            free = clientFactory.get(downloader).freeSpace(downloader);
+        } catch (Exception e) {
+            log.warn("下载器[{}] 读取剩余空间失败，按空间删种本轮不删：{}", downloader.getName(), e.getMessage());
+            free = null;
+        }
+        if (free == null) {
+            log.info("下载器[{}] 开了按空间删种但读不到剩余空间，本轮不删", downloader.getName());
+            return reject(decisions, CleanSkipReason.FREE_SPACE_UNKNOWN);
+        }
+        if (free >= threshold) {
+            log.debug("下载器[{}] 剩余 {}，不低于删种线 {}，本轮不删", downloader.getName(), formatSize(free), formatSize(threshold));
+            return reject(decisions, CleanSkipReason.SPACE_SUFFICIENT);
+        }
+        long need = threshold - free;
+        long planned = 0;
+        int kept = 0;
+        List<CleanGroupDecision> result = new ArrayList<>(decisions.size());
+        for (CleanGroupDecision decision : decisions) {
+            if (!decision.isDeletable()) {
+                result.add(decision);
+            } else if (planned >= need) {
+                result.add(CleanGroupDecision.skip(decision.getContentKey(), decision.getTorrents(),
+                        CleanSkipReason.SPACE_TARGET_REACHED, null));
+            } else {
+                result.add(decision);
+                kept++;
+                if (decision.isDeleteFiles()) {
+                    planned += decision.sizeBytes();
+                }
+            }
+        }
+        log.info("下载器[{}] 剩余 {}，低于删种线 {}：本轮按规则删 {} 组，预计腾出 {}{}", downloader.getName(),
+                formatSize(free), formatSize(threshold), kept, formatSize(planned),
+                planned < need ? "（达标的组不够，仍差 " + formatSize(need - planned) + "）" : "");
+        return result;
+    }
+
+    private static List<CleanGroupDecision> reject(List<CleanGroupDecision> decisions, CleanSkipReason reason) {
+        List<CleanGroupDecision> result = new ArrayList<>(decisions.size());
+        for (CleanGroupDecision decision : decisions) {
+            result.add(decision.isDeletable()
+                    ? CleanGroupDecision.skip(decision.getContentKey(), decision.getTorrents(), reason, null)
+                    : decision);
+        }
+        return result;
     }
 
     /**

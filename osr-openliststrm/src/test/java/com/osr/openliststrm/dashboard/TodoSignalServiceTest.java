@@ -8,6 +8,7 @@ import com.osr.openliststrm.mybatisplus.service.IPtDownloadRecordPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtDownloaderPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtMediaServerPlusService;
 import com.osr.openliststrm.pt.downloader.DownloaderHealthRegistry;
+import com.osr.openliststrm.pt.downloader.DownloaderSpaceRegistry;
 import com.osr.openliststrm.pt.stats.PtStatsScope;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -29,8 +30,9 @@ class TodoSignalServiceTest {
     private final IPtMediaServerPlusService mediaServerService = mock(IPtMediaServerPlusService.class);
     private final IPtDownloadRecordPlusService recordService = mock(IPtDownloadRecordPlusService.class);
     private final DownloaderHealthRegistry registry = new DownloaderHealthRegistry();
+    private final DownloaderSpaceRegistry spaceRegistry = new DownloaderSpaceRegistry();
     private final TodoSignalService service =
-            new TodoSignalService(downloaderService, mediaServerService, recordService, registry);
+            new TodoSignalService(downloaderService, mediaServerService, recordService, registry, spaceRegistry);
 
     @BeforeEach
     @SuppressWarnings("unchecked")
@@ -57,6 +59,21 @@ class TodoSignalServiceTest {
 
         registry.recordSuccess(1);
         assertTrue(service.signals(PtStatsScope.ALL).offlineDownloaders().isEmpty());
+    }
+
+    /** 低于告警线才挂上，详情写「剩多少 / 告警线多少」；恢复后消失 */
+    @Test
+    void 剩余空间低于告警线才进待办_恢复即清除() {
+        assertTrue(service.signals(PtStatsScope.ALL).lowSpaceDownloaders().isEmpty());
+
+        spaceRegistry.record(1, 5L * 1024 * 1024 * 1024);
+        spaceRegistry.markLow(1, new DownloaderSpaceRegistry.LowState(new java.util.Date(), new java.util.Date()));
+        TodoSignalService.Problem p = service.signals(PtStatsScope.of(false, 7L)).lowSpaceDownloaders().get(0);
+        assertEquals("家里qB", p.name());
+        assertTrue(p.detail().startsWith("剩 5.0 GB"), p.detail());
+
+        spaceRegistry.clearLow(1);
+        assertTrue(service.signals(PtStatsScope.ALL).lowSpaceDownloaders().isEmpty());
     }
 
     /** 报错里常带内网地址：只给管理员 */

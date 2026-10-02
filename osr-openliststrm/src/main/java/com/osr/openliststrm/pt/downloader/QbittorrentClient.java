@@ -384,6 +384,25 @@ public class QbittorrentClient implements IDownloaderClient {
      * {@code /sync/maindata} 的 {@code server_state.alltime_ul}。rid=0 会连带返回全部种子，
      * 响应不小，但保种看板一小时才取一次，与 qB 自己的 WebUI 打开时拉的是同一份。
      */
+    /**
+     * {@code /sync/maindata} 的 {@code server_state.free_space_on_disk}（默认保存路径所在磁盘）。
+     * qB 没有单独取剩余空间的接口，只能拉 maindata；rid=0 会连带全部种子，所以调用方要控制频率
+     * （空间检查 15 分钟一次，删种按空间判定时每轮一次）。
+     */
+    @Override
+    public Long freeSpace(PtDownloaderPlus config) throws IOException {
+        String json = get(config, "/api/v2/sync/maindata", Map.of("rid", "0"));
+        if (StringUtils.isBlank(json)) {
+            return null;
+        }
+        try {
+            JSONObject state = JSONObject.parseObject(json).getJSONObject("server_state");
+            return state == null ? null : state.getLong("free_space_on_disk");
+        } catch (Exception e) {
+            throw new IOException("qBittorrent 返回的 maindata 不是合法 JSON：" + e.getMessage(), e);
+        }
+    }
+
     @Override
     public Long cumulativeUploaded(PtDownloaderPlus config) throws IOException {
         String json = get(config, "/api/v2/sync/maindata", Map.of("rid", "0"));
