@@ -697,6 +697,55 @@ class TMDbClientSearchTest {
     }
 
     /**
+     * 真实事故：{@code Once.Upon.A.Time.In.Anatolia.2011.BluRay.Remux.1080p.AVC.DTS-HD.MA.5.1-HDH}
+     * 被刮成了同年的花絮纪录片。{@code /search/movie?language=zh-CN} 只回这两条：正片的
+     * title 是中文、original_title 是土耳其语，标题分 0；花絮没有中文译名，标题包含解析标题拿 +60。
+     * 正片的原名虽是拉丁字母，但不是英文名，必须补拉 en-US 规范名。
+     */
+    private static final String ANATOLIA = "{\"results\":["
+            + "{\"id\":74879,\"title\":\"小亚细亚往事\",\"original_title\":\"Bir Zamanlar Anadolu'da\","
+            + "\"original_language\":\"tr\",\"release_date\":\"2011-09-23\",\"popularity\":3.2},"
+            + "{\"id\":612174,\"title\":\"Making of Once Upon A Time in Anatolia\","
+            + "\"original_title\":\"Making of Once Upon A Time in Anatolia\","
+            + "\"original_language\":\"tr\",\"release_date\":\"2011-12-31\",\"popularity\":0.6}]}";
+
+    private MediaInfo anatoliaInfo() {
+        MediaInfo info = new MediaInfo(
+                "Once.Upon.A.Time.In.Anatolia.2011.BluRay.Remux.1080p.AVC.DTS-HD.MA.5.1-HDH.strm");
+        info.setOriginalTitle("Once Upon A Time In Anatolia");
+        info.setYear("2011");
+        return info;
+    }
+
+    @Test
+    void 排序_非英语原名的拉丁标题_也补拉英文规范名_正片胜过花絮() throws Exception {
+        TMDbApiService api = mock(TMDbApiService.class);
+        when(api.search(anyString(), anyString(), anyString(), any())).thenReturn(ANATOLIA);
+        when(api.getDetails(anyString(), eq("movie"), eq(74879), eq("en-US")))
+                .thenReturn("{\"id\":74879,\"title\":\"Once Upon a Time in Anatolia\"}");
+
+        MediaInfo info = anatoliaInfo();
+
+        assertEquals("小亚细亚往事", client.search("movie", info, api));
+        assertEquals("74879", info.getTmdbId());
+        // 花絮已有包含命中，不为它补拉
+        verify(api, never()).getDetails(anyString(), eq("movie"), eq(612174), eq("en-US"));
+    }
+
+    @Test
+    void 排序_英语原名的候选_标题分为0时不补拉英文规范名() throws Exception {
+        // original_language=en 时原名就是英文名，拉丁 × 拉丁比出的 0 是真实结论
+        String results = "{\"results\":[{\"id\":1,\"title\":\"无关电影\",\"original_title\":\"Something Else Entirely\","
+                + "\"original_language\":\"en\",\"release_date\":\"2011-01-01\",\"popularity\":1}]}";
+        TMDbApiService api = mock(TMDbApiService.class);
+        when(api.search(anyString(), anyString(), anyString(), any())).thenReturn(results);
+
+        client.search("movie", anatoliaInfo(), api);
+
+        verify(api, never()).getDetails(anyString(), anyString(), anyInt(), eq("en-US"));
+    }
+
+    /**
      * 同名重启剧：1978 版原名 "All Creatures Great and Small"，2020 版原名写的是 "&"。
      * 旧归一化把 & 当普通标点抹掉，2020 版拿不到任何标题分，1978 版靠全等分档稳赢。
      */

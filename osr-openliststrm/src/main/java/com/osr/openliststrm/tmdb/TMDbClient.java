@@ -585,7 +585,7 @@ public class TMDbClient {
 
     /**
      * 这个候选是否属于「标题分注定为 0」的结构：解析出的标题里有纯拉丁的一个，
-     * 而候选的 name/original_name <b>全部</b>含 CJK/假名/谚文。
+     * 而候选的 name/original_name <b>全部</b>含 CJK/假名/谚文，或候选母语不是英语。
      * <p>
      * 满足这个结构时，{@link #titleMatchLevel} 拿拉丁标题去比两个 CJK 字段，结果<b>只可能是 0</b>——
      * 不是"这两部作品不同"，而是"这一维根本没参与比较"。真实事故
@@ -604,6 +604,14 @@ public class TMDbClient {
      * 这也让改动对既有行为的影响面尽可能小——{@code Something Else Entirely} 那类候选一次请求都不多发。
      * </p>
      * <p>
+     * <b>例外：候选的 {@code original_language} 不是英语时照样探测</b>。上面那条推理默认了"拉丁字段就是英文名"，
+     * 对非英语的欧洲作品不成立。事故 {@code Once.Upon.A.Time.In.Anatolia.2011}：正确答案 {@code movie/74879}
+     * 的 title 是「小亚细亚往事」、original_title 是土耳其语 {@code Bir Zamanlar Anadolu'da}，标题分 0；
+     * 而同年的花絮纪录片 {@code Making of Once Upon A Time in Anatolia}（612174）没有中文译名、
+     * 标题包含解析标题拿 +60，年份同样吻合，于是正片被刮成了花絮。74879 的 en-US 名逐字就是
+     * {@code Once Upon a Time in Anatolia}，补拉后直接进全等档。
+     * </p>
+     * <p>
      * <b>为什么只在 {@code level == 0} 时探测</b>（判断在调用处）：已经有标题信号的候选，
      * 补一个英文名最多把 CONTAINS 抬成 EXACT，而那恰恰是本次要压住的那种"靠包含蒙混"的候选。
      * </p>
@@ -618,6 +626,12 @@ public class TMDbClient {
         }
         if (!latinQuery) {
             return false;
+        }
+        // 母语不是英语的作品，原名即便是拉丁字母也不是英文名（土耳其语、法语、西语……），
+        // 拉丁 × 拉丁比过了但比的不是同一种语言，0 分同样是结构性缺失
+        String lang = node.path("original_language").asText("");
+        if (StringUtils.isNotEmpty(lang) && !"en".equalsIgnoreCase(lang)) {
+            return true;
         }
         boolean anyTitle = false;
         for (String theirs : candidateTitleFields(type, node)) {
