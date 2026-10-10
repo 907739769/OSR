@@ -56,6 +56,13 @@ describe('usePtResourceSearch', () => {
       .toEqual({ subscribe: 'Dune.2024', mediaType: 'MOVIE' })
   })
 
+  /** 罗马音 / 拼音命名的种子拿解析出的片名去订阅页搜 TMDb 多半落空，识别出的规范名一搜就是它 */
+  it('识别出作品时转订阅用它的规范名与类型，不用解析出的片名', () => {
+    expect(subscribeQuery(item({
+      parsedTitle: 'Gei a ma de qing shu', matchedTitle: '给阿嬷的情书', matchedTmdbId: '1', mediaType: 'MOVIE', parsedSeason: 1
+    }) as any)).toEqual({ subscribe: '给阿嬷的情书', mediaType: 'MOVIE' })
+  })
+
   it('关键词不足两个字不发请求', async () => {
     const ctx = usePtResourceSearch()
     ctx.keyword.value = ' 三 '
@@ -67,7 +74,10 @@ describe('usePtResourceSearch', () => {
   })
 
   it('选了站点才带 indexerIds，没选就搜全部', async () => {
-    vi.mocked(api.searchResourceApi).mockResolvedValue({ candidateCount: 0, rejectedCount: 0, items: [] })
+    vi.mocked(api.searchResourceApi).mockResolvedValue({
+      candidateCount: 0, rejectedCount: 0, tmdbLookupEnabled: true, distinctWorks: 0, identifiedWorks: 0,
+      tmdbLookupSkipped: false, tmdbLookupTruncated: false, tmdbLookupUnavailable: false, items: []
+    })
     const ctx = usePtResourceSearch()
     ctx.keyword.value = '三体'
 
@@ -85,6 +95,10 @@ describe('usePtResourceSearch', () => {
     vi.mocked(api.searchResourceApi).mockResolvedValue({
       candidateCount: 2,
       rejectedCount: 1,
+      tmdbLookupEnabled: true,
+      distinctWorks: 2, identifiedWorks: 0,
+      tmdbLookupSkipped: false,
+      tmdbLookupTruncated: false, tmdbLookupUnavailable: false,
       items: [item({ guid: 'a' }), item({ guid: 'b', ruleRejection: '分辨率不在白名单' })] as any
     })
     const ctx = usePtResourceSearch()
@@ -100,6 +114,105 @@ describe('usePtResourceSearch', () => {
     ctx.clearFilters()
     expect(ctx.passedOnly.value).toBe(false)
     expect(ctx.visibleResults.value).toHaveLength(2)
+  })
+
+  it('标题组数超过上限时说明只识别了一部分，没问的那些行不能显示「识别不出」', async () => {
+    vi.mocked(api.searchResourceApi).mockResolvedValue({
+      candidateCount: 21, rejectedCount: 0, tmdbLookupEnabled: true, distinctWorks: 21, identifiedWorks: 0,
+      tmdbLookupSkipped: true, tmdbLookupTruncated: false, tmdbLookupUnavailable: false,
+      items: [item({ guid: 'a' })] as any
+    })
+    const ctx = usePtResourceSearch()
+    ctx.keyword.value = '三体'
+    await ctx.handleSearch()
+
+    expect(ctx.lookupNote.value).toContain('只识别了一部分')
+    expect(ctx.lookupNote.value).toContain('21')
+    // 上限那个数字在后端，文案里不写死
+    expect(ctx.lookupNote.value).not.toContain('20')
+    expect(ctx.lookupComplete.value).toBe(false)
+  })
+
+  it('识别跑完时不报状态，只报已识别数', async () => {
+    vi.mocked(api.searchResourceApi).mockResolvedValue({
+      candidateCount: 2, rejectedCount: 0, tmdbLookupEnabled: true, distinctWorks: 2, identifiedWorks: 1,
+      tmdbLookupSkipped: false, tmdbLookupTruncated: false, tmdbLookupUnavailable: false,
+      items: [item({ guid: 'a', matchedTmdbId: '79481' }), item({ guid: 'b' })] as any
+    })
+    const ctx = usePtResourceSearch()
+    ctx.keyword.value = '三体'
+    await ctx.handleSearch()
+
+    expect(ctx.lookupNote.value).toBe('')
+    expect(ctx.matchedWorks.value).toBe(1)
+    expect(ctx.lookupComplete.value).toBe(true)
+    // 分子分母不是同一口径（作品数 vs 标题组数），不许摆成「1 / 2」
+    expect(ctx.lookupSummary.value).toBe('识别出 1 个作品，1 组标题识别不出')
+  })
+
+  it('同一个 tmdbId 的电影与剧集算两个作品', async () => {
+    vi.mocked(api.searchResourceApi).mockResolvedValue({
+      candidateCount: 2, rejectedCount: 0, tmdbLookupEnabled: true, distinctWorks: 2, identifiedWorks: 2,
+      tmdbLookupSkipped: false, tmdbLookupTruncated: false, tmdbLookupUnavailable: false,
+      items: [
+        item({ guid: 'a', matchedTmdbId: '1399', mediaType: 'TV' }),
+        item({ guid: 'b', matchedTmdbId: '1399', mediaType: 'MOVIE' })
+      ] as any
+    })
+    const ctx = usePtResourceSearch()
+    ctx.keyword.value = '三体'
+    await ctx.handleSearch()
+
+    expect(ctx.matchedWorks.value).toBe(2)
+    expect(ctx.lookupSummary.value).toBe('识别出 2 个作品')
+  })
+
+  it('预算内没跑完时要说清已识别多少', async () => {
+    vi.mocked(api.searchResourceApi).mockResolvedValue({
+      candidateCount: 3, rejectedCount: 0, tmdbLookupEnabled: true, distinctWorks: 3, identifiedWorks: 1,
+      tmdbLookupSkipped: false, tmdbLookupTruncated: true, tmdbLookupUnavailable: false,
+      items: [item({ guid: 'a', matchedTmdbId: '1' })] as any
+    })
+    const ctx = usePtResourceSearch()
+    ctx.keyword.value = '三体'
+    await ctx.handleSearch()
+
+    expect(ctx.lookupNote.value).toContain('未跑完')
+    expect(ctx.lookupNote.value).toContain('3 组标题只识别了 1 组')
+    // 没跑完时没带作品的那一行不能说「识别不出」——真相是还没识别
+    expect(ctx.lookupComplete.value).toBe(false)
+    expect(ctx.lookupSummary.value).toBe('')
+  })
+
+  it('识别数按作品计而不是按种子行数计', async () => {
+    vi.mocked(api.searchResourceApi).mockResolvedValue({
+      candidateCount: 3, rejectedCount: 0, tmdbLookupEnabled: true, distinctWorks: 1, identifiedWorks: 0,
+      tmdbLookupSkipped: false, tmdbLookupTruncated: false, tmdbLookupUnavailable: false,
+      items: [
+        item({ guid: 'a', matchedTmdbId: '79481' }),
+        item({ guid: 'b', matchedTmdbId: '79481' }),
+        item({ guid: 'c', matchedTmdbId: '79481' })
+      ] as any
+    })
+    const ctx = usePtResourceSearch()
+    ctx.keyword.value = '斗破苍穹'
+    await ctx.handleSearch()
+
+    expect(ctx.matchedWorks.value).toBe(1)
+  })
+
+  it('TMDb key 未配置时说清是「没识别」而不是逐行「识别不出」', async () => {
+    vi.mocked(api.searchResourceApi).mockResolvedValue({
+      candidateCount: 1, rejectedCount: 0, tmdbLookupEnabled: true, distinctWorks: 1, identifiedWorks: 0,
+      tmdbLookupSkipped: false, tmdbLookupTruncated: false, tmdbLookupUnavailable: true,
+      items: [item({ guid: 'a' })] as any
+    })
+    const ctx = usePtResourceSearch()
+    ctx.keyword.value = '三体'
+    await ctx.handleSearch()
+
+    expect(ctx.lookupNote.value).toContain('TMDb key 未配置')
+    expect(ctx.lookupComplete.value).toBe(false)
   })
 
   it('直接下载只对管理员开放', () => {

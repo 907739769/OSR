@@ -486,4 +486,51 @@ class TmdbSearchServiceTest {
 
         assertNull(service.refreshEnglishTitle("TV", "333350", null));
     }
+
+    // ---------------- describeWork（资源搜索页的作品识别用） ----------------
+
+    /** 轻量版详情：只发一次详情请求，不查外部 ID、不查 en-US 详情——那两次是给标题匹配用的 */
+    @Test
+    void describeWork_中文名现成时只发一次详情请求() {
+        when(tmDbApiService.getDetails(anyString(), eq("tv"), eq(209867))).thenReturn("""
+                {"id":209867,"name":"葬送的芙莉莲","original_name":"葬送のフリーレン","first_air_date":"2023-09-29"}
+                """);
+
+        TmdbSearchItem item = service.describeWork("TV", " 209867 ");
+
+        assertEquals("209867", item.getTmdbId());
+        assertEquals("葬送的芙莉莲", item.getTitle());
+        assertEquals("葬送のフリーレン", item.getOriginalTitle());
+        assertEquals("2023", item.getYear());
+        verify(tmDbApiService, never()).getExternalIds(anyString(), anyString(), anyInt());
+        verify(tmDbApiService, never()).getAlternativeTitles(anyString(), anyString(), anyInt());
+        verify(tmDbApiService, never()).getDetails(anyString(), anyString(), anyInt(), anyString());
+    }
+
+    /** TMDb 缺中文翻译时 name 退回英文，要补查中文别名——页面上显示的是这个名字 */
+    @Test
+    void describeWork_缺中文翻译时用中文别名() {
+        when(tmDbApiService.getDetails(anyString(), eq("movie"), eq(1))).thenReturn("""
+                {"id":1,"title":"Ted Lasso","original_title":"Ted Lasso","release_date":"2020-08-14"}
+                """);
+        when(tmDbApiService.getAlternativeTitles(anyString(), eq("movie"), eq(1))).thenReturn("""
+                {"titles":[{"iso_3166_1":"CN","title":"足球教练"}]}
+                """);
+
+        TmdbSearchItem item = service.describeWork("MOVIE", "1");
+
+        assertEquals("足球教练", item.getTitle());
+        assertEquals("Ted Lasso", item.getOriginalTitle());
+    }
+
+    /** 调用方按「识别不出」处理 null，不能让一个格式不对的 id 或一次落空的请求抛到整页搜索上 */
+    @Test
+    void describeWork_id非法或取不到详情时返回null不抛异常() {
+        assertNull(service.describeWork("TV", null));
+        assertNull(service.describeWork("TV", "斗破苍穹"));
+        verify(tmDbApiService, never()).getDetails(anyString(), anyString(), anyInt());
+
+        when(tmDbApiService.getDetails(anyString(), anyString(), anyInt())).thenReturn(null);
+        assertNull(service.describeWork("TV", "42"));
+    }
 }

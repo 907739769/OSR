@@ -1,9 +1,13 @@
 package com.osr.openliststrm.pt.search;
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.osr.common.utils.StringUtils;
+import com.osr.common.utils.Threads;
 import com.osr.openliststrm.mybatisplus.domain.PtDownloaderPlus;
+import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtDownloaderPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtFilterConfigPlusService;
+import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtTorrentBlacklistPlusService;
 import com.osr.openliststrm.pt.downloader.DownloaderClientFactory;
 import com.osr.openliststrm.pt.filter.EpisodeCountResolver;
@@ -11,19 +15,38 @@ import com.osr.openliststrm.pt.filter.FilterCriteria;
 import com.osr.openliststrm.pt.filter.FilterCriteriaFactory;
 import com.osr.openliststrm.pt.filter.TorrentBlacklist;
 import com.osr.openliststrm.pt.filter.TorrentFilterEngine;
+import com.osr.openliststrm.pt.model.ExternalIds;
 import com.osr.openliststrm.pt.model.TorrentInfo;
+import com.osr.openliststrm.pt.subscription.DescriptionAliases;
 import com.osr.openliststrm.pt.subscription.SearchSupplementService;
 import com.osr.openliststrm.pt.subscription.SubscriptionEngine;
+import com.osr.openliststrm.pt.subscription.TmdbSearchService;
 import com.osr.openliststrm.pt.subscription.dto.SearchCandidateDTO;
+import com.osr.openliststrm.pt.subscription.dto.TmdbSearchItem;
+import com.osr.openliststrm.rename.RenameClientProvider;
+import com.osr.openliststrm.rename.SeasonSuffix;
+import com.osr.openliststrm.rename.TitleNormalizer;
+import com.osr.openliststrm.rename.model.MediaInfo;
+import com.osr.openliststrm.tmdb.TMDbClient;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.IdentityHashMap;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /**
  * 资源搜索页：不建订阅，直接拿关键词搜全部站点，看站上有什么，再决定直接下载还是转为订阅。
@@ -55,12 +78,45 @@ public class ResourceSearchService {
     static final int MIN_KEYWORD_LENGTH = 2;
 
     /**
+     * 一次搜索最多识别多少组标题；超过时只识别<b>种子最多</b>的这么多组，其余不问。
+     * <p>
+     * 一次搜索几百条结果里通常只有十几组（同一部剧的 12 集是 12 条种子、一组），多数搜索碰不到它。
+     * 碰到的是长寿动画这一类：实测「Shingeki no Kyojin」100 条结果有 33 组标题——各季、剧场版、OAD、
+     * 各字幕组各写各的。早先的做法是超限就整页不识别，于是恰恰是最需要识别的那类搜索一条都认不出。
+     * 按组内种子数从多到少取，是因为大组覆盖的行最多；剩下的多是只有一两条的零散写法。
+     * 没问的那些组必须显式说出来，不能显示成「识别不出」——真相是没识别。
+     * </p>
+     */
+    static final int MAX_TMDB_LOOKUPS = 20;
+
+    /**
+     * 标题识别落空后，一组标题最多拿几个 description 别名再试。每个别名是一次 TMDb 搜索，
+     * 而别名列表里靠后的多半是繁体、日文原名这些同一个答案的不同写法，试多了只是多花配额。
+     */
+    static final int MAX_ALIAS_ATTEMPTS = 3;
+
+    /**
+     * 一条种子对应的作品身份。识别不出时整条为 null——前端据此显示「识别不出」，
+     * 而不是留一个空白格（空白会被读成「站上没有这部剧」）。
+     */
+    public record WorkIdentity(String tmdbId, String mediaType, String title, String year) {
+    }
+
+    /**
      * 搜索结果。
      *
-     * @param candidateCount 去重后的候选数
-     * @param rejectedCount  其中会被全局过滤规则淘汰的条数
+     * @param candidateCount      去重后的候选数
+     * @param rejectedCount       其中会被全局过滤规则淘汰的条数
+     * @param distinctWorks       按「标题 + 类型」归并出的标题组数（同一部剧的 12 集算 1 组）
+     * @param identifiedWorks     其中识别出作品身份的组数，与 distinctWorks 同一口径、恒不大于它
+     * @param tmdbLookupSkipped   标题组数超过上限：只识别了种子最多的那些组，其余没问
+     * @param tmdbLookupTruncated 预算内没跑完，已识别的只是其中一部分
+     * @param tmdbLookupUnavailable TMDb key 未配置：整页一个都没识别，不是「这些种子不属于任何作品」
      */
-    public record Result(int candidateCount, int rejectedCount, List<SearchCandidateDTO> items) {
+    public record Result(int candidateCount, int rejectedCount, boolean tmdbLookupEnabled,
+                         int distinctWorks, int identifiedWorks, boolean tmdbLookupSkipped,
+                         boolean tmdbLookupTruncated, boolean tmdbLookupUnavailable,
+                         List<SearchCandidateDTO> items) {
     }
 
     private final SearchSupplementService searchSupplementService;
@@ -70,6 +126,27 @@ public class ResourceSearchService {
     private final IPtTorrentBlacklistPlusService blacklistService;
     private final IPtDownloaderPlusService downloaderService;
     private final DownloaderClientFactory downloaderClientFactory;
+    private final IPtSubscriptionPlusService subscriptionService;
+    private final TmdbSearchService tmdbSearchService;
+    private final RenameClientProvider clientProvider;
+
+    private final boolean tmdbLookupEnabled;
+    private final int tmdbLookupMax;
+    /**
+     * 识别的墙钟预算。到点后不再等没跑完的组（它们各自跑完、结果进 TMDb 缓存，下次搜索直接命中），
+     * 与索引器预算同一取向：软上限，不打断已发出的请求。
+     * 前端超时按「索引器预算 + 识别预算」配，见 {@code api/openlist/ptSearch.ts}。
+     * <p>
+     * <b>这个预算盖不住最坏情况，是有意的。</b>最坏请求量 = 组数上限（{@link #MAX_TMDB_LOOKUPS}）×
+     * （标题 1 次 + 别名 {@link #MAX_ALIAS_ATTEMPTS} 次）× 每次识别的请求数（一次搜索起步，
+     * 电影带年份两次，候选全是中日韩名时再加最多 5 次英文规范名探测），全部要过
+     * {@code TMDbApiService} 并发 4 的信号量——20 组全是冷缓存的罗马音标题时跑不完。
+     * 实测远到不了那里（13 组冷缓存约 20 秒、5 组含别名兜底约 6 秒，均含索引器检索），
+     * 而跑不完的代价只是这一次标「没跑完」：任务不取消，结果进缓存，再搜一次就全了。
+     * 为了盖住一个罕见的最坏情况把每次搜索的等待上限翻倍，不划算。
+     * </p>
+     */
+    private final long tmdbLookupBudgetMillis;
 
     public ResourceSearchService(SearchSupplementService searchSupplementService,
                                  SubscriptionEngine subscriptionEngine,
@@ -77,7 +154,13 @@ public class ResourceSearchService {
                                  IPtFilterConfigPlusService filterConfigService,
                                  IPtTorrentBlacklistPlusService blacklistService,
                                  IPtDownloaderPlusService downloaderService,
-                                 DownloaderClientFactory downloaderClientFactory) {
+                                 DownloaderClientFactory downloaderClientFactory,
+                                 IPtSubscriptionPlusService subscriptionService,
+                                 TmdbSearchService tmdbSearchService,
+                                 RenameClientProvider clientProvider,
+                                 @Value("${pt.search.tmdb-lookup:true}") boolean tmdbLookupEnabled,
+                                 @Value("${pt.search.tmdb-lookup-max:" + MAX_TMDB_LOOKUPS + "}") int tmdbLookupMax,
+                                 @Value("${pt.search.tmdb-lookup-budget-ms:30000}") long tmdbLookupBudgetMillis) {
         this.searchSupplementService = searchSupplementService;
         this.subscriptionEngine = subscriptionEngine;
         this.filterEngine = filterEngine;
@@ -85,12 +168,18 @@ public class ResourceSearchService {
         this.blacklistService = blacklistService;
         this.downloaderService = downloaderService;
         this.downloaderClientFactory = downloaderClientFactory;
+        this.subscriptionService = subscriptionService;
+        this.tmdbSearchService = tmdbSearchService;
+        this.clientProvider = clientProvider;
+        this.tmdbLookupEnabled = tmdbLookupEnabled;
+        this.tmdbLookupMax = tmdbLookupMax;
+        this.tmdbLookupBudgetMillis = tmdbLookupBudgetMillis;
     }
 
     /**
      * @throws IllegalArgumentException 关键词为空或太短、没有启用中的索引器、所选站点全部不可用
      */
-    public Result search(String keyword, Collection<Integer> indexerIds) {
+    public Result search(String keyword, Collection<Integer> indexerIds, Long me, boolean admin) {
         String kw = keyword == null ? "" : keyword.trim();
         if (kw.length() < MIN_KEYWORD_LENGTH) {
             throw new IllegalArgumentException("关键词至少 " + MIN_KEYWORD_LENGTH + " 个字");
@@ -111,6 +200,13 @@ public class ResourceSearchService {
         // 默认按做种数降序：页面上能再按列排序，这里只决定第一眼看到什么
         torrents.sort(Comparator.comparingInt(TorrentInfo::getSeeders).reversed());
         List<SearchCandidateDTO> items = searchSupplementService.toCandidateDtos(torrents);
+        // 下面的规则标注与作品身份都按下标把 torrents 的结论回填到 items 上，靠的是 toCandidateDtos
+        // 一对一、不过滤、不重排。它哪天变了，结论会静默套到别的行上——带着 TMDb 链接和「已订阅」标记，
+        // 看着比真的还可信。宁可这一次搜索直接失败，也不能把串了行的结果交出去
+        if (items.size() != torrents.size()) {
+            throw new IllegalStateException("候选 DTO 与种子不是一一对应（" + items.size() + " / " + torrents.size()
+                    + "），规则标注与作品识别按下标回填的前提不成立");
+        }
         int rejected = 0;
         for (int i = 0; i < torrents.size(); i++) {
             TorrentFilterEngine.Verdict verdict = verdicts.get(torrents.get(i));
@@ -120,8 +216,15 @@ public class ResourceSearchService {
                 rejected++;
             }
         }
-        log.info("资源搜索 关键词[{}]：{} 个结果，其中 {} 个会被全局过滤规则淘汰", kw, items.size(), rejected);
-        return new Result(items.size(), rejected, items);
+
+        LookupOutcome lookup = identifyWorks(torrents);
+        fillWorkIdentity(items, torrents, lookup.works());
+        markSubscribed(items, visibleSubscribedIds(lookup.ids(), me, admin));
+
+        log.info("资源搜索 关键词[{}]：{} 个结果，其中 {} 个会被全局过滤规则淘汰，{} 组标题{}",
+                kw, items.size(), rejected, lookup.distinctWorks(), describeLookup(lookup));
+        return new Result(items.size(), rejected, tmdbLookupEnabled, lookup.distinctWorks(), lookup.works().size(),
+                lookup.skipped(), lookup.truncated(), lookup.unavailable(), items);
     }
 
     /** 按全局规则逐条判定；判定本身出错不该让搜索失败，退回成「不标注」 */
@@ -138,6 +241,317 @@ public class ResourceSearchService {
             log.warn("资源搜索按全局过滤规则标注失败，本次结果不带标注：{}", e.getMessage(), e);
         }
         return byTorrent;
+    }
+
+    private record LookupOutcome(Map<String, WorkIdentity> works, Set<String> ids,
+                                 int distinctWorks, boolean skipped, boolean truncated, boolean unavailable) {
+    }
+
+    /**
+     * 按「归一化标题 + 类型」归并后逐组识别。同一部剧的 12 集是 12 条种子、一个作品，
+     * 逐条查 TMDb 会把一次搜索打成几百次请求。
+     * <p>
+     * 优先用索引器已经给出的 tmdbid（站点自填的、比标题强得多的信号），但<b>只在分类能判出大类时</b>才采纳：
+     * {@code ExternalIds.kindOf} 分不清电影还是剧集时，那个 id 没法用。没有才走
+     * {@link TMDbClient#matchTmdbId} 的打分与两道门槛；标题也落空时拿 description 里的别名
+     * 再试（{@link #identifyByAlias}）。识别不出留 null，绝不猜。
+     * </p>
+     * <p>
+     * 各组并发识别，这一层不自己压并发：{@code TMDbApiService} 有全局信号量（同时最多 4 个请求）、
+     * 429 退避与两层缓存，开多少线程都被它封顶。串行等于把并发度从 4 压到 1，20 组标题很容易
+     * 撞预算——撞了用户看到的是一部分作品没有身份。
+     * </p>
+     */
+    private LookupOutcome identifyWorks(List<TorrentInfo> torrents) {
+        Map<String, List<TorrentInfo>> groups = new LinkedHashMap<>();
+        for (TorrentInfo t : torrents) {
+            String key = workKey(t);
+            if (key != null) {
+                groups.computeIfAbsent(key, k -> new ArrayList<>()).add(t);
+            }
+        }
+        int distinct = groups.size();
+        if (!tmdbLookupEnabled || distinct == 0) {
+            return new LookupOutcome(Map.of(), Set.of(), distinct, false, false, false);
+        }
+        TMDbClient client = clientProvider.tmdb();
+        if (client == null) {
+            log.warn("资源搜索未识别作品：TMDb key 未配置，本次结果不带作品身份");
+            return new LookupOutcome(Map.of(), Set.of(), distinct, false, false, true);
+        }
+        boolean overLimit = distinct > tmdbLookupMax;
+        if (overLimit) {
+            // sorted 是稳定排序：种子数相同的保持原顺序，也就是含做种最多那条种子的组在前
+            Map<String, List<TorrentInfo>> largest = new LinkedHashMap<>();
+            groups.entrySet().stream()
+                    .sorted((x, y) -> Integer.compare(y.getValue().size(), x.getValue().size()))
+                    .limit(Math.max(0, tmdbLookupMax))
+                    .forEach(e -> largest.put(e.getKey(), e.getValue()));
+            log.warn("资源搜索只识别了一部分：归并后 {} 组标题，超过上限 {}，只识别种子最多的 {} 组，其余本次不带作品身份",
+                    distinct, tmdbLookupMax, largest.size());
+            groups = largest;
+        }
+
+        long deadline = System.currentTimeMillis() + tmdbLookupBudgetMillis;
+        Map<String, CompletableFuture<WorkIdentity>> pending = new LinkedHashMap<>();
+        // 不用 try-with-resources：close() 会等全部任务跑完，预算就成了摆设
+        ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+        try {
+            for (Map.Entry<String, List<TorrentInfo>> entry : groups.entrySet()) {
+                List<TorrentInfo> group = entry.getValue();
+                pending.put(entry.getKey(), CompletableFuture.supplyAsync(
+                        Threads.wrapSupplier(() -> identify(client, group)), executor));
+            }
+        } finally {
+            executor.shutdown();
+        }
+
+        Map<String, WorkIdentity> works = new LinkedHashMap<>();
+        Set<String> ids = new LinkedHashSet<>();
+        boolean truncated = false;
+        for (Map.Entry<String, CompletableFuture<WorkIdentity>> entry : pending.entrySet()) {
+            try {
+                long remaining = Math.max(0L, deadline - System.currentTimeMillis());
+                WorkIdentity work = entry.getValue().get(remaining, TimeUnit.MILLISECONDS);
+                if (work != null) {
+                    works.put(entry.getKey(), work);
+                    ids.add(work.tmdbId());
+                }
+            } catch (TimeoutException e) {
+                truncated = true;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                truncated = true;
+                break;
+            } catch (ExecutionException e) {
+                // identify 自己兜住了全部异常，走到这里只可能是 Error 一类
+                log.warn("资源搜索识别作品的任务异常结束，该组结果不带作品身份：{}", e.getMessage(), e);
+            }
+        }
+        if (truncated) {
+            log.warn("资源搜索识别作品未跑完：预算 {} 秒内只识别出 {} / {} 组标题，其余本次不带作品身份",
+                    tmdbLookupBudgetMillis / 1000, works.size(), groups.size());
+        }
+        return new LookupOutcome(works, ids, distinct, overLimit, truncated, false);
+    }
+
+    /**
+     * 识别一组标题对应的作品；落空、出错都返回 null，不让一组的失败波及其余。
+     * 组内第一条（做种最多的那条）当代表：同组的标题、类型都相同，换一条去问得到的是同一个答案。
+     */
+    private WorkIdentity identify(TMDbClient client, List<TorrentInfo> group) {
+        TorrentInfo t = group.get(0);
+        String mediaType = workType(t);
+        try {
+            String tmdbId = StringUtils.isNotBlank(t.getTmdbId())
+                    && ExternalIds.kindOf(t.getCategories()) != ExternalIds.Kind.UNKNOWN ? t.getTmdbId() : null;
+            if (tmdbId == null) {
+                tmdbId = client.matchTmdbId(mediaType, toMediaInfo(t, t.getParsedTitle(), t.getParsedTitleEn()));
+            }
+            if (StringUtils.isBlank(tmdbId)) {
+                return identifyByAlias(client, group, mediaType);
+            }
+            TmdbSearchItem work = tmdbSearchService.describeWork(mediaType, tmdbId);
+            return work == null ? null : new WorkIdentity(tmdbId, mediaType, work.getTitle(), work.getYear());
+        } catch (Exception e) {
+            log.warn("资源搜索识别作品「{}」失败，该组结果不带作品身份：{}", t.getParsedTitle(), e.getMessage(), e);
+            return null;
+        }
+    }
+
+    /**
+     * 标题识别落空后的兜底：拿 description 第一段里的作品别名再问一次 TMDb。
+     * <p>
+     * 国内站发的日本动画、部分国产片用<b>罗马音 / 拼音</b>命名（{@code Sousou no Frieren}），
+     * 而 TMDb 给的中文名、原语言名、英文名里恰恰没有这一种，标题这条路在采纳门槛上必然落空；
+     * 能对上的名字一直摆在 description 的别名列表里（{@code 葬送的芙莉莲 / 葬送のフリーレン}）。
+     * 订阅匹配那边早就拿它兜底（{@code SubscriptionMatcher#descriptionAliases}），取别名用的是同一份
+     * {@link DescriptionAliases#parse}。
+     * </p>
+     * <p>
+     * <b>采纳比标题那条路更严：要求别名与作品的中文名或原名归一化后全等。</b>description 是站点自填的
+     * 自由文本，别名里混着「【原盘首发】怪奇物语 第四季」「2026年1月新番 …」这类带修饰的写法；
+     * 而 {@code matchTmdbId} 的门槛是「标题命中<b>或</b>年份接近」，一个带修饰的别名搜回一批不相干的结果、
+     * 其中一个年份碰巧接近就会被采纳。假身份比没有身份糟得多——它带着 TMDb 链接和「已订阅」标记，
+     * 看着比真的还可信。全等之后，带修饰的别名自然对不上，等于自动跳过。
+     * </p>
+     * <p>
+     * 别名按在组内出现的次数排序：干净的作品名每条种子都会写，修饰语各写各的，前者自然排到前面。
+     * </p>
+     */
+    private WorkIdentity identifyByAlias(TMDbClient client, List<TorrentInfo> group, String mediaType) {
+        TorrentInfo t = group.get(0);
+        for (String alias : rankedAliases(group)) {
+            String tmdbId = client.matchTmdbId(mediaType, toMediaInfo(t, alias, null));
+            if (StringUtils.isBlank(tmdbId)) {
+                continue;
+            }
+            TmdbSearchItem work = tmdbSearchService.describeWork(mediaType, tmdbId);
+            if (work == null) {
+                continue;
+            }
+            String wanted = TitleNormalizer.normalizeForCompare(alias);
+            if (wanted.equals(TitleNormalizer.normalizeForCompare(work.getTitle()))
+                    || wanted.equals(TitleNormalizer.normalizeForCompare(work.getOriginalTitle()))) {
+                log.debug("资源搜索按别名识别出作品：「{}」经别名「{}」对上《{}》[tmdb {}]",
+                        t.getParsedTitle(), alias, work.getTitle(), tmdbId);
+                return new WorkIdentity(tmdbId, mediaType, work.getTitle(), work.getYear());
+            }
+            log.debug("资源搜索按别名搜到的作品与别名不全等，不采纳：别名「{}」→《{}》/「{}」",
+                    alias, work.getTitle(), work.getOriginalTitle());
+        }
+        return null;
+    }
+
+    /** 组内全部种子的 description 别名，剥掉尾部季号后按出现次数降序，取前 {@link #MAX_ALIAS_ATTEMPTS} 个 */
+    private List<String> rankedAliases(List<TorrentInfo> group) {
+        String parsed = TitleNormalizer.normalizeForCompare(group.get(0).getParsedTitle());
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        Map<String, String> display = new LinkedHashMap<>();
+        for (TorrentInfo t : group) {
+            // 同一条种子里重复写的别名只算一次，否则一条写了三遍的种子能把它顶到最前
+            Set<String> seen = new LinkedHashSet<>();
+            for (String raw : DescriptionAliases.parse(t.getDescription())) {
+                String alias = SeasonSuffix.strip(raw);
+                String key = TitleNormalizer.normalizeForCompare(alias);
+                // 与解析出的片名相同的别名不用再试：标题那条路刚拿它问过
+                if (key == null || key.equals(parsed) || !seen.add(key)) {
+                    continue;
+                }
+                counts.merge(key, 1, Integer::sum);
+                display.putIfAbsent(key, alias);
+            }
+        }
+        // sorted 是稳定排序：次数相同的保持首次出现的先后，也就是做种多的那条种子里写在前面的
+        return counts.entrySet().stream()
+                .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
+                .limit(MAX_ALIAS_ATTEMPTS)
+                .map(e -> display.get(e.getKey()))
+                .toList();
+    }
+
+    /**
+     * 归并键：归一化标题 + 类型，<b>电影再加年份</b>。
+     * <p>
+     * 类型必须进键：同名的电影与剧集在 TMDb 上是两套编号，只按标题归并会把第一条的身份套给全部。
+     * 年份只对电影进键：电影的年份是上映年，同名不同年就是两部作品（翻拍）；剧集种子上的年份是
+     * <b>本季播出年</b>，进键会把同一部剧按季劈开——一部八季的剧占掉八组，既白发请求，
+     * 又更容易撞上限让整页都不识别。同名不同年的剧集因此会归成一组，这是有意的取舍：
+     * 那种情况靠 TMDb 匹配里的集数反证与年份打分兜，兜不住时用户还能点 TMDb 链接自己核对。
+     * </p>
+     */
+    private String workKey(TorrentInfo t) {
+        String title = TitleNormalizer.normalizeForCompare(t.getParsedTitle());
+        if (StringUtils.isBlank(title)) {
+            return null;
+        }
+        String type = workType(t);
+        String year = TmdbSearchService.TYPE_MOVIE.equals(type) ? StringUtils.defaultString(t.getParsedYear()) : "";
+        return title + "|" + type + "|" + year;
+    }
+
+    /** 类型以 Torznab 分类为准；分类判不出大类时才退回「有没有季号或集号」 */
+    private String workType(TorrentInfo t) {
+        ExternalIds.Kind kind = ExternalIds.kindOf(t.getCategories());
+        if (kind == ExternalIds.Kind.MOVIE) {
+            return TmdbSearchService.TYPE_MOVIE;
+        }
+        if (kind == ExternalIds.Kind.TV) {
+            return TmdbSearchService.TYPE_TV;
+        }
+        return looksLikeMovie(t) ? TmdbSearchService.TYPE_MOVIE : TmdbSearchService.TYPE_TV;
+    }
+
+    /**
+     * 把种子自身的解析结果摆成 TMDb 匹配要的输入形状，不重新跑一遍正则。
+     * 片名单独传：标题那条路用解析出的片名，别名兜底用别名，年份与季集号两条路共用。
+     */
+    private MediaInfo toMediaInfo(TorrentInfo t, String title, String englishTitle) {
+        MediaInfo info = new MediaInfo(t.getTitle());
+        info.setTitle(title);
+        info.setOriginalTitle(title);
+        info.setEnglishTitle(englishTitle);
+        info.setYear(t.getParsedYear());
+        if (t.getParsedSeason() != null) {
+            info.setSeason(String.valueOf(t.getParsedSeason()));
+        }
+        if (t.getParsedEpisode() != null) {
+            info.setEpisode(String.valueOf(t.getParsedEpisode()));
+        }
+        return info;
+    }
+
+    private void fillWorkIdentity(List<SearchCandidateDTO> items, List<TorrentInfo> torrents,
+                                  Map<String, WorkIdentity> works) {
+        if (works.isEmpty()) {
+            return;
+        }
+        for (int i = 0; i < items.size(); i++) {
+            WorkIdentity work = works.get(workKey(torrents.get(i)));
+            if (work == null) {
+                continue;
+            }
+            items.get(i).setMatchedTmdbId(work.tmdbId());
+            items.get(i).setMediaType(work.mediaType());
+            items.get(i).setMatchedTitle(work.title());
+            items.get(i).setMatchedYear(work.year());
+        }
+    }
+
+    /**
+     * 已订阅标记按可见范围判：管理员看全部，其余人看自己的与无归属的公共订阅。
+     * 口径与订阅页、统计面板同一份（见 pt/subscription/AGENTS.md 的归属那条）。
+     * 用列名字符串而不是 lambda 投影，理由与 {@code SearchLogService#prune} 相同。
+     * <p>
+     * 键必须带媒体类型：TMDb 的 tv/1399 与 movie/1399 是两部不相干的作品，只按 tmdb_id 比会把
+     * 「订了电影」标到一条剧集种子上。
+     * </p>
+     */
+    private Set<String> visibleSubscribedIds(Collection<String> tmdbIds, Long me, boolean admin) {
+        if (tmdbIds.isEmpty()) {
+            return Set.of();
+        }
+        QueryWrapper<PtSubscriptionPlus> wrapper = new QueryWrapper<>();
+        wrapper.select("tmdb_id", "media_type").in("tmdb_id", tmdbIds);
+        if (!admin) {
+            wrapper.and(w -> w.eq("owner_user_id", me).or().isNull("owner_user_id"));
+        }
+        Set<String> subscribed = new LinkedHashSet<>();
+        for (PtSubscriptionPlus sub : subscriptionService.list(wrapper)) {
+            subscribed.add(subscriptionKey(sub.getTmdbId(), sub.getMediaType()));
+        }
+        return subscribed;
+    }
+
+    private static String subscriptionKey(String tmdbId, String mediaType) {
+        return tmdbId + "|" + StringUtils.lowerCase(StringUtils.defaultString(mediaType));
+    }
+
+    private void markSubscribed(List<SearchCandidateDTO> items, Set<String> subscribedIds) {
+        if (subscribedIds.isEmpty()) {
+            return;
+        }
+        for (SearchCandidateDTO item : items) {
+            if (StringUtils.isNotBlank(item.getMatchedTmdbId())) {
+                item.setSubscribed(subscribedIds.contains(subscriptionKey(item.getMatchedTmdbId(), item.getMediaType())));
+            }
+        }
+    }
+
+    private String describeLookup(LookupOutcome outcome) {
+        if (!tmdbLookupEnabled) {
+            return "（识别已关闭）";
+        }
+        if (outcome.unavailable()) {
+            return "（TMDb key 未配置，本次未识别）";
+        }
+        if (outcome.truncated()) {
+            return "（预算内未跑完，已识别 " + outcome.works().size() + " 组）";
+        }
+        if (outcome.skipped()) {
+            return "（超过上限 " + tmdbLookupMax + "，只识别种子最多的那些组，识别出 " + outcome.works().size() + " 组）";
+        }
+        return "，识别出 " + outcome.works().size() + " 组";
     }
 
     /**

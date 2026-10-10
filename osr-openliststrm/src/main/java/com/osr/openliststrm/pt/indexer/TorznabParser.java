@@ -73,13 +73,25 @@ public final class TorznabParser {
 
         Element enclosure = firstChildElement(item, "enclosure");
 
-        String downloadUrl = childText(item, "link");
-        if (StringUtils.isBlank(downloadUrl) && enclosure != null) {
-            downloadUrl = StringUtils.trimToNull(enclosure.getAttribute("url"));
+        String link = childText(item, "link");
+        String enclosureUrl = enclosure == null ? null : StringUtils.trimToNull(enclosure.getAttribute("url"));
+
+        String downloadUrl = link;
+        if (StringUtils.isBlank(downloadUrl) && enclosureUrl != null) {
+            downloadUrl = enclosureUrl;
         }
         if (StringUtils.isBlank(downloadUrl)) {
             log.debug("Torznab条目缺少下载地址，已丢弃：{}", title);
             return null;
+        }
+
+        // 详情页取 RSS 的 <comments> 元素。torznab:attr name="comments" 按 Torznab 规范是评论数，
+        // 拿它当链接会得到一个数字。<link> 已被当下载地址用掉时无法判断它是详情页还是直链，宁可不给。
+        // 只收 http/https：这个值会原样成为页面上的 href，索引器给什么协议不由我们控制
+        String detailUrl = childText(item, "comments");
+        if (detailUrl != null && !detailUrl.regionMatches(true, 0, "http://", 0, 7)
+                && !detailUrl.regionMatches(true, 0, "https://", 0, 8)) {
+            detailUrl = null;
         }
 
         // guid 是 RSS 规范中的可选元素，索引器缺失时回退用下载地址，
@@ -106,6 +118,7 @@ public final class TorznabParser {
         info.setSize(size);
 
         info.setDescription(StringUtils.trimToNull(childText(item, "description")));
+        info.setDetailUrl(detailUrl);
 
         info.setSeeders((int) parseLong(attrValue(item, "seeders"), 0L));
         info.setPeers((int) parseLong(attrValue(item, "peers"), 0L));

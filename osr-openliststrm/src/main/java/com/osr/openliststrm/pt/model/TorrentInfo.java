@@ -147,6 +147,21 @@ public class TorrentInfo {
     /** 种子描述（RSS &lt;description&gt;），部分 PT 站会在描述中标注字幕信息 */
     private String description;
 
+    /**
+     * 站点详情页链接（RSS 的 {@code <comments>} 子元素）。
+     * <p>
+     * 与 {@link #downloadUrl} 是两件事：后者是 .torrent/磁力下载地址，前者是用户在站点上看
+     * 演员、字幕、截图、评论的那一页。资源搜索页需要它，因为「这是哪部剧」最直接的验证方式
+     * 就是点开详情页——TMDb 识别不出来的时候，这是唯一还能让用户自己判断的出口。
+     * </p>
+     * <p>
+     * 不是 {@code torznab:attr name="comments"}——那个属性是评论数。也不拿 {@code <link>} 兜底：
+     * 它多半已被当下载地址用掉，从响应里判断不出是详情页还是直链。只收 http/https，
+     * 拿不到为 null，前端据此不渲染链接而不是留一个点不动的图标。
+     * </p>
+     */
+    private String detailUrl;
+
     /** 解析后的发布时间；原始字符串见 {@link #pubDate}，本字段不变动 pubDate */
     private Date parsedPubTime;
 

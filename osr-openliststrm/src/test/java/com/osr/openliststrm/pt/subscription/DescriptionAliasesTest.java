@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class DescriptionAliasesTest {
@@ -97,5 +98,15 @@ class DescriptionAliasesTest {
     @Test
     void 全角分隔符同样支持() {
         assertEquals(List.of("九门", "老九门2"), DescriptionAliases.parse("九门／老九门2｜第21集"));
+    }
+
+    /** 资源搜索页的副标题：显示整段原文，但段边界与长度上限同别名解析一份 */
+    @Test
+    void 副标题取第一段原文_没有或过长时不给() {
+        assertEquals("九门 / 老九门2", DescriptionAliases.leadSegment("九门 / 老九门2 | 第21集 | 4K"));
+        assertNull(DescriptionAliases.leadSegment(null));
+        assertNull(DescriptionAliases.leadSegment(" | 第21集"));
+        // 没有分隔符的长文本是剧情简介，不是别名列表
+        assertNull(DescriptionAliases.leadSegment("很".repeat(201)));
     }
 }

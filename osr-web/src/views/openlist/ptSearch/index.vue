@@ -116,6 +116,8 @@
           <v-checkbox-btn v-model="passedOnly" :label="`只看规则放行的（${results.length - rejectedCount}）`" density="compact" />
           <v-spacer />
           <span class="filter-count">显示 {{ visibleResults.length }} / {{ results.length }}</span>
+          <span v-if="lookupNote" class="lookup-note">{{ lookupNote }}</span>
+          <span v-else-if="lookupSummary" class="filter-count">{{ lookupSummary }}</span>
           <v-btn v-if="activeFilterCount" variant="text" size="small" @click="clearFilters">清空筛选</v-btn>
         </div>
 
@@ -146,9 +148,29 @@
           <template #item.title="{ item }">
             <div class="title-cell">
               <span class="title-text" :title="item.title">{{ item.title }}</span>
-              <span v-if="item.parsedTitle || item.parsedYear" class="title-parsed">
-                {{ item.parsedTitle }}<template v-if="item.parsedYear"> ({{ item.parsedYear }})</template>
-              </span>
+              <span v-if="item.subtitle" class="title-subtitle" :title="item.subtitle">{{ item.subtitle }}</span>
+              <div v-if="item.matchedTitle || item.parsedTitle || item.parsedYear || item.detailUrl" class="title-parsed">
+                <template v-if="item.matchedTitle">
+                  <span class="work-name">{{ item.matchedTitle }}<template v-if="item.matchedYear"> ({{ item.matchedYear }})</template></span>
+                  <TmdbLink :tmdb-id="item.matchedTmdbId" :media-type="item.mediaType" variant="text" />
+                </template>
+                <template v-else>
+                  <span>{{ item.parsedTitle }}<template v-if="item.parsedYear"> ({{ item.parsedYear }})</template></span>
+                  <span v-if="lookupComplete && item.parsedTitle" class="work-unknown">识别不出</span>
+                </template>
+                <a
+                  v-if="item.detailUrl"
+                  class="detail-link"
+                  :href="item.detailUrl"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title="站点详情页"
+                  aria-label="站点详情页"
+                >
+                  <v-icon size="14" icon="external-link" />
+                </a>
+                <StatusChip v-if="item.subscribed" type="success" text="已订阅" />
+              </div>
             </div>
           </template>
           <template #item.resolution="{ item }">{{ item.resolution || '-' }}</template>
@@ -188,12 +210,15 @@
 <script setup lang="ts">
 import PageHeader from '@/components/PageHeader.vue'
 import ResourcePushDialog from '@/components/dialogs/ResourcePushDialog.vue'
+import StatusChip from '@/components/StatusChip.vue'
+import TmdbLink from '@/components/TmdbLink.vue'
 import { usePageStateProvider } from '@/composables/pageStateContext'
 import { usePtResourceSearch } from '@/composables/usePtResourceSearch'
 
 const {
   isAdmin,
   keyword, indexerIds, indexerOptions, searching, searched, results, rejectedCount, handleSearch,
+  lookupNote, lookupSummary, lookupComplete,
   filter, facets, activeFilterCount, clearFilters, passedOnly, visibleResults,
   openPush, toSubscribe, formatSize
 } = usePageStateProvider(usePtResourceSearch())
@@ -283,9 +308,43 @@ const headers = [
     word-break: break-all;
   }
 
+  .title-subtitle {
+    font-size: 12px;
+    color: var(--osr-text-secondary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .title-parsed {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
     font-size: 12px;
     color: var(--osr-text-secondary);
   }
+
+  .work-name {
+    color: var(--osr-text-primary);
+  }
+
+  .work-unknown {
+    color: var(--osr-text-secondary);
+  }
+
+  .detail-link {
+    display: inline-flex;
+    color: var(--osr-text-secondary);
+
+    &:hover {
+      color: var(--osr-primary);
+    }
+  }
+}
+
+.lookup-note {
+  font-size: 12px;
+  color: var(--osr-warning);
 }
 </style>

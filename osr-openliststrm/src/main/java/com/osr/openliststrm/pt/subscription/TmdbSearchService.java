@@ -87,6 +87,36 @@ public class TmdbSearchService {
     }
 
     /**
+     * {@link #getDetail} 的轻量版：只取页面上要显示的那几样（规范名、年份、海报、简介）。
+     * <p>
+     * 少了 external_ids 与 en-US 详情两次请求——那两次是为<b>标题匹配</b>服务的（PT 站种子用英文名），
+     * 这里已经拿到 tmdbId，不需要再证明"是不是这部剧"。批量识别一次最多几十个作品，
+     * 每个省两次请求就是几十次。
+     * </p>
+     *
+     * @return 取不到详情返回 null（调用方按"识别不出"处理），不抛异常
+     */
+    public TmdbSearchItem describeWork(String mediaType, String tmdbId) {
+        if (StringUtils.isBlank(tmdbId)) {
+            return null;
+        }
+        int id;
+        try {
+            id = Integer.parseInt(tmdbId.trim());
+        } catch (NumberFormatException e) {
+            log.warn("TMDb ID 格式非法：{}", tmdbId);
+            return null;
+        }
+        JSONObject detail = readObject(tmDbApiService.getDetails(openlistConfig.getTmdbApiKey(), tmdbType(mediaType), id));
+        if (detail == null) {
+            return null;
+        }
+        TmdbSearchItem item = toItem(detail, mediaType);
+        item.setTitle(resolveChineseTitle(mediaType, tmdbId, item.getTitle()));
+        return item;
+    }
+
+    /**
      * 解析真正的英文标题：原始语言本就是英文时直接取 original_title/name（省一次请求）；
      * 否则（日剧/韩剧/动画等）用 language=en-US 重新查一次详情取 TMDb 的英文规范名。
      * PT 站种子标题绝大多数是英文/罗马字，用真正的英文标题而非 original_title 匹配才不会漏判日韩剧。

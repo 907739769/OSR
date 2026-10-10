@@ -103,6 +103,42 @@ public class TMDbClient {
     }
 
     /**
+     * 只回答「这个标题对应 TMDb 上的哪部作品」，返回采纳的 tmdbId，落空返回 null。
+     * <p>
+     * 与 {@link #enrich} 共用同一套打分与两道检验（{@code hasEnoughEvidence} /
+     * {@code episodeCountContradicts}），但<b>采纳之后什么都不再拉</b>：{@code enrich} 那条路
+     * 采纳候选后还要取规范标题（可能多一次 alternative_titles）、详情，以及并发的图片 / 外部 ID /
+     * 分级 / 季图片或上映日期——那是给刮削写 NFO 用的，一个作品 5~6 个请求。批量识别一次要跑
+     * 几十次，而识别阶段只要一个 id，展示用的名字与年份由调用方另取。
+     * </p>
+     * <p>
+     * 请求量因此只剩「判定这是哪部作品」本身：每个候选标题一次搜索（电影带年份时两次），
+     * 加上排序与两道检验按需发出的详情请求（英文规范名最多 {@value #MAX_ENGLISH_TITLE_PROBES} 次、
+     * 集数反证一次，且都走 L1 + DB 缓存）。info 上只有 tmdbId 与年份会被改写。
+     * </p>
+     * <p>
+     * 资源搜索页必须用这一份而不是 {@code TmdbSearchService#search}——后者没有采纳门槛，
+     * 直接取 TMDb 相关度排序的第一名，正是 {@code Perfect World} 那类误判的来源。
+     * </p>
+     */
+    public String matchTmdbId(String type, MediaInfo info) {
+        if (StringUtils.isEmpty(apiKey) || info == null || StringUtils.isBlank(info.getOriginalTitle())) {
+            return null;
+        }
+        // 内部一律按小写全等判类型（决定读 title 还是 name），且 type 直接拼进 /search/ 路径，
+        // 所以在这里归一一次，不让调用方记住大小写
+        String normalized = type == null ? null : type.toLowerCase();
+        try {
+            search(normalized, info, SpringUtils.getBean(TMDbApiService.class), true);
+            // search() 交出来的不是 id（enrich 那条路是采纳的标题），id 只写在 info 上
+            return info.getTmdbId();
+        } catch (Exception e) {
+            log.warn("TMDb 识别标题「{}」失败：{}", info.getOriginalTitle(), e.getMessage(), e);
+            return null;
+        }
+    }
+
+    /**
      * 已知 tmdbId 时直接拉取详情，跳过模糊搜索匹配。
      * 用于"重新刮削"等场景：搜索容易在续集/重制版/同名作品之间选错，
      * 而已入库的 tmdbId 是此前（可能经过人工修正）确定的结果，应优先复用。
@@ -320,6 +356,14 @@ public class TMDbClient {
      * </p>
      */
     String search(String type, MediaInfo info, TMDbApiService api) throws IOException {
+        return search(type, info, api, false);
+    }
+
+    /**
+     * @param identityOnly 只判定作品身份：采纳候选后不取规范标题、不拉详情与图片（见 {@link #matchTmdbId}）。
+     *                     此时返回值只表示「命中了」，不是标题
+     */
+    private String search(String type, MediaInfo info, TMDbApiService api, boolean identityOnly) throws IOException {
         if (StringUtils.isBlank(type) || info == null) return null;
 
         List<String> candidates = new ArrayList<>();
@@ -339,11 +383,11 @@ public class TMDbClient {
         for (String q : queries) {
             if (movie && StringUtils.isNotEmpty(year)) {
                 log.debug("尝试根据标题+年份查询TMDB：{}（{}）", q, year);
-                String title = doSearchOnce(type, info, mapper.readTree(api.search(apiKey, type, q, year)), api);
+                String title = doSearchOnce(type, info, mapper.readTree(api.search(apiKey, type, q, year)), api, identityOnly);
                 if (title != null) return title;
             }
             log.debug("尝试只根据标题查询TMDB，不限定年份：{}", q);
-            String title = doSearchOnce(type, info, mapper.readTree(api.search(apiKey, type, q, null)), api);
+            String title = doSearchOnce(type, info, mapper.readTree(api.search(apiKey, type, q, null)), api, identityOnly);
             if (title != null) return title;
         }
 
@@ -372,7 +416,8 @@ public class TMDbClient {
      * 正是 tmdbId 为空）。
      * </p>
      */
-    private String doSearchOnce(String type, MediaInfo info, com.fasterxml.jackson.databind.JsonNode root, TMDbApiService api) throws IOException {
+    private String doSearchOnce(String type, MediaInfo info, com.fasterxml.jackson.databind.JsonNode root, TMDbApiService api,
+                                boolean identityOnly) throws IOException {
         if (root == null) return null;
         JsonNode results = root.path("results");
         if (!results.isArray() || results.isEmpty()) {
@@ -428,6 +473,10 @@ public class TMDbClient {
 
             applyYear(info, getYearSafe(picked, type));
             info.setTmdbId(picked.path("id").asText());
+            if (identityOnly) {
+                // 只要身份：规范标题、详情、图片都是刮削要的东西，这里一个请求都不多发
+                return info.getTmdbId();
+            }
 
             String best = getBestTitle(type, picked, id, api);
 
