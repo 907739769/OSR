@@ -355,11 +355,15 @@ class ResourceSearchServiceTest {
     }
 
     private static TmdbSearchService.SeriesShape shape(Integer first, int total, int... seasonAndYear) {
+        return shapeEndedAt(first, null, total, seasonAndYear);
+    }
+
+    private static TmdbSearchService.SeriesShape shapeEndedAt(Integer first, Integer last, int total, int... seasonAndYear) {
         java.util.NavigableMap<Integer, Integer> seasons = new java.util.TreeMap<>();
         for (int i = 0; i + 1 < seasonAndYear.length; i += 2) {
             seasons.put(seasonAndYear[i], seasonAndYear[i + 1]);
         }
-        return new TmdbSearchService.SeriesShape(first, seasons, total);
+        return new TmdbSearchService.SeriesShape(first, last, seasons, total);
     }
 
     /** 动画《航海王》(1999, tv/37854) 与真人版《海贼王》(2023, tv/111110)：TMDb 按年份与集号分得清这两部 */
@@ -463,6 +467,12 @@ class ResourceSearchServiceTest {
         assertFalse(ResourceSearchService.contradicts(titled("x", "x", 21, 950, "2021", 1), anime), "一季跨几年播，年份在本季与下一季之间");
         assertFalse(ResourceSearchService.contradicts(titled("x", "x", 22, 1100, "2031", 1), anime), "最新一季没有下一季，不设上界");
         assertFalse(ResourceSearchService.contradicts(titled("x", "x", 9, 20, "2031", 1), anime), "这部剧没登记这一季，年份偏晚不算矛盾");
+        // 新网球王子(2012，只有 1 季、当年完结) vs The Prince of Tennis II S03E02 2026
+        TmdbSearchService.SeriesShape ended = shapeEndedAt(2012, 2012, 13, 1, 2012);
+        assertTrue(ResourceSearchService.contradicts(titled("x", "x", 3, 2, "2026", 1), ended), "没有这一季，且早就播完了");
+        assertFalse(ResourceSearchService.contradicts(titled("x", "x", 3, 2, "2026", 1), shapeEndedAt(2012, 2025, 60, 1, 2012)),
+                "没登记这一季但还在播（TMDb 把各季并进第 1 季）");
+        assertFalse(ResourceSearchService.contradicts(titled("x", "x", null, 2, "2026", 1), ended), "没写季号，年份偏晚不判");
         assertFalse(ResourceSearchService.contradicts(titled("x", "x", 1, 5, null, 1), live), "没写年份");
         assertFalse(ResourceSearchService.contradicts(titled("x", "x", 1, 20, "2024", 1), live), "集号略超总集数在余量内");
         assertFalse(ResourceSearchService.contradicts(titled("x", "x", 1, 900, "bad", 1), shape(null, 0)), "什么依据都没有");

@@ -439,6 +439,8 @@ public class TMDbClient {
                     Math.min(ranked.size(), MAX_CANDIDATES_EXAMINED), describeTop(type, ranked));
         }
 
+        // 季与年份说不通的候选先留着不采纳：后面有「季对得上」的就让给它，没有再回头用这一个
+        JsonNode reserved = null;
         for (int rank = 0; rank < ranked.size() && rank < MAX_CANDIDATES_EXAMINED; rank++) {
             JsonNode picked = ranked.get(rank);
 
@@ -471,26 +473,123 @@ public class TMDbClient {
                 continue;
             }
 
-            applyYear(info, getYearSafe(picked, type));
-            info.setTmdbId(picked.path("id").asText());
-            if (identityOnly) {
-                // 只要身份：规范标题、详情、图片都是刮削要的东西，这里一个请求都不多发
-                return info.getTmdbId();
+            SeasonYearCheck.Verdict seasonYear = seasonYearVerdict(type, info, id, api);
+            if (reserved != null) {
+                // 已经有一个保留的候选了：只有标题对得上、且「这一季就是这一年开播」的才够格取代它
+                if (seasonYear != SeasonYearCheck.Verdict.FITS
+                        || !titleMatches(type, info, picked, id, api, englishTitles)) {
+                    continue;
+                }
+                log.info("TMDb 候选按季与年份改选：{} —— 「{}（{}）」的第 {} 季在 {} 年说不通，"
+                                + "改用第 {} 名候选「{}（{}）」，它的这一季正是这一年开播",
+                        info.getOriginalName(), describeCandidate(type, reserved), getYearSafe(reserved, type),
+                        info.getSeason(), info.getYear(), rank + 1, describeCandidate(type, picked),
+                        getYearSafe(picked, type));
+                return adopt(type, info, picked, api, identityOnly);
+            }
+            if (seasonYear == SeasonYearCheck.Verdict.CONTRADICTS) {
+                log.debug("TMDb 候选的季与年份说不通，先保留、继续看下一位有没有季对得上的：{} —— 第 {} 名候选「{}（{}）」，"
+                                + "解析出第 {} 季、年份 {}",
+                        info.getOriginalName(), rank + 1, describeCandidate(type, picked),
+                        getYearSafe(picked, type), info.getSeason(), info.getYear());
+                reserved = picked;
+                continue;
             }
 
-            String best = getBestTitle(type, picked, id, api);
-
-            // fetch details to populate genres, original language and origin countries
-            try {
-                fetchDetails(type, id, info, api);
-            } catch (Exception e) {
-                log.warn("拉取 TMDb 详情失败：{}", e.getMessage());
-            }
-
-            return best;
+            return adopt(type, info, picked, api, identityOnly);
         }
 
-        return null;
+        // 没有更合适的：年份多半只是压制年（The.Office.S03E05.2019），保留的那个照常采纳
+        return reserved == null ? null : adopt(type, info, reserved, api, identityOnly);
+    }
+
+    /** 采纳候选：把 id 与年份写进 info，再按需取规范标题与详情 */
+    private String adopt(String type, MediaInfo info, JsonNode picked, TMDbApiService api,
+                         boolean identityOnly) throws IOException {
+        int id = picked.path("id").asInt(-1);
+        applyYear(info, getYearSafe(picked, type));
+        info.setTmdbId(picked.path("id").asText());
+        if (identityOnly) {
+            // 只要身份：规范标题、详情、图片都是刮削要的东西，这里一个请求都不多发
+            return info.getTmdbId();
+        }
+
+        String best = getBestTitle(type, picked, id, api);
+
+        // fetch details to populate genres, original language and origin countries
+        try {
+            fetchDetails(type, id, info, api);
+        } catch (Exception e) {
+            log.warn("拉取 TMDb 详情失败：{}", e.getMessage());
+        }
+
+        return best;
+    }
+
+    /**
+     * 解析出的「第 N 季 + 年份」放在这个候选上说不说得通（判据见 {@link SeasonYearCheck}）。
+     * <p>
+     * <b>它不是第三道否决，只是改选的依据</b>：{@link SeasonYearCheck.Verdict#CONTRADICTS} 的候选先保留，
+     * 前 {@value #MAX_CANDIDATES_EXAMINED} 名里另有一个标题对得上、且这一季正是这一年开播的才让位，
+     * 否则照常采纳。文件名里的年份可能只是压制年（{@code The.Office.S03E05.2019}），单凭它否决会让
+     * 一批正常文件识别不出来；而「另一部同名作品的这一季恰好在这一年开播」不是压制年能碰巧造出来的。
+     * </p>
+     * <p>
+     * 事故：{@code The Prince of Tennis II S03E02 2026} 被认成《新网球王子》(2012，只有 1 季、当年完结)——
+     * 它的英文规范名与解析标题逐字全等、自成一档；正确答案《新网球王子 U-17世界杯篇》(2022) 只是包含命中，
+     * 而它的第 3 季正是 2026 年 10 月开播。
+     * </p>
+     * <p>
+     * 只在季号与年份都解析出来时才取详情，取的是与 {@link #episodeCountContradicts} 同一个请求（有缓存）；
+     * 取不到一律按「判不出」处理。
+     * </p>
+     */
+    private SeasonYearCheck.Verdict seasonYearVerdict(String type, MediaInfo info, int id, TMDbApiService api) {
+        if (!"tv".equals(type)) {
+            return SeasonYearCheck.Verdict.UNKNOWN;
+        }
+        Integer season = leadingInt(info.getSeason());
+        Integer year = leadingInt(info.getYear());
+        if (season == null || season <= 0 || year == null) {
+            return SeasonYearCheck.Verdict.UNKNOWN;
+        }
+        try {
+            String raw = api.getDetails(apiKey, type, id);
+            JsonNode d = StringUtils.isBlank(raw) ? null : mapper.readTree(raw);
+            if (d == null) {
+                return SeasonYearCheck.Verdict.UNKNOWN;
+            }
+            java.util.NavigableMap<Integer, Integer> seasonYears = new java.util.TreeMap<>();
+            for (JsonNode s : d.path("seasons")) {
+                int number = s.path("season_number").asInt(0);
+                Integer airYear = leadingInt(s.path("air_date").asText(null));
+                if (number > 0 && airYear != null) {
+                    seasonYears.put(number, airYear);
+                }
+            }
+            return SeasonYearCheck.check(season, year, leadingInt(d.path("first_air_date").asText(null)),
+                    leadingInt(d.path("last_air_date").asText(null)), seasonYears);
+        } catch (Exception e) {
+            log.debug("季与年份核对取详情失败，按判不出处理：id={}, {}", id, e.getMessage());
+            return SeasonYearCheck.Verdict.UNKNOWN;
+        }
+    }
+
+    /** 取第一段数字：季号 {@code "03"}、年份 {@code "2026"}、日期 {@code "2026-10-01"} 的年；取不出返回 null */
+    private static Integer leadingInt(String text) {
+        if (text == null) {
+            return null;
+        }
+        java.util.regex.Matcher m = LEADING_INT.matcher(text);
+        return m.find() ? Integer.valueOf(m.group()) : null;
+    }
+
+    private static final java.util.regex.Pattern LEADING_INT = java.util.regex.Pattern.compile("\\d{1,4}");
+
+    /** 标题这一维有没有对上（含英文规范名）；与 {@link #hasEnoughEvidence} 的差别是不认「年份接近」 */
+    private boolean titleMatches(String type, MediaInfo info, JsonNode node, int id, TMDbApiService api,
+                                 java.util.Map<Integer, java.util.Optional<String>> englishTitles) {
+        return titleMatchLevel(type, info, node) > 0 || englishTitleMatches(type, info, id, api, englishTitles);
     }
 
     /**

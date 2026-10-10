@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.mockStatic;
 import static org.mockito.Mockito.never;
@@ -72,6 +73,73 @@ class TMDbClientMatchTmdbIdTest {
             verify(api, never()).getExternalIds(anyString(), anyString(), anyInt());
             verify(api, never()).getTvContentRatings(anyString(), anyInt());
             verify(api, never()).getAlternativeTitles(anyString(), anyString(), anyInt());
+        }
+    }
+
+    /** TMDb 对「The Prince of Tennis II」的真实返回（裁剪过字段）：全等的是 2012 年那部，正确答案只是包含命中 */
+    private TMDbApiService princeOfTennis(MockedStatic<SpringUtils> spring) {
+        TMDbApiService api = api(spring);
+        when(api.search(anyString(), anyString(), anyString(), any())).thenReturn("""
+                {"results":[
+                  {"id":67249,"name":"新网球王子","original_name":"新テニスの王子様","original_language":"ja","first_air_date":"2012-01-04","popularity":9.8},
+                  {"id":236786,"name":"新网球王子 OVA 对战Genius10","original_name":"新テニスの王子様 OVA vs Genius10","original_language":"ja","first_air_date":"2014-10-29","popularity":5.2},
+                  {"id":205493,"name":"新网球王子 U-17世界杯篇","original_name":"新テニスの王子様 U-17 WORLD CUP","original_language":"ja","first_air_date":"2022-07-07","popularity":21.9}
+                ]}
+                """);
+        when(api.getDetails(anyString(), eq("tv"), eq(67249), eq("en-US"))).thenReturn("{\"name\":\"The Prince of Tennis II\"}");
+        when(api.getDetails(anyString(), eq("tv"), eq(236786), eq("en-US"))).thenReturn("{\"name\":\"New Prince of Tennis OVA vs. Genius10\"}");
+        when(api.getDetails(anyString(), eq("tv"), eq(205493), eq("en-US"))).thenReturn("{\"name\":\"The Prince of Tennis II U-17 WORLD CUP\"}");
+        when(api.getDetails(anyString(), eq("tv"), eq(67249))).thenReturn("""
+                {"id":67249,"first_air_date":"2012-01-04","last_air_date":"2012-03-28","number_of_episodes":13,"seasons":[
+                  {"season_number":0,"air_date":"2012-04-20"},{"season_number":1,"air_date":"2012-01-04"}]}
+                """);
+        when(api.getDetails(anyString(), eq("tv"), eq(205493))).thenReturn("""
+                {"id":205493,"first_air_date":"2022-07-07","last_air_date":"2026-10-01","number_of_episodes":39,"seasons":[
+                  {"season_number":1,"air_date":"2022-07-07"},{"season_number":2,"air_date":"2024-10-03"},
+                  {"season_number":3,"air_date":"2026-10-01"}]}
+                """);
+        return api;
+    }
+
+    private static MediaInfo princeOfTennis(String season, String year) {
+        MediaInfo info = new MediaInfo("The Prince of Tennis II S" + season + "E02 " + year + " 1080p CR WEB-DL");
+        info.setTitle("The Prince of Tennis II");
+        info.setOriginalTitle("The Prince of Tennis II");
+        info.setSeason(season);
+        info.setEpisode("2");
+        info.setYear(year);
+        return info;
+    }
+
+    /**
+     * 标题全等的候选只有 1 季、2012 年就完结了，而另一个标题也对得上的候选第 3 季正是 2026 年开播：
+     * 让给后者。标题分不出来的两部作品，季与年份分得出来。
+     */
+    @Test
+    void 全等候选的季与年份说不通_另一候选这一季正是这一年开播_改选后者() {
+        try (MockedStatic<SpringUtils> spring = mockStatic(SpringUtils.class)) {
+            princeOfTennis(spring);
+
+            assertEquals("205493", client.matchTmdbId("tv", princeOfTennis("03", "2026")));
+        }
+    }
+
+    /** 年份可能只是压制年：没有别的候选「季对得上」时，说不通的那个照常采纳，不能变成识别不出 */
+    @Test
+    void 季与年份说不通但没有更合适的候选_照常采纳() {
+        try (MockedStatic<SpringUtils> spring = mockStatic(SpringUtils.class)) {
+            princeOfTennis(spring);
+
+            assertEquals("67249", client.matchTmdbId("tv", princeOfTennis("03", "2019")));
+        }
+    }
+
+    @Test
+    void 季与年份对得上的全等候选_直接采纳() {
+        try (MockedStatic<SpringUtils> spring = mockStatic(SpringUtils.class)) {
+            princeOfTennis(spring);
+
+            assertEquals("67249", client.matchTmdbId("tv", princeOfTennis("01", "2012")));
         }
     }
 
