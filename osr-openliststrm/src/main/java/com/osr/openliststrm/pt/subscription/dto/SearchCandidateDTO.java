@@ -96,6 +96,33 @@ public class SearchCandidateDTO {
     private Integer parsedSeason;
     /** 来源站点开了 H&R 考核 */
     private boolean hitAndRun;
+
+    /** 站点详情页链接（RSS 的 comments 元素，只收 http/https），没有为 null */
+    private String detailUrl;
+
+    /**
+     * description 的第一段（站点模板里的别名列表那一段），供用户辨认这是哪部作品；
+     * 没有或过长（多半是剧情简介）为 null，见 {@code DescriptionAliases#leadSegment}
+     */
+    private String subtitle;
+
+    /**
+     * 资源搜索页专用：识别出的作品 TMDb ID。优先用索引器给的（分类判得出电影/剧集时），
+     * 没有时按解析标题走 TMDb 匹配；识别不出为 null。
+     */
+    private String matchedTmdbId;
+
+    /** 识别用的媒体类型口径 TV / MOVIE，与 TmdbSearchService 同一套取值 */
+    private String mediaType;
+
+    /** 识别出的作品中文规范名（TMDb 缺中文翻译时退回原名） */
+    private String matchedTitle;
+
+    /** 识别出的作品年份（TMDb 首播/上映年，不是种子标题里那个可能是本季播出年的数字） */
+    private String matchedYear;
+
+    /** 这部作品已经在当前用户可见的订阅里（按 tmdbId + 媒体类型判）——用户据此知道这条是补集还是新剧 */
+    private boolean subscribed;
     /**
      * 资源搜索页专用：按全局过滤规则这条会被怎样淘汰的短标签（{@code RejectCode#label}，如「分辨率不在白名单」），
      * null 表示会被放行。资源搜索页<b>只标注、不淘汰</b>——用户正是来看「站上到底有什么」的；

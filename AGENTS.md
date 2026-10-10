@@ -123,6 +123,12 @@
   - `Threads.wrapCallable(Callable)` → 返回 Callable（同上），用于 executor.submit(Callable)
   - 方法定义在 `osr-common/src/main/java/com/osr/common/utils/Threads.java`，被所有模块共用
   - 常见遗漏点：PT 模块的 `SubscriptionEngine`、`SearchSupplementService`、`RssPollService` 的 CompletableFuture；`RssPollTask`/`AutoSearchTask`/`DownloadTrackTask`/`LibrarySyncTask` 的 scheduler.scheduleAtFixedRate；`SubscriptionSearchOnCreateTrigger`/`DownloadCompletionSyncTrigger` 的 scheduler.schedule；`AsynHelper` 的全部 scheduler.schedule + CompletableFuture。新增任何异步代码时复制这些位置的做法。
+- **调用已有方法前先读它的实现，并把依据写出来；查不到依据就明说「未核实」，不许按名字猜**。动手前逐个列出要调用的现有方法：签名、**返回值的实际含义**、参数的取值约定（大小写、单位、null 语义），每条带 `文件:行号`。「为了安全所以……」这类保守决定同样要引用依据——保守不等于有根据。四个都出在资源搜索页「作品识别」那一次改动里，测试当时全绿：
+  1. **按名字猜返回值**：`TMDbClient#matchTmdbId` 直接 `return search(...)`，而 `search()` 返回的是 `getBestTitle` 的**标题**，id 只写在 `info.setTmdbId` 上。调用方拿「斗破苍穹」去 `Integer.parseInt`，整页一条都识别不出。读一眼 `search()` 末尾那行 `return best` 就能发现。
+  2. **按常量名猜取值约定**：传的是 `TmdbSearchService.TYPE_TV`（大写 `TV`），而 `TMDbClient` 内部全按小写 `"tv"`/`"movie"` 全等判断，还直接拼进 `/search/` 路径——电影被当剧集取字段、集数反证整条失效。
+  3. **按属性名猜协议语义**：把 `torznab:attr name="comments"` 当详情页链接读，按规范那是**评论数**，详情页在 RSS 的 `<comments>` 子元素里。
+  4. **没查依据的保守决定**：识别做成串行，理由是「怕并发太大」，而 `TMDbApiService` 早有全局 `Semaphore(4)` + 429 退避 + 两层缓存，上层开多少线程都被封顶在 4。结果是把并发度从 4 压到 1，更容易撞预算、识别跑不完。
+  **「未核实」是合法答案，编一个理由不是**：写了「未核实」，审的人知道该看哪儿；编出来的理由读着和查出来的一模一样，没人会去复核。配套的一条：**跨模块调用至少留一条不 mock 被调方的用例**——上面第 1、2 条的测试把 `matchTmdbId` 直接 mock 成返回 `"79481"`，等于把出错的那一段整个绕开了（守它的是 `TMDbClientMatchTmdbIdTest`，走真实 `TMDbClient`，只 mock 最底层的 `TMDbApiService`）。mock 掉的那一层，就是这条测试证明不了的那一层。
 
 ## ANTI-PATTERNS
 - 不要在 `osr-system` 中新增业务模块 (那是标准系统管理模块)

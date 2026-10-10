@@ -100,6 +100,8 @@
           </div>
           <div class="filter-summary">
             显示 {{ visibleResults.length }} / {{ results.length }}，{{ rejectedCount }} 个会被全局规则挡掉
+            <span v-if="lookupNote" class="lookup-note">{{ lookupNote }}</span>
+            <span v-else-if="lookupSummary">· {{ lookupSummary }}</span>
             <v-btn v-if="activeFilterCount" variant="text" size="x-small" @click="clearFilters">清空筛选</v-btn>
           </div>
         </template>
@@ -115,6 +117,7 @@
         <div class="card-top">
           <span class="card-title result-title">{{ item.title }}</span>
         </div>
+        <div v-if="item.subtitle" class="result-subtitle">{{ item.subtitle }}</div>
         <div class="chips">
           <v-chip v-if="item.parsedEpisode && (item.parsedEpisodeEnd ?? 0) > item.parsedEpisode" size="x-small" color="warning" variant="tonal">
             S{{ item.parsedSeason ?? '?' }} 第{{ item.parsedEpisode }}-{{ item.parsedEpisodeEnd }}集
@@ -136,6 +139,20 @@
             <span class="value">{{ formatSize(item.size) }} · {{ item.seeders }} 做种</span>
           </div>
           <div class="detail-row">
+            <span class="label">作品</span>
+            <span class="value">
+              <template v-if="item.matchedTitle">
+                {{ item.matchedTitle }}<template v-if="item.matchedYear"> ({{ item.matchedYear }})</template>
+                <TmdbLink :tmdb-id="item.matchedTmdbId" :media-type="item.mediaType" variant="text" />
+              </template>
+              <template v-else>
+                {{ item.parsedTitle || '-' }}
+                <span v-if="lookupComplete && item.parsedTitle" class="work-unknown">识别不出</span>
+              </template>
+              <StatusChip v-if="item.subscribed" type="success" text="已订阅" />
+            </span>
+          </div>
+          <div class="detail-row">
             <span class="label">全局规则</span>
             <span v-if="item.ruleRejection" class="value text-warning">{{ item.ruleRejectionDetail || item.ruleRejection }}</span>
             <span v-else class="value text-success">放行</span>
@@ -144,6 +161,17 @@
         <div class="card-actions">
           <v-btn variant="text" color="primary" size="small" @click="toSubscribe(item)">转为订阅</v-btn>
           <v-btn v-if="isAdmin" variant="text" color="primary" size="small" :disabled="!item.downloadUrl" @click="openPush(item)">直接下载</v-btn>
+          <a
+            v-if="item.detailUrl"
+            class="detail-link"
+            :href="item.detailUrl"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="站点详情页"
+            aria-label="站点详情页"
+          >
+            <v-icon size="14" icon="external-link" />
+          </a>
         </div>
       </div>
     </v-card>
@@ -157,6 +185,8 @@
 <script setup lang="ts">
 import MobileListPage from '@/components/mobile/MobileListPage.vue'
 import ResourcePushDialog from '@/components/dialogs/ResourcePushDialog.vue'
+import StatusChip from '@/components/StatusChip.vue'
+import TmdbLink from '@/components/TmdbLink.vue'
 import { usePageStateProvider } from '@/composables/pageStateContext'
 import { usePtResourceSearch } from '@/composables/usePtResourceSearch'
 
@@ -164,6 +194,7 @@ import { usePtResourceSearch } from '@/composables/usePtResourceSearch'
 const {
   isAdmin,
   keyword, indexerIds, indexerOptions, searching, searched, results, rejectedCount, handleSearch,
+  lookupNote, lookupSummary, lookupComplete,
   filter, facets, activeFilterCount, clearFilters, passedOnly, visibleResults,
   openPush, toSubscribe, formatSize
 } = usePageStateProvider(usePtResourceSearch())
@@ -207,12 +238,36 @@ const {
   color: var(--osr-text-secondary);
 }
 
+.lookup-note {
+  color: var(--osr-warning);
+}
+
+.work-unknown {
+  color: var(--osr-text-secondary);
+}
+
+.detail-link {
+  display: inline-flex;
+  align-items: center;
+  color: var(--osr-text-secondary);
+
+  &:hover {
+    color: var(--osr-primary);
+  }
+}
+
 .hint {
   margin-top: 8px;
 }
 
 .result-title {
   white-space: normal;
+  word-break: break-all;
+}
+
+.result-subtitle {
+  font-size: 12px;
+  color: var(--osr-text-secondary);
   word-break: break-all;
 }
 

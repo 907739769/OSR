@@ -118,7 +118,7 @@ public final class DescriptionAliases {
     }
 
     /**
-     * 取别名列表所在的第一段。任一分隔符先出现就在那里截断——换行同样算段边界，
+     * 取别名列表所在的第一段。任一分段分隔符先出现就在那里截断——换行同样算段边界，
      * 因为部分站点的 description 是多行文本而不是单行 {@code |} 分隔。
      */
     private static String firstSegment(String description) {
@@ -130,6 +130,21 @@ public final class DescriptionAliases {
             }
         }
         return description.substring(0, end);
+    }
+
+    /**
+     * 给页面当副标题用的第一段原文（资源搜索页）。显示的是<b>整段</b>而不是切出来的别名——
+     * 用户自己读；但段边界与长度上限必须与 {@link #extract} 同一份，否则同一个 description
+     * 在匹配侧认得出、在页面上显示成半截。
+     *
+     * @return 没有 description、第一段为空、或超过段长上限（那多半是剧情简介，不是别名列表）时返回 null
+     */
+    public static String leadSegment(String description) {
+        if (StringUtils.isBlank(description)) {
+            return null;
+        }
+        String segment = firstSegment(description).trim();
+        return segment.isEmpty() || segment.length() > MAX_SEGMENT_LENGTH ? null : segment;
     }
 
     private static boolean isAlias(String alias) {

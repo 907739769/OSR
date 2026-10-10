@@ -336,4 +336,59 @@ class TorznabParserTest {
         assertNull(t.getTmdbId());
         assertTrue(t.getCategories().isEmpty());
     }
+
+    /**
+     * 详情页取 RSS 的 {@code <comments>} 元素。{@code torznab:attr name="comments"} 按 Torznab 规范
+     * 是<b>评论数</b>，把它当链接用会得到一个数字。
+     */
+    @Test
+    void parse_comments元素是详情页_comments属性是评论数() {
+        String xml = wrap("""
+                    <item>
+                      <title>A</title>
+                      <link>http://x/1</link>
+                      <comments>https://pt.example.com/details.php?id=1</comments>
+                      <torznab:attr name="comments" value="3"/>
+                    </item>
+                """);
+
+        TorrentInfo t = TorznabParser.parse(xml).get(0);
+
+        assertEquals("https://pt.example.com/details.php?id=1", t.getDetailUrl());
+        assertEquals("http://x/1", t.getDownloadUrl());
+    }
+
+    /**
+     * {@code <link>} 已经被当下载地址用掉时，无法从响应判断它到底是详情页还是直链，宁可不给——
+     * 留一个点不动就跳到下载地址的链接，比没有这个链接更糟。
+     */
+    @Test
+    void parse_没有comments元素时不猜详情页_即使link与enclosure同时存在() {
+        String xml = wrap("""
+                    <item>
+                      <title>A</title>
+                      <link>http://x/1</link>
+                      <enclosure url="https://pt.example.com/torrent/1.torrent" length="100" type="application/x-bittorrent"/>
+                    </item>
+                """);
+
+        TorrentInfo t = TorznabParser.parse(xml).get(0);
+
+        assertEquals("http://x/1", t.getDownloadUrl());
+        assertNull(t.getDetailUrl());
+    }
+
+    /** 详情页会原样成为页面上的 href，只收 http/https */
+    @Test
+    void parse_详情页不是http链接时不给() {
+        String xml = wrap("""
+                    <item>
+                      <title>A</title>
+                      <link>http://x/1</link>
+                      <comments>javascript:alert(1)</comments>
+                    </item>
+                """);
+
+        assertNull(TorznabParser.parse(xml).get(0).getDetailUrl());
+    }
 }

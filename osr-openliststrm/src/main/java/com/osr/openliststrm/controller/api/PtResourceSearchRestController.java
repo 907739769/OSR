@@ -38,7 +38,8 @@ public class PtResourceSearchRestController extends BaseController {
     @PostMapping("/search")
     public Result<ResourceSearchService.Result> search(@RequestBody ResourceSearchRequest request) {
         try {
-            return Result.success(resourceSearchService.search(request.getKeyword(), request.getIndexerIds()));
+            return Result.success(resourceSearchService.search(
+                    request.getKeyword(), request.getIndexerIds(), getUserId(), isAdmin()));
         } catch (IllegalArgumentException e) {
             return Result.error(e.getMessage());
         }

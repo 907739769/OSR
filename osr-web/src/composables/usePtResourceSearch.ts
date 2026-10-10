@@ -20,11 +20,18 @@ import { formatSize } from './sizeUnits'
 export const looksLikeMovie = (item: Pick<ResourceItem, 'parsedSeason' | 'parsedEpisode'>) =>
   item.parsedSeason == null && item.parsedEpisode == null
 
-/** 转为订阅时带去订阅页的查询参数：片名用解析出来的（去掉了分辨率、发布组那些），解析不出才用原标题 */
-export const subscribeQuery = (item: ResourceItem) => ({
-  subscribe: item.parsedTitle || item.title,
-  mediaType: looksLikeMovie(item) ? 'MOVIE' : 'TV'
-})
+/**
+ * 转为订阅时带去订阅页的查询参数。
+ * 识别出作品时用它的规范名与类型：订阅页拿这个词去搜 TMDb，规范名一搜就是它，
+ * 而罗马音 / 拼音命名的种子（`Gei a ma de qing shu`）拿解析出的片名去搜多半落空。
+ * 没识别出才退回解析出的片名（去掉了分辨率、发布组那些），再不行用原标题。
+ */
+export const subscribeQuery = (item: ResourceItem) => {
+  if (item.matchedTitle) {
+    return { subscribe: item.matchedTitle, mediaType: item.mediaType === 'MOVIE' ? 'MOVIE' : 'TV' }
+  }
+  return { subscribe: item.parsedTitle || item.title, mediaType: looksLikeMovie(item) ? 'MOVIE' : 'TV' }
+}
 
 /**
  * 资源搜索页（PC 与移动端共用）：不建订阅，按关键词搜全部站点，看站上有什么。
@@ -50,6 +57,45 @@ export function usePtResourceSearch() {
   const rejectedCount = ref(0)
   /** 只看全局规则会放行的 */
   const passedOnly = ref(false)
+
+  const lookup = ref({
+    enabled: true, distinctWorks: 0, identifiedWorks: 0, skipped: false, truncated: false, unavailable: false
+  })
+
+  /**
+   * 识别出的不同作品数，按「媒体类型 + matchedTmdbId」去重：一部剧 12 集是 12 行、1 个作品；
+   * tv/1399 与 movie/1399 是两部作品。它与 lookup.distinctWorks 不是同一口径（那是标题组数，
+   * 同一部作品的中文名与英文名是两组），所以两者不能摆成「X / Y」。
+   */
+  const matchedWorks = computed(() =>
+    new Set(results.value.filter(i => i.matchedTmdbId).map(i => `${i.mediaType}/${i.matchedTmdbId}`)).size)
+
+  /** 识别这一步完整跑过：只有这时没带作品的那一行才能说「识别不出」，否则真相是「没识别」 */
+  const lookupComplete = computed(() =>
+    lookup.value.enabled && !lookup.value.skipped && !lookup.value.truncated && !lookup.value.unavailable)
+
+  /**
+   * 识别没跑、没跑完、或整体被上限挡掉时必须有这句话。
+   * 少了它，用户看到的是一片空白，而空白会被读成「这些种子不是任何作品」——真相是没识别。
+   * 文案里不写死上限数字：那个 20 在后端，写在这儿早晚和它漂移。
+   */
+  const lookupNote = computed(() => {
+    if (!lookup.value.enabled) return '未识别作品：识别功能已关闭'
+    if (lookup.value.unavailable) return '未识别作品：TMDb key 未配置'
+    if (lookup.value.truncated) return `识别未跑完：${lookup.value.distinctWorks} 组标题只识别了 ${lookup.value.identifiedWorks} 组，稍后再搜一次会更全`
+    if (lookup.value.skipped) {
+      return `标题太杂，只识别了一部分：${lookup.value.distinctWorks} 组不同标题里只问了种子最多的那些，认出 ${matchedWorks.value} 个作品；换个更具体的关键词会更全`
+    }
+    return ''
+  })
+
+  /** 识别跑完时的一句话小结；没有可识别的标题时不说话 */
+  const lookupSummary = computed(() => {
+    if (!lookupComplete.value || !lookup.value.distinctWorks) return ''
+    const missed = lookup.value.distinctWorks - lookup.value.identifiedWorks
+    const head = matchedWorks.value ? `识别出 ${matchedWorks.value} 个作品` : '没有识别出作品'
+    return missed > 0 ? `${head}，${missed} 组标题识别不出` : head
+  })
 
   const { filter, facets, filteredCandidates, filterCount, resetFilter } = useCandidateFilter(results)
   const visibleResults = computed<ResourceItem[]>(() =>
@@ -86,6 +132,14 @@ export function usePtResourceSearch() {
       })
       results.value = res?.items || []
       rejectedCount.value = res?.rejectedCount || 0
+      lookup.value = {
+        enabled: res?.tmdbLookupEnabled ?? true,
+        distinctWorks: res?.distinctWorks ?? 0,
+        identifiedWorks: res?.identifiedWorks ?? 0,
+        skipped: res?.tmdbLookupSkipped ?? false,
+        truncated: res?.tmdbLookupTruncated ?? false,
+        unavailable: res?.tmdbLookupUnavailable ?? false
+      }
       searched.value = true
     } catch (e) {
       // 具体原因（没有启用的索引器、所选站点全部不可用）已由拦截器弹出
@@ -152,6 +206,7 @@ export function usePtResourceSearch() {
   return {
     isAdmin,
     keyword, indexerIds, indexerOptions, searching, searched, results, rejectedCount, handleSearch,
+    lookup, matchedWorks, lookupNote, lookupSummary, lookupComplete,
     filter, facets, activeFilterCount, clearFilters, passedOnly, visibleResults,
     pushOpen, pushTarget, downloaders, downloaderId, pushing, openPush, confirmPush,
     toSubscribe,

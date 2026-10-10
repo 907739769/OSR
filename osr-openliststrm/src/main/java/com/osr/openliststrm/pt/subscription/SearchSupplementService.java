@@ -639,6 +639,8 @@ public class SearchSupplementService {
                         .parsedTitle(t.getParsedTitle())
                         .parsedSeason(t.getParsedSeason())
                         .hitAndRun(t.isHitAndRun())
+                        .detailUrl(t.getDetailUrl())
+                        .subtitle(DescriptionAliases.leadSegment(t.getDescription()))
                         .build())
                 .toList();
     }
