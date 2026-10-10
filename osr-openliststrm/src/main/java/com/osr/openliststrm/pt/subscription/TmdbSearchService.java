@@ -117,6 +117,57 @@ public class TmdbSearchService {
     }
 
     /**
+     * 一部剧集在 TMDb 上的「形状」：首播年、各季开播年、全剧总集数。
+     * 拿来回答「这条种子的年份、集号，放在这部剧上说不说得通」（资源搜索页拆同名剧用）。
+     *
+     * @param firstAirYear  首播年，TMDb 没登记时为 null
+     * @param seasonYears   季号 → 该季开播年，按季号升序；没登记开播日期的季与特别篇（第 0 季）不在里面
+     * @param totalEpisodes 全剧总集数，取不到为 0
+     */
+    public record SeriesShape(Integer firstAirYear, java.util.NavigableMap<Integer, Integer> seasonYears,
+                              int totalEpisodes) {
+    }
+
+    /**
+     * 取剧集的 {@link SeriesShape}。用的是与 {@link #describeWork} 同一个详情请求，
+     * 紧跟着它调用时直接命中缓存、不多发请求。
+     *
+     * @return 取不到详情或 id 非法时返回 null（调用方按「没有可核对的依据」处理），不抛异常
+     */
+    public SeriesShape seriesShape(String tmdbId) {
+        if (StringUtils.isBlank(tmdbId)) {
+            return null;
+        }
+        int id;
+        try {
+            id = Integer.parseInt(tmdbId.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+        JSONObject detail = readObject(tmDbApiService.getDetails(openlistConfig.getTmdbApiKey(), "tv", id));
+        if (detail == null) {
+            return null;
+        }
+        java.util.NavigableMap<Integer, Integer> seasonYears = new TreeMap<>();
+        JSONArray seasons = detail.getJSONArray("seasons");
+        for (int i = 0; seasons != null && i < seasons.size(); i++) {
+            JSONObject season = seasons.getJSONObject(i);
+            Integer number = season == null ? null : season.getInteger("season_number");
+            Integer year = season == null ? null : yearOf(season.getString("air_date"));
+            if (number != null && number > 0 && year != null) {
+                seasonYears.put(number, year);
+            }
+        }
+        Integer total = detail.getInteger("number_of_episodes");
+        return new SeriesShape(yearOf(detail.getString("first_air_date")), seasonYears, total == null ? 0 : total);
+    }
+
+    private Integer yearOf(String date) {
+        String year = extractYear(date);
+        return year == null ? null : Integer.valueOf(year);
+    }
+
+    /**
      * 解析真正的英文标题：原始语言本就是英文时直接取 original_title/name（省一次请求）；
      * 否则（日剧/韩剧/动画等）用 language=en-US 重新查一次详情取 TMDb 的英文规范名。
      * PT 站种子标题绝大多数是英文/罗马字，用真正的英文标题而非 original_title 匹配才不会漏判日韩剧。
