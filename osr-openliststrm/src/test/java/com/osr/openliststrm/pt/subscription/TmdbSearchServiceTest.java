@@ -487,6 +487,35 @@ class TmdbSearchServiceTest {
         assertNull(service.refreshEnglishTitle("TV", "333350", null));
     }
 
+    // ---------------- seriesShape（资源搜索页拆同名剧用） ----------------
+
+    @Test
+    void seriesShape_取首播年各季开播年与总集数_特别篇与没定档的季不计() {
+        when(tmDbApiService.getDetails(anyString(), eq("tv"), eq(37854))).thenReturn("""
+                {"id":37854,"first_air_date":"1999-10-20","number_of_episodes":1180,"seasons":[
+                  {"season_number":0,"air_date":"2000-12-20"},
+                  {"season_number":1,"air_date":"1999-10-20"},
+                  {"season_number":2,"air_date":"2001-03-21"},
+                  {"season_number":23,"air_date":null}
+                ]}
+                """);
+
+        TmdbSearchService.SeriesShape shape = service.seriesShape("37854");
+
+        assertEquals(1999, shape.firstAirYear());
+        assertEquals(java.util.Map.of(1, 1999, 2, 2001), shape.seasonYears());
+        assertEquals(1180, shape.totalEpisodes());
+    }
+
+    @Test
+    void seriesShape_id非法或取不到详情时返回null不抛异常() {
+        assertNull(service.seriesShape(null));
+        assertNull(service.seriesShape("航海王"));
+
+        when(tmDbApiService.getDetails(anyString(), anyString(), anyInt())).thenReturn(null);
+        assertNull(service.seriesShape("42"));
+    }
+
     // ---------------- describeWork（资源搜索页的作品识别用） ----------------
 
     /** 轻量版详情：只发一次详情请求，不查外部 ID、不查 en-US 详情——那两次是给标题匹配用的 */

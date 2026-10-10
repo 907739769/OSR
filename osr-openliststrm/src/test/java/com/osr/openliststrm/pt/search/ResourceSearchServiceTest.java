@@ -342,6 +342,132 @@ class ResourceSearchServiceTest {
         assertNull(result.items().get(1).getMatchedTmdbId());
     }
 
+    // ---------------- 同名剧 ----------------
+
+    private static TorrentInfo titled(String title, String parsedTitle, Integer season, Integer episode,
+                                      String year, int seeders) {
+        TorrentInfo t = torrent(title, seeders);
+        t.setParsedTitle(parsedTitle);
+        t.setParsedSeason(season);
+        t.setParsedEpisode(episode);
+        t.setParsedYear(year);
+        return t;
+    }
+
+    private static TmdbSearchService.SeriesShape shape(Integer first, int total, int... seasonAndYear) {
+        java.util.NavigableMap<Integer, Integer> seasons = new java.util.TreeMap<>();
+        for (int i = 0; i + 1 < seasonAndYear.length; i += 2) {
+            seasons.put(seasonAndYear[i], seasonAndYear[i + 1]);
+        }
+        return new TmdbSearchService.SeriesShape(first, seasons, total);
+    }
+
+    /** 动画《航海王》(1999, tv/37854) 与真人版《海贼王》(2023, tv/111110)：TMDb 按年份与集号分得清这两部 */
+    private void stubOnePiece() {
+        when(tmdbClient.matchTmdbId(eq("TV"), any(MediaInfo.class))).thenAnswer(inv -> {
+            MediaInfo info = inv.getArgument(1);
+            boolean anime = "1999".equals(info.getYear())
+                    || (info.getEpisode() != null && Integer.parseInt(info.getEpisode()) > 100);
+            return anime ? "37854" : "111110";
+        });
+        when(tmdbSearchService.describeWork(eq("TV"), eq("37854"))).thenReturn(work("37854", "航海王"));
+        when(tmdbSearchService.describeWork(eq("TV"), eq("111110"))).thenReturn(work("111110", "海贼王"));
+        when(tmdbSearchService.seriesShape("37854")).thenReturn(shape(1999, 1180, 1, 1999, 2, 2001, 22, 2019, 23, 2026));
+        when(tmdbSearchService.seriesShape("111110")).thenReturn(shape(2023, 16, 1, 2023, 2, 2026));
+    }
+
+    /**
+     * 实际反馈：{@code One Piece S23E1171 1999 1080p CR WEB-DL} 在资源搜索页被标成真人版《海贼王》，
+     * 而重命名同一个文件认得出是动画。同名的两部剧标题、类型都相同、落在同一组，只问代表种子
+     * （做种最多的真人版季包）的话整组都跟着它走；重命名逐个文件识别，集号 1171 过不了真人版的集数反证。
+     */
+    @Test
+    void 同名剧在组内拆开_动画的集数与年份放在真人版上说不通() {
+        TorrentInfo live = titled("One Piece S01 2023 2160p NF WEB-DL", "One Piece", 1, null, "2023", 90);
+        TorrentInfo anime = titled("One Piece S23E1171 1999 1080p CR WEB-DL H.264 AAC-FROGWeb", "One Piece", 23, 1171, "1999", 10);
+        when(supplement.searchKeyword(anyString(), any())).thenReturn(List.of(live, anime));
+        stubOnePiece();
+
+        ResourceSearchService.Result result = service.search("One Piece", null, 1L, true);
+
+        assertEquals(1, result.distinctWorks(), "仍是一组标题，只是组内分属两部作品");
+        assertEquals(1, result.identifiedWorks());
+        assertEquals("111110", result.items().get(0).getMatchedTmdbId());
+        assertEquals("海贼王", result.items().get(0).getMatchedTitle());
+        assertEquals("37854", result.items().get(1).getMatchedTmdbId());
+        assertEquals("航海王", result.items().get(1).getMatchedTitle());
+    }
+
+    /** 反过来代表是动画时，真人版靠「年份不在这一季的播出区间里」挑出来：S01 标 2023，而动画第 1 季是 1999~2001 */
+    @Test
+    void 同名剧在组内拆开_代表是老剧时新剧按季的播出年挑出来() {
+        TorrentInfo anime = titled("One Piece S21E0950 2019 1080p", "One Piece", 21, 950, "2019", 90);
+        TorrentInfo live = titled("One Piece S01E03 2023 1080p NF WEB-DL", "One Piece", 1, 3, "2023", 10);
+        TorrentInfo liveS2 = titled("One Piece S02 2026 2160p NF WEB-DL", "One Piece", 2, null, "2026", 5);
+        when(supplement.searchKeyword(anyString(), any())).thenReturn(List.of(anime, live, liveS2));
+        stubOnePiece();
+
+        ResourceSearchService.Result result = service.search("One Piece", null, 1L, true);
+
+        assertEquals("37854", result.items().get(0).getMatchedTmdbId());
+        assertEquals("111110", result.items().get(1).getMatchedTmdbId());
+        assertEquals("111110", result.items().get(2).getMatchedTmdbId());
+    }
+
+    /** 没写年份、集号也不出格的种子没有任何可核对的东西，跟着代表走，不为它多发请求 */
+    @Test
+    void 没有年份也没有出格集号的种子跟着代表走() {
+        TorrentInfo live = titled("One Piece S01 2023 2160p NF WEB-DL", "One Piece", 1, null, "2023", 90);
+        TorrentInfo bare = titled("One Piece S01E05 1080p WEB-DL", "One Piece", 1, 5, null, 10);
+        when(supplement.searchKeyword(anyString(), any())).thenReturn(List.of(live, bare));
+        stubOnePiece();
+
+        ResourceSearchService.Result result = service.search("One Piece", null, 1L, true);
+
+        assertEquals("111110", result.items().get(1).getMatchedTmdbId());
+        verify(tmdbClient, times(1)).matchTmdbId(anyString(), any(MediaInfo.class));
+    }
+
+    /**
+     * 年份上界是弱信号：{@code The.Office.S03E05.2019} 标的是压制年。它只负责挑出「值得再问一次」的，
+     * 裁决是 TMDb 的回答——再问得到的还是同一部作品，就全部收下，不能留成识别不出，也不能一条条问下去。
+     */
+    @Test
+    void 再认一轮还是同一部作品时全部收下_不逐条问下去() {
+        TorrentInfo first = titled("The Office S01 2005 1080p", "The Office", 1, null, "2005", 90);
+        TorrentInfo late1 = titled("The Office S03E05 2019 1080p", "The Office", 3, 5, "2019", 30);
+        TorrentInfo late2 = titled("The Office S03E06 2019 1080p", "The Office", 3, 6, "2019", 20);
+        TorrentInfo late3 = titled("The Office S04E01 2020 1080p", "The Office", 4, 1, "2020", 10);
+        when(supplement.searchKeyword(anyString(), any())).thenReturn(List.of(first, late1, late2, late3));
+        when(tmdbClient.matchTmdbId(eq("TV"), any(MediaInfo.class))).thenReturn("2316");
+        when(tmdbSearchService.describeWork(eq("TV"), eq("2316"))).thenReturn(work("2316", "办公室"));
+        when(tmdbSearchService.seriesShape("2316")).thenReturn(shape(2005, 201, 1, 2005, 2, 2005, 3, 2006, 4, 2007, 5, 2008));
+
+        ResourceSearchService.Result result = service.search("The Office", null, 1L, true);
+
+        for (int i = 0; i < 4; i++) {
+            assertEquals("2316", result.items().get(i).getMatchedTmdbId(), "第 " + i + " 条");
+        }
+        verify(tmdbClient, times(2)).matchTmdbId(anyString(), any(MediaInfo.class));
+    }
+
+    /** 核对只在有依据时判矛盾：缺年份、缺季信息、缺总集数，各自都不判 */
+    @Test
+    void 核对种子与剧集是否说得通_缺什么就不判什么() {
+        TmdbSearchService.SeriesShape live = shape(2023, 16, 1, 2023, 2, 2026);
+        TmdbSearchService.SeriesShape anime = shape(1999, 1180, 1, 1999, 2, 2001, 21, 2019, 22, 2023);
+
+        assertTrue(ResourceSearchService.contradicts(titled("x", "x", 23, 1171, "1999", 1), live), "集号装不下");
+        assertTrue(ResourceSearchService.contradicts(titled("x", "x", 1, null, "1999", 1), live), "比首播年早得多");
+        assertTrue(ResourceSearchService.contradicts(titled("x", "x", 1, 3, "2023", 1), anime), "第 1 季早在 2001 年前后就播完了");
+        assertFalse(ResourceSearchService.contradicts(titled("x", "x", 21, 950, "2021", 1), anime), "一季跨几年播，年份在本季与下一季之间");
+        assertFalse(ResourceSearchService.contradicts(titled("x", "x", 22, 1100, "2031", 1), anime), "最新一季没有下一季，不设上界");
+        assertFalse(ResourceSearchService.contradicts(titled("x", "x", 9, 20, "2031", 1), anime), "这部剧没登记这一季，年份偏晚不算矛盾");
+        assertFalse(ResourceSearchService.contradicts(titled("x", "x", 1, 5, null, 1), live), "没写年份");
+        assertFalse(ResourceSearchService.contradicts(titled("x", "x", 1, 20, "2024", 1), live), "集号略超总集数在余量内");
+        assertFalse(ResourceSearchService.contradicts(titled("x", "x", 1, 900, "bad", 1), shape(null, 0)), "什么依据都没有");
+    }
+
     // ---------------- 别名兜底 ----------------
 
     private static TorrentInfo frieren(int episode, String description) {

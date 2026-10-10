@@ -96,6 +96,15 @@ public class ResourceSearchService {
     static final int MAX_ALIAS_ATTEMPTS = 3;
 
     /**
+     * 一组标题最多拆出几部同名剧（见 {@link #identifyGroup}）。同名剧三部以上极少见，
+     * 而每拆一轮是一次完整的识别，不封顶的话一组脏数据能把这一组的请求量翻好几倍。
+     */
+    static final int MAX_SAME_NAME_WORKS = 3;
+
+    /** 集号超过全剧总集数这么多倍才算「装不下」，与 {@code TMDbClient} 的集数反证同一个余量、同一个理由 */
+    static final int EPISODE_OVERFLOW_FACTOR = 2;
+
+    /**
      * 一条种子对应的作品身份。识别不出时整条为 null——前端据此显示「识别不出」，
      * 而不是留一个空白格（空白会被读成「站上没有这部剧」）。
      */
@@ -223,7 +232,7 @@ public class ResourceSearchService {
 
         log.info("资源搜索 关键词[{}]：{} 个结果，其中 {} 个会被全局过滤规则淘汰，{} 组标题{}",
                 kw, items.size(), rejected, lookup.distinctWorks(), describeLookup(lookup));
-        return new Result(items.size(), rejected, tmdbLookupEnabled, lookup.distinctWorks(), lookup.works().size(),
+        return new Result(items.size(), rejected, tmdbLookupEnabled, lookup.distinctWorks(), lookup.identified(),
                 lookup.skipped(), lookup.truncated(), lookup.unavailable(), items);
     }
 
@@ -243,8 +252,15 @@ public class ResourceSearchService {
         return byTorrent;
     }
 
-    private record LookupOutcome(Map<String, WorkIdentity> works, Set<String> ids,
-                                 int distinctWorks, boolean skipped, boolean truncated, boolean unavailable) {
+    /**
+     * @param works      每条种子的作品身份（按引用存取：同一组里的种子可能分属两部同名剧）
+     * @param identified 至少认出一条种子的标题组数
+     */
+    private record LookupOutcome(Map<TorrentInfo, WorkIdentity> works, Set<String> ids, int distinctWorks,
+                                 int identified, boolean skipped, boolean truncated, boolean unavailable) {
+        static LookupOutcome none(int distinctWorks, boolean unavailable) {
+            return new LookupOutcome(Map.of(), Set.of(), distinctWorks, 0, false, false, unavailable);
+        }
     }
 
     /**
@@ -272,12 +288,12 @@ public class ResourceSearchService {
         }
         int distinct = groups.size();
         if (!tmdbLookupEnabled || distinct == 0) {
-            return new LookupOutcome(Map.of(), Set.of(), distinct, false, false, false);
+            return LookupOutcome.none(distinct, false);
         }
         TMDbClient client = clientProvider.tmdb();
         if (client == null) {
             log.warn("资源搜索未识别作品：TMDb key 未配置，本次结果不带作品身份");
-            return new LookupOutcome(Map.of(), Set.of(), distinct, false, false, true);
+            return LookupOutcome.none(distinct, true);
         }
         boolean overLimit = distinct > tmdbLookupMax;
         if (overLimit) {
@@ -293,29 +309,31 @@ public class ResourceSearchService {
         }
 
         long deadline = System.currentTimeMillis() + tmdbLookupBudgetMillis;
-        Map<String, CompletableFuture<WorkIdentity>> pending = new LinkedHashMap<>();
+        Map<String, CompletableFuture<Map<TorrentInfo, WorkIdentity>>> pending = new LinkedHashMap<>();
         // 不用 try-with-resources：close() 会等全部任务跑完，预算就成了摆设
         ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
         try {
             for (Map.Entry<String, List<TorrentInfo>> entry : groups.entrySet()) {
                 List<TorrentInfo> group = entry.getValue();
                 pending.put(entry.getKey(), CompletableFuture.supplyAsync(
-                        Threads.wrapSupplier(() -> identify(client, group)), executor));
+                        Threads.wrapSupplier(() -> identifyGroup(client, group)), executor));
             }
         } finally {
             executor.shutdown();
         }
 
-        Map<String, WorkIdentity> works = new LinkedHashMap<>();
+        Map<TorrentInfo, WorkIdentity> works = new IdentityHashMap<>();
         Set<String> ids = new LinkedHashSet<>();
+        int identified = 0;
         boolean truncated = false;
-        for (Map.Entry<String, CompletableFuture<WorkIdentity>> entry : pending.entrySet()) {
+        for (Map.Entry<String, CompletableFuture<Map<TorrentInfo, WorkIdentity>>> entry : pending.entrySet()) {
             try {
                 long remaining = Math.max(0L, deadline - System.currentTimeMillis());
-                WorkIdentity work = entry.getValue().get(remaining, TimeUnit.MILLISECONDS);
-                if (work != null) {
-                    works.put(entry.getKey(), work);
-                    ids.add(work.tmdbId());
+                Map<TorrentInfo, WorkIdentity> found = entry.getValue().get(remaining, TimeUnit.MILLISECONDS);
+                if (!found.isEmpty()) {
+                    works.putAll(found);
+                    found.values().forEach(work -> ids.add(work.tmdbId()));
+                    identified++;
                 }
             } catch (TimeoutException e) {
                 truncated = true;
@@ -330,9 +348,121 @@ public class ResourceSearchService {
         }
         if (truncated) {
             log.warn("资源搜索识别作品未跑完：预算 {} 秒内只识别出 {} / {} 组标题，其余本次不带作品身份",
-                    tmdbLookupBudgetMillis / 1000, works.size(), groups.size());
+                    tmdbLookupBudgetMillis / 1000, identified, groups.size());
         }
-        return new LookupOutcome(works, ids, distinct, overLimit, truncated, false);
+        return new LookupOutcome(works, ids, distinct, identified, overLimit, truncated, false);
+    }
+
+    /**
+     * 识别一组标题里的每条种子是哪部作品。绝大多数组里只有一部作品，一次识别就完；
+     * 这个方法多做的一件事是<b>把同名剧拆开</b>。
+     * <p>
+     * 归并键里没有年份（剧集种子上的年份是本季播出年，进键会把同一部剧按季劈开，见 {@link #workKey}），
+     * 代价是同名的两部剧落进同一组：搜「One Piece」，1999 年的动画《航海王》与 2023 年的真人版《海贼王》
+     * 标题、类型都相同。只问代表种子的话，代表是真人版，整组 —— 包括
+     * {@code One Piece S23E1171 1999 …} —— 都被标成真人版。重命名那边没有这个问题，因为它逐个文件识别，
+     * 集号 1171 在只有十几集的真人版上过不了集数反证。
+     * </p>
+     * <p>
+     * 做法是<b>先认代表，再拿认出的作品核对组里其余每一条</b>（{@link #contradicts}）：年份或集号在这部剧上
+     * 说不通的挑出来，当成新的一组再认一轮。三条边界：
+     * </p>
+     * <ul>
+     *   <li><b>代表自己不核对</b>：它的答案就是 TMDb 针对它给的，再核对只会原地打转。</li>
+     *   <li><b>再认一轮得到的还是同一部作品，就全部收下</b>。核对用的年份上界是个弱信号
+     *       （{@code The.Office.S03E05.2019} 标的是压制年，不是播出年），它只负责挑出「值得再问一次」的，
+     *       真正的裁决是 TMDb 的回答——回答没变，说明没有第二部同名剧。</li>
+     *   <li>最多拆 {@link #MAX_SAME_NAME_WORKS} 部，再多的留作识别不出。</li>
+     * </ul>
+     * <p>
+     * 没写年份、集号又不出格的种子（{@code One Piece S01E05 1080p}）没有任何可核对的东西，跟着代表走。
+     * 这种认错是可能的，页面上的 TMDb 链接与站点详情页是留给用户自己核对的出口。
+     * </p>
+     */
+    private Map<TorrentInfo, WorkIdentity> identifyGroup(TMDbClient client, List<TorrentInfo> group) {
+        Map<TorrentInfo, WorkIdentity> result = new IdentityHashMap<>();
+        Set<String> seen = new LinkedHashSet<>();
+        List<TorrentInfo> pending = group;
+        for (int round = 0; round < MAX_SAME_NAME_WORKS && !pending.isEmpty(); round++) {
+            WorkIdentity work = identify(client, pending);
+            if (work == null) {
+                break;
+            }
+            TmdbSearchService.SeriesShape shape = seen.add(work.tmdbId()) ? shapeOf(work) : null;
+            List<TorrentInfo> rest = new ArrayList<>();
+            for (int i = 0; i < pending.size(); i++) {
+                TorrentInfo t = pending.get(i);
+                // shape 为 null：不是剧集、取不到详情，或这部作品前面已经出现过（TMDb 没有别的答案了）
+                if (i > 0 && shape != null && contradicts(t, shape)) {
+                    rest.add(t);
+                } else {
+                    result.put(t, work);
+                }
+            }
+            if (!rest.isEmpty()) {
+                log.debug("资源搜索拆同名剧：「{}」认成《{}》[tmdb {}]，但组内 {} 条的年份或集号在它上面说不通，另认一轮",
+                        pending.get(0).getParsedTitle(), work.title(), work.tmdbId(), rest.size());
+            }
+            pending = rest;
+        }
+        return result;
+    }
+
+    private TmdbSearchService.SeriesShape shapeOf(WorkIdentity work) {
+        if (!TmdbSearchService.TYPE_TV.equals(work.mediaType())) {
+            return null;
+        }
+        try {
+            return tmdbSearchService.seriesShape(work.tmdbId());
+        } catch (Exception e) {
+            log.debug("资源搜索取剧集季信息失败，这一组不拆同名剧：tmdb {}，{}", work.tmdbId(), e.getMessage());
+            return null;
+        }
+    }
+
+    /**
+     * 这条种子的集号或年份，放在这部剧上说不说得通。只在<b>有依据</b>时判矛盾，缺什么就不判什么。
+     * <ul>
+     *   <li><b>集号</b>：超过全剧总集数的 {@link #EPISODE_OVERFLOW_FACTOR} 倍，这部剧装不下它。
+     *       留一倍余量是因为集号有三套（发布组的绝对集号可能略超 TMDb 的记录）。</li>
+     *   <li><b>年份</b>：发布组在剧集种子上标的要么是首播年，要么是本季播出年。离首播年 1 年以内，说得通；
+     *       否则看它的季：早于本季开播年 1 年以上，或晚于<b>下一季</b>开播年 1 年以上，说不通
+     *       （一季可以跨好几年播，所以上界取下一季而不是本季）。这部剧没有这一季、或种子没写季号时，
+     *       只剩一条确定的：比首播年早 1 年以上——续季只可能更晚，不可能更早。</li>
+     * </ul>
+     */
+    static boolean contradicts(TorrentInfo t, TmdbSearchService.SeriesShape shape) {
+        Integer episode = t.getParsedEpisode();
+        if (episode != null && shape.totalEpisodes() > 0
+                && episode > (long) shape.totalEpisodes() * EPISODE_OVERFLOW_FACTOR) {
+            return true;
+        }
+        Integer year = yearOf(t.getParsedYear());
+        if (year == null) {
+            return false;
+        }
+        Integer first = shape.firstAirYear();
+        if (first != null && Math.abs(year - first) <= 1) {
+            return false;
+        }
+        Integer season = t.getParsedSeason();
+        Integer seasonYear = season == null ? null : shape.seasonYears().get(season);
+        if (seasonYear != null) {
+            Map.Entry<Integer, Integer> next = shape.seasonYears().higherEntry(season);
+            return year < seasonYear - 1 || (next != null && year > next.getValue() + 1);
+        }
+        return first != null && year < first - 1;
+    }
+
+    private static Integer yearOf(String year) {
+        if (StringUtils.isBlank(year)) {
+            return null;
+        }
+        try {
+            return Integer.valueOf(year.trim());
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     /**
@@ -436,8 +566,8 @@ public class ResourceSearchService {
      * 类型必须进键：同名的电影与剧集在 TMDb 上是两套编号，只按标题归并会把第一条的身份套给全部。
      * 年份只对电影进键：电影的年份是上映年，同名不同年就是两部作品（翻拍）；剧集种子上的年份是
      * <b>本季播出年</b>，进键会把同一部剧按季劈开——一部八季的剧占掉八组，既白发请求，
-     * 又更容易撞上限让整页都不识别。同名不同年的剧集因此会归成一组，这是有意的取舍：
-     * 那种情况靠 TMDb 匹配里的集数反证与年份打分兜，兜不住时用户还能点 TMDb 链接自己核对。
+     * 又更容易撞上限让整页都不识别。同名不同年的剧集因此会落进同一组，由 {@link #identifyGroup}
+     * 在组内按年份与集号再拆开。
      * </p>
      */
     private String workKey(TorrentInfo t) {
@@ -482,12 +612,12 @@ public class ResourceSearchService {
     }
 
     private void fillWorkIdentity(List<SearchCandidateDTO> items, List<TorrentInfo> torrents,
-                                  Map<String, WorkIdentity> works) {
+                                  Map<TorrentInfo, WorkIdentity> works) {
         if (works.isEmpty()) {
             return;
         }
         for (int i = 0; i < items.size(); i++) {
-            WorkIdentity work = works.get(workKey(torrents.get(i)));
+            WorkIdentity work = works.get(torrents.get(i));
             if (work == null) {
                 continue;
             }
@@ -546,12 +676,12 @@ public class ResourceSearchService {
             return "（TMDb key 未配置，本次未识别）";
         }
         if (outcome.truncated()) {
-            return "（预算内未跑完，已识别 " + outcome.works().size() + " 组）";
+            return "（预算内未跑完，已识别 " + outcome.identified() + " 组）";
         }
         if (outcome.skipped()) {
-            return "（超过上限 " + tmdbLookupMax + "，只识别种子最多的那些组，识别出 " + outcome.works().size() + " 组）";
+            return "（超过上限 " + tmdbLookupMax + "，只识别种子最多的那些组，识别出 " + outcome.identified() + " 组）";
         }
-        return "，识别出 " + outcome.works().size() + " 组";
+        return "，识别出 " + outcome.identified() + " 组";
     }
 
     /**
