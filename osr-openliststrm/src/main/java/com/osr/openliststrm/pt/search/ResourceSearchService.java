@@ -27,6 +27,7 @@ import com.osr.openliststrm.rename.RenameClientProvider;
 import com.osr.openliststrm.rename.SeasonSuffix;
 import com.osr.openliststrm.rename.TitleNormalizer;
 import com.osr.openliststrm.rename.model.MediaInfo;
+import com.osr.openliststrm.tmdb.SeasonYearCheck;
 import com.osr.openliststrm.tmdb.TMDbClient;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -427,8 +428,9 @@ public class ResourceSearchService {
      *       留一倍余量是因为集号有三套（发布组的绝对集号可能略超 TMDb 的记录）。</li>
      *   <li><b>年份</b>：发布组在剧集种子上标的要么是首播年，要么是本季播出年。离首播年 1 年以内，说得通；
      *       否则看它的季：早于本季开播年 1 年以上，或晚于<b>下一季</b>开播年 1 年以上，说不通
-     *       （一季可以跨好几年播，所以上界取下一季而不是本季）。这部剧没有这一季、或种子没写季号时，
-     *       只剩一条确定的：比首播年早 1 年以上——续季只可能更晚，不可能更早。</li>
+     *       （一季可以跨好几年播，所以上界取下一季而不是本季）。这部剧没有这一季时两条：
+     *       比首播年早 1 年以上（续季只可能更晚）；或比它最近一次播出还晚 1 年以上
+     *       （这部剧早就播完了，这一季不是它的）。判据与刮削侧共用 {@link SeasonYearCheck}。</li>
      * </ul>
      */
     static boolean contradicts(TorrentInfo t, TmdbSearchService.SeriesShape shape) {
@@ -437,21 +439,8 @@ public class ResourceSearchService {
                 && episode > (long) shape.totalEpisodes() * EPISODE_OVERFLOW_FACTOR) {
             return true;
         }
-        Integer year = yearOf(t.getParsedYear());
-        if (year == null) {
-            return false;
-        }
-        Integer first = shape.firstAirYear();
-        if (first != null && Math.abs(year - first) <= 1) {
-            return false;
-        }
-        Integer season = t.getParsedSeason();
-        Integer seasonYear = season == null ? null : shape.seasonYears().get(season);
-        if (seasonYear != null) {
-            Map.Entry<Integer, Integer> next = shape.seasonYears().higherEntry(season);
-            return year < seasonYear - 1 || (next != null && year > next.getValue() + 1);
-        }
-        return first != null && year < first - 1;
+        return SeasonYearCheck.check(t.getParsedSeason(), yearOf(t.getParsedYear()), shape.firstAirYear(),
+                shape.lastAirYear(), shape.seasonYears()) == SeasonYearCheck.Verdict.CONTRADICTS;
     }
 
     private static Integer yearOf(String year) {

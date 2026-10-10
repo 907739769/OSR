@@ -121,11 +121,12 @@ public class TmdbSearchService {
      * 拿来回答「这条种子的年份、集号，放在这部剧上说不说得通」（资源搜索页拆同名剧用）。
      *
      * @param firstAirYear  首播年，TMDb 没登记时为 null
+     * @param lastAirYear   最近一次播出的年份，TMDb 没登记时为 null
      * @param seasonYears   季号 → 该季开播年，按季号升序；没登记开播日期的季与特别篇（第 0 季）不在里面
      * @param totalEpisodes 全剧总集数，取不到为 0
      */
-    public record SeriesShape(Integer firstAirYear, java.util.NavigableMap<Integer, Integer> seasonYears,
-                              int totalEpisodes) {
+    public record SeriesShape(Integer firstAirYear, Integer lastAirYear,
+                              java.util.NavigableMap<Integer, Integer> seasonYears, int totalEpisodes) {
     }
 
     /**
@@ -159,7 +160,8 @@ public class TmdbSearchService {
             }
         }
         Integer total = detail.getInteger("number_of_episodes");
-        return new SeriesShape(yearOf(detail.getString("first_air_date")), seasonYears, total == null ? 0 : total);
+        return new SeriesShape(yearOf(detail.getString("first_air_date")), yearOf(detail.getString("last_air_date")),
+                seasonYears, total == null ? 0 : total);
     }
 
     private Integer yearOf(String date) {
