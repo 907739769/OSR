@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { nextTick } from 'vue'
+import { effectScope, nextTick } from 'vue'
 
 vi.mock('@/composables/useMessage', () => ({
   message: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() }
@@ -12,7 +12,10 @@ let subscriptionPath: string | null = '/openlist/ptSubscription'
 vi.mock('@/router', () => ({ getRoutePathForComponent: () => subscriptionPath }))
 
 const roles = { value: [] as string[] }
-vi.mock('@/stores/user', () => ({ useUserStore: () => ({ get roles() { return roles.value } }) }))
+const userInfo = { value: null as { userId: number } | null }
+vi.mock('@/stores/user', () => ({
+  useUserStore: () => ({ get roles() { return roles.value }, get userInfo() { return userInfo.value } })
+}))
 
 vi.mock('@/api/openlist/ptIndexer', () => ({
   getPtIndexerListApi: vi.fn().mockResolvedValue({ records: [{ id: 1, name: '馒头' }], total: 1 })
@@ -21,12 +24,14 @@ vi.mock('@/api/openlist/ptIndexer', () => ({
 vi.mock('@/api/openlist/ptSearch', () => ({
   searchResourceApi: vi.fn(),
   listResourceDownloadersApi: vi.fn(),
-  pushResourceApi: vi.fn()
+  pushResourceApi: vi.fn(),
+  refreshSubscribedApi: vi.fn()
 }))
 
 const api = await import('@/api/openlist/ptSearch')
 const { message } = await import('@/composables/useMessage')
-const { usePtResourceSearch, looksLikeMovie, subscribeQuery } = await import('@/composables/usePtResourceSearch')
+const { usePtResourceSearch, looksLikeMovie, subscribeQuery, resetResourceSearchState } = await import('@/composables/usePtResourceSearch')
+const { loadCachedSearch, saveCachedSearch } = await import('@/composables/ptSearchCache')
 
 const item = (over: Record<string, any> = {}) => ({
   title: 'Three.Body.S01E05.2160p.WEB-DL',
@@ -39,7 +44,10 @@ describe('usePtResourceSearch', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     roles.value = []
+    userInfo.value = null
     subscriptionPath = '/openlist/ptSubscription'
+    localStorage.clear()
+    resetResourceSearchState()
   })
 
   /** 与后端 ResourceSearchService#looksLikeMovie 同一判据：决定落盘目录，也决定转订阅时先搜电影还是剧集 */
@@ -263,5 +271,179 @@ describe('usePtResourceSearch', () => {
 
     expect(push).not.toHaveBeenCalled()
     expect(message.warning).toHaveBeenCalled()
+  })
+
+  // ---------------- 离开页面 / 刷新之后 ----------------
+
+  const searchResult = (items: any[]) => ({
+    candidateCount: items.length, rejectedCount: 0, tmdbLookupEnabled: true, distinctWorks: 1, identifiedWorks: 1,
+    tmdbLookupSkipped: false, tmdbLookupTruncated: false, tmdbLookupUnavailable: false, items
+  })
+
+  /** 页面不在 keep-alive 里：「转为订阅」跳走再回来，setup 重跑，拿到的必须是同一份结果 */
+  it('离开页面再回来，结果、关键词与筛选都还在', async () => {
+    vi.mocked(api.searchResourceApi).mockResolvedValue(searchResult([item({ guid: 'a' })]) as any)
+    const first = usePtResourceSearch()
+    first.keyword.value = '三体'
+    await first.handleSearch()
+    first.filter.freeOnly = true
+    first.keyword.value = '改了一半没搜'
+
+    const again = usePtResourceSearch()
+
+    expect(again.results.value.map((i: any) => i.guid)).toEqual(['a'])
+    expect(again.searched.value).toBe(true)
+    expect(again.filter.freeOnly).toBe(true)
+    expect(again.keyword.value).toBe('改了一半没搜')
+    // 说明结果用的是搜的那个词，不是输入框里的
+    expect(again.resultKeyword.value).toBe('三体')
+    expect(again.resultAge.value).toBe('刚刚')
+  })
+
+  /** 一次搜索几十秒，没等完就切走：结果回来照样落进去，回到页面直接看到 */
+  it('页面卸载期间搜完的结果回来时直接摆出来，并清掉上一批的筛选', async () => {
+    vi.mocked(api.searchResourceApi).mockResolvedValueOnce(searchResult([item({ guid: 'old' })]) as any)
+    // effectScope 模拟页面组件：stop 掉就是卸载，useCandidateFilter 那个 watch 跟着没了
+    const scope = effectScope()
+    const page = scope.run(() => usePtResourceSearch())!
+    page.keyword.value = '三体'
+    await page.handleSearch()
+    page.filter.resolutions = ['2160p']
+
+    let resolve!: (v: any) => void
+    vi.mocked(api.searchResourceApi).mockReturnValueOnce(new Promise(r => { resolve = r }) as any)
+    page.keyword.value = '流浪地球'
+    const pending = page.handleSearch()
+    scope.stop()
+    resolve(searchResult([item({ guid: 'new' })]))
+    await pending
+
+    const back = usePtResourceSearch()
+    expect(back.searching.value).toBe(false)
+    expect(back.results.value.map((i: any) => i.guid)).toEqual(['new'])
+    expect(back.filter.resolutions).toEqual([])
+  })
+
+  it('先发后到的旧响应丢掉，转圈也不替后发的那次停', async () => {
+    let resolveFirst!: (v: any) => void
+    let resolveSecond!: (v: any) => void
+    vi.mocked(api.searchResourceApi)
+      .mockReturnValueOnce(new Promise(r => { resolveFirst = r }) as any)
+      .mockReturnValueOnce(new Promise(r => { resolveSecond = r }) as any)
+    const ctx = usePtResourceSearch()
+    ctx.keyword.value = '三体'
+    const first = ctx.handleSearch()
+    ctx.keyword.value = '流浪地球'
+    const second = ctx.handleSearch()
+
+    resolveFirst(searchResult([item({ guid: 'first' })]))
+    await first
+    expect(ctx.results.value).toEqual([])
+    expect(ctx.searching.value).toBe(true)
+
+    resolveSecond(searchResult([item({ guid: 'second' })]))
+    await second
+    expect(ctx.results.value.map((i: any) => i.guid)).toEqual(['second'])
+    expect(ctx.resultKeyword.value).toBe('流浪地球')
+    expect(ctx.searching.value).toBe(false)
+  })
+
+  /** 刷新、PWA 被系统杀掉之后：从 localStorage 恢复 */
+  it('搜完写进本地存储，重建状态后恢复出来', async () => {
+    userInfo.value = { userId: 7 }
+    vi.mocked(api.searchResourceApi).mockResolvedValue(searchResult([item({ guid: 'a', description: '三体 | S01E05' })]) as any)
+    const ctx = usePtResourceSearch()
+    ctx.keyword.value = '三体'
+    ctx.indexerIds.value = [1]
+    await ctx.handleSearch()
+    expect(loadCachedSearch(7)?.keyword).toBe('三体')
+
+    resetResourceSearchState()
+    const restored = usePtResourceSearch()
+
+    expect(restored.searched.value).toBe(true)
+    expect(restored.keyword.value).toBe('三体')
+    expect(restored.indexerIds.value).toEqual([1])
+    // 直接下载要把候选原样字段发回去，不能只存展示用的那几个
+    expect(restored.results.value[0]).toMatchObject({ guid: 'a', description: '三体 | S01E05', downloadUrl: 'http://dl' })
+  })
+
+  it('换了账号不把上一个人的结果留下来', async () => {
+    userInfo.value = { userId: 7 }
+    vi.mocked(api.searchResourceApi).mockResolvedValue(searchResult([item({ guid: 'a' })]) as any)
+    const ctx = usePtResourceSearch()
+    ctx.keyword.value = '三体'
+    await ctx.handleSearch()
+
+    userInfo.value = { userId: 8 }
+    const other = usePtResourceSearch()
+
+    expect(other.results.value).toEqual([])
+    expect(other.searched.value).toBe(false)
+  })
+
+  /** 用户多半是从「转为订阅」回来的：刚订上的那部剧还标着未订阅，读起来就是没订成功 */
+  it('进页面时手里有结果就重判已订阅，原地改、不清筛选', async () => {
+    userInfo.value = { userId: 7 }
+    saveCachedSearch(7, {
+      keyword: '三体', indexerIds: [], searchedAt: Date.now(),
+      result: searchResult([
+        item({ guid: 'a', matchedTmdbId: '98325', mediaType: 'TV', subscribed: false }),
+        item({ guid: 'b', matchedTmdbId: '1', mediaType: 'MOVIE', subscribed: true }),
+        item({ guid: 'c' })
+      ]) as any
+    })
+    vi.mocked(api.refreshSubscribedApi).mockResolvedValue([{ tmdbId: '98325', mediaType: 'TV' }])
+
+    const ctx = usePtResourceSearch()
+    ctx.filter.freeOnly = true
+    await vi.waitFor(() => expect(ctx.results.value[0].subscribed).toBe(true))
+
+    expect(vi.mocked(api.refreshSubscribedApi).mock.calls[0][0]).toEqual([
+      { tmdbId: '98325', mediaType: 'TV' }, { tmdbId: '1', mediaType: 'MOVIE' }
+    ])
+    // 订阅删掉了的也要跟着改回来
+    expect(ctx.results.value[1].subscribed).toBe(false)
+    expect(ctx.filter.freeOnly).toBe(true)
+    // 刷新完的标记也写回本地存储，再刷新一次页面不会又变回旧的
+    expect(loadCachedSearch(7)?.result.items[0].subscribed).toBe(true)
+  })
+
+  it('重判已订阅失败时保留旧标记', async () => {
+    userInfo.value = { userId: 7 }
+    saveCachedSearch(7, {
+      keyword: '三体', indexerIds: [], searchedAt: Date.now(),
+      result: searchResult([item({ guid: 'a', matchedTmdbId: '98325', mediaType: 'TV', subscribed: true })]) as any
+    })
+    vi.mocked(api.refreshSubscribedApi).mockRejectedValue(new Error('500'))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const ctx = usePtResourceSearch()
+    await ctx.refreshSubscribed()
+
+    expect(ctx.results.value[0].subscribed).toBe(true)
+  })
+
+  it('没有识别出作品时不发重判请求', () => {
+    userInfo.value = { userId: 7 }
+    saveCachedSearch(7, { keyword: '三体', indexerIds: [], searchedAt: Date.now(), result: searchResult([item({ guid: 'a' })]) as any })
+
+    usePtResourceSearch()
+
+    expect(api.refreshSubscribedApi).not.toHaveBeenCalled()
+  })
+
+  it('重新搜索照着结果上写的关键词与站点搜，不用输入框里改过的', async () => {
+    vi.mocked(api.searchResourceApi).mockResolvedValue(searchResult([]) as any)
+    const ctx = usePtResourceSearch()
+    ctx.keyword.value = '三体'
+    ctx.indexerIds.value = [1]
+    await ctx.handleSearch()
+    ctx.keyword.value = '流浪'
+    ctx.indexerIds.value = []
+
+    await ctx.researchLast()
+
+    expect(vi.mocked(api.searchResourceApi).mock.calls[1][0]).toEqual({ keyword: '三体', indexerIds: [1] })
   })
 })

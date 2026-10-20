@@ -48,6 +48,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.stream.Collectors;
 
 /**
  * 资源搜索页：不建订阅，直接拿关键词搜全部站点，看站上有什么，再决定直接下载还是转为订阅。
@@ -104,6 +105,13 @@ public class ResourceSearchService {
 
     /** 集号超过全剧总集数这么多倍才算「装不下」，与 {@code TMDbClient} 的集数反证同一个余量、同一个理由 */
     static final int EPISODE_OVERFLOW_FACTOR = 2;
+
+    /** {@link #subscribedAmong} 一次最多查多少个作品 */
+    static final int MAX_SUBSCRIBED_QUERY = 500;
+
+    /** 一个作品的引用：TMDb ID + 媒体类型（DTO 侧的大写 TV / MOVIE）。两者缺一不可，tv/1399 与 movie/1399 是两部作品 */
+    public record WorkRef(String tmdbId, String mediaType) {
+    }
 
     /**
      * 一条种子对应的作品身份。识别不出时整条为 null——前端据此显示「识别不出」，
@@ -640,6 +648,36 @@ public class ResourceSearchService {
             subscribed.add(subscriptionKey(sub.getTmdbId(), sub.getMediaType()));
         }
         return subscribed;
+    }
+
+    /**
+     * 前端恢复缓存的搜索结果时用：重新判一遍其中哪些作品已订阅，口径与 {@link #search} 里回填的那次同一份
+     * （{@link #visibleSubscribedIds}，同一套归属隔离）。
+     * <p>
+     * 存在的理由是「转为订阅」这条路：用户从这一页跳去订阅页建完订阅、再返回，看到的是缓存的旧结果——
+     * 刚订上的那部剧还标着未订阅，读起来就是没订成功。为此重搜一遍是几十秒的索引器检索加 TMDb 识别，
+     * 而这里只是一条按 tmdb_id 的查询。
+     * </p>
+     *
+     * @return 入参里已订阅的那些，原样回传（大小写也不动），调用方按自己的键比对，不必知道这边的键怎么拼
+     */
+    public List<WorkRef> subscribedAmong(Collection<WorkRef> works, Long me, boolean admin) {
+        if (works == null || works.isEmpty()) {
+            return List.of();
+        }
+        // 一页结果识别出的作品通常是个位数到几十个；封顶只是不让一个手搓的请求拼出一条巨大的 IN
+        List<WorkRef> valid = works.stream()
+                .filter(w -> w != null && StringUtils.isNotBlank(w.tmdbId()))
+                .distinct()
+                .limit(MAX_SUBSCRIBED_QUERY)
+                .toList();
+        Set<String> subscribed = visibleSubscribedIds(
+                valid.stream().map(WorkRef::tmdbId).collect(Collectors.toCollection(LinkedHashSet::new)),
+                me, admin);
+        if (subscribed.isEmpty()) {
+            return List.of();
+        }
+        return valid.stream().filter(w -> subscribed.contains(subscriptionKey(w.tmdbId(), w.mediaType()))).toList();
     }
 
     private static String subscriptionKey(String tmdbId, String mediaType) {

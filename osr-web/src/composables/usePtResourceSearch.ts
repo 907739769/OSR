@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue'
+import { ref, computed, reactive, toRaw, getCurrentInstance, onMounted, onUnmounted, type Ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from '@/composables/useMessage'
 import { useUserStore } from '@/stores/user'
@@ -8,9 +8,14 @@ import {
   searchResourceApi,
   listResourceDownloadersApi,
   pushResourceApi,
-  type ResourceItem
+  refreshSubscribedApi,
+  type ResourceItem,
+  type ResourceSearchResult,
+  type WorkRef
 } from '@/api/openlist/ptSearch'
-import { useCandidateFilter } from './useCandidateFilter'
+import { useCandidateFilter, emptyCandidateFilter, type CandidateFilterState } from './useCandidateFilter'
+import { loadCachedSearch, saveCachedSearch } from './ptSearchCache'
+import { formatRelativeTime } from './relativeTime'
 import { formatSize } from './sizeUnits'
 
 /**
@@ -33,6 +38,121 @@ export const subscribeQuery = (item: ResourceItem) => {
   return { subscribe: item.parsedTitle || item.title, mediaType: looksLikeMovie(item) ? 'MOVIE' : 'TV' }
 }
 
+const emptyLookup = () => ({
+  enabled: true, distinctWorks: 0, identifiedWorks: 0, skipped: false, truncated: false, unavailable: false
+})
+
+const workKey = (w: WorkRef) => `${w.mediaType}/${w.tmdbId}`
+
+/**
+ * 搜索状态放在模块级，不放在页面组件里：这一页不在 keep-alive 里，状态跟着组件走的话，
+ * 「转为订阅」跳走再回来就是一张空页；一次几十秒的搜索没等完就切走，结果回来也没处放。
+ * 放在这里，页面卸载不影响在途的请求，回来时没搜完的接着转圈、搜完的直接摆出来。
+ *
+ * 按用户归属：换了账号（同一个 SPA 里退出再登录）就整份重建，不把上一个人的结果和「已订阅」标记留给下一个人。
+ * 刷新与 PWA 被杀之后的那一层由 `ptSearchCache` 的 localStorage 负责，建状态时从那里恢复。
+ */
+interface SearchState {
+  ownerId: number | null
+  keyword: Ref<string>
+  indexerIds: Ref<number[]>
+  searching: Ref<boolean>
+  /** 搜过至少一次：区分「还没搜」与「搜了但没有结果」，两者的空态文案不同 */
+  searched: Ref<boolean>
+  results: Ref<ResourceItem[]>
+  rejectedCount: Ref<number>
+  lookup: Ref<ReturnType<typeof emptyLookup>>
+  /** 产出当前这批结果的关键词与站点：输入框里的值可能已经改过，不能拿它说明结果 */
+  resultKeyword: Ref<string>
+  resultIndexerIds: Ref<number[]>
+  /** 当前这批结果搜完的时刻（毫秒）；恢复出来的旧结果靠它说清「多久以前」 */
+  searchedAt: Ref<number | null>
+  /** 只看全局规则会放行的 */
+  passedOnly: Ref<boolean>
+  filter: CandidateFilterState
+  /** 每发一次搜索加一：只认最后一次的响应，先发后到的旧响应直接丢掉 */
+  seq: number
+}
+
+let shared: SearchState | null = null
+
+function applyResult(state: SearchState, res: ResourceSearchResult | null | undefined) {
+  state.results.value = res?.items || []
+  state.rejectedCount.value = res?.rejectedCount || 0
+  state.lookup.value = {
+    enabled: res?.tmdbLookupEnabled ?? true,
+    distinctWorks: res?.distinctWorks ?? 0,
+    identifiedWorks: res?.identifiedWorks ?? 0,
+    skipped: res?.tmdbLookupSkipped ?? false,
+    truncated: res?.tmdbLookupTruncated ?? false,
+    unavailable: res?.tmdbLookupUnavailable ?? false
+  }
+}
+
+/** 把当前这批结果写进 localStorage；没搜过、或用户未知时不写 */
+function persist(state: SearchState) {
+  if (!state.searched.value || state.searchedAt.value == null) return
+  const lookup = state.lookup.value
+  saveCachedSearch(state.ownerId, {
+    keyword: state.resultKeyword.value,
+    indexerIds: [...state.resultIndexerIds.value],
+    searchedAt: state.searchedAt.value,
+    result: {
+      candidateCount: state.results.value.length,
+      rejectedCount: state.rejectedCount.value,
+      tmdbLookupEnabled: lookup.enabled,
+      distinctWorks: lookup.distinctWorks,
+      identifiedWorks: lookup.identifiedWorks,
+      tmdbLookupSkipped: lookup.skipped,
+      tmdbLookupTruncated: lookup.truncated,
+      tmdbLookupUnavailable: lookup.unavailable,
+      items: toRaw(state.results.value).map(i => toRaw(i))
+    }
+  })
+}
+
+function createState(ownerId: number | null): SearchState {
+  const state: SearchState = {
+    ownerId,
+    keyword: ref(''),
+    indexerIds: ref<number[]>([]),
+    searching: ref(false),
+    searched: ref(false),
+    results: ref<ResourceItem[]>([]),
+    rejectedCount: ref(0),
+    lookup: ref(emptyLookup()),
+    resultKeyword: ref(''),
+    resultIndexerIds: ref<number[]>([]),
+    searchedAt: ref<number | null>(null),
+    passedOnly: ref(false),
+    filter: reactive<CandidateFilterState>(emptyCandidateFilter()),
+    seq: 0
+  }
+  const cached = loadCachedSearch(ownerId)
+  if (cached) {
+    applyResult(state, cached.result)
+    state.keyword.value = cached.keyword
+    state.indexerIds.value = [...cached.indexerIds]
+    state.resultKeyword.value = cached.keyword
+    state.resultIndexerIds.value = [...cached.indexerIds]
+    state.searchedAt.value = cached.searchedAt
+    state.searched.value = true
+  }
+  return state
+}
+
+function sharedState(ownerId: number | null): SearchState {
+  if (!shared || shared.ownerId !== ownerId) {
+    shared = createState(ownerId)
+  }
+  return shared
+}
+
+/** 只给测试用：丢掉模块级状态，下一次调用从 localStorage（或空白）重建 */
+export function resetResourceSearchState() {
+  shared = null
+}
+
 /**
  * 资源搜索页（PC 与移动端共用）：不建订阅，按关键词搜全部站点，看站上有什么。
  *
@@ -47,20 +167,25 @@ export function usePtResourceSearch() {
   const isAdmin = computed(() => (userStore.roles || []).includes('admin'))
 
   // ---------- 搜索 ----------
-  const keyword = ref('')
-  const indexerIds = ref<number[]>([])
+  const state = sharedState(userStore.userInfo?.userId ?? null)
+  const {
+    keyword, indexerIds, searching, searched, results, rejectedCount, passedOnly, lookup,
+    resultKeyword, resultIndexerIds, searchedAt
+  } = state
   const indexerOptions = ref<{ id: number; name: string }[]>([])
-  const searching = ref(false)
-  /** 搜过至少一次：区分「还没搜」与「搜了但没有结果」，两者的空态文案不同 */
-  const searched = ref(false)
-  const results = ref<ResourceItem[]>([])
-  const rejectedCount = ref(0)
-  /** 只看全局规则会放行的 */
-  const passedOnly = ref(false)
 
-  const lookup = ref({
-    enabled: true, distinctWorks: 0, identifiedWorks: 0, skipped: false, truncated: false, unavailable: false
-  })
+  /**
+   * 「多久以前」要跟着时间走：页面开着放半小时，还写「刚刚」就是在说假话。
+   * 只在组件里挂计时器（单测直接调 composable 时没有组件实例）
+   */
+  const now = ref(Date.now())
+  if (getCurrentInstance()) {
+    let timer: ReturnType<typeof setInterval> | undefined
+    onMounted(() => { timer = setInterval(() => { now.value = Date.now() }, 60_000) })
+    onUnmounted(() => clearInterval(timer))
+  }
+  /** 当前这批结果是多久以前搜的；恢复出来的旧结果不能装成刚搜的（「免费」标签几小时就会过期） */
+  const resultAge = computed(() => (searchedAt.value == null ? '' : formatRelativeTime(searchedAt.value, now.value)))
 
   /**
    * 识别出的不同作品数，按「媒体类型 + matchedTmdbId」去重：一部剧 12 集是 12 行、1 个作品；
@@ -97,7 +222,7 @@ export function usePtResourceSearch() {
     return missed > 0 ? `${head}，${missed} 组标题识别不出` : head
   })
 
-  const { filter, facets, filteredCandidates, filterCount, resetFilter } = useCandidateFilter(results)
+  const { filter, facets, filteredCandidates, filterCount, resetFilter } = useCandidateFilter(results, state.filter)
   const visibleResults = computed<ResourceItem[]>(() =>
     passedOnly.value ? filteredCandidates.value.filter((i: ResourceItem) => !i.ruleRejection) : filteredCandidates.value)
   const activeFilterCount = computed(() => filterCount.value + (passedOnly.value ? 1 : 0))
@@ -124,28 +249,65 @@ export function usePtResourceSearch() {
       message.warning('关键词至少 2 个字')
       return
     }
+    const seq = ++state.seq
+    const ids = [...indexerIds.value]
     searching.value = true
     try {
-      const res = await searchResourceApi({
-        keyword: kw,
-        indexerIds: indexerIds.value.length ? [...indexerIds.value] : undefined
-      })
-      results.value = res?.items || []
-      rejectedCount.value = res?.rejectedCount || 0
-      lookup.value = {
-        enabled: res?.tmdbLookupEnabled ?? true,
-        distinctWorks: res?.distinctWorks ?? 0,
-        identifiedWorks: res?.identifiedWorks ?? 0,
-        skipped: res?.tmdbLookupSkipped ?? false,
-        truncated: res?.tmdbLookupTruncated ?? false,
-        unavailable: res?.tmdbLookupUnavailable ?? false
-      }
+      const res = await searchResourceApi({ keyword: kw, indexerIds: ids.length ? ids : undefined })
+      // 期间又发了一次搜索、或者换了账号：这次的响应已经不是用户要看的了
+      if (seq !== state.seq || shared !== state) return
+      applyResult(state, res)
+      // 新的一批结果，上一批的筛选取值在这里未必存在。页面开着时 useCandidateFilter 的 watch 也会清，
+      // 但搜索是在页面卸载期间完成的话没有 watch 在跑，回来会带着一套对不上的筛选
+      Object.assign(state.filter, emptyCandidateFilter())
+      resultKeyword.value = kw
+      resultIndexerIds.value = ids
+      searchedAt.value = Date.now()
+      now.value = searchedAt.value
       searched.value = true
+      persist(state)
     } catch (e) {
       // 具体原因（没有启用的索引器、所选站点全部不可用）已由拦截器弹出
       console.error('[资源搜索] 搜索失败:', e)
     } finally {
-      searching.value = false
+      // 后发的那次还在跑时不能替它把转圈停掉
+      if (seq === state.seq) searching.value = false
+    }
+  }
+
+  /** 照着当前这批结果的关键词与站点再搜一次（输入框可能已经改过，这里搜的是结果上写着的那个） */
+  const researchLast = () => {
+    keyword.value = resultKeyword.value
+    indexerIds.value = [...resultIndexerIds.value]
+    return handleSearch()
+  }
+
+  /**
+   * 重判「已订阅」：用户多半是从「转为订阅」回来的，刚订上的那部剧还标着未订阅，读起来就是没订成功。
+   * 为此重搜是几十秒的索引器检索，这里只是一条按 tmdb_id 的查询。
+   * 原地改每一行而不是换掉整个数组：换数组会触发筛选的 watch，把用户的筛选条件清掉。
+   */
+  const refreshSubscribed = async () => {
+    const works = new Map<string, WorkRef>()
+    for (const i of results.value) {
+      if (i.matchedTmdbId && i.mediaType) {
+        const w = { tmdbId: i.matchedTmdbId, mediaType: i.mediaType }
+        works.set(workKey(w), w)
+      }
+    }
+    if (!works.size) return
+    const seq = state.seq
+    try {
+      const subscribed = new Set(((await refreshSubscribedApi([...works.values()])) || []).map(workKey))
+      // 期间搜了新的一批：这份答案是给旧那批的
+      if (seq !== state.seq || shared !== state) return
+      for (const i of results.value) {
+        if (i.matchedTmdbId && i.mediaType) i.subscribed = subscribed.has(workKey({ tmdbId: i.matchedTmdbId, mediaType: i.mediaType }))
+      }
+      persist(state)
+    } catch (e) {
+      // 刷新不到就保留旧标记；silent 调用，不弹提示
+      console.error('[资源搜索] 刷新已订阅标记失败:', e)
     }
   }
 
@@ -202,10 +364,13 @@ export function usePtResourceSearch() {
   }
 
   loadIndexerOptions()
+  // 进页面时手里已经有结果（上次留下的、或从 localStorage 恢复的）：重判一次已订阅
+  if (results.value.length && !searching.value) refreshSubscribed()
 
   return {
     isAdmin,
     keyword, indexerIds, indexerOptions, searching, searched, results, rejectedCount, handleSearch,
+    resultKeyword, resultAge, researchLast, refreshSubscribed,
     lookup, matchedWorks, lookupNote, lookupSummary, lookupComplete,
     filter, facets, activeFilterCount, clearFilters, passedOnly, visibleResults,
     pushOpen, pushTarget, downloaders, downloaderId, pushing, openPush, confirmPush,

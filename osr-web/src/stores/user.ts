@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import Cookies from 'js-cookie'
 import type { UserInfo, LoginRequest, LoginResponse } from '@/types'
 import { loginApi, logoutApi, getUserInfoApi, getRoutersApi, refreshApi } from '@/api/auth'
+import { clearCachedSearches } from '@/composables/ptSearchCache'
 
 export interface MenuRoute {
   path: string
@@ -53,6 +54,8 @@ export const useUserStore = defineStore('user', () => {
     routes.value = []
     Cookies.remove('token')
     Cookies.remove('refreshToken')
+    // 资源搜索页记住的最近一次搜索：关键词在多用户部署里算个人信息，不留给下一个在这台浏览器上登录的人
+    clearCachedSearches()
   }
 
   const refreshTokenFn = async () => {

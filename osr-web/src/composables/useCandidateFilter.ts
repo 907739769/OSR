@@ -140,9 +140,12 @@ export const buildCandidateFacets = (list: any[]): CandidateFacets => {
 /**
  * 候选弹窗用的筛选状态。候选列表一换（新搜了一次）就清空条件：
  * 上一批的站点/分辨率取值在新列表里未必存在，留着会得到一张莫名其妙的空表。
+ *
+ * @param state 筛选状态由调用方持有时传进来（资源搜索页把它放在模块级，离开页面再回来筛选还在）；
+ *              不传就每次新建一份
  */
-export function useCandidateFilter(candidates: Ref<any[]>) {
-  const filter = reactive<CandidateFilterState>(emptyCandidateFilter())
+export function useCandidateFilter(candidates: Ref<any[]>, state?: CandidateFilterState) {
+  const filter = state ?? reactive<CandidateFilterState>(emptyCandidateFilter())
   const resetFilter = () => Object.assign(filter, emptyCandidateFilter())
   watch(candidates, resetFilter)
 
