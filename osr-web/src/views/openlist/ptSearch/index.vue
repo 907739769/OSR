@@ -53,6 +53,11 @@
       <v-empty-state v-else-if="!results.length" icon="inbox" title="没有搜到资源" text="换个关键词，或检查站点选择" />
 
       <template v-else>
+        <!-- 结果可能是离开页面前、甚至刷新前留下的：说清是哪个关键词、多久以前搜的，免得把旧的「免费」当真 -->
+        <div class="result-origin">
+          <span>「{{ resultKeyword }}」的结果 · {{ resultAge }}</span>
+          <v-btn variant="text" size="small" prepend-icon="refresh-cw" :disabled="searching" @click="researchLast">重新搜索</v-btn>
+        </div>
         <!-- 筛选与订阅内候选弹窗共用 useCandidateFilter；只有一种取值的维度不给下拉 -->
         <div class="candidate-filters">
           <v-text-field
@@ -218,6 +223,7 @@ import { usePtResourceSearch } from '@/composables/usePtResourceSearch'
 const {
   isAdmin,
   keyword, indexerIds, indexerOptions, searching, searched, results, rejectedCount, handleSearch,
+  resultKeyword, resultAge, researchLast,
   lookupNote, lookupSummary, lookupComplete,
   filter, facets, activeFilterCount, clearFilters, passedOnly, visibleResults,
   openPush, toSubscribe, formatSize
@@ -262,6 +268,15 @@ const headers = [
 .empty-tip {
   text-align: center;
   padding: 40px;
+  color: var(--osr-text-secondary);
+}
+
+.result-origin {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 16px 0;
+  font-size: 12px;
   color: var(--osr-text-secondary);
 }
 

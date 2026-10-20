@@ -26,12 +26,13 @@
     <v-row class="stat-row">
       <template v-if="loading">
         <v-col cols="12" sm="6" md="4" v-for="i in 6" :key="'sk-' + i">
-          <!-- 与真卡片同一个 .stat-card 外壳，数据到了不跳版 -->
+          <!-- 与真卡片同一个 .stat-card 外壳（图标 + 数字 + 标签 + 口径说明），数据到了不跳版 -->
           <v-card class="stat-card osr-sheen osr-skeleton" :style="{ '--osr-i': i - 1 }" aria-hidden="true">
             <span class="osr-bone osr-bone--block stat-icon" />
             <div class="stat-info">
               <span class="osr-bone stat-skeleton-value" />
               <span class="osr-bone osr-bone--caption stat-skeleton-label" />
+              <span class="osr-bone osr-bone--caption stat-skeleton-hint" />
             </div>
           </v-card>
         </v-col>
@@ -42,7 +43,6 @@
             class="stat-card osr-enter"
             :class="[stat.type, { 'stat-card--link': isCardClickable(stat) }]"
             :style="{ '--osr-i': index }"
-            :title="stat.hint"
             v-on="isCardClickable(stat) ? { click: () => openCard(stat) } : {}"
           >
             <div class="stat-icon">
@@ -51,6 +51,9 @@
             <div class="stat-info">
               <div class="stat-value"><AnimatedNumber :value="stat.value" /></div>
               <div class="stat-label">{{ stat.label }}</div>
+              <!-- 口径说明直接写在卡片上：不能用 :title 当悬停提示，v-card 的 title 是 prop，
+                   会被渲染成卡片标题塞进 flex 行里，把图标和数字挤到一边 -->
+              <div class="stat-hint">{{ stat.hint }}</div>
             </div>
           </v-card>
         </v-col>
@@ -290,11 +293,17 @@ onMounted(loadAll)
   margin-top: 8px;
 }
 
+.stat-skeleton-hint {
+  width: 160px;
+  margin-top: 6px;
+}
+
 .stat-card {
   border: none;
   border-radius: var(--osr-radius-lg);
   box-shadow: var(--osr-shadow-base);
-  margin-bottom: 16px;
+  /* 撑满 v-col：口径说明长短不一、可能折行，同一行的卡片仍要等高 */
+  height: 100%;
   cursor: default;
   transition: all var(--osr-transition-base);
 
@@ -337,6 +346,14 @@ onMounted(loadAll)
       font-size: 13px;
       color: var(--osr-text-secondary);
       margin-top: 2px;
+    }
+
+    .stat-hint {
+      font-size: 12px;
+      line-height: 1.4;
+      color: var(--osr-text-secondary);
+      opacity: 0.8;
+      margin-top: 4px;
     }
   }
 

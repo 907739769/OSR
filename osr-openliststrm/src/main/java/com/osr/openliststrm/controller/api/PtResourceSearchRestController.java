@@ -6,6 +6,7 @@ import com.osr.openliststrm.mybatisplus.service.IPtDownloaderPlusService;
 import com.osr.openliststrm.pt.search.ResourcePushRequest;
 import com.osr.openliststrm.pt.search.ResourceSearchRequest;
 import com.osr.openliststrm.pt.search.ResourceSearchService;
+import com.osr.openliststrm.pt.search.ResourceSubscribedRequest;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -43,6 +44,14 @@ public class PtResourceSearchRestController extends BaseController {
         } catch (IllegalArgumentException e) {
             return Result.error(e.getMessage());
         }
+    }
+
+    /**
+     * 恢复缓存的搜索结果时重判「已订阅」。开放范围与搜索同一档，归属隔离在 service 里（与搜索那次同一份口径）
+     */
+    @PostMapping("/subscribed")
+    public Result<List<ResourceSearchService.WorkRef>> subscribed(@RequestBody ResourceSubscribedRequest request) {
+        return Result.success(resourceSearchService.subscribedAmong(request.getWorks(), getUserId(), isAdmin()));
     }
 
     /** 直接下载可选的下载器：启用中、且参与下载（只做种的机器不列） */

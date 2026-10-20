@@ -726,6 +726,60 @@ class ResourceSearchServiceTest {
         assertFalse(sql.contains("owner_user_id"), sql);
     }
 
+    // ---------------- 恢复缓存时重判已订阅 ----------------
+
+    private static PtSubscriptionPlus subscription(String tmdbId, String mediaType) {
+        PtSubscriptionPlus sub = new PtSubscriptionPlus();
+        sub.setTmdbId(tmdbId);
+        sub.setMediaType(mediaType);
+        return sub;
+    }
+
+    /** 用户从「转为订阅」回来看到的是缓存结果：刚订上的那部剧必须重新判成已订阅 */
+    @Test
+    void 重判已订阅_原样回传已订阅的那些() {
+        when(subscriptionService.list(any(QueryWrapper.class))).thenReturn(List.of(subscription("98325", "TV")));
+
+        List<ResourceSearchService.WorkRef> result = service.subscribedAmong(List.of(
+                new ResourceSearchService.WorkRef("98325", "TV"),
+                new ResourceSearchService.WorkRef("1", "MOVIE")), 7L, false);
+
+        assertEquals(List.of(new ResourceSearchService.WorkRef("98325", "TV")), result);
+    }
+
+    @Test
+    void 重判已订阅_同一个tmdbId的电影与剧集分开判() {
+        when(subscriptionService.list(any(QueryWrapper.class))).thenReturn(List.of(subscription("1399", "MOVIE")));
+
+        List<ResourceSearchService.WorkRef> result = service.subscribedAmong(List.of(
+                new ResourceSearchService.WorkRef("1399", "TV"),
+                new ResourceSearchService.WorkRef("1399", "MOVIE")), 1L, true);
+
+        assertEquals(List.of(new ResourceSearchService.WorkRef("1399", "MOVIE")), result);
+    }
+
+    /** 与搜索时回填的那次同一套归属隔离：别人的订阅不能透过这个接口露出来 */
+    @Test
+    void 重判已订阅_非管理员只看自己的与公共订阅() {
+        service.subscribedAmong(List.of(new ResourceSearchService.WorkRef("98325", "TV")), 7L, false);
+
+        @SuppressWarnings("unchecked")
+        org.mockito.ArgumentCaptor<QueryWrapper<PtSubscriptionPlus>> wrapper =
+                org.mockito.ArgumentCaptor.forClass(QueryWrapper.class);
+        verify(subscriptionService).list(wrapper.capture());
+        String sql = wrapper.getValue().getCustomSqlSegment().replaceAll("\\s+", " ");
+        assertTrue(sql.matches(".*AND \\(.*owner_user_id = .* OR .*owner_user_id IS NULL.*\\).*"), sql);
+    }
+
+    @Test
+    void 重判已订阅_没有作品时不查库() {
+        assertTrue(service.subscribedAmong(List.of(), 7L, false).isEmpty());
+        assertTrue(service.subscribedAmong(null, 7L, false).isEmpty());
+        assertTrue(service.subscribedAmong(List.of(new ResourceSearchService.WorkRef(" ", "TV")), 7L, false).isEmpty());
+
+        verify(subscriptionService, never()).list(any(QueryWrapper.class));
+    }
+
     // ---------------- 直接下载 ----------------
 
     private static PtDownloaderPlus downloader(String enabled, String role) {

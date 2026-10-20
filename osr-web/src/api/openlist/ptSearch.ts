@@ -67,6 +67,20 @@ export function searchResourceApi(data: { keyword: string; indexerIds?: number[]
   return request.post<any, ResourceSearchResult>('/openliststrm/pt-search/search', data, { timeout: 120000 })
 }
 
+/** 一个作品的引用；mediaType 用结果里下发的大写 TV / MOVIE 原样传 */
+export interface WorkRef {
+  tmdbId: string
+  mediaType: string
+}
+
+/**
+ * 恢复缓存的搜索结果时重判哪些作品已订阅（口径与搜索时回填的那次同一份），返回入参里已订阅的那些、原样回传。
+ * silent：这是进页面时顺手做的一次刷新，失败了保留旧标记即可，不该弹错误提示
+ */
+export function refreshSubscribedApi(works: WorkRef[]) {
+  return request.post<any, WorkRef[]>('/openliststrm/pt-search/subscribed', { works }, { silent: true })
+}
+
 /** 直接下载可选的下载器（仅管理员）：启用中且参与下载，只做种的不列 */
 export function listResourceDownloadersApi() {
   return request.get<any, { id: number; name: string }[]>('/openliststrm/pt-search/downloaders')

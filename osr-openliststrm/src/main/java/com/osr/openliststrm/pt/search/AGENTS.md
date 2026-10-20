@@ -37,3 +37,10 @@
   4. **别名是兜底不是第二意见**：标题那条路识别出来了就不碰别名；与解析片名相同的别名也不再试（刚拿它问过）。
 - **副标题（`subtitle`）是 description 的第一段原文**，取自 `DescriptionAliases#leadSegment`：段边界与 200 字上限同别名解析一份，过长的（没有 `|` 的剧情简介）不给。罗马音命名的种子，中文名常常只出现在这一段里，它是识别不出时用户自己辨认作品的依据。
 - **「转为订阅」优先带识别出的规范名与类型**（`subscribeQuery`：有 `matchedTitle` 用它和 `mediaType`）：订阅页拿这个词去搜 TMDb，规范名一搜就是它，而罗马音 / 拼音命名的种子拿解析出的片名去搜多半落空。没识别出才退回解析出的片名（`parsedTitle`，去掉了分辨率与发布组），再不行用原标题；这时电影/剧集按「有没有季号或集号」判（`looksLikeMovie`，前后端同一判据）。落点是订阅页的 `?subscribe=片名&mediaType=TV|MOVIE`（`composables/useSubscribeDeepLink.ts`）：**用 watch 不用 onMounted**（订阅页开了 keep-alive，第二次跳过来 setup 不再跑），**处理完立刻 `router.replace` 抹掉这两个参数**（否则刷新一次就再弹一次弹窗）。没有订阅页菜单权限时提示而不是跳 404。
+- **搜索结果的缓存在前端，不在后端**（`composables/usePtResourceSearch.ts` 的模块级状态 + `composables/ptSearchCache.ts` 的 localStorage）。这一页不在 keep-alive 里，状态跟着组件走时「转为订阅」跳走再回来就是一张空页，没搜完就切走的那次结果也没处放。分两层：**模块级状态**管页面卸载（在途请求照样落进去，回来没搜完的接着转圈）；**localStorage** 管刷新与手机上 PWA 被系统杀掉（只存内存的话手机上几乎等于没做）。没放进 `KEEP_ALIVE_COMPONENTS`：那个缓存最多 6 页、LRU 挤掉，也扛不住刷新。没做后端缓存：「已订阅」按用户不同、重启即丢，而用户主动重搜同一个词时要的就是新结果。六条不要改坏的：
+  1. **候选要整条存**：直接下载把候选原样字段发回后端（`ResourcePushRequest` 继承 `PushSelectedRequest`），只存展示字段的话恢复出来的结果推不下去。
+  2. **键带用户 ID、模块级状态按用户归属**（同一个 SPA 里退出再换个账号登录不重新加载页面），**退出登录（`clearToken`）整批清掉**。
+  3. **超过 24 小时不恢复，页面上一律写明「「关键词」的结果 · 多久以前」**。站上的免费与做种数几小时就变，旧结果不能装成刚搜的；说明里的关键词是产出这批结果的那个（`resultKeyword`），不是输入框的当前值。
+  4. **回到页面时重判「已订阅」**（`POST /pt-search/subscribed` → `ResourceSearchService#subscribedAmong`，口径与搜索时同一份 `visibleSubscribedIds`）。用户多半正是从「转为订阅」回来的，刚订上的那部剧还标着未订阅，读起来就是没订成功。**原地改行、不换数组**——换数组会触发 `useCandidateFilter` 的 watch，把用户的筛选清掉。接口原样回传入参（大小写不动），前端按自己的键比对，不必知道后端的键怎么拼。
+  5. **只认最后一次搜索的响应**（`seq`）：回车与按钮都能触发搜索，先发后到的旧响应会把新结果盖掉；`finally` 里也只有最后那次能把转圈停掉。
+  6. **新结果到达时显式清筛选**，不能只靠 `useCandidateFilter` 的 watch：搜索在页面卸载期间完成时没有 watch 在跑，回来会带着一套对不上的筛选。localStorage 读写一律吞异常（隐私模式、配额），写不进去时删掉旧的那份——留着的话下次恢复出来的是上上次的结果。

@@ -40,6 +40,11 @@
 
         <!-- 筛选与 PC 端、订阅内候选弹窗共用 useCandidateFilter -->
         <template v-if="results.length">
+          <!-- 结果可能是离开页面前、甚至刷新前留下的：说清是哪个关键词、多久以前搜的，免得把旧的「免费」当真 -->
+          <div class="result-origin">
+            <span>「{{ resultKeyword }}」的结果 · {{ resultAge }}</span>
+            <v-btn variant="text" size="x-small" prepend-icon="refresh-cw" :disabled="searching" @click="researchLast">重新搜索</v-btn>
+          </div>
           <v-text-field
             v-model="filter.keyword"
             density="compact"
@@ -194,6 +199,7 @@ import { usePtResourceSearch } from '@/composables/usePtResourceSearch'
 const {
   isAdmin,
   keyword, indexerIds, indexerOptions, searching, searched, results, rejectedCount, handleSearch,
+  resultKeyword, resultAge, researchLast,
   lookupNote, lookupSummary, lookupComplete,
   filter, facets, activeFilterCount, clearFilters, passedOnly, visibleResults,
   openPush, toSubscribe, formatSize
@@ -230,6 +236,16 @@ const {
   display: flex;
   flex-wrap: wrap;
   margin-top: 4px;
+}
+
+.result-origin {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--osr-text-secondary);
 }
 
 .filter-summary,
