@@ -3,8 +3,8 @@
     <v-card title="后台任务">
       <v-card-text>
         <p class="text-body-2 mb-3">任务在服务端执行，离开页面或刷新不会中断。中止会等待当前项目结束。</p>
-        <v-alert v-if="failed" type="warning" variant="tonal" density="compact" class="mb-3">任务加载失败，当前结果可能不是最新状态。<v-btn variant="text" @click="load">重试</v-btn></v-alert>
-        <v-progress-linear v-if="loading" indeterminate />
+        <v-alert v-if="failed" type="warning" variant="tonal" density="compact" class="mb-3">任务加载失败，当前结果可能不是最新状态。<v-btn variant="text" @click="load()">重试</v-btn></v-alert>
+        <div class="job-loading"><v-progress-linear v-show="loading" indeterminate /></div>
         <v-empty-state v-if="!loading && !failed && !backgroundJobs.length" icon="list-checks" title="暂无后台任务" />
         <v-expansion-panels variant="accordion">
           <v-expansion-panel v-for="job in backgroundJobs" :key="job.id" :value="job.id">
@@ -28,7 +28,7 @@
           </v-expansion-panel>
         </v-expansion-panels>
       </v-card-text>
-      <v-card-actions><v-btn variant="text" :loading="loading" @click="load">刷新</v-btn><v-spacer /><v-btn variant="outlined" @click="taskCenterOpen = false">关闭</v-btn></v-card-actions>
+      <v-card-actions><v-btn variant="text" :loading="loading" @click="load()">刷新</v-btn><v-spacer /><v-btn variant="outlined" @click="taskCenterOpen = false">关闭</v-btn></v-card-actions>
     </v-card>
   </v-dialog>
 </template>
@@ -42,15 +42,17 @@ const isMobile = computed(() => useAppStore().device === 'mobile')
 const loading = ref(false), failed = ref(false), busy = ref<string | null>(null)
 const labels: Record<string, string> = { QUEUED: '等待执行', RUNNING: '执行中', SUCCEEDED: '成功', SKIPPED: '无需处理', FAILED: '失败', PARTIAL: '部分失败', CANCELLED: '已中止', INTERRUPTED: '已中断' }
 let active = true
-async function load() {
-  if (loading.value) return
+let refreshing = false
+async function load(silent = false) {
+  if (refreshing) return
   const epoch = backgroundJobEpoch.value
-  loading.value = true
+  refreshing = true
+  loading.value = !silent
   try {
     const jobs = await listBackgroundJobsApi()
     if (active && epoch === backgroundJobEpoch.value) { backgroundJobs.value = jobs; failed.value = false }
-  } catch { if (active) failed.value = true }
-  finally { loading.value = false }
+  } catch { if (active && epoch === backgroundJobEpoch.value) failed.value = true }
+  finally { refreshing = false; loading.value = false }
 }
 async function cancel(job: BackgroundJob) {
   busy.value = job.id
@@ -61,12 +63,13 @@ async function retry(job: BackgroundJob) {
   try { await retryBackgroundJobApi(job.id); await load() } finally { busy.value = null }
 }
 watch(taskCenterOpen, value => { if (value) load() })
-const visible = () => { if (!document.hidden && taskCenterOpen.value) load() }
+const visible = () => { if (!document.hidden && taskCenterOpen.value) load(true) }
 let timer: ReturnType<typeof setInterval>
 onMounted(() => { load(); timer = setInterval(visible, 3000); document.addEventListener('visibilitychange', visible) })
 onBeforeUnmount(() => { active = false; clearInterval(timer); document.removeEventListener('visibilitychange', visible) })
 </script>
 <style scoped>
+.job-loading { height: 4px; }
 .job-heading { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .job-item { padding: 10px 0; overflow-wrap: anywhere; border-bottom: 1px solid var(--osr-border-light); }
 </style>
