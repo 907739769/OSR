@@ -8,6 +8,7 @@
   <v-app-bar flat density="compact" height="50" class="mobile-appbar" :class="{ 'mobile-appbar--scrolled': scrolled }">
     <span class="appbar-title" :class="{ 'appbar-title--visible': scrolled }">{{ pageTitle }}</span>
     <v-spacer />
+    <v-btn icon="list-checks" aria-label="后台任务" title="后台任务" @click="openTaskCenter" />
     <ThemeSwitch />
     <!-- 退出登录收进头像菜单，与 DesktopLayout 一致。
          原先它是紧挨 28px 头像的一个裸 log-out 图标 —— 破坏性动作平铺在顶栏、
@@ -18,6 +19,7 @@
         <v-avatar v-bind="menuProps" size="28" color="primary" class="mr-3 user-avatar">{{ avatarText }}</v-avatar>
       </template>
       <v-list density="compact">
+        <v-list-item v-if="userStore.userInfo?.userId === 1" prepend-icon="list-checks" title="配置引导" @click="openSetupGuide" />
         <v-list-item prepend-icon="settings" title="修改密码" @click="showPasswordDialog = true" />
         <v-divider />
         <v-list-item prepend-icon="log-out" title="退出登录" @click="handleLogout" />
@@ -61,6 +63,8 @@
 </template>
 
 <script setup lang="ts">
+import { openSetupGuide } from '@/composables/useSetupGuide'
+import { openTaskCenter } from '@/composables/useBackgroundJobs'
 import { ref, computed, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { confirm } from '@/composables/useConfirm'

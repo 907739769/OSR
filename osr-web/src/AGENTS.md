@@ -400,6 +400,7 @@ ptTorrentBlacklist / wecomUser（即全部 `.card-grid` 页面）。新增卡片
 
 三个记录页共用 `useRecordList`，这一节是它们在列表外壳之外多出来的几件东西。
 
+- **记录列表的加载失败与空态分开**：`useRecordList` 暴露 `loadError` / `lastLoadedAt`，手动与静默刷新失败均保留上次记录、总数、统计和更新时间。四类记录页两端用 `ListLoadNotice` 提供重试，错误时不显示「暂无记录」；列表与统计同批提交，列表失败时不能把新统计配给旧行。
 - **顶部统计条 `RecordStatusBar`**：「全部 · 各状态条数」，点一下即按状态筛选，再点回到全部。
   它与搜索区的状态下拉 `v-model` 绑**同一个字段**，两处永远一致。数字来自 `/stats`，
   **跟随搜索条件、忽略状态这一项**（点「失败 17」筛出来一定是 17 条）。计数为 0 的状态
@@ -438,6 +439,7 @@ ptTorrentBlacklist / wecomUser（即全部 `.card-grid` 页面）。新增卡片
 - **暂停 / 继续 / 删除下载的可见性判断都在 `ptDownloadRecordLabels.ts`**（`canPause` / `canResume` / `canDeleteTorrent` / `canDeleteFiles`），两端共用。三条：**暂停只给下载中**（已完成的暂停就是停止做种，H&R 做种时长跟着停）；**H&R 考核中或结果不明（`hrState` 非空且不是 SATISFIED）一律不给删**，这是用户定的硬边界，后端也会拦；**失败记录只有「下载超时」给删**，其余几类种子要么本来就没了、要么 OSR 已经删掉，挂按钮只会得到一句「找不到种子」。删除确认框是共用的 `PtDownloadDeleteDialog`，「同时删除文件」每次打开都从不勾开始、已下完的根本不显示这个勾选框。
 
 ### 弹窗
+- `FormDialogShell` 可传 `dirty` 开启未保存保护（取消、遮罩/Esc、路由离开与刷新）；保存中禁止关闭。下载器弹窗按每次打开时的表单快照判脏，高级策略默认折叠但 `eager` 挂载以参与校验，校验失败自动展开，保存成功由业务层关闭无需弃改确认。
 - PC 三档：`max-width="480"`（确认类）/ `600`（表单类）/ `900`（数据表类）
 - 移动端统一 `width="92%"`
 - 次要按钮（取消/关闭/测试连接）统一 `variant="outlined"`，主按钮 `variant="flat"`
@@ -869,7 +871,10 @@ index.html 与静态资源都打了 `no-store`、镜像里的旧 chunk 文件已
   （不要用组件对象引用比对，HMR 下会失效）。菜单快捷入口用 `useMenuLinks`。
 
 ## NOTES
-- **「逐集跑一遍」这类跑批必须在开始前把订阅对象快照下来，不能在循环里现读 `currentSubscription`**。订阅进度弹窗的「一键补齐全部」每集要等一次几十秒的检索（后端单索引器预算 30 秒还是软上限），几十集就是十几二十分钟；这期间弹窗点遮罩就能关，用户去点开另一条订阅的进度会把 `currentSubscription` 换掉——旧实现每轮现读它，于是剩下的集变成「拿 A 的集号、按 B 的标题、推给 B 的订阅」，**界面上没有任何迹象**（loading 挂在已经关掉的弹窗上）。同理收尾回写进度也要判 `currentSubscription?.id === 快照.id`，否则会把用户正在看的另一条订阅的弹窗内容改掉。跑批期间弹窗设 `persistent`、显示「已完成 N/M」并给一个中止入口（置个 flag，当前这一集跑完就停，不打断已发出的请求）。`composables/__tests__/usePtSubscription.spec.ts` 里三条用例钉住这些。
+- 手动长任务统一由 `useBackgroundJobs` 提交，服务端持久化；`BackgroundTaskCenter` 在 App 内只挂一份，两端顶栏共用入口。退出登录必须清空缓存并递增会话代数，忽略旧账号的迟到响应。补搜结果不能把「接口成功」当成「资源已推送」。
+- 管理员首次配置引导复用 `SetupGuide`，仅显示配置是否填写，不返回密钥；已配置与已通过连接/播放验证是不同状态。
+- 记录深链定位由 `useRecordList.focusKey` 与下载记录的路由筛选协议处理。清除定位时必须移除 URL 参数；同页 keep-alive 二次进入也要应用新 ID。
+- **整季补齐与批量补搜均提交服务端后台任务**（`useBackgroundJobs`）：浏览器只负责受理提示，进度、中止与重试在任务中心展示，不能保留无效的本地计数或中止按钮。提交时快照目标 ID；异步回写弹窗仍须核对当前订阅 ID，避免把 A 的结果覆盖到 B。
 - **PT 统计仪表盘的下钻（统计卡 / 趋势图的点 / 失败原因扇形 / Top 订阅 → 下载记录）口径定义在 `usePtStats.ts` 的纯函数里**（`buildStatCards` 每张卡的 `filter`、`trendPointFilter`、`failReasonFilter`），跳转在 `usePtStatsNavigation.ts`——后者要引 router，放进 `usePtStats.ts` 会让那批纯函数单测把整个路由表一起加载。**不可下钻的卡不要绑 `@click`**：`v-card` 只要有 click 监听就会渲染成可点样式（指针 + 波纹），「成功率」卡点了没反应比不能点更糟，所以模板里是 `v-on="isCardClickable(stat) ? {...} : {}"`。ECharts 的点击走 `useEchart` 的第三个参数，监听绑在实例上、随 dispose 释放。
 - **`v-card` 上不能用 `title` 当悬停提示**：它是 VCard 的 prop 不是 HTML 属性（`VCard.js` 里 `props.title != null` 就渲染一个 `VCardItem`），会变成卡片标题塞进卡片内容里。PT 统计仪表盘 PC 端的 6 张统计卡踩过：`:title="stat.hint"` 本想做原生 tooltip，结果口径说明成了标题、和图标数字一起挤在 `display: flex` 的那一行里，六张卡全部错位。现在口径说明与移动端一样直接写在卡片上（`.stat-hint`），卡片 `height: 100%` 撑满 `v-col` 保证同行等高。真要原生 tooltip 就挂在卡片里面的普通元素上，或者用 `v-tooltip`。
 - **PT 统计仪表盘的取数与图表选项只有 `composables/usePtStats.ts` 一份，PC 与移动端共用**。两端各写一份的代价已经兑现过：「搜索淘汰原因分布」只有 PC 有、移动端从来没加；失败原因的配色函数被复制了两遍，于是同一个 bug 存在两份——那个函数是从首页状态卡抄来的、按"名字里带不带『失败』"猜颜色，而失败原因文案一个都命中不了，`findIndex` 恒返回 -1，**整张饼图恒为同一个红色**。三条：**配色按分类码查表且走 `--osr-*` 令牌**（写死的十六进制在暗色主题下不跟着变，正是 `plugins/echartsTheme.ts` 当初要修的毛病）；**主题切换只 bump `themeTick` 让 option 重算，绝不重新取数**（旧实现的 `osr-theme-change` 处理器直接调取数函数，切一次深浅色就打一轮扫全表的聚合查询）；**ECharts 实例一律经 `composables/useEchart.ts` 绑定**——旧实现四张图各写一遍 init/resize/dispose，而 `onUnmounted` 里漏掉了其中一张，每进出一次页面泄漏一个实例，不报错不告警，这类"N 份样板里少写一份"只能靠收口消掉。另：平均耗时后端一直在算也一直在传，两端都没画，现在挂在趋势图第二根 Y 轴上。

@@ -53,6 +53,7 @@ export function useStrmRecord() {
     retryFailedApi: retryAllFailedStrmRecordApi,
     batchRetryApi: batchRetryStrmRecordApi,
     batchRemoveNetDiskApi: batchRemoveStrmNetDiskApi,
+    focusKey: 'strmId',
     idField: 'strmId',
     labelField: 'strmFileName',
     recordLabel: 'STRM记录',

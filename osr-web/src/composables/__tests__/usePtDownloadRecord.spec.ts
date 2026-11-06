@@ -1,3 +1,5 @@
+import { startBackgroundJob } from '../useBackgroundJobs'
+vi.mock('../useBackgroundJobs', () => ({ startBackgroundJob: vi.fn().mockResolvedValue({ id: 'job' }) }))
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { message } from '@/composables/useMessage'
 import { confirm } from '@/composables/useConfirm'
@@ -142,9 +144,9 @@ describe('usePtDownloadRecord 的批量重试', () => {
     await composable.handleBatchRetry()
 
     expect(confirmSpy).toHaveBeenCalled()
-    expect(batchRetryPtDownloadRecordApi).toHaveBeenCalledWith([1, 2])
+    expect(startBackgroundJob).toHaveBeenCalledWith('DOWNLOAD_RETRY', [1, 2])
     // 转后台执行：此刻只知道受理了几条，结果要等 WebSocket 回报
-    expect(successSpy).toHaveBeenCalledWith('已在后台重试 2 条失败记录，完成后会提示结果')
+    expect(successSpy).toHaveBeenCalledWith('已提交后台重试，逐项结果保存在任务中心')
     expect(composable.selectedIds.value).toEqual([])
   })
 
@@ -159,35 +161,13 @@ describe('usePtDownloadRecord 的批量重试', () => {
     expect(composable.retryableSelectedIds.value).toEqual([2])
   })
 
-  it('有记录因无权操作被后端过滤时，提示里说出跳过了几条', async () => {
-    (batchRetryPtDownloadRecordApi as any).mockResolvedValue({ batchId: 'b1', accepted: 1 })
-    const composable = usePtDownloadRecord()
-    composable.taskList.value = mixedList
-    composable.selectedIds.value = [1, 2]
-
-    await composable.handleBatchRetry()
-
-    expect(successSpy).toHaveBeenCalledWith('已在后台重试 1 条失败记录，完成后会提示结果（1 条无权操作，已跳过）')
-  })
-
-  it('只认领自己发起的那一批 batchRetry 结果，别人的不提示', async () => {
-    (batchRetryPtDownloadRecordApi as any).mockResolvedValue({ batchId: 'mine', accepted: 2 })
-    const composable = usePtDownloadRecord()
-    composable.taskList.value = mixedList
-    composable.selectedIds.value = [1, 2]
-    await composable.handleBatchRetry()
-    successSpy.mockClear()
-
-    socketHandlers().onBatchRetry({ type: 'batchRetry', batchId: 'others', total: 3, pushedCount: 3, skippedCount: 0 })
-    expect(successSpy).not.toHaveBeenCalled()
-
-    socketHandlers().onBatchRetry({ type: 'batchRetry', batchId: 'mine', total: 2, pushedCount: 1, skippedCount: 1 })
-    expect(successSpy).toHaveBeenCalledWith('批量重试完成：重新推送 1 条，1 条未搜到或已跳过')
-
-    // 同一批只提示一次
-    successSpy.mockClear()
-    socketHandlers().onBatchRetry({ type: 'batchRetry', batchId: 'mine', total: 2, pushedCount: 1, skippedCount: 1 })
-    expect(successSpy).not.toHaveBeenCalled()
+  it('提交失败时保留选择，允许重新提交', async () => {
+    vi.mocked(startBackgroundJob).mockRejectedValueOnce(new Error('无权访问'))
+    const c = usePtDownloadRecord()
+    c.taskList.value = mixedList
+    c.selectedIds.value = [1, 2]
+    await c.handleBatchRetry()
+    expect(c.selectedIds.value).toEqual([1, 2])
   })
 
   it('toggleRecordSelect 在未选中时加入选中，已选中时移除', () => {

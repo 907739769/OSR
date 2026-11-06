@@ -3,7 +3,8 @@
     :model-value="modelValue"
     :max-width="isMobile ? undefined : maxWidth"
     :width="isMobile ? '92%' : undefined"
-    @update:model-value="(v: boolean) => emit('update:modelValue', v)"
+    :persistent="submitting"
+    @update:model-value="(v: boolean) => v ? emit('update:modelValue', true) : requestClose()"
   >
     <v-card :title="title">
       <v-card-text>
@@ -13,7 +14,7 @@
         <!-- 左侧的次要动作（测试连接、预览……），没有就不占位 -->
         <slot name="extra" />
         <v-spacer />
-        <v-btn variant="outlined" @click="emit('update:modelValue', false)">取消</v-btn>
+        <v-btn variant="outlined" :disabled="submitting" @click="requestClose">取消</v-btn>
         <v-btn color="primary" variant="flat" :loading="submitting" @click="emit('submit')">
           {{ submitText }}
         </v-btn>
@@ -23,7 +24,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, inject, onMounted, onBeforeUnmount } from 'vue'
+import { matchedRouteKey, onBeforeRouteLeave } from 'vue-router'
+import { confirm } from '@/composables/useConfirm'
 import { useAppStore } from '@/stores/app'
 
 /**
@@ -34,16 +37,19 @@ import { useAppStore } from '@/stores/app'
  * `createDeviceView` 选哪一端实现是同一个（`MOBILE_MEDIA_QUERY`），
  * 交给调用方传就多出一个可以传错、且传错了也不会报错的地方。
  */
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
   modelValue: boolean
   title?: string
   submitting?: boolean
+  /** 有未保存修改时，关闭弹窗或离开页面前确认 */
+  dirty?: boolean
   /** PC 下的宽度档位：480 确认类 / 600 表单类 / 900 数据表类 */
   maxWidth?: number | string
   submitText?: string
 }>(), {
   title: '',
   submitting: false,
+  dirty: false,
   maxWidth: 600,
   submitText: '确定'
 })
@@ -55,4 +61,42 @@ const emit = defineEmits<{
 
 const appStore = useAppStore()
 const isMobile = computed(() => appStore.device === 'mobile')
+
+let pendingDiscard: Promise<boolean> | null = null
+function canDiscard(): Promise<boolean> {
+  if (!props.modelValue) return Promise.resolve(true)
+  if (props.submitting) return Promise.resolve(false)
+  if (!props.dirty) return Promise.resolve(true)
+  if (!pendingDiscard) {
+    pendingDiscard = confirm({
+      title: '放弃修改？',
+      message: '表单的修改还没有保存，离开后将丢失。',
+      confirmText: '放弃修改',
+      cancelText: '继续编辑',
+      type: 'warning'
+    }).then(() => true, () => false).finally(() => { pendingDiscard = null })
+  }
+  return pendingDiscard
+}
+
+async function requestClose() {
+  if (await canDiscard()) emit('update:modelValue', false)
+}
+
+// 弹窗也可以独立挂载；仅在实际路由页面中注册离开保护。
+if (inject(matchedRouteKey, undefined)) {
+  onBeforeRouteLeave(async () => {
+    if (!(await canDiscard())) return false
+    // 页面可能被 keep-alive 缓存，离开时也要关闭弹窗，避免返回后再展示已放弃的编辑。
+    if (props.modelValue) emit('update:modelValue', false)
+    return true
+  })
+}
+const beforeUnload = (event: BeforeUnloadEvent) => {
+  if (!props.modelValue || !props.dirty) return
+  event.preventDefault()
+  event.returnValue = ''
+}
+onMounted(() => window.addEventListener('beforeunload', beforeUnload))
+onBeforeUnmount(() => window.removeEventListener('beforeunload', beforeUnload))
 </script>

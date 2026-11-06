@@ -215,6 +215,7 @@ public class RenameDetailRestController extends BaseCrudRestController<IRenameDe
     {
         if (renameDetail != null)
         {
+            wrapper.eq(renameDetail.getId() != null, "id", renameDetail.getId());
             if (StringUtils.isNotEmpty(renameDetail.getOriginalPath()))
             {
                 wrapper.like("original_path", renameDetail.getOriginalPath());

@@ -31,7 +31,7 @@ import {
   type SubscriptionDiagnosis
 } from '@/api/openlist/ptSubscription'
 import { getPtFilterConfigApi } from '@/api/openlist/ptFilterConfig'
-import { searchMissingApi } from '@/api/openlist/ptHealth'
+import { startBackgroundJob } from '@/composables/useBackgroundJobs'
 import { getPtIndexerListApi } from '@/api/openlist/ptIndexer'
 import type { SearchParams } from '@/types'
 import type { ListLoadOptions } from './useGridPageSize'
@@ -762,80 +762,14 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
   // ---------- 一键补齐全部缺集 ----------
 
   const searchAllMissingLoading = ref(false)
-  /** 已跑完的集数 / 总集数，供弹窗显示「补齐中 3/26」 */
-  const searchAllMissingDone = ref(0)
-  const searchAllMissingTotal = ref(0)
-  /** 用户点了「停止」：当前这一集搜完就收尾，不打断已发出的请求 */
-  const searchAllMissingAborted = ref(false)
-  /** 正在跑第一步的整季补搜（此时还没有逐集进度可显示） */
-  const searchAllMissingSeasonPhase = ref(false)
-
-  const abortSearchAllMissing = () => { searchAllMissingAborted.value = true }
-
   const handleSearchAllMissing = async () => {
-    if (!currentSubscription.value || !fillableMissingEpisodes.value.length) return
-    // 订阅要和集号一起快照。这个循环每集都要等一次几十秒的检索（后端单索引器预算 30 秒是
-    // 软上限），几十集就是十几二十分钟；期间弹窗点遮罩就能关，用户完全可能去点开另一条
-    // 订阅的进度——那会改掉 currentSubscription.value，循环里剩下的集就变成「拿 A 的集号、
-    // 按 B 的标题、推给 B 的订阅」，而界面上没有任何迹象。
-    const sub = currentSubscription.value
-    // 未播出的集在这一步就排掉（见 fillableMissingEpisodes）：它们和别的缺集一样是 MISSING，
-    // 但站上不可能有资源，跑进循环只会让用户为一串必然落空的检索白等
-    const missing = [...fillableMissingEpisodes.value]
-    const skipped = unairedMissingEpisodes.value.length
-    searchAllMissingAborted.value = false
-    searchAllMissingDone.value = 0
-    searchAllMissingTotal.value = missing.length
+    if (!currentSubscription.value || !fillableMissingEpisodes.value.length || searchAllMissingLoading.value) return
+    const id = currentSubscription.value.id
     searchAllMissingLoading.value = true
-    let pushedCount = 0
     try {
-      // 第一步：整季补搜，与缺集体检「立即补搜」是同一套后端逻辑（季搜索 + 季包 + 候选池逐集匹配）。
-      // 只逐集搜是搜不到季包的：`片名 S01E05` 这个词命不中标题 `片名 S01`，季包在索引器那层就被滤掉，
-      // 逐集模式下解析不出集号的季包也不会被推——站上只有季包的剧，旧实现每一集都是 0 个候选
-      let remaining = missing
-      searchAllMissingSeasonPhase.value = true
-      try {
-        const seasonResult = await searchSupplementApi(sub.id, {
-          episode: -1,
-          keyword: `${sub.title} S${pad2(sub.season)}`
-        })
-        pushedCount += seasonResult.pushedCount ?? 0
-        // 季包会一次占掉全部缺集、逐集推送也会占掉一批：重查一次，只对仍缺着的集逐个搜
-        const fresh: any = await getSubscriptionProgressApi(sub.id)
-        const stillMissing = new Set<number>(fresh?.missingEpisodes || [])
-        remaining = missing.filter((ep) => stillMissing.has(ep))
-      } catch (e) {
-        // 整季这一步失败不该让用户白等：退回原先的逐集搜索
-        console.error('整季补搜失败，退回逐集搜索：', e)
-      } finally {
-        searchAllMissingSeasonPhase.value = false
-      }
-      // 整季那一步已经补上的集算作完成，进度条从这里接着走
-      searchAllMissingDone.value = missing.length - remaining.length
-
-      for (const ep of remaining) {
-        if (searchAllMissingAborted.value) break
-        const keyword = `${sub.title} S${pad2(sub.season)}E${pad2(ep)}`
-        try {
-          const result = await searchSupplementApi(sub.id, { episode: ep, keyword })
-          if (result.pushed) pushedCount++
-        } catch (e) {
-          console.error(`第${ep}集补搜失败：`, e)
-        }
-        searchAllMissingDone.value++
-      }
-      const stoppedTip = searchAllMissingAborted.value ? '（已中止）' : ''
-      // 跳过数要说出来，否则「仍缺 12 集」却只搜了 3 集，用户会以为漏跑了
-      const skippedTip = skipped ? `，另有 ${skipped} 集未播出已跳过` : ''
-      message.success(`补齐完成${stoppedTip}：共推送 ${pushedCount} 个资源到下载器${skippedTip}`)
-      // 进度只在用户还停在这条订阅上时回写，否则会把他正在看的另一条订阅的弹窗内容改掉
-      if (currentSubscription.value?.id === sub.id) {
-        progress.value = await getSubscriptionProgressApi(sub.id)
-      }
-      base.getList()
-    } finally {
-      searchAllMissingLoading.value = false
-    }
+      await startBackgroundJob('SUBSCRIPTION_SEARCH', [id])
+      message.success('已提交后台补搜，可在任务中心查看结果')
+    } finally { searchAllMissingLoading.value = false }
   }
 
   /**
@@ -1102,9 +1036,6 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
 
   // ---------- 批量立即补搜 ----------
   const batchSearchRunning = ref(false)
-  const batchSearchDone = ref(0)
-  const batchSearchTotal = ref(0)
-  const batchSearchAborted = ref(false)
 
   /**
    * 对选中的订阅逐条立即补搜全部缺集（与缺集体检「立即补搜」同一个接口）。
@@ -1118,45 +1049,15 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
     const ids = [...base.selectedIds.value]
     if (!ids.length || batchSearchRunning.value) return
     try {
-      await confirm({
-        message: `确认对选中的 ${ids.length} 个订阅逐条立即补搜缺集？每条可能要跑一两分钟，期间可以中止。`,
-        title: '提示',
-        type: 'info'
-      })
-    } catch {
-      return
-    }
+      await confirm({ message: `确认对选中的 ${ids.length} 个订阅在后台补搜缺集？离开页面不影响执行。`, title: '提示', type: 'info' })
+    } catch { return }
     batchSearchRunning.value = true
-    batchSearchAborted.value = false
-    batchSearchDone.value = 0
-    batchSearchTotal.value = ids.length
-    let succeeded = 0
-    const failed: number[] = []
     try {
-      for (const id of ids) {
-        if (batchSearchAborted.value) break
-        try {
-          await searchMissingApi(id, true)
-          succeeded++
-        } catch (e) {
-          console.error(`订阅 ${id} 补搜失败：`, e)
-          failed.push(id)
-        }
-        batchSearchDone.value++
-      }
-      const stoppedTip = batchSearchAborted.value ? '（已中止）' : ''
-      // 成功里既有「推送了 N 个」也有「没有可搜的缺集」，说不出「有结果」，只报失败的那部分
-      const failedTip = failed.length ? `，其中 ${failed.length} 条未推送任何资源（原因见各自的「匹配日志」）` : ''
-      const text = `批量补搜完成${stoppedTip}：共跑完 ${succeeded + failed.length} 条${failedTip}`
-      if (succeeded > 0 || !failed.length) message.success(text)
-      else message.warning(text)
-      base.getList()
-    } finally {
-      batchSearchRunning.value = false
-    }
+      await startBackgroundJob('SUBSCRIPTION_SEARCH', ids)
+      message.success('已提交后台补搜，可在任务中心中止或查看逐项结果')
+    } finally { batchSearchRunning.value = false }
   }
 
-  const abortBatchSearch = () => { batchSearchAborted.value = true }
 
   // ---------- 移动端 - 分页辅助 ----------
   const totalPages = computed(() => Math.ceil(base.total.value / base.queryParams.pageSize) || 1)
@@ -1225,15 +1126,13 @@ export function usePtSubscription(options: ListLoadOptions = {}) {
     // 一键补齐全部缺集
     searchAllMissingLoading, handleSearchAllMissing, toggleAutoSearch, toggleUpgrade,
     isEpisodeFirst, seasonPackPolicyHint, toggleSeasonPackPolicy,
-    searchAllMissingDone, searchAllMissingTotal, searchAllMissingAborted, abortSearchAllMissing,
-    searchAllMissingSeasonPhase,
     // 行操作
     handleRefresh, handlePause, handleResume, handleRemove,
     // 批量操作
     selectionMode, toggleSelectionMode,
     toggleSubSelect, isSubSelected, handleBatchPause, handleBatchResume,
-    handleBatchAutoSearch, handleBatchSearchMissing, abortBatchSearch,
-    batchSearchRunning, batchSearchDone, batchSearchTotal,
+    handleBatchAutoSearch, handleBatchSearchMissing,
+    batchSearchRunning,
     // 移动端分页 & 搜索面板
     totalPages, prevPage, nextPage, handleSizeChange, searchCollapsed
   }

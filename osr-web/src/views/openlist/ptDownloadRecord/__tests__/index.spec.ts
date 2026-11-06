@@ -25,6 +25,8 @@ function baseComposable(overrides: Record<string, any> = {}) {
   return {
     taskList: ref([]),
     loading: ref(false),
+    loadError: ref(false),
+    lastLoadedAt: ref(null),
     total: ref(0),
     queryParams: reactive({ pageNum: 1, pageSize: 10, title: undefined, state: undefined, subId: undefined }),
     getList: vi.fn(),

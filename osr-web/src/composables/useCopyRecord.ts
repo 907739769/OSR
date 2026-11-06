@@ -57,6 +57,7 @@ export function useCopyRecord() {
     batchRetryApi: batchRetryCopyRecordApi,
     batchRemoveNetDiskApi: batchRemoveCopyNetDiskApi,
     isInProgress: row => row.copyStatus === '1',
+    focusKey: 'copyId',
     idField: 'copyId',
     labelField: 'copySrcFileName',
     recordLabel: '同步记录',

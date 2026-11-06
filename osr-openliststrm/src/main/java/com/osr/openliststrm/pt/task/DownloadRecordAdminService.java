@@ -141,15 +141,16 @@ public class DownloadRecordAdminService {
         Map<Integer, PtSubscriptionPlus> subs = subscriptionService.listByIds(
                         records.stream().map(PtDownloadRecordPlus::getSubId).distinct().toList())
                 .stream().collect(Collectors.toMap(PtSubscriptionPlus::getId, s -> s));
-        Map<Integer, PtIndexerPlus> indexers = indexerService.listByIds(
-                        records.stream().map(PtDownloadRecordPlus::getIndexerId).filter(java.util.Objects::nonNull).distinct().toList())
+        List<Integer> indexerIds = records.stream().map(PtDownloadRecordPlus::getIndexerId).filter(Objects::nonNull).distinct().toList();
+        List<Integer> downloaderIds = records.stream().map(PtDownloadRecordPlus::getDownloaderId).filter(Objects::nonNull).distinct().toList();
+        Map<Integer, PtIndexerPlus> indexers = indexerIds.isEmpty() ? Map.of() : indexerService.listByIds(indexerIds)
                 .stream().collect(Collectors.toMap(PtIndexerPlus::getId, i -> i));
-        Map<Integer, PtDownloaderPlus> downloaders = downloaderService.listByIds(
-                        records.stream().map(PtDownloadRecordPlus::getDownloaderId).filter(java.util.Objects::nonNull).distinct().toList())
+        Map<Integer, PtDownloaderPlus> downloaders = downloaderIds.isEmpty() ? Map.of() : downloaderService.listByIds(downloaderIds)
                 .stream().collect(Collectors.toMap(PtDownloaderPlus::getId, d -> d));
 
         List<DownloadRecordView> views = records.stream()
-                .map(r -> toView(r, subs.get(r.getSubId()), indexers.get(r.getIndexerId()), downloaders.get(r.getDownloaderId())))
+                .map(r -> toView(r, subs.get(r.getSubId()), r.getIndexerId() == null ? null : indexers.get(r.getIndexerId()),
+                        r.getDownloaderId() == null ? null : downloaders.get(r.getDownloaderId())))
                 .toList();
         markBlacklisted(views, records);
         markSuperseded(views, records);

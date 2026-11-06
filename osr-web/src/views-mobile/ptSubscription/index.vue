@@ -112,13 +112,12 @@
       <!-- 批量立即补搜逐条串行，每条一两分钟，理由同 PC 端 -->
       <div v-if="batchSearchRunning" class="batch-search-progress">
         <v-progress-linear
-          :model-value="batchSearchTotal ? (batchSearchDone / batchSearchTotal) * 100 : 0"
+          indeterminate
           color="primary"
           height="6"
           rounded
         />
-        <span class="batch-search-text">{{ batchSearchDone }}/{{ batchSearchTotal }}</span>
-        <v-btn variant="text" size="small" color="warning" @click="abortBatchSearch">中止</v-btn>
+        <span class="batch-search-text">正在提交后台补搜…</span>
       </div>
 
       <!-- 列表 -->
@@ -225,8 +224,8 @@ const {
   searchCollapsed,
   selectionMode, toggleSelectionMode, isAllPageSelected, toggleSelectAllPage,
   selectedIds, handleBatchPause, handleBatchResume, handleDelete,
-  handleBatchAutoSearch, handleBatchSearchMissing, abortBatchSearch,
-  batchSearchRunning, batchSearchDone, batchSearchTotal,
+  handleBatchAutoSearch, handleBatchSearchMissing,
+  batchSearchRunning,
   ownerItems, ownerFilterVisible
 } = usePtSubscriptionProvider()
 

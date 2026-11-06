@@ -4,6 +4,7 @@
       <span class="chart-title">待办提醒</span>
       <v-btn v-if="failed" variant="text" size="small" color="primary" @click="load">重试</v-btn>
     </div>
+    <div v-if="failed && items.length" class="todo-empty" role="status">部分数据没取到，待办可能不完整</div>
     <!-- 与「暂无待办，一切正常」必须分开：那是绿色对勾，数据没到先亮出来就是在报平安 -->
     <div v-if="loading" class="todo-list osr-skeleton" role="status" aria-busy="true" aria-label="加载中">
       <div v-for="i in 2" :key="i" class="todo-item osr-sheen" :style="{ '--osr-i': i - 1 }">

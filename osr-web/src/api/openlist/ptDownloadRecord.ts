@@ -2,6 +2,7 @@ import request from '@/api/request'
 import type { PageResult, SearchParams } from '@/types'
 
 export interface PtDownloadRecordQuery extends SearchParams {
+  recordId?: number
   subId?: number
   state?: string
   title?: string

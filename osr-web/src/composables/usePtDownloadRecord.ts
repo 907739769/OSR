@@ -1,3 +1,4 @@
+import { startBackgroundJob } from '@/composables/useBackgroundJobs'
 import { ref, reactive, computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { message } from '@/composables/useMessage'
@@ -5,7 +6,7 @@ import { confirm } from '@/composables/useConfirm'
 import { useDebounce } from '@/composables/useDebounce'
 import {
   getPtDownloadRecordListApi, getPtDownloadRecordStatsApi,
-  retryPtDownloadRecordApi, batchRetryPtDownloadRecordApi, batchIgnorePtDownloadRecordApi,
+  retryPtDownloadRecordApi, batchIgnorePtDownloadRecordApi,
   blacklistGuidApi, blacklistReleaseGroupApi,
   batchBlacklistGuidApi, batchBlacklistReleaseGroupApi,
   previewCleanupPtDownloadRecordApi, cleanupPtDownloadRecordApi, CLEANUP_DAY_OPTIONS,
@@ -42,7 +43,7 @@ export function usePtDownloadRecord(options: ListLoadOptions = {}) {
   let initialSubId = route.query.subId ? Number(route.query.subId) : undefined
 
   const {
-    recordList: taskList, loading, total, queryParams, stats,
+    recordList: taskList, loading, loadError, lastLoadedAt, total, queryParams, stats,
     totalPages, prevPage, nextPage, handleSizeChange,
     queryRef, dateStart, dateEnd, handleQuery, resetQuery: resetBaseQuery,
     selectedIds, toggleSelect, handleCardClick, clearSelection,
@@ -63,7 +64,7 @@ export function usePtDownloadRecord(options: ListLoadOptions = {}) {
     // subId 刻意不放进默认值：放进去的话「重置」会把它还原回来，用户从订阅页跳过来之后
     // 就再也回不到全部记录了。它在下面单独写入，重置时按默认值清掉
     defaultQuery: {
-      subId: undefined, state: undefined, title: undefined,
+      recordId: undefined, subId: undefined, state: undefined, title: undefined,
       failReasonCode: undefined, indexerId: undefined, downloaderId: undefined, hrState: undefined,
       hideSuperseded: undefined, hideIgnored: undefined, dateField: undefined,
       pageSize: 12
@@ -73,7 +74,7 @@ export function usePtDownloadRecord(options: ListLoadOptions = {}) {
   // ---------- 路由带进来的筛选 ----------
 
   /** 地址栏里认的筛选键，与 usePtStatsNavigation#downloadRecordLocation 写出的一致 */
-  const ROUTE_FILTER_KEYS = ['subId', 'subTitle', 'state', 'failReasonCode', 'hrState', 'dateField', 'beginDate', 'endDate', 'hideSuperseded', 'hideIgnored'] as const
+  const ROUTE_FILTER_KEYS = ['recordId', 'subId', 'subTitle', 'state', 'failReasonCode', 'hrState', 'dateField', 'beginDate', 'endDate', 'hideSuperseded', 'hideIgnored'] as const
 
   const hasRouteFilters = (query: Record<string, unknown>) => ROUTE_FILTER_KEYS.some(k => query[k] !== undefined)
 
@@ -96,6 +97,7 @@ export function usePtDownloadRecord(options: ListLoadOptions = {}) {
     initialSubTitle = str('subTitle')
     Object.assign(queryParams, {
       subId,
+      recordId: str('recordId') ? Number(str('recordId')) : undefined,
       state: str('state'),
       failReasonCode: str('failReasonCode'),
       hrState: str('hrState'),
@@ -264,11 +266,8 @@ export function usePtDownloadRecord(options: ListLoadOptions = {}) {
     }
     try {
       await confirm({ message: `确认批量重试选中的 ${ids.length} 条失败记录？`, title: '提示', type: 'warning' })
-      const { batchId, accepted } = await batchRetryPtDownloadRecordApi(ids)
-      pendingBatchIds.add(batchId)
-      const skipped = ids.length - accepted
-      message.success(`已在后台重试 ${accepted} 条失败记录，完成后会提示结果`
-        + (skipped > 0 ? `（${skipped} 条无权操作，已跳过）` : ''))
+      await startBackgroundJob('DOWNLOAD_RETRY', ids)
+      message.success('已提交后台重试，逐项结果保存在任务中心')
       clearSelection()
     } catch (e) {
       if (e !== 'cancel') console.error(e)
@@ -552,8 +551,11 @@ export function usePtDownloadRecord(options: ListLoadOptions = {}) {
   loadFilterOptions()
   if (autoLoad) getList()
 
+  const recordFocus = computed(() => queryParams.recordId || null)
+  const clearRecordFocus = () => resetQuery()
   return {
-    taskList, loading, total, queryParams, stats, getList, handleQuery, resetQuery, queryRef,
+    recordFocus, clearRecordFocus,
+    taskList, loading, loadError, lastLoadedAt, total, queryParams, stats, getList, handleQuery, resetQuery, queryRef,
     dateStart, dateEnd, indexerOptions, downloaderOptions,
     subFilterLabel, clearSubFilter, routeFilterTick,
     retryingIds, handleRetry,

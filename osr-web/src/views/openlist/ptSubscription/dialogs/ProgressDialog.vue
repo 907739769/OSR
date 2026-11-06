@@ -133,20 +133,7 @@
       </v-card-text>
       <v-card-actions>
         <template v-if="searchAllMissingLoading">
-          <!-- 跑批期间只留进度与中止：每集要等一次几十秒的检索，几十集就是十几分钟，
-               一个光转圈的按钮说不清还要多久 -->
-          <span class="batch-search-progress">
-            {{ searchAllMissingSeasonPhase ? '整季检索中…' : `补齐中 ${searchAllMissingDone}/${searchAllMissingTotal}` }}
-          </span>
-          <v-btn
-            variant="text"
-            color="error"
-            :disabled="searchAllMissingAborted"
-            title="当前这一集搜完后停下，不会打断已发出的请求"
-            @click="abortSearchAllMissing"
-          >
-            {{ searchAllMissingAborted ? '正在停止…' : '停止' }}
-          </v-btn>
+          <span class="batch-search-progress">正在提交后台补搜…</span>
         </template>
         <template v-else>
           <v-btn v-if="currentSubscription" color="primary" @click="openSeasonSearch(currentSubscription)">
@@ -174,7 +161,6 @@ import { usePtSubscriptionContext } from '@/composables/ptSubscriptionContext'
 import TmdbLink from '@/components/TmdbLink.vue'
 
 const {
-  abortSearchAllMissing,
   currentIsMovie,
   currentSubscription,
   episodeAirDate,
@@ -198,11 +184,7 @@ const {
   progressOpen,
   qualityLabel,
   resettingEpisode,
-  searchAllMissingAborted,
-  searchAllMissingDone,
   searchAllMissingLoading,
-  searchAllMissingSeasonPhase,
-  searchAllMissingTotal,
   seasonLabel,
   unairedMissingEpisodes,
   upgradeStateHint,

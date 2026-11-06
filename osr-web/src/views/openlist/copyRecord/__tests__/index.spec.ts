@@ -30,6 +30,8 @@ function baseComposable(overrides: Record<string, any> = {}) {
   return {
     recordList: ref([{ copyId: 1, copySrcFileName: 'a.mkv', copyDstFileName: 'a.mkv', copyStatus: '3' }]),
     loading: ref(false),
+    loadError: ref(false),
+    lastLoadedAt: ref(null),
     total: ref(1),
     queryParams: reactive({ pageNum: 1, pageSize: 10 }),
     getList: vi.fn(),

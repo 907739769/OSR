@@ -100,6 +100,7 @@ public class PtDownloadRecordRestController extends BaseController {
         if (query == null) {
             return;
         }
+        wrapper.eq(query.getRecordId() != null, "id", query.getRecordId());
         wrapper.eq(query.getSubId() != null, "sub_id", query.getSubId());
         wrapper.eq(withState && StringUtils.isNotBlank(query.getState()), "state", query.getState());
         wrapper.like(StringUtils.isNotBlank(query.getTitle()), "title", query.getTitle());

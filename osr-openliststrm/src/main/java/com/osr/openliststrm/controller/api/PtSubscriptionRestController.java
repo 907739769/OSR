@@ -71,6 +71,9 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
     private SubscriptionDiagnosisService diagnosisService;
 
     @Autowired
+    private com.osr.openliststrm.pt.subscription.SubscriptionWorkflowService workflowService;
+
+    @Autowired
     private EpisodeAirDateSyncService airDateSyncService;
 
     @Autowired
@@ -373,6 +376,13 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
     /**
      * 一键诊断：每个已播出却还缺着的集，最近一轮搜了什么、各因为什么被淘汰。只读，不发起搜索。
      */
+    @GetMapping("/{id}/workflow")
+    public Result<java.util.List<com.osr.openliststrm.pt.subscription.SubscriptionWorkflowService.Episode>> workflow(@PathVariable("id") Integer id) {
+        var sub = service.getById(id);
+        if (!canAccess(sub)) return Result.error("订阅不存在或无权访问");
+        return Result.success(workflowService.inspect(sub, isAdmin()));
+    }
+
     @GetMapping("/{id}/diagnosis")
     public Result<SubscriptionDiagnosisService.Diagnosis> diagnosis(@PathVariable("id") Integer id) {
         Result<SubscriptionDiagnosisService.Diagnosis> denied = denyIfInaccessible(id);

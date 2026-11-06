@@ -1,3 +1,4 @@
+import { startBackgroundJob } from '@/composables/useBackgroundJobs'
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from '@/composables/useMessage'
@@ -6,7 +7,6 @@ import { getRoutePathForComponent } from '@/router'
 import {
   getPtHealthApi,
   enableAutoSearchApi,
-  searchMissingApi,
   setHealthIgnoredApi,
   getSubtitleHealthApi,
   upgradeForSubtitlesApi,
@@ -303,8 +303,8 @@ export function usePtHealth() {
   const handleSearchNow = async (subId: number) => {
     actingSubId.value = subId
     try {
-      const msg = await searchMissingApi(subId)
-      message.success(msg || '补搜完成')
+      await startBackgroundJob('SUBSCRIPTION_SEARCH', [subId])
+      message.success('已提交后台补搜，可在任务中心查看结果')
       await load()
     } catch (e) {
       console.error(e)
