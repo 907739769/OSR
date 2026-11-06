@@ -91,15 +91,22 @@ public class MediaParser {
      * 用于"重新刮削"场景：复用此前（可能经过人工修正）确定的 tmdbId，避免续集/重制版/同名作品被重新匹配错。
      */
     public MediaInfo parseWithKnownTmdbId(String filename, String tmdbId, String mediaType) {
-        log.info("开始重命名文件名（已知tmdbId={}）: {}", tmdbId, filename);
+        return parseWithKnownTmdbId(filename, new MediaIdentity(tmdbId, mediaType, null, null));
+    }
+
+    public MediaInfo parseWithKnownTmdbId(String filename, MediaIdentity identity) {
         MediaInfo info = extractBase(filename);
-
-        if (tmdbClient != null && StringUtils.isNotBlank(tmdbId)) {
-            String type = "movie".equals(mediaType) ? "movie" : "tv";
-            tmdbClient.enrichByTmdbId(info, type, tmdbId);
+        if ("movie".equals(identity.mediaType())) {
+            info.setSeason(null);
+            info.setEpisode(null);
+            info.setEpisodeEnd(null);
+        } else {
+            if (StringUtils.isNotBlank(identity.season())) info.setSeason(identity.season());
+            if (StringUtils.isNotBlank(identity.episode())) info.setEpisode(identity.episode());
         }
-
-        log.debug("文件名称: {} 识别结果info(已知tmdbId): {}", filename, info);
+        if (tmdbClient == null || !tmdbClient.enrichByTmdbId(info, identity.mediaType(), identity.tmdbId())) {
+            throw new IllegalStateException("无法获取指定作品 " + identity.mediaType() + "/" + identity.tmdbId() + " 的 TMDb 详情，请稍后重试或检查 ID");
+        }
         return info;
     }
 

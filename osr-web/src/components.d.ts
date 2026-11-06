@@ -47,6 +47,7 @@ declare module 'vue' {
     PtTransferRuleFormDialog: typeof import('./components/dialogs/PtTransferRuleFormDialog.vue')['default']
     RecordDetailDrawer: typeof import('./components/RecordDetailDrawer.vue')['default']
     RecordStatusBar: typeof import('./components/RecordStatusBar.vue')['default']
+    RenameIdentityFields: typeof import('./components/RenameIdentityFields.vue')['default']
     RenameTaskFormDialog: typeof import('./components/dialogs/RenameTaskFormDialog.vue')['default']
     ResourcePushDialog: typeof import('./components/dialogs/ResourcePushDialog.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']

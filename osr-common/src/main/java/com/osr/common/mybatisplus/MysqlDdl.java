@@ -137,7 +137,9 @@ public class MysqlDdl extends SimpleDdl {
                 "sql/20260812-pt-media-server-library-notify.sql",
                 "sql/20260813-pt-resource-search-menu.sql",
                 "sql/20260814-pt-downloader-free-space.sql",
-                "sql/20260815-background-job.sql"
+                "sql/20260815-background-job.sql",
+                "sql/20260815-media-identity-binding.sql",
+                "sql/20260816-media-identity-download-version.sql"
         );
     }
 }

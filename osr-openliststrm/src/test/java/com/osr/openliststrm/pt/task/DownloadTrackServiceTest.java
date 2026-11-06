@@ -61,6 +61,7 @@ import static org.mockito.Mockito.when;
 @MockitoSettings(strictness = Strictness.LENIENT)
 class DownloadTrackServiceTest {
 
+    @Mock private com.osr.openliststrm.rename.MediaIdentityService identityService;
     @Mock private IPtDownloadRecordPlusService recordService;
     @Mock private IPtSubscriptionEpisodePlusService episodeService;
     @Mock private DownloadCompletionSyncTrigger completionSyncTrigger;
@@ -74,7 +75,7 @@ class DownloadTrackServiceTest {
         // 与改造前的行为保持一致，不用逐个用例改断言。
         when(subscriptionService.listByIds(any())).thenReturn(List.of());
         return new DownloadTrackService(recordService, episodeService, completionSyncTrigger, subscriptionService,
-                downloaderClientFactory, indexerService, 3, 24);
+                downloaderClientFactory, indexerService, identityService, 3, 24);
     }
 
     private PtDownloaderPlus downloader() {
@@ -1549,4 +1550,16 @@ class DownloadTrackServiceTest {
             ws.verify(() -> PtStatusWebSocket.pushDownloadEvent(any(), any(), any(), any()), never());
         }
     }
+    @Test
+    void 作品身份保存失败时不置完成_保留下一轮重试机会() throws Exception {
+        DownloadTrackService tracker = service();
+        PtDownloadRecordPlus r = record(100, 1, "osr-pt-100", "DOWNLOADING", 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        doThrow(new IOException("绑定暂时无法保存")).when(identityService)
+                .captureDownload(same(r), any(), any(), any());
+        tracker.track(downloader(), List.of(torrent("osr-pt,osr-pt-100", 1.0)));
+        assertTrue(recordSets().stream().noneMatch(set -> "COMPLETED".equals(set.getState())));
+        verify(completionSyncTrigger, never()).triggerAsync(any(), any());
+    }
+
 }

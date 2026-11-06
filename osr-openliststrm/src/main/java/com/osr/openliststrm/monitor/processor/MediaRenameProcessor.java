@@ -14,6 +14,10 @@ import com.osr.openliststrm.mybatisplus.service.IRenameCategoryRulePlusService;
 import com.osr.openliststrm.mybatisplus.service.IRenameDetailPlusService;
 import com.osr.openliststrm.mybatisplus.service.IRenameTaskPlusService;
 import com.osr.openliststrm.rename.MediaParser;
+import com.osr.openliststrm.rename.MediaIdentity;
+import com.osr.openliststrm.rename.DeferredRenameQueue;
+import com.osr.openliststrm.rename.MediaIdentityPendingException;
+import com.osr.openliststrm.rename.MediaIdentityService;
 import com.osr.openliststrm.rename.RenameClientProvider;
 import com.osr.openliststrm.rename.RenameEventListener;
 import com.osr.openliststrm.rename.config.IRenameTemplateConfigService;
@@ -50,6 +54,8 @@ public class MediaRenameProcessor implements FileProcessor {
     private final OpenListHelper openListHelper;
     private final long minFileSizeBytes;
 
+    private final MediaIdentityService identityService;
+    private final DeferredRenameQueue deferredRenames;
     private final RenameClientProvider clientProvider;
     private final IRenameTaskPlusService taskService;
     private final IRenameCategoryRulePlusService categoryRuleService;
@@ -127,6 +133,8 @@ public class MediaRenameProcessor implements FileProcessor {
                         .map(v -> Long.parseLong(v) * 1024 * 1024)
                         .orElse(10 * 1024 * 1024L);
         this.clientProvider = clientProvider;
+        this.identityService = SpringUtils.getBean(MediaIdentityService.class);
+        this.deferredRenames = new DeferredRenameQueue(SpringUtils.getBean("virtualScheduledExecutor"));
         this.taskService = SpringUtils.getBean(IRenameTaskPlusService.class);
         this.categoryRuleService = SpringUtils.getBean(IRenameCategoryRulePlusService.class);
         this.templateConfigService = SpringUtils.getBean(IRenameTemplateConfigService.class);
@@ -268,13 +276,51 @@ public class MediaRenameProcessor implements FileProcessor {
 
         // Step 2: 解析媒体信息
         MediaParser parser = new MediaParser(clientProvider.tmdb(), clientProvider.openAI());
-        MediaInfo info = parseMediaInfo(parser, p, title, year, season, episode);
+        MediaIdentity identity = null;
+        MediaInfo info;
+        try {
+            identity = identityService.resolve(p);
+            if (identity != null) {
+                identity = new MediaIdentity(identity.tmdbId(), identity.mediaType(),
+                        StringUtils.isNotBlank(season) ? season : identity.season(),
+                        StringUtils.isNotBlank(episode) ? episode : identity.episode());
+                info = parser.parseWithKnownTmdbId(p.getFileName().toString(), identity);
+            } else {
+                info = parseMediaInfo(parser, p, title, year, season, episode);
+            }
+        } catch (MediaIdentityPendingException e) {
+            MediaInfo failed = new MediaInfo(p.getFileName().toString());
+            String type = identity == null ? null : identity.mediaType();
+            try {
+                boolean first = deferredRenames.defer(p,
+                        () -> retryDeferred(p, title, year, season, episode),
+                        () -> notifyFailed(p, failed, type, e.getMessage() + "；自动重试已达上限，请稍后重试或指定 TMDb ID"));
+                if (first) log.info("等待作品绑定或 STRM 记录就绪，已安排自动重试：{}：{}", p, e.getMessage());
+            } catch (RuntimeException schedulingError) {
+                notifyFailed(p, failed, type, "无法安排延后重命名，请稍后重试");
+                log.warn("安排重命名重试失败：{}：{}", p, schedulingError.getMessage(), schedulingError);
+            }
+            return;
+        } catch (Exception e) {
+            deferredRenames.complete(p);
+            MediaInfo failed = new MediaInfo(p.getFileName().toString());
+            if (identity != null) {
+                failed.setTmdbId(identity.tmdbId());
+                failed.setSeason(identity.season());
+                failed.setEpisode(identity.episode());
+            }
+            notifyFailed(p, failed, identity == null ? null : identity.mediaType(), e.getMessage());
+            log.warn("重命名识别失败：{}：{}", p, e.getMessage(), e);
+            return;
+        }
+        deferredRenames.complete(p);
         if (info == null) return;
 
-        String mediaType = CategoryPlacement.inferMediaType(info.getSeason(), info.getEpisode());
+        String mediaType = identity != null ? identity.mediaType()
+                : CategoryPlacement.inferMediaType(info.getSeason(), info.getEpisode());
         if (info.getTmdbId() == null || info.getTmdbId().trim().isEmpty()) {
             log.info("未找到 tmdbId，跳过文件处理：{} ; parsed info title={}", p, info.getTitle());
-            notifyFailed(p, info, mediaType, "tmdbId not found");
+            notifyFailed(p, info, mediaType, "未能识别作品，请指定 TMDb ID 后重试");
             return;
         }
 
@@ -289,6 +335,23 @@ public class MediaRenameProcessor implements FileProcessor {
         // Step 5: 通知和刮削
         notifyAndScrape(p, destFile, info, mediaType, finalDestDir);
     }
+
+    private void retryDeferred(Path source, String title, String year, String season, String episode) {
+        if (!Files.exists(source)) { deferredRenames.complete(source); return; }
+        if (!processing.add(source)) return;
+        try {
+            handleFileIfReady(source, title, year, season, episode);
+        } catch (Exception e) {
+            deferredRenames.complete(source);
+            notifyFailed(source, new MediaInfo(source.getFileName().toString()), null, "延后重命名失败，请稍后重试");
+            log.warn("延后重命名失败：{}：{}", source, e.getMessage(), e);
+        } finally {
+            processing.remove(source);
+        }
+    }
+
+    @Override
+    public void close() { deferredRenames.close(); }
 
     /** Step 1: 验证文件存在、类型和大小 */
     private boolean validateFile(Path p) throws IOException {

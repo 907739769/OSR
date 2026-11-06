@@ -19,12 +19,13 @@ export function batchDeleteRenameDetailApi(recordIds: number[]) {
   return request.post('/openliststrm/rename-details/batchDelete', null, { params: { ids: recordIds.join(',') } })
 }
 
-export function executeRenameDetailApi(detailIds: number[], title?: string, year?: string, season?: string, episode?: string) {
+export function executeRenameDetailApi(detailIds: number[], title?: string, year?: string, season?: string, episode?: string, tmdbId?: string, mediaType?: string) {
   const params: Record<string, any> = { ids: detailIds.join(',') }
   if (title) params.title = title
   if (year) params.year = year
   if (season) params.season = season
   if (episode) params.episode = episode
+  if (tmdbId) { params.tmdbId = tmdbId; params.mediaType = mediaType }
   return request.post('/openliststrm/rename-details/execute', null, { params })
 }
 

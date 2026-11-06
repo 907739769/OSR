@@ -6,6 +6,7 @@ import com.osr.framework.manager.AsyncManager;
 import com.osr.openliststrm.mybatisplus.domain.RenameDetailPlus;
 import com.osr.openliststrm.mybatisplus.service.IRenameDetailPlusService;
 import com.osr.openliststrm.rename.RenameTaskManager;
+import com.osr.openliststrm.rename.MediaIdentity;
 import com.osr.openliststrm.rename.cleanup.RenameCleanupService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -157,14 +158,20 @@ public class RenameDetailRestController extends BaseCrudRestController<IRenameDe
                                 @RequestParam(value = "title", required = false) String title,
                                 @RequestParam(value = "year", required = false) String year,
                                 @RequestParam(value = "season", required = false) String season,
-                                @RequestParam(value = "episode", required = false) String episode)
+                                @RequestParam(value = "episode", required = false) String episode,
+                                     @RequestParam(value = "tmdbId", required = false) String tmdbId,
+                                     @RequestParam(value = "mediaType", required = false) String mediaType)
     {
         if (id == null)
         {
             return Result.error("id 为空");
         }
+        if (StringUtils.isNotBlank(tmdbId)) {
+            try { new MediaIdentity(tmdbId, mediaType, season, episode); }
+            catch (IllegalArgumentException e) { return Result.error(e.getMessage()); }
+        }
         logger.info("开始执行重命名明细，ID：{}，title={}，year={}，season={}，episode={}", id, title, year, season, episode);
-        AsyncManager.me().execute(() -> renameTaskManager.executeRenameDetails(id, title, year, season, episode));
+        AsyncManager.me().execute(() -> renameTaskManager.executeRenameDetails(id, title, year, season, episode, tmdbId, mediaType));
         return Result.success();
     }
 
@@ -176,11 +183,17 @@ public class RenameDetailRestController extends BaseCrudRestController<IRenameDe
                                      @RequestParam(value = "title", required = false) String title,
                                      @RequestParam(value = "year", required = false) String year,
                                      @RequestParam(value = "season", required = false) String season,
-                                     @RequestParam(value = "episode", required = false) String episode)
+                                     @RequestParam(value = "episode", required = false) String episode,
+                                     @RequestParam(value = "tmdbId", required = false) String tmdbId,
+                                     @RequestParam(value = "mediaType", required = false) String mediaType)
     {
         if (ids == null || ids.trim().isEmpty())
         {
             return Result.error("请选择要执行的记录");
+        }
+        if (StringUtils.isNotBlank(tmdbId)) {
+            try { new MediaIdentity(tmdbId, mediaType, season, episode); }
+            catch (IllegalArgumentException e) { return Result.error(e.getMessage()); }
         }
         List<Integer> idList = Arrays.stream(ids.split(",")).map(String::trim).filter(s -> !s.isEmpty()).map(Integer::parseInt).collect(Collectors.toList());
         for (Integer id : idList)
@@ -191,7 +204,7 @@ public class RenameDetailRestController extends BaseCrudRestController<IRenameDe
             final String y = year;
             final String s = season;
             final String e = episode;
-            AsyncManager.me().execute(() -> renameTaskManager.executeRenameDetails(detailId, t, y, s, e));
+            AsyncManager.me().execute(() -> renameTaskManager.executeRenameDetails(detailId, t, y, s, e, tmdbId, mediaType));
         }
         return Result.success();
     }

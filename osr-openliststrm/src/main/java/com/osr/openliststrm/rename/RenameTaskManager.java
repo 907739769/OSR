@@ -53,6 +53,9 @@ public class RenameTaskManager {
     @Autowired
     private IRenameDetailPlusService renameDetailService;
 
+    @Autowired
+    private MediaIdentityService identityService;
+
     private final RenameMonitorRegistry registry = new RenameMonitorRegistry();
     private final TaskScheduler scheduler = SpringUtils.getBean("virtualScheduledExecutor");
 
@@ -71,12 +74,21 @@ public class RenameTaskManager {
     }
 
     public void executeRenameDetails(Integer id, String title, String year, String season, String episode) {
+        executeRenameDetails(id, title, year, season, episode, null, null);
+    }
+
+    public void executeRenameDetails(Integer id, String title, String year, String season, String episode,
+                                     String tmdbId, String mediaType) {
         RenameDetailPlus rd = renameDetailService.getById(id);
         if (rd == null) {
             log.warn("重命名任务不存在：{}", id);
             return;
         }
 
+        Path source = Paths.get(rd.getOriginalPath()).resolve(rd.getOriginalName());
+        if (StringUtils.isNotBlank(tmdbId)) {
+            identityService.pin(source, new MediaIdentity(tmdbId, mediaType, season, episode));
+        }
         String tgt = rd.getNewPath();
         Path path = Paths.get(tgt);
         Path target = path;

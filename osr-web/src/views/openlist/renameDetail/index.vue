@@ -267,10 +267,12 @@
       <v-card title="重试重命名">
         <v-card-text>
           <v-form ref="retryFormRef">
+            <RenameIdentityFields v-model:tmdb-id="retryForm.tmdbId" v-model:media-type="retryForm.mediaType" />
             <v-text-field
               v-model="retryForm.title"
+              :disabled="!!retryForm.tmdbId"
               label="标题"
-              placeholder="留空则使用原值"
+              placeholder="留空则从原文件名识别"
               maxlength="100"
               clearable
               :rules="[titleRule]"
@@ -278,8 +280,9 @@
             />
             <v-text-field
               v-model="retryForm.year"
+              :disabled="!!retryForm.tmdbId"
               label="年份"
-              placeholder="留空则使用原值"
+              placeholder="留空则从原文件名识别"
               maxlength="4"
               clearable
               :rules="[yearRule]"
@@ -319,13 +322,15 @@
       <v-card title="批量重试重命名">
         <v-card-text>
           <div class="batch-tip">
-            将按填写的标题与年份重新执行选中的 {{ selectedIds.length }} 条记录（留空则使用原值）
+            将重新执行选中的 {{ selectedIds.length }} 条记录；指定 TMDb ID 会将全部选中项绑定为同一作品，请只选择同一部影片或剧集。
           </div>
           <v-form ref="batchFormRef">
+            <RenameIdentityFields v-model:tmdb-id="batchForm.tmdbId" v-model:media-type="batchForm.mediaType" />
             <v-text-field
               v-model="batchForm.title"
+              :disabled="!!batchForm.tmdbId"
               label="标题"
-              placeholder="留空则使用原值"
+              placeholder="留空则从原文件名识别"
               maxlength="100"
               clearable
               :rules="[titleRule]"
@@ -333,8 +338,9 @@
             />
             <v-text-field
               v-model="batchForm.year"
+              :disabled="!!batchForm.tmdbId"
               label="年份"
-              placeholder="留空则使用原值"
+              placeholder="留空则从原文件名识别"
               maxlength="4"
               clearable
               :rules="[yearRule]"
@@ -442,6 +448,7 @@ const detailFields = computed<RecordDetailField[]>(() => {
   if (!row) return []
   return [
     { label: '重命名状态', value: row.status === '1' ? '成功' : '失败' },
+    { label: '失败原因', value: row.status === '0' ? row.failReason : null, error: true },
     { label: '刮削状态', value: SCRAPE_TEXT[row.scrapeStatus] },
     { label: '刮削失败原因', value: row.scrapeStatus === '2' ? row.scrapeMsg : null, error: true },
     { label: '原文件', value: `${row.originalPath}/${row.originalName}`, mono: true, copyable: true },

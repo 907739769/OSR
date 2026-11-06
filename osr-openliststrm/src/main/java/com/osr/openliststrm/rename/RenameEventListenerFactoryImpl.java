@@ -74,6 +74,7 @@ public class RenameEventListenerFactoryImpl implements RenameEventListenerFactor
             record.setNewPath(destDir);
             record.setNewName(destName);
             record.setStatus("1");
+            record.setFailReason(null);
 
             saveOrUpdate(record);
             log.debug("重命名成功已落库：task={} {} -> {}", taskId, original, dest);
@@ -100,9 +101,11 @@ public class RenameEventListenerFactoryImpl implements RenameEventListenerFactor
             }
 
             fillCommonFields(record, info, mediaType);
-            record.setNewPath(targetRoot.toString());
-            record.setNewName(null);
+            if (record.getNewPath() == null || record.getNewName() == null) {
+                record.setNewPath(targetRoot.toString());
+            }
             record.setStatus("0");
+            record.setFailReason(reason == null ? null : reason.substring(0, Math.min(reason.length(), 512)));
 
             saveOrUpdate(record);
             log.info("重命名失败已落库：task={} {} reason={}", taskId, original, reason);

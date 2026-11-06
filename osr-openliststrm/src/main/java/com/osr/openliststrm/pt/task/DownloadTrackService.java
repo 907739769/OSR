@@ -4,6 +4,8 @@ import com.alibaba.fastjson2.JSONObject;
 import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.osr.common.utils.StringUtils;
+import com.osr.common.utils.FaultThrottle;
+import com.osr.openliststrm.rename.MediaIdentityService;
 import com.osr.openliststrm.helper.TgHelper;
 import com.osr.openliststrm.notify.NotificationType;
 import com.osr.openliststrm.notify.NotifyAction;
@@ -109,6 +111,9 @@ public class DownloadTrackService {
      *  代价：真实的超长慢速下载超过该时长也会被释放（其 guid 按附录B 拉黑，该集靠别的种子恢复）。 */
     private final long zombieTimeoutMillisDefault;
 
+    private final MediaIdentityService identityService;
+    private final FaultThrottle identityFailures = new FaultThrottle();
+    private final Map<Integer, Integer> identityBackfillCursor = new java.util.concurrent.ConcurrentHashMap<>();
     private final IPtDownloadRecordPlusService recordService;
     private final IPtSubscriptionEpisodePlusService episodeService;
     private final DownloadCompletionSyncTrigger completionSyncTrigger;
@@ -129,8 +134,10 @@ public class DownloadTrackService {
                                 IPtSubscriptionPlusService subscriptionService,
                                 DownloaderClientFactory downloaderClientFactory,
                                 IPtIndexerPlusService indexerService,
+                                MediaIdentityService identityService,
                                 @Value("${pt.download.max-consecutive-failures:3}") int maxConsecutiveFailures,
                                 @Value("${pt.download.zombie-timeout-hours:24}") int zombieTimeoutHoursDefault) {
+        this.identityService = identityService;
         this.recordService = recordService;
         this.episodeService = episodeService;
         this.completionSyncTrigger = completionSyncTrigger;
@@ -167,6 +174,46 @@ public class DownloadTrackService {
             trackActive(downloader, torrents, active);
         }
         trackSeeding(downloader, torrents, otherSnapshots);
+        captureCompletedIdentities(downloader, torrents);
+    }
+
+    private boolean captureIdentity(PtDownloadRecordPlus record, PtDownloaderPlus downloader,
+                                    DownloaderTorrent torrent, PtSubscriptionPlus sub) {
+        String key = String.valueOf(record.getId());
+        try {
+            identityService.captureDownload(record, downloader, torrent, sub);
+            if (identityFailures.onSuccess(key)) log.info("下载记录[{}] 的作品绑定已恢复", record.getId());
+            return true;
+        } catch (Exception e) {
+            var decision = identityFailures.onFailure(key);
+            if (decision.shouldReport()) {
+                log.warn("下载记录[{}] 保存作品绑定失败，连续 {} 次，稍后重试：{}",
+                        record.getId(), decision.consecutiveFailures(), e.getMessage(), e);
+            }
+            return false;
+        }
+    }
+
+    /** 给升级前已完成、仍在下载器中的资源补绑定；每轮最多 20 条，不重新下载。 */
+    private void captureCompletedIdentities(PtDownloaderPlus downloader, List<DownloaderTorrent> torrents) {
+        List<String> hashes = torrents.stream().map(DownloaderTorrent::getHash)
+                .filter(java.util.Objects::nonNull).distinct().toList();
+        if (hashes.isEmpty()) return;
+        int afterId = identityBackfillCursor.getOrDefault(downloader.getId(), 0);
+        List<PtDownloadRecordPlus> completed = recordService.list(new QueryWrapper<PtDownloadRecordPlus>()
+                .eq("downloader_id", downloader.getId()).eq("state", STATE_COMPLETED)
+                .in("torrent_hash", hashes).gt("id", afterId)
+                .inSql("sub_id", "SELECT id FROM pt_subscription")
+                .notInSql("id", "SELECT download_id FROM media_identity_binding WHERE source_kind='SNAPSHOT' AND download_id IS NOT NULL")
+                .orderByAsc("id").last("LIMIT 20"));
+        identityBackfillCursor.put(downloader.getId(), completed.size() < 20 ? 0
+                : completed.stream().mapToInt(PtDownloadRecordPlus::getId).max().orElse(0));
+        // 防止一批暂时取不到文件清单的旧记录长期占住这 20 个补建名额。
+        Map<Integer, PtSubscriptionPlus> subs = loadSubscriptions(completed);
+        for (PtDownloadRecordPlus record : completed) {
+            DownloaderTorrent torrent = findForRecord(torrents, record);
+            if (torrent != null) captureIdentity(record, downloader, torrent, subs.get(record.getSubId()));
+        }
     }
 
     /** 在途记录（PUSHED/DOWNLOADING）的状态推进 */
@@ -191,6 +238,7 @@ public class DownloadTrackService {
                 applyShareLimitsIfNeeded(downloader, record, matched);
                 // 对账也要赶在判完成之前，理由同上：记录转 COMPLETED 后就再不经过 trackActive，
                 // 这是最后一次能读到文件列表并给集打确认标记的机会
+                if (!captureIdentity(record, downloader, matched, subCache.get(record.getSubId()))) continue;
                 confirmEpisodesIfNeeded(downloader, record, matched, subCache.get(record.getSubId()));
                 complete(record, downloader, matched);
             } else if (matched == null) {
@@ -205,6 +253,9 @@ public class DownloadTrackService {
                     // 包里没有任何目标集，记录已判失败、占位集已回退。绝不能再往下走：
                     // markDownloading 是无条件 updateById，会把刚置 FAILED 的记录复活成 DOWNLOADING
                     continue;
+                }
+                if (Boolean.TRUE.equals(record.getFilesSelected())) {
+                    captureIdentity(record, downloader, matched, subCache.get(record.getSubId()));
                 }
                 // H&R 限额越早下发越好：种子刚加进来时下载器就可能按全局限额安排它的命运
                 applyShareLimitsIfNeeded(downloader, record, matched);
@@ -484,6 +535,10 @@ public class DownloadTrackService {
             if (!excludeIndexes.isEmpty()) {
                 downloaderClientFactory.get(downloader).excludeFiles(downloader, matched.getHash(), excludeIndexes);
             }
+            for (DownloaderTorrentFile file : files) {
+                if (excludeIndexes.contains(file.getIndex())) file.setWanted(false);
+            }
+            identityService.captureDownloadFiles(record, matched, sub, files);
             // 文件选完才启动。多集包是以暂停态推送的（见 SubscriptionEngine#shouldPauseOnAdd），
             // 不启动它就永远不会开始下载；对没有暂停加入的种子（单集、磁力、电影）这是无害的空操作，
             // 因此不必记录"当初是不是暂停加进来的"。
