@@ -95,7 +95,7 @@ export function useRenameDetailList() {
   const retryDialogVisible = ref(false)
   const retryLoading = ref(false)
   const retryFormRef = ref<InstanceType<typeof VForm>>()
-  const retryForm = reactive({ id: 0, title: '', year: '', season: '', episode: '', mediaType: '' })
+  const retryForm = reactive({ id: 0, title: '', year: '', season: '', episode: '', tmdbId: '', mediaType: '' })
 
   const handleRetryOne = (row: any) => {
     retryForm.id = row.id
@@ -103,7 +103,8 @@ export function useRenameDetailList() {
     retryForm.year = row.year || ''
     retryForm.season = row.season || ''
     retryForm.episode = row.episode || ''
-    retryForm.mediaType = row.mediaType || ''
+    retryForm.tmdbId = ''
+    retryForm.mediaType = row.mediaType || 'movie'
     retryDialogVisible.value = true
   }
 
@@ -116,8 +117,8 @@ export function useRenameDetailList() {
     if (result && !result.valid) return
     retryLoading.value = true
     try {
-      await executeRenameDetailApi([retryForm.id], retryForm.title || undefined, retryForm.year || undefined, retryForm.season || undefined, retryForm.episode || undefined)
-      message.success('编辑并重命名成功')
+      await executeRenameDetailApi([retryForm.id], retryForm.title || undefined, retryForm.year || undefined, retryForm.season || undefined, retryForm.episode || undefined, retryForm.tmdbId?.trim() || undefined, retryForm.mediaType)
+      message.success('已提交重命名，请刷新查看结果')
       retryDialogVisible.value = false
       getList()
     } catch (error: any) {
@@ -133,10 +134,12 @@ export function useRenameDetailList() {
   const batchDialogVisible = ref(false)
   const batchLoading = ref(false)
   const batchFormRef = ref<InstanceType<typeof VForm>>()
-  const batchForm = reactive({ title: '', year: '' })
+  const batchForm = reactive({ title: '', year: '', tmdbId: '', mediaType: 'movie' })
 
   const handleBatchExecute = () => {
     if (!selectedIds.value.length) return
+    batchForm.tmdbId = ''
+    batchForm.mediaType = 'movie'
     batchForm.title = ''
     batchForm.year = ''
     batchDialogVisible.value = true
@@ -151,8 +154,8 @@ export function useRenameDetailList() {
     if (result && !result.valid) return
     batchLoading.value = true
     try {
-      await executeRenameDetailApi(selectedIds.value, batchForm.title || undefined, batchForm.year || undefined)
-      message.success('批量执行成功')
+      await executeRenameDetailApi(selectedIds.value, batchForm.title || undefined, batchForm.year || undefined, undefined, undefined, batchForm.tmdbId?.trim() || undefined, batchForm.mediaType)
+      message.success('已提交批量重命名，请刷新查看结果')
       batchDialogVisible.value = false
       getList()
     } catch (error: any) {

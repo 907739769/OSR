@@ -143,42 +143,37 @@ public class TMDbClient {
      * 用于"重新刮削"等场景：搜索容易在续集/重制版/同名作品之间选错，
      * 而已入库的 tmdbId 是此前（可能经过人工修正）确定的结果，应优先复用。
      */
-    public void enrichByTmdbId(MediaInfo info, String type, String tmdbId) {
-        if (StringUtils.isEmpty(apiKey) || StringUtils.isBlank(tmdbId)) return;
-        String resolvedType = StringUtils.isNotBlank(type) ? type : (maybeTV(info) ? "tv" : "movie");
-
+    public boolean enrichByTmdbId(MediaInfo info, String type, String tmdbId) {
+        // 已确认身份的请求必须成功取回同一作品，绝不回退为标题搜索。
+        info.setTmdbId(null);
+        if (StringUtils.isBlank(apiKey) || tmdbId == null || !tmdbId.matches("[1-9][0-9]{0,8}")
+                || !("movie".equals(type) || "tv".equals(type))) return false;
         try {
-            int id = Integer.parseInt(tmdbId.trim());
+            int id = Integer.parseInt(tmdbId);
             TMDbApiService api = SpringUtils.getBean(TMDbApiService.class);
-            info.setTmdbId(String.valueOf(id));
-
-            JsonNode d = mapper.readTree(api.getDetails(apiKey, resolvedType, id));
-            if (d != null) {
-                applyYear(info, getYearSafe(d, resolvedType));
-                String best = getBestTitle(resolvedType, d, id, api);
-                if (StringUtils.isNotEmpty(best)) {
-                    info.setTitle(best);
-                }
-                applyDetails(resolvedType, id, d, info, api);
-            } else {
-                log.warn("按 tmdbId 拉取详情为空，回退为搜索匹配：type={}, tmdbId={}", resolvedType, tmdbId);
-                enrich(info);
-                return;
-            }
-
-            if ("tv".equals(resolvedType) && info.getSeason() != null) {
+            String json = api.getDetails(apiKey, type, id);
+            if (json == null) return false;
+            JsonNode d = mapper.readTree(json);
+            String titleField = "movie".equals(type) ? "title" : "name";
+            if (d == null || !d.isObject() || d.path("id").asInt() != id
+                    || d.path(titleField).asText("").isBlank()) return false;
+            info.setTmdbId(tmdbId);
+            applyYear(info, getYearSafe(d, type));
+            String best = getBestTitle(type, d, id, api);
+            if (StringUtils.isNotEmpty(best)) info.setTitle(best);
+            applyDetails(type, id, d, info, api);
+            if ("tv".equals(type) && info.getSeason() != null) {
                 try {
                     enrichEpisodeDetails(info, api);
                 } catch (Exception e) {
-                    log.warn("补全分集详情失败：tvId={}, season={}：{}",
-                            tmdbId, info.getSeason(), e.getMessage());
+                    log.warn("补全分集详情失败：tvId={}, season={}：{}", tmdbId, info.getSeason(), e.getMessage());
                 }
             }
-        } catch (NumberFormatException e) {
-            log.warn("tmdbId 格式非法，回退为搜索匹配：{}", tmdbId);
-            enrich(info);
+            return true;
         } catch (Exception e) {
-            log.error("按 tmdbId 补全 TMDb 信息异常：tmdbId={}", tmdbId, e);
+            info.setTmdbId(null);
+            log.warn("按指定 TMDb ID 获取详情失败：type={}, tmdbId={}：{}", type, tmdbId, e.getMessage(), e);
+            return false;
         }
     }
 

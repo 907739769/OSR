@@ -1,6 +1,7 @@
 package com.osr.openliststrm.mybatisplus.domain;
 
 import com.baomidou.mybatisplus.annotation.IdType;
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
 import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
@@ -124,6 +125,9 @@ public class RenameDetailPlus extends BaseEntity {
      */
     @TableField("status")
     private String status;
+
+    @TableField(value = "fail_reason", updateStrategy = FieldStrategy.ALWAYS)
+    private String failReason;
 
     /**
      * 刮削状态 0-未执行 1-成功 2-失败

@@ -6,6 +6,7 @@
 > 新增本域的踩坑记录写这里，不要往根 `AGENTS.md` 里塞。
 
 ## NOTES
+- **`enrichByTmdbId` 返回 boolean，true 只代表成功取得指定 ID 与类型的作品详情；false 不得接着做标题搜索或 AI 猜片**。空详情、错误 ID、缺少标题或网络异常都返回 false，并清掉 `MediaInfo.tmdbId`，避免留下“有 ID 就算成功”的半成品；`MediaParser.parseWithKnownTmdbId` 将 false 转为可重试的识别失败。类型参数必须显式传小写 `movie`/`tv`。
 - **TMDb 匹配里，打分只排序，采纳与否由两道独立检验决定**（`TMDbClient#doSearchOnce`）：正面的 `hasEnoughEvidence`（标题命中 / 年份接近 / 英文规范名命中，三选一）与反面的 `episodeCountContradicts`（候选剧的全剧总集数装不下这一集）。三条容易改坏的语义：
   1. **冠军没通过就往下看次席，不是整批放弃**（上限 `MAX_CANDIDATES_EXAMINED=3`）。正确答案经常只是打分上的第二名——中文作品拿英文名去搜时，它的 name/original_name 全是中文，一分标题分都拿不到。`Perfect.World.S01E282.2021` 被刮成 TMDb 上 2000 年那部 6 集英国喜剧就是这么来的：英国剧 `original_name` 与解析标题逐字相等拿满 +100，国产动画《完美世界》只有年份吻合的加分，还顺带把年份改写成 2000、按 `origin_country=GB` 分到了「欧美剧」。
   2. **集号反证留一倍余量**（`episode > total * 2` 才判矛盾），不是简单的 `episode > total`。集号有三套（见上一条），发布组按绝对集号命名时集号本来就可能略超 TMDb 的记录，新集刚播出时 TMDb 滞后一两集也是常态；只否掉差着数量级的情况，误否的代价（该文件不重命名）才压得住。

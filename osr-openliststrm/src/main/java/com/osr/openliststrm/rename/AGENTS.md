@@ -7,6 +7,9 @@
 > 新增本域的踩坑记录写这里。
 
 ## NOTES
+- **不能把“下载清单尚未采集”当成“无下载关联”直接搜索片名**。单集、电影、磁力不暂停，可能先于 30 秒追踪轮询完成；`MediaIdentityService.resolve` 在回退前主动核对待绑定下载。快照按推送版本区分，文件选择入口完整替换；`download_id` 被失败重试复用后绝不能凭“已有一条绑定”跳过。网络取数在事务外，文件行和 `SNAPSHOT` 标记由 `MediaIdentityBindingStore` 在同一事务内替换。
+- **已确认的作品身份只来自 `MediaIdentityService` 的下载文件绑定或人工指定，不能把自动识别得到的 `rename_detail.tmdb_id` 当成人工确认**。绑定按完整文件路径/原视频大小核对，STRM 反解复用 `StrmSourcePathResolver`；冲突、大小不符或已绑定 ID 的详情请求失败必须停止，不能降级为片名搜索。类型固定为小写 `movie`/`tv`，不能再按有无季集号覆盖。下载清单要在启动暂停种子前、置 COMPLETED 前保存；动画文件里的季号优先于订阅本地季号。迁移与适用范围见仓库 `docs/rename-media-identity.md`。
+- **纠正重命名失败时保留旧 `new_path/new_name`**，只更新失败状态与 `fail_reason`；下一次成功的 `purgeRelocated` 才能找回旧产物。成功时必须把 `fail_reason` 清空。
 - **「这个文件最后落到哪个目录」的三件事单源在 `rename/rule/CategoryPlacement`**：顶层目录名（电影 / 电视剧）、一条规则都没命中时的兜底目录名（未分类）、以及 movie/tv 的判定。调用方有两个——真正执行重命名的 `MediaRenameProcessor#buildDestPath`，和「重命名规则设置」页的重命名测试（`RenameTaskRestController#placement`，它要在不落盘的前提下算出同一条路径给用户看）。两边各写一份 `"movie".equals(mediaType) ? "电影" : "电视剧"` **不会有任何报错**，只是预览出来的路径与实际落盘的路径各自漂移，而「预览的就是实际会发生的」正是这个功能存在的全部意义。判定口径是 **season 或 episode 任一非 null 即 tv**——不是只看 season，只解析出集号没解析出季号的文件（`E03`、绝对集号）照样是剧集；判据用 `!= null` 而不是 blank，与原实现逐字一致，`CategoryPlacementTest` 钉住这条。顺带 `ArtifactPaths.MEDIA_TOP_LEVELS`（空目录回收的边界锚点）与 `RenameTaskManager` 里往上截断 targetRoot 用的那对目录名也都指到这里，全仓只剩这一处字面量。
 - **分类规则的目标目录名是「一层目录名」，不是一段路径**（`CategoryRuleValidator#validateTargetDir`，前端 `targetDirError` 同口径）。它最终落在 `targetRoot.resolve(topLevel).resolve(category)` 上：带 `/` 会静默多建一层目录，`..` 直接把整个媒体库写到 targetRoot 之外；另限 128 字符（`target_dir` 列宽）。前端那道挡的是误操作，接口可以被直接调，真正的边界在后端。
 - **重命名测试要把分类结果一起给出来**（判定类型 / 命中第几条规则 / 完整目标路径）。这页三个 tab 里有两个在配分类目录，只输出文件名的话用户最想验证的那件事恰恰验证不了。命中的是「第几条」而不是「哪个目录名」——两条规则配同一个目标目录时后者分不出来，所以 `CategoryClassifier` 除了 `classify` 还有 `classifyIndex`。

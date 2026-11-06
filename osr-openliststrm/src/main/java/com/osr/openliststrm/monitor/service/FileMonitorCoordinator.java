@@ -33,7 +33,7 @@ public class FileMonitorCoordinator {
     }
 
     public void stop() {
-        monitor.stop();
+        try { monitor.stop(); } finally { processor.close(); }
     }
 }
 

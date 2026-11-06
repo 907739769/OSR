@@ -8,7 +8,10 @@ import java.nio.file.Path;
  * @author: Jack
  * @creat: 2026/1/12 14:45
  */
-public interface FileProcessor {
+public interface FileProcessor extends AutoCloseable {
 
     void process(Path file);
+
+    @Override
+    default void close() {}
 }

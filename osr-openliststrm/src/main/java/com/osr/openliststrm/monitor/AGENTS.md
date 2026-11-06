@@ -6,6 +6,7 @@
 > 新增本域的踩坑记录写这里，不要往根 `AGENTS.md` 里塞。
 
 ## NOTES
+- **STRM 文件事件可能先于生成记录批量落库到达**。下载清单或原视频大小未就绪时抛 `MediaIdentityPendingException`，处理器通过 `DeferredRenameQueue` 按路径合并、最多重试 12 次，不回退片名搜索，也不在暂态写失败记录。文件暂不稳定或撞上并发事件时同样要续上重试。`FileMonitorCoordinator.stop` 的 finally 调 `FileProcessor.close`，取消该处理器的计划。
 - **「文件仍在写入」是持续状态，且它的成本不止一行日志**。`MediaUploadProcessor`/`MediaRenameProcessor` 收到 ENTRY_MODIFY 就判一次稳定性，文件每被写一次就来一个事件，同一个路径每轮得到同一个答案——上 `LogOnce`，稳定之后 `forget`（它再次被改写还会照常记一次）。真正要命的是 **`FileStabilityUtils.isFileStable` 里 `sleep(2)`**：实测一个临时文件在 **3.016 秒**内触发 569 个事件、各起一个异步任务，也就是同一个文件上同时挂着 569 个各睡两秒的线程。所以在途产物必须**在进入稳定性判定之前**就挡掉，判据收口在 `FileStabilityUtils#isTransientArtifact`：
   1. **后缀清单原先散在两个 processor 里各写一份，且只有 `.!qB`/`.part`/`.tmp` 三个**。踩过的是 115 客户端的 `.<sha1>.parts`——**复数 s**，`endsWith(".part")` 不匹配，于是整个临时文件的每一次写入都走完整流程。清单现在放一处、比对大小写不敏感。
   2. **点开头一律跳过**，这是清单之外的第二道：媒体文件不会以点开头，而各家客户端的临时文件几乎都是「点 + 哈希」。清单只能挡已知形态，这条挡未知形态。
