@@ -12,6 +12,8 @@
       </div>
     </div>
 
+    <TodoCard ref="todoCard" class="mb-4" />
+
     <!-- 统计接口失败时明说失败并给重试，不再拿一排 0 冒充「系统很干净」 -->
     <v-alert v-if="statError && !statLoading" type="error" variant="tonal" density="compact" class="mb-3">
       统计数据加载失败，下方数字暂不可用。
@@ -91,17 +93,13 @@
       </v-col>
     </v-row>
 
-    <!-- Bottom: recent failures + todo + quick links -->
+    <!-- Bottom: recent failures + quick links -->
     <v-row class="bottom-row">
-      <v-col id="dashboard-failures" cols="12" md="5">
+      <v-col id="dashboard-failures" cols="12" md="7">
         <RecentFailuresCard />
       </v-col>
 
-      <v-col cols="12" md="3">
-        <TodoCard ref="todoCard" />
-      </v-col>
-
-      <v-col cols="12" md="4">
+      <v-col cols="12" md="5">
         <QuickLinksCard />
       </v-col>
     </v-row>

@@ -13,6 +13,25 @@
       </div>
     </div>
 
+    <!-- 待办提醒：与 PC 首页同源（useDashboardTodo），没有待办时不占位 -->
+    <div v-if="todoItems.length || todoFailed" class="todo-section">
+      <h3>待办提醒</h3>
+      <div v-if="todoFailed" class="todo-failed">
+        部分数据没取到，待办可能不完整
+        <v-btn variant="text" size="small" @click="loadTodo">重试</v-btn>
+      </div>
+      <div
+        v-for="item in todoItems"
+        :key="item.key"
+        class="todo-row"
+        @click="item.path && router.push(item.path)"
+      >
+        <span class="todo-count" :class="item.tone">{{ item.count }}</span>
+        <span class="todo-label">{{ item.label }}</span>
+        <span class="todo-hint">{{ item.hint }}</span>
+      </div>
+    </div>
+
     <!-- 统计概览 -->
     <v-progress-linear v-if="loading && statCards.length" indeterminate color="primary" />
     <v-alert v-if="statError && !loading" type="error" variant="tonal" density="compact">
@@ -43,22 +62,6 @@
         </div>
         <div class="stat-value"><AnimatedNumber :value="stat.value" /></div>
         <div class="stat-label">{{ stat.label }}</div>
-      </div>
-    </div>
-
-    <!-- 待办提醒：与 PC 首页同源（useDashboardTodo），没有待办时不占位 -->
-    <div v-if="todoItems.length || todoFailed" class="todo-section">
-      <h3>待办提醒</h3>
-      <div v-if="!todoItems.length" class="todo-failed">部分数据没取到，暂时无法判断是否有待办</div>
-      <div
-        v-for="item in todoItems"
-        :key="item.key"
-        class="todo-row"
-        @click="item.path && router.push(item.path)"
-      >
-        <span class="todo-count" :class="item.tone">{{ item.count }}</span>
-        <span class="todo-label">{{ item.label }}</span>
-        <span class="todo-hint">{{ item.hint }}</span>
       </div>
     </div>
 

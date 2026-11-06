@@ -130,13 +130,12 @@
       <!-- 批量立即补搜逐条串行，每条一两分钟，必须看得到进度、停得下来 -->
       <div v-if="batchSearchRunning" class="batch-search-progress">
         <v-progress-linear
-          :model-value="batchSearchTotal ? (batchSearchDone / batchSearchTotal) * 100 : 0"
+          indeterminate
           color="primary"
           height="6"
           rounded
         />
-        <span class="batch-search-text">正在补搜 {{ batchSearchDone }}/{{ batchSearchTotal }}</span>
-        <v-btn variant="text" size="small" color="warning" @click="abortBatchSearch">中止</v-btn>
+        <span class="batch-search-text">正在提交后台补搜…</span>
       </div>
 
       <div v-if="loading && taskList.length === 0" class="card-grid card-grid--wide" ref="gridRef">
@@ -218,8 +217,8 @@ const {
   taskList, loading, total, queryParams, getList, handleQuery, resetQuery, openSubscribeDialog, openSubscribeWith, showProgressById, handleDelete,
   selectedIds, selectionMode, toggleSelectionMode,
   handleBatchPause, handleBatchResume,
-  handleBatchAutoSearch, handleBatchSearchMissing, abortBatchSearch,
-  batchSearchRunning, batchSearchDone, batchSearchTotal,
+  handleBatchAutoSearch, handleBatchSearchMissing,
+  batchSearchRunning,
   isAllPageSelected, toggleSelectAllPage, ownerItems, ownerFilterVisible } = usePtSubscriptionProvider({ autoLoad: false })
 
 // 每页条数按网格实际列数取整到整行，窗口宽度变了跟着重算

@@ -1,3 +1,4 @@
+import type { RecordListConfig } from '../useRecordList'
 import { describe, it, expect, vi } from 'vitest'
 import { useRecordList, batchRetryMessage, formatFileSize, removeNetDiskMessage, retryAllFailedMessage } from '../useRecordList'
 
@@ -143,5 +144,49 @@ describe('统计条数据', () => {
 
     await base.getList()
     expect(base.stats.value).toEqual({ '0': 3, total: 10 })
+  })
+})
+
+describe('记录列表加载失败与恢复', () => {
+  const create = (listApi: RecordListConfig['listApi'], statsApi?: RecordListConfig['statsApi']) => useRecordList({
+    listApi, statsApi, batchDeleteApi: vi.fn(), idField: 'id', recordLabel: '测试记录'
+  })
+
+  it('首次失败保持错误态，重试成功后才显示真实空数据', async () => {
+    const base = create(vi.fn().mockRejectedValueOnce(new Error('离线')).mockResolvedValue({ records: [], total: 0 }))
+    await base.getList()
+    expect(base.loadError.value).toBe(true)
+    expect(base.lastLoadedAt.value).toBeNull()
+    expect(base.loading.value).toBe(false)
+    await base.getList()
+    expect(base.loadError.value).toBe(false)
+    expect(base.lastLoadedAt.value).not.toBeNull()
+    expect(base.recordList.value).toEqual([])
+  })
+
+  it('刷新失败保留上次的记录、总数、统计和更新时间', async () => {
+    const api = vi.fn().mockResolvedValueOnce({ records: [{ id: 1 }], total: 7 }).mockRejectedValue(new Error('离线'))
+    const base = create(api, vi.fn().mockResolvedValueOnce({ total: 7 }).mockResolvedValue({ total: 99 }))
+    await base.getList()
+    const time = base.lastLoadedAt.value
+    await base.getList()
+    expect(base.loadError.value).toBe(true)
+    expect(base.recordList.value).toEqual([{ id: 1 }])
+    expect(base.total.value).toBe(7)
+    expect(base.stats.value).toEqual({ total: 7 })
+    expect(base.lastLoadedAt.value).toBe(time)
+  })
+
+  it('自动刷新失败也显示错误，恢复后更新数据并清掉错误', async () => {
+    const api = vi.fn().mockResolvedValueOnce({ records: [{ id: 1 }], total: 1 })
+      .mockRejectedValueOnce(new Error('离线')).mockResolvedValue({ records: [{ id: 2 }], total: 1 })
+    const base = create(api)
+    await base.getList()
+    await base.silentRefresh()
+    expect(base.loadError.value).toBe(true)
+    expect(base.recordList.value).toEqual([{ id: 1 }])
+    await base.silentRefresh()
+    expect(base.loadError.value).toBe(false)
+    expect(base.recordList.value).toEqual([{ id: 2 }])
   })
 })

@@ -93,6 +93,15 @@ class DownloadRecordAdminServiceTest {
         return sub;
     }
 
+    @Test
+    void enrich_缺少下载器与索引器关联时不生成空IN查询() {
+        var row=record(100,10,1,"COMPLETED",null,null);
+        var result=service().enrich(PageResult.of(List.of(row),1,1,10));
+        assertEquals(1,result.getRecords().size());
+        verify(downloaderService,never()).listByIds(any());
+        verify(indexerService,never()).listByIds(any());
+    }
+
     // ---------- enrich ----------
 
     @Test

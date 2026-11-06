@@ -152,6 +152,7 @@ public class OpenlistCopyRestController extends BaseCrudRestController<IOpenlist
         {
             return;
         }
+        wrapper.eq(openlistCopy.getCopyId() != null, "copy_id", openlistCopy.getCopyId());
         wrapper.like(StringUtils.isNotEmpty(openlistCopy.getCopySrcPath()), "copy_src_path", openlistCopy.getCopySrcPath());
         wrapper.like(StringUtils.isNotEmpty(openlistCopy.getCopyDstPath()), "copy_dst_path", openlistCopy.getCopyDstPath());
         wrapper.like(StringUtils.isNotEmpty(openlistCopy.getCopySrcFileName()), "copy_src_file_name", openlistCopy.getCopySrcFileName());

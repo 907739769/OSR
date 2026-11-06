@@ -1,3 +1,5 @@
+import { startBackgroundJob } from '../useBackgroundJobs'
+vi.mock('../useBackgroundJobs', () => ({ startBackgroundJob: vi.fn().mockResolvedValue({ id: 'job' }) }))
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { message } from '@/composables/useMessage'
 import { confirm } from '@/composables/useConfirm'
@@ -18,6 +20,7 @@ vi.mock('@/composables/useConfirm', () => ({
 // base.getList() 在 setup 阶段同步调用，mock 掉整个 API 模块避免真实网络请求。
 vi.mock('@/api/openlist/ptSubscription', () => ({
   getPtSubscriptionListApi: vi.fn().mockResolvedValue({ records: [], total: 0 }),
+  getSubscriptionOwnersApi: vi.fn().mockResolvedValue([]),
   addPtSubscriptionApi: vi.fn(),
   updatePtSubscriptionApi: vi.fn(),
   deletePtSubscriptionApi: vi.fn(),
@@ -71,7 +74,6 @@ import {
   resetEpisodeApi
 } from '@/api/openlist/ptSubscription'
 import { usePtStatusSocket } from '../usePtStatusSocket'
-import { searchMissingApi } from '@/api/openlist/ptHealth'
 import { getPtIndexerListApi } from '@/api/openlist/ptIndexer'
 
 describe('usePtSubscription 的批量暂停/恢复', () => {
@@ -171,152 +173,32 @@ describe('usePtSubscription 实时状态推送', () => {
   })
 })
 
-describe('usePtSubscription 一键补齐全部缺集', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    ;(getPtSubscriptionListApi as any).mockResolvedValue({ records: [], total: 0 })
-    ;(getSubscriptionProgressApi as any).mockResolvedValue({
-      totalEpisodes: 3, inLibraryCount: 0, inFlightCount: 0, missingEpisodes: [1, 2, 3]
-    })
-  })
-
-  /**
-   * 这条守的是一个隐蔽缺陷：循环里每集要等一次几十秒的检索，期间弹窗点遮罩就能关，
-   * 用户去点开另一条订阅的进度会改掉 currentSubscription——旧实现每轮现读它，
-   * 于是剩下的集变成「拿 A 的集号、按 B 的标题、推给 B 的订阅」，界面上毫无迹象。
-   */
-  it('跑批中途 currentSubscription 被换掉，剩余集仍推给发起时那条订阅', async () => {
-    const subA = { id: 1, title: 'A剧', season: 1, mediaType: 'TV' }
-    const subB = { id: 99, title: 'B剧', season: 2, mediaType: 'TV' }
-    const composable = usePtSubscription()
-    composable.currentSubscription.value = subA
-    composable.progress.value = { missingEpisodes: [1, 2, 3] }
-
-    ;(searchSupplementApi as any).mockImplementation(async () => {
-      // 第一集搜完就模拟用户切到了另一条订阅
-      composable.currentSubscription.value = subB
-      return { pushed: true }
-    })
-
-    await composable.handleSearchAllMissing()
-
-    const calls = (searchSupplementApi as any).mock.calls
-    // 1 次整季 + 3 次逐集（进度 mock 仍报 3 集都缺）
-    expect(calls).toHaveLength(4)
-    for (const [subId, payload] of calls) {
-      expect(subId).toBe(subA.id)
-      expect(payload.keyword).toContain('A剧')
-      expect(payload.keyword).toContain('S01')
-    }
-    expect(getSubscriptionProgressApi).toHaveBeenCalledWith(subA.id)
-  })
-
-  /**
-   * 只逐集搜是搜不到季包的：`片名 S01E05` 命不中标题 `片名 S01`，逐集模式也不推解析不出集号的季包。
-   * 第一步先走与缺集体检「立即补搜」同一套整季补搜，补上的集不再逐个重搜。
-   */
-  it('先整季补搜，只对仍缺着的集逐集搜', async () => {
-    const composable = usePtSubscription()
-    composable.currentSubscription.value = { id: 1, title: 'A剧', season: 1, mediaType: 'TV' }
-    composable.progress.value = { missingEpisodes: [1, 2, 3] }
-    ;(searchSupplementApi as any).mockImplementation(async (_id: number, payload: any) =>
-      payload.episode === -1 ? { pushed: true, pushedCount: 2 } : { pushed: true })
-    // 整季那一步推掉了 1、2 集
-    ;(getSubscriptionProgressApi as any).mockResolvedValue({ missingEpisodes: [3] })
-
-    await composable.handleSearchAllMissing()
-
-    const episodes = (searchSupplementApi as any).mock.calls.map((c: any[]) => c[1].episode)
-    expect(episodes).toEqual([-1, 3])
-    expect((searchSupplementApi as any).mock.calls[0][1].keyword).toBe('A剧 S01')
-    expect(composable.searchAllMissingDone.value).toBe(3)
-    expect(message.success).toHaveBeenCalledWith(expect.stringContaining('共推送 3 个资源'))
-  })
-
-  it('整季那一步失败时退回逐集搜索，不让用户白等', async () => {
-    const composable = usePtSubscription()
-    composable.currentSubscription.value = { id: 1, title: 'A剧', season: 1, mediaType: 'TV' }
-    composable.progress.value = { missingEpisodes: [1, 2] }
-    ;(searchSupplementApi as any).mockImplementation(async (_id: number, payload: any) => {
-      if (payload.episode === -1) throw new Error('timeout')
-      return { pushed: false }
-    })
-
-    await composable.handleSearchAllMissing()
-
-    const episodes = (searchSupplementApi as any).mock.calls.map((c: any[]) => c[1].episode)
-    expect(episodes).toEqual([-1, 1, 2])
-    expect(composable.searchAllMissingSeasonPhase.value).toBe(false)
-  })
-
-  it('用户点停止后，当前这一集跑完就收尾，不再搜后面的集', async () => {
-    const composable = usePtSubscription()
-    composable.currentSubscription.value = { id: 1, title: 'A剧', season: 1, mediaType: 'TV' }
-    composable.progress.value = { missingEpisodes: [1, 2, 3, 4, 5] }
-
-    ;(getSubscriptionProgressApi as any).mockResolvedValue({ missingEpisodes: [1, 2, 3, 4, 5] })
-    ;(searchSupplementApi as any).mockImplementation(async (_id: number, payload: any) => {
-      if (payload.episode !== -1) composable.abortSearchAllMissing()
-      return { pushed: false }
-    })
-
-    await composable.handleSearchAllMissing()
-
-    // 整季一次 + 第一集发出去了、跑完才停，所以恰好两次
-    expect((searchSupplementApi as any).mock.calls).toHaveLength(2)
-    expect(composable.searchAllMissingDone.value).toBe(1)
-    expect(composable.searchAllMissingTotal.value).toBe(5)
-    expect(composable.searchAllMissingLoading.value).toBe(false)
-  })
-
-  /**
-   * 未播出的集站上不可能有资源。旧实现照单全收 missingEpisodes，一部刚播到第 3 集的
-   * 12 集新番会为 9 个注定落空的集各打一整轮索引器请求，用户白等十几分钟。
-   */
-  it('未播出的集不进跑批，缺集串照旧显示全部', async () => {
-    const composable = usePtSubscription()
-    composable.currentSubscription.value = { id: 1, title: 'A剧', season: 1, mediaType: 'TV' }
-    composable.progress.value = { missingEpisodes: [1, 2, 3, 4, 5], unairedEpisodes: [4, 5] }
-    ;(searchSupplementApi as any).mockResolvedValue({ pushed: false })
-
-    // 缺集串不受影响——用户要知道这季还缺几集
-    expect(composable.visibleMissingEpisodes.value).toEqual([1, 2, 3, 4, 5])
-    expect(composable.fillableMissingEpisodes.value).toEqual([1, 2, 3])
-
-    await composable.handleSearchAllMissing()
-
-    const searched = (searchSupplementApi as any).mock.calls.map((c: any[]) => c[1].episode)
-    // -1 是第一步的整季补搜（后端同样跳过未播集）
-    expect(searched).toEqual([-1, 1, 2, 3])
-    expect(composable.searchAllMissingTotal.value).toBe(3)
-  })
-
-  it('缺集全部未播出时，一键补齐直接不跑', async () => {
-    const composable = usePtSubscription()
-    composable.currentSubscription.value = { id: 1, title: 'A剧', season: 1, mediaType: 'TV' }
-    composable.progress.value = { missingEpisodes: [4, 5], unairedEpisodes: [4, 5] }
-
-    await composable.handleSearchAllMissing()
-
+describe('一键补齐委托服务端任务', () => {
+  beforeEach(() => { vi.clearAllMocks() })
+  it('按订阅快照提交一次后台补搜，不在浏览器逐集循环', async () => {
+    const c = usePtSubscription()
+    c.currentSubscription.value = { id: 1, title: 'A', season: 1 }
+    c.progress.value = { missingEpisodes: [1, 2, 3] }
+    await c.handleSearchAllMissing()
+    expect(startBackgroundJob).toHaveBeenCalledWith('SUBSCRIPTION_SEARCH', [1])
     expect(searchSupplementApi).not.toHaveBeenCalled()
-    expect(composable.searchAllMissingLoading.value).toBe(false)
+    expect(c.searchAllMissingLoading.value).toBe(false)
   })
-
-  it('跑批期间切走订阅后，进度不回写到用户正在看的那条', async () => {
-    const composable = usePtSubscription()
-    composable.currentSubscription.value = { id: 1, title: 'A剧', season: 1, mediaType: 'TV' }
-    composable.progress.value = { missingEpisodes: [1] }
-    const progressOfB = { missingEpisodes: [7] }
-    ;(searchSupplementApi as any).mockImplementation(async () => {
-      composable.currentSubscription.value = { id: 99, title: 'B剧', season: 2, mediaType: 'TV' }
-      composable.progress.value = progressOfB
-      return { pushed: true }
-    })
-
-    await composable.handleSearchAllMissing()
-
-    // 整季那一步之后会为「A」重查一次进度用来算剩余集，但不能写进用户正在看的 B 的弹窗
-    expect(composable.progress.value).toEqual(progressOfB)
+  it('未播出的集全部跳过，不创建空任务', async () => {
+    const c = usePtSubscription()
+    c.currentSubscription.value = { id: 1 }
+    c.progress.value = { missingEpisodes: [1], unairedEpisodes: [1] }
+    await c.handleSearchAllMissing()
+    expect(startBackgroundJob).not.toHaveBeenCalled()
+  })
+  it('提交失败保留当前订阅与进度，允许再次提交', async () => {
+    vi.mocked(startBackgroundJob).mockRejectedValueOnce(new Error('离线'))
+    const c = usePtSubscription()
+    c.currentSubscription.value = { id: 2 }
+    c.progress.value = { missingEpisodes: [1] }
+    await expect(c.handleSearchAllMissing()).rejects.toThrow('离线')
+    expect(c.searchAllMissingLoading.value).toBe(false)
+    expect(c.currentSubscription.value.id).toBe(2)
   })
 })
 
@@ -545,40 +427,18 @@ describe('usePtSubscription 的批量自动补搜与批量立即补搜', () => {
     expect(batchAutoSearchSubscriptionApi).not.toHaveBeenCalled()
   })
 
-  /**
-   * 逐条串行、静默调用（每条失败不各弹一次）、最后汇总一句。
-   * 并发打会让索引器一次吃下几倍的请求；不静默的话十几条落空会刷一屏错误提示
-   */
-  it('批量立即补搜逐条串行并静默，最后汇总失败条数', async () => {
-    const order: number[] = []
-    ;(searchMissingApi as any).mockImplementation(async (id: number) => {
-      order.push(id)
-      if (id === 2) throw new Error('未推送任何资源')
-      return '已推送 1 个资源到下载器'
-    })
+  it('批量补搜只提交一份任务，顺序与进度由服务端维护', async () => {
     const c = usePtSubscription()
     c.selectedIds.value = [1, 2, 3]
-
     await c.handleBatchSearchMissing()
-
-    expect(order).toEqual([1, 2, 3])
-    expect(searchMissingApi).toHaveBeenCalledWith(1, true)
-    expect(c.batchSearchDone.value).toBe(3)
+    expect(startBackgroundJob).toHaveBeenCalledWith('SUBSCRIPTION_SEARCH', [1, 2, 3])
     expect(c.batchSearchRunning.value).toBe(false)
-    expect(message.success).toHaveBeenCalledWith(expect.stringContaining('其中 1 条未推送任何资源'))
   })
-
-  it('中止后不再发起后面的补搜', async () => {
+  it('取消确认时不创建任务', async () => {
+    vi.mocked(confirm).mockRejectedValueOnce('cancel')
     const c = usePtSubscription()
-    ;(searchMissingApi as any).mockImplementation(async (id: number) => {
-      if (id === 1) c.abortBatchSearch()
-      return 'ok'
-    })
-    c.selectedIds.value = [1, 2, 3]
-
+    c.selectedIds.value = [1]
     await c.handleBatchSearchMissing()
-
-    expect(searchMissingApi).toHaveBeenCalledTimes(1)
-    expect(message.success).toHaveBeenCalledWith(expect.stringContaining('已中止'))
+    expect(startBackgroundJob).not.toHaveBeenCalled()
   })
 })

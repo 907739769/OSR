@@ -42,6 +42,7 @@
           <p v-if="diagnosis.pendingTotal > diagnosis.episodes.length" class="diag-more">
             共 {{ diagnosis.pendingTotal }} 集未入库，只列了前 {{ diagnosis.episodes.length }} 集。
           </p>
+          <SubscriptionWorkflow />
         </template>
       </v-card-text>
       <v-card-actions>
@@ -63,7 +64,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { usePtSubscriptionContext } from '@/composables/ptSubscriptionContext'
-import { searchMissingApi } from '@/api/openlist/ptHealth'
+import { startBackgroundJob } from '@/composables/useBackgroundJobs'
+import SubscriptionWorkflow from './SubscriptionWorkflow.vue'
 import { message } from '@/composables/useMessage'
 
 const { diagnosisOpen, diagnosisLoading, diagnosis, diagnosisTarget, showDiagnosis } = usePtSubscriptionContext()
@@ -85,8 +87,8 @@ async function searchNow() {
   if (!target) return
   searching.value = true
   try {
-    const result = await searchMissingApi(target.id)
-    message.success(result || '补搜完成')
+    await startBackgroundJob('SUBSCRIPTION_SEARCH', [target.id])
+    message.success('已提交后台补搜，可在任务中心查看逐项结果')
     // 弹窗可能已经被关掉、或换成了另一条订阅，那时不要把旧订阅的诊断刷回去
     if (diagnosisOpen.value && diagnosisTarget.value?.id === target.id) {
       await showDiagnosis(target)

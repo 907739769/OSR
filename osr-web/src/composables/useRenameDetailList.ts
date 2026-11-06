@@ -73,7 +73,7 @@ export function renameTags(row: any): string[] {
  */
 export function useRenameDetailList() {
   const {
-    recordList, loading, total, queryParams, totalPages,
+    recordList, loading, loadError, lastLoadedAt, recordFocus, clearRecordFocus, total, queryParams, totalPages,
     getList, silentRefresh, prevPage, nextPage, handleSizeChange,
     queryRef, dateRange, dateStart, dateEnd, handleQuery, resetQuery,
     selectedIds, noneSelected, toggleSelect, handleCardClick, clearSelection, handleSelectionChange,
@@ -85,6 +85,7 @@ export function useRenameDetailList() {
     statsApi: getRenameDetailStatsApi,
     retryFailedApi: retryAllFailedRenameDetailApi,
     batchDeleteApi: batchDeleteRenameDetailApi,
+    focusKey: 'id',
     idField: 'id',
     labelField: 'newName',
     recordLabel: '重命名记录',
@@ -272,7 +273,7 @@ export function useRenameDetailList() {
   }
 
   return {
-    recordList, loading, total, queryParams, totalPages, stats,
+    recordList, loading, loadError, lastLoadedAt, recordFocus, clearRecordFocus, total, queryParams, totalPages, stats,
     getList, silentRefresh, prevPage, nextPage, handleSizeChange,
     queryRef, dateRange, dateStart, dateEnd, handleQuery, resetQuery,
     selectedIds, noneSelected, toggleSelect, handleCardClick, clearSelection, handleSelectionChange,

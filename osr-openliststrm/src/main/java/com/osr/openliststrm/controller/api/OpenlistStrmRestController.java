@@ -162,6 +162,7 @@ public class OpenlistStrmRestController extends BaseController
     {
         if (openlistStrm != null)
         {
+            wrapper.eq(openlistStrm.getStrmId() != null, "strm_id", openlistStrm.getStrmId());
             wrapper.like(StringUtils.isNotEmpty(openlistStrm.getStrmPath()), "strm_path", openlistStrm.getStrmPath());
             wrapper.like(StringUtils.isNotEmpty(openlistStrm.getStrmFileName()), "strm_file_name", openlistStrm.getStrmFileName());
             wrapper.eq(StringUtils.isNotEmpty(openlistStrm.getStrmStatus()), "strm_status", openlistStrm.getStrmStatus());

@@ -1,5 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
+import { setupGuideOpen } from '@/composables/useSetupGuide'
+import { clearBackgroundJobs } from '@/composables/useBackgroundJobs'
 import Cookies from 'js-cookie'
 import type { UserInfo, LoginRequest, LoginResponse } from '@/types'
 import { loginApi, logoutApi, getUserInfoApi, getRoutersApi, refreshApi } from '@/api/auth'
@@ -46,6 +48,8 @@ export const useUserStore = defineStore('user', () => {
   }
 
   const clearToken = () => {
+    clearBackgroundJobs()
+    setupGuideOpen.value = false
     token.value = ''
     refreshToken.value = ''
     userInfo.value = null

@@ -129,6 +129,8 @@
     </SearchPanel>
 
     <!-- 列表 -->
+    <ListLoadNotice :focus-id="recordFocus" @clear-focus="clearRecordFocus" :failed="loadError" :last-loaded-at="lastLoadedAt" :loading="loading" @retry="getList" />
+
     <v-card class="table-card">
       <div class="action-bar">
         <div class="action-left">
@@ -369,7 +371,7 @@
             </v-btn>
           </div>
         </div>
-        <v-empty-state v-if="!loading && taskList.length === 0" icon="inbox" title="暂无下载记录" />
+        <v-empty-state v-if="!loadError && !loading && taskList.length === 0" icon="inbox" title="暂无下载记录" />
       </div>
 
       <div class="pagination-wrapper">
@@ -420,6 +422,7 @@
 </template>
 
 <script setup lang="ts">
+import ListLoadNotice from '@/components/ListLoadNotice.vue'
 import PageHeader from '@/components/PageHeader.vue'
 import StatusChip from '@/components/StatusChip.vue'
 import RecordStatusBar from '@/components/RecordStatusBar.vue'
@@ -449,7 +452,7 @@ const subscriptionPath = getRoutePathForComponent('openlist/ptSubscription/index
 // 首次加载交给 useGridPageSize（autoLoad: false）：每页条数要按网格实际列数取整到整行，
 // 列数得挂载后才量得准，先按兜底值发一次再改口是白跑一趟请求
 const {
-  taskList, loading, total, queryParams, stats, getList, handleQuery, resetQuery, queryRef,
+  taskList, loading, loadError, lastLoadedAt, recordFocus, clearRecordFocus, total, queryParams, stats, getList, handleQuery, resetQuery, queryRef,
   dateStart, dateEnd, indexerOptions, downloaderOptions,
   subFilterLabel, clearSubFilter, routeFilterTick,
   retryingIds, handleRetry,

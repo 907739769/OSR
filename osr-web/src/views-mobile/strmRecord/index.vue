@@ -1,11 +1,12 @@
 <template>
   <MobileListPage
     :loading="loading"
-    :empty="!loading && recordList.length === 0"
+    :empty="!loadError && !loading && recordList.length === 0"
     empty-icon="inbox"
     empty-title="暂无STRM记录"
   >
     <template #head>
+      <ListLoadNotice :focus-id="recordFocus" @clear-focus="clearRecordFocus" :failed="loadError" :last-loaded-at="lastLoadedAt" :loading="loading" @retry="getList" />
       <!-- 搜索 -->
       <MobileSearchPanel v-model:collapsed="searchCollapsed" :loading="loading" @search="handleQuery" @reset="resetQuery">
         <v-form ref="queryRef">
@@ -184,6 +185,7 @@
 </template>
 
 <script setup lang="ts">
+import ListLoadNotice from '@/components/ListLoadNotice.vue'
 import { ref, computed } from 'vue'
 import MobileListPage from '@/components/mobile/MobileListPage.vue'
 import MobileActionSheet from '@/components/mobile/MobileActionSheet.vue'
@@ -200,7 +202,7 @@ import { formatFileSize } from '@/composables/useRecordList'
 const searchCollapsed = ref(true)
 
 const {
-  recordList, loading, total, queryParams, totalPages, stats,
+  recordList, loading, loadError, lastLoadedAt, recordFocus, clearRecordFocus, total, queryParams, totalPages, stats,
   getList, prevPage, nextPage, handleSizeChange,
   queryRef, dateStart, dateEnd, handleQuery, resetQuery,
   selectedIds, toggleSelect, handleCardClick, clearSelection,
