@@ -17,6 +17,7 @@ import java.util.Map;
  */
 @Data
 public class PtDownloadRecordQueryReq {
+    private Integer recordId;
 
     private Integer subId;
     private String state;

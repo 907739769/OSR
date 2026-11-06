@@ -1,4 +1,5 @@
-import { ref, reactive, computed, watch, onActivated, onDeactivated, onBeforeUnmount } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { getCurrentInstance, ref, reactive, computed, watch, onActivated, onDeactivated, onBeforeUnmount } from 'vue'
 import { message } from '@/composables/useMessage'
 import { confirm } from '@/composables/useConfirm'
 import { resetQueryParams } from '@/composables/queryParams'
@@ -26,6 +27,8 @@ export interface RecordListConfig<TQuery extends SearchParams = SearchParams> {
    * 省得用户盯着一条处理中的记录反复手动刷新；全部结束后自动停。
    */
   isInProgress?: (row: any) => boolean
+  /** 支持从诊断深链定位的查询键 */
+  focusKey?: string
   /** 主键字段名 */
   idField: string
   /** 确认弹窗里指代单条记录的字段（一般是文件名），缺省用 idField */
@@ -53,6 +56,8 @@ export function useRecordList<TQuery extends SearchParams = SearchParams>(config
   const recordList = ref<any[]>([])
   const loading = ref(true)
   const total = ref(0)
+  const loadError = ref(false)
+  const lastLoadedAt = ref<string | null>(null)
 
   // 默认查询条件快照，重置时按它还原（见 resetQuery）
   const defaultQueryParams: SearchParams = {
@@ -63,25 +68,52 @@ export function useRecordList<TQuery extends SearchParams = SearchParams>(config
 
   const queryParams = reactive<SearchParams>({ ...defaultQueryParams }) as TQuery
 
+  const focusKey = config.focusKey
+  const recordFocus = computed(() => focusKey && queryParams[focusKey] ? Number(queryParams[focusKey]) : null)
+  let clearFocusRoute = () => {}
+  if (focusKey && getCurrentInstance()) {
+    const route = useRoute(), router = useRouter()
+    if (route && router) {
+      const ownPath = route.path
+      const apply = () => {
+        const raw = route.query[focusKey]
+        if (typeof raw === 'string' && /^[1-9]\d*$/.test(raw)) {
+          resetQueryParams(queryParams, defaultQueryParams)
+          ;(queryParams as SearchParams)[focusKey] = Number(raw)
+          return true
+        }
+        return false
+      }
+      apply()
+      watch(() => route.fullPath, () => { if (route.path === ownPath && apply()) getList() })
+      clearFocusRoute = () => {
+        if (!(focusKey in route.query)) return
+        const query = { ...route.query }; delete query[focusKey]
+        router.replace({ query })
+      }
+    }
+  }
+  const clearRecordFocus = () => { resetQuery() }
+
   const totalPages = computed(() => Math.ceil(total.value / queryParams.pageSize) || 1)
 
   /** 统计条数据；接口不可用时保持 null，页面就不渲染统计条 */
   const stats = ref<Record<string, number> | null>(null)
 
-  async function fetchStats() {
-    if (!statsApi) return
-    try {
-      stats.value = await statsApi(queryParams)
-    } catch (e) {
-      // 统计条是附加信息，拉不到不影响列表本身
-      console.error(`[${recordLabel}] 统计加载失败:`, e)
-    }
-  }
-
   async function fetchList() {
-    const [res] = await Promise.all([listApi(queryParams) as Promise<PageResult>, fetchStats()])
+    // 列表与统计一起提交，列表失败时保留同一批旧数据，避免旧行配上新统计。
+    const [res, counts] = await Promise.all([
+      listApi(queryParams) as Promise<PageResult>,
+      statsApi ? statsApi(queryParams).catch(e => {
+        console.error(`[${recordLabel}] 统计加载失败:`, e)
+        return null
+      }) : Promise.resolve(null)
+    ])
     recordList.value = res.records || []
     total.value = res.total || 0
+    stats.value = counts
+    loadError.value = false
+    lastLoadedAt.value = new Date().toISOString()
   }
 
   /** 是否已成功拉过一次列表，用于区分「首次进入」与「返回已缓存的页面」 */
@@ -95,8 +127,7 @@ export function useRecordList<TQuery extends SearchParams = SearchParams>(config
       loadedOnce = true
     } catch (e) {
       console.error(`[${recordLabel}] 列表加载失败:`, e)
-      recordList.value = []
-      total.value = 0
+      loadError.value = true
     } finally {
       loading.value = false
     }
@@ -107,6 +138,7 @@ export function useRecordList<TQuery extends SearchParams = SearchParams>(config
     try {
       await fetchList()
     } catch (e) {
+      loadError.value = true
       console.error(`[${recordLabel}] 刷新失败:`, e)
     }
   }
@@ -231,6 +263,7 @@ export function useRecordList<TQuery extends SearchParams = SearchParams>(config
   }
 
   const resetQuery = () => {
+    clearFocusRoute()
     dateRange.value = null
     resetQueryParams(queryParams, defaultQueryParams)
     // 值已由上面还原，这里只清校验态（v-form.reset() 会顺带把值清成 null，不能用）
@@ -354,7 +387,7 @@ export function useRecordList<TQuery extends SearchParams = SearchParams>(config
 
   return {
     // 列表 & 分页
-    recordList, loading, total, queryParams, totalPages,
+    recordList, loading, loadError, lastLoadedAt, recordFocus, clearRecordFocus, total, queryParams, totalPages,
     getList, silentRefresh, prevPage, nextPage, handleSizeChange, stats,
     // 搜索
     queryRef, dateRange, dateStart, dateEnd, handleQuery, resetQuery,

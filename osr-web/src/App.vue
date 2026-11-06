@@ -13,6 +13,8 @@
     <!-- PWA 版本更新提示：非模态，不打断当前操作 -->
     <AppUpdatePrompt />
 
+    <SetupGuide v-if="!isHiddenRoute && userStore.userInfo?.userId === 1" />
+    <BackgroundTaskCenter v-if="!isHiddenRoute && userStore.token" />
     <GlobalFeedback />
   </v-app>
 </template>
@@ -25,6 +27,9 @@ import { useThemeMode } from '@/composables/useThemeMode'
 import DesktopLayout from '@/layouts/DesktopLayout.vue'
 import MobileLayout from '@/layouts/MobileLayout.vue'
 import AppUpdatePrompt from '@/components/AppUpdatePrompt.vue'
+import SetupGuide from '@/components/SetupGuide.vue'
+import BackgroundTaskCenter from '@/components/BackgroundTaskCenter.vue'
+import { useUserStore } from '@/stores/user'
 import GlobalFeedback from '@/components/GlobalFeedback.vue'
 
 // 初始化主题模式（浅色/深色/跟随系统），写入 <html data-theme> 与 Vuetify 主题
@@ -32,6 +37,7 @@ useThemeMode()
 
 const route = useRoute()
 const appStore = useAppStore()
+const userStore = useUserStore()
 
 const isHiddenRoute = computed(() => {
   return route.meta?.hidden === true

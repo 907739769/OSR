@@ -71,6 +71,8 @@
     </SearchPanel>
 
     <!-- Table Card -->
+    <ListLoadNotice :focus-id="recordFocus" @clear-focus="clearRecordFocus" :failed="loadError" :last-loaded-at="lastLoadedAt" :loading="loading" @retry="getList" />
+
     <v-card class="table-card">
       <!-- Action Bar -->
       <div class="action-bar">
@@ -134,6 +136,9 @@
         @update:items-per-page="onSizeChange"
         @update:sort-by="onSortChange"
       >
+        <template #no-data>
+          <span v-if="!loadError">暂无记录，可调整筛选条件后重试</span>
+        </template>
         <!-- 首屏骨架：插槽带条件，有数据时的刷新不替换数据行（见 SkeletonTable 注释） -->
         <template v-if="!recordList.length" #loading>
           <SkeletonTable :headers="headers" selectable />
@@ -180,6 +185,7 @@
 </template>
 
 <script setup lang="ts">
+import ListLoadNotice from '@/components/ListLoadNotice.vue'
 import { ref, computed } from 'vue'
 import PageHeader from '@/components/PageHeader.vue'
 import StatusChip from '@/components/StatusChip.vue'
@@ -195,7 +201,7 @@ import { formatFileSize } from '@/composables/useRecordList'
 const { showSearch } = useSearchPanel()
 
 const {
-  recordList, loading, total, queryParams, stats,
+  recordList, loading, loadError, lastLoadedAt, recordFocus, clearRecordFocus, total, queryParams, stats,
   getList, queryRef, dateStart, dateEnd, handleQuery, resetQuery,
   noneSelected, handleSelectionChange,
   handleRetryOne, handleBatchRetry, handleDeleteOne, handleBatchDelete,

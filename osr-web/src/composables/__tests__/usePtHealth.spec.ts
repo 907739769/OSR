@@ -1,3 +1,5 @@
+import { startBackgroundJob } from '../useBackgroundJobs'
+vi.mock('../useBackgroundJobs', () => ({ startBackgroundJob: vi.fn().mockResolvedValue({ id: 'job' }) }))
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { message } from '@/composables/useMessage'
 import { confirm } from '@/composables/useConfirm'
@@ -23,7 +25,7 @@ vi.mock('@/router', () => ({ getRoutePathForComponent: () => '/openlist/ptSubscr
 
 import { usePtHealth } from '../usePtHealth'
 import {
-  getPtHealthApi, enableAutoSearchApi, searchMissingApi, setHealthIgnoredApi
+  getPtHealthApi, enableAutoSearchApi, setHealthIgnoredApi
 } from '@/api/openlist/ptHealth'
 
 /** 造一条订阅体检结果 */
@@ -120,7 +122,7 @@ describe('usePtHealth 按行独立的动作状态', () => {
       subscriptions: [sub({ subId: 1 }), sub({ subId: 2 })]
     }))
     let resolveSearch: (v: string) => void = () => {}
-    ;(searchMissingApi as any).mockImplementation(() => new Promise((r) => { resolveSearch = r }))
+    ;(startBackgroundJob as any).mockImplementation(() => new Promise((r) => { resolveSearch = r }))
 
     const c = usePtHealth()
     await flush()

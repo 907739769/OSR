@@ -1,6 +1,7 @@
 <template>
-  <FormDialogShell v-model="open" :title="dialogTitle" :submitting="submitLoading" @submit="submitForm">
+  <FormDialogShell v-model="open" :title="dialogTitle" :submitting="submitLoading" :dirty="isDirty" @submit="handleSubmit">
     <v-form ref="formRef">
+      <SectionDivider>连接设置</SectionDivider>
       <v-text-field
         v-model="form.name"
         label="名称"
@@ -43,6 +44,7 @@
         type="password"
         :placeholder="form.id ? '留空则不修改密码' : '请输入密码'"
       />
+      <SectionDivider>下载设置</SectionDivider>
       <FormField>
         <v-text-field
           v-model="form.savePath"
@@ -61,77 +63,89 @@
         placeholder="推送种子时打的标签"
         :rules="toRuleFns(rules.tag)"
       />
-      <FormField tip="0 表示不限，达到上限时新任务会等到下一轮自动重试">
-        <v-text-field
-          v-model.number="form.maxConcurrent"
-          label="最大并发数"
-          type="number"
-          min="0"
-          :rules="toRuleFns(rules.maxConcurrent)"
-        />
-      </FormField>
       <FormField label="状态">
         <v-radio-group v-model="form.enabled" inline hide-details>
           <v-radio label="启用" value="1" />
           <v-radio label="停用" value="0" />
         </v-radio-group>
       </FormField>
-      <FormField tip="推送种子时按分类在保存路径下自动建子目录，同步到网盘的目录结构会一并跟随">
-        <v-select
-          v-model="form.smartClassifyLevel"
-          label="智能分类"
-          :items="SMART_CLASSIFY_LEVEL_OPTIONS"
-        />
-      </FormField>
-      <FormField tip="「仅做种」的下载器不参与订阅下载的负载均衡，用于接收 IYUU 转移/辅种过来的种子">
-        <v-select v-model="form.role" label="分工" :items="ROLE_OPTIONS" />
-      </FormField>
-      <FormField tip="剩余空间低于它时进首页待办并发通知（刚低于、持续每满一天、恢复时各一次）。留空不告警">
-        <v-text-field
-          v-model.number="form.freeSpaceWarnGb"
-          label="剩余空间告警线（GB）"
-          type="number"
-          min="0"
-          step="0.01"
-          clearable
-        />
-      </FormField>
-      <FormField
-        label="自动删种"
-        tip="按「删种规则」定期清理已达标的种子。仍在 H&R 考核中的种子永远不删；辅种整组同删。开启后请先用规则弹窗里的「预览」确认判定结果"
-      >
-        <v-radio-group v-model="form.autoDeleteEnabled" inline hide-details>
-          <v-radio label="关闭" value="0" />
-          <v-radio label="开启" value="1" />
-        </v-radio-group>
-      </FormField>
-      <template v-if="form.autoDeleteEnabled === '1'">
-        <FormField tip="逗号分隔。带其中任一标签的种子及其辅种组永不删除">
-          <v-text-field
-            v-model="form.autoDeleteExcludeTags"
-            label="删种排除标签"
-            placeholder="如：keep,手动保留"
-          />
-        </FormField>
-        <FormField tip="设了之后只在剩余空间低于它时才删，且从大到小删到腾够为止；读不到剩余空间时不删。留空则不看空间，照旧按规则删">
-          <v-text-field
-            v-model.number="form.autoDeleteFreeBelowGb"
-            label="仅在剩余空间低于（GB）时删种"
-            type="number"
-            min="0"
-            step="0.01"
-            clearable
-          />
-        </FormField>
-        <FormField tip="0 表示不限。规则配错时最多损失一轮的量，不会一次清空整个保种盘">
-          <v-text-field
-            v-model.number="form.autoDeleteMaxPerRound"
-            label="单轮最多删除组数"
-            type="number"
-            min="0"
-          />
-        </FormField>
-      </template>
+      <v-expansion-panels v-model="advancedPanel" variant="accordion" class="mt-4">
+        <v-expansion-panel value="advanced">
+          <v-expansion-panel-title>
+            <div>
+              <div>高级策略</div>
+              <div class="text-caption text-medium-emphasis">{{ advancedSummary }}</div>
+            </div>
+          </v-expansion-panel-title>
+          <v-expansion-panel-text eager>
+            <FormField tip="0 表示不限，达到上限时新任务会等到下一轮自动重试">
+              <v-text-field
+                v-model.number="form.maxConcurrent"
+                label="最大并发数"
+                type="number"
+                min="0"
+                :rules="toRuleFns(rules.maxConcurrent)"
+              />
+            </FormField>
+            <FormField tip="推送种子时按分类在保存路径下自动建子目录，同步到网盘的目录结构会一并跟随">
+              <v-select
+                v-model="form.smartClassifyLevel"
+                label="智能分类"
+                :items="SMART_CLASSIFY_LEVEL_OPTIONS"
+              />
+            </FormField>
+            <FormField tip="「仅做种」的下载器不参与订阅下载的负载均衡，用于接收 IYUU 转移/辅种过来的种子">
+              <v-select v-model="form.role" label="分工" :items="ROLE_OPTIONS" />
+            </FormField>
+            <FormField tip="剩余空间低于它时进首页待办并发通知（刚低于、持续每满一天、恢复时各一次）。留空不告警">
+              <v-text-field
+                v-model.number="form.freeSpaceWarnGb"
+                label="剩余空间告警线（GB）"
+                type="number"
+                min="0"
+                step="0.01"
+                clearable
+              />
+            </FormField>
+            <FormField
+              label="自动删种"
+              tip="按「删种规则」定期清理已达标的种子。仍在 H&R 考核中的种子永远不删；辅种整组同删。开启后请先用规则弹窗里的「预览」确认判定结果"
+            >
+              <v-radio-group v-model="form.autoDeleteEnabled" inline hide-details>
+                <v-radio label="关闭" value="0" />
+                <v-radio label="开启" value="1" />
+              </v-radio-group>
+            </FormField>
+            <template v-if="form.autoDeleteEnabled === '1'">
+              <FormField tip="逗号分隔。带其中任一标签的种子及其辅种组永不删除">
+                <v-text-field
+                  v-model="form.autoDeleteExcludeTags"
+                  label="删种排除标签"
+                  placeholder="如：keep,手动保留"
+                />
+              </FormField>
+              <FormField tip="设了之后只在剩余空间低于它时才删，且从大到小删到腾够为止；读不到剩余空间时不删。留空则不看空间，照旧按规则删">
+                <v-text-field
+                  v-model.number="form.autoDeleteFreeBelowGb"
+                  label="仅在剩余空间低于（GB）时删种"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  clearable
+                />
+              </FormField>
+              <FormField tip="0 表示不限。规则配错时最多损失一轮的量，不会一次清空整个保种盘">
+                <v-text-field
+                  v-model.number="form.autoDeleteMaxPerRound"
+                  label="单轮最多删除组数"
+                  type="number"
+                  min="0"
+                />
+              </FormField>
+            </template>
+          </v-expansion-panel-text>
+        </v-expansion-panel>
+      </v-expansion-panels>
     </v-form>
 
     <template #extra>
@@ -141,6 +155,8 @@
 </template>
 
 <script setup lang="ts">
+import { computed, nextTick, ref, watch } from 'vue'
+import SectionDivider from '@/components/SectionDivider.vue'
 import FormDialogShell from '@/components/dialogs/FormDialogShell.vue'
 import FormField from '@/components/FormField.vue'
 import { usePageState } from '@/composables/pageStateContext'
@@ -149,6 +165,8 @@ import {
   DOWNLOADER_TYPE_OPTIONS,
   SMART_CLASSIFY_LEVEL_OPTIONS,
   ROLE_OPTIONS,
+  smartClassifyLabel,
+  roleLabel,
   type usePtDownloader
 } from '@/composables/usePtDownloader'
 
@@ -156,6 +174,33 @@ const {
   open, dialogTitle, submitLoading, formRef, form, rules, submitForm,
   testLoading, handleTest, savePathWarning, handleSavePathBlur
 } = usePageState<ReturnType<typeof usePtDownloader>>()
+
+const advancedPanel = ref<string>()
+const initialForm = ref('')
+watch(open, value => {
+  if (value) {
+    initialForm.value = JSON.stringify(form.value)
+    advancedPanel.value = undefined
+  }
+}, { immediate: true, flush: 'sync' })
+const isDirty = computed(() => open.value && initialForm.value !== JSON.stringify(form.value))
+const advancedSummary = computed(() => [
+  roleLabel(form.value.role),
+  smartClassifyLabel(form.value.smartClassifyLevel),
+  form.value.maxConcurrent ? `并发 ${form.value.maxConcurrent}` : '并发不限',
+  form.value.autoDeleteEnabled === '1' ? '自动删种已开启' : '自动删种关闭'
+].join(' · '))
+
+async function handleSubmit() {
+  // 高级字段即使折叠也参与校验；无效时展开，让用户能找到并修改错误。
+  const validation = await formRef.value?.validate()
+  if (validation && !validation.valid) {
+    advancedPanel.value = 'advanced'
+    await nextTick()
+    return
+  }
+  await submitForm()
+}
 </script>
 
 <style scoped lang="scss">

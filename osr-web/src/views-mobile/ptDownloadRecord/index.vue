@@ -1,11 +1,12 @@
 <template>
   <MobileListPage
     :loading="loading"
-    :empty="!loading && taskList.length === 0"
+    :empty="!loadError && !loading && taskList.length === 0"
     empty-icon="inbox"
     empty-title="暂无下载记录"
   >
     <template #head>
+      <ListLoadNotice :focus-id="recordFocus" @clear-focus="clearRecordFocus" :failed="loadError" :last-loaded-at="lastLoadedAt" :loading="loading" @retry="getList" />
       <!-- 搜索 -->
       <MobileSearchPanel v-model:collapsed="searchCollapsed" :loading="loading" @search="handleQuery" @reset="resetQuery">
         <v-form ref="queryRef">
@@ -403,6 +404,7 @@
 </template>
 
 <script setup lang="ts">
+import ListLoadNotice from '@/components/ListLoadNotice.vue'
 import { computed, watch } from 'vue'
 import MobileListPage from '@/components/mobile/MobileListPage.vue'
 import MobileActionSheet from '@/components/mobile/MobileActionSheet.vue'
@@ -429,7 +431,7 @@ import { getRoutePathForComponent } from '@/router'
 const subscriptionPath = getRoutePathForComponent('openlist/ptSubscription/index')
 
 const {
-  taskList, loading, total, queryParams, stats, queryRef,
+  taskList, loading, loadError, lastLoadedAt, recordFocus, clearRecordFocus, total, queryParams, stats, queryRef, getList,
   handleQuery, resetQuery, dateStart, dateEnd, indexerOptions, downloaderOptions,
   subFilterLabel, clearSubFilter, routeFilterTick,
   retryingIds, handleRetry,
