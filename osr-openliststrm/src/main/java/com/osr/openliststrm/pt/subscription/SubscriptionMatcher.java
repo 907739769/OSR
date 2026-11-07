@@ -75,22 +75,28 @@ public class SubscriptionMatcher {
      */
     private MatchResult matchAgainst(TorrentInfo torrent, List<PtSubscriptionPlus> subscriptions,
                                      Map<Integer, AbsoluteEpisodeMap> absoluteMaps, Set<String> torrentTitles) {
+        MatchResult selected = null;
         for (PtSubscriptionPlus sub : subscriptions) {
             Set<String> subTitles = normalizeAll(sub.getTitle(), sub.getOriginalTitle(), sub.getEnglishTitle());
             if (Collections.disjoint(torrentTitles, subTitles)) {
                 continue;
             }
             // 标题对得上、ID 却说是另一部作品：同名剧/同名翻拍，标题这一维在构造上分不开它们
-            if (identityOf(torrent, sub) == Identity.DIFFERENT) {
+            if (workConflict(torrent, sub) != null) {
                 continue;
             }
             MatchResult result = matchEpisode(torrent, sub,
                     absoluteMaps.getOrDefault(sub.getId(), AbsoluteEpisodeMap.EMPTY));
             if (result != null) {
-                return result;
+                // 同名而身份未知时不由数据库顺序决定归属；副标题轮仍可提供进一步消歧。
+                if (selected != null && !java.util.Objects.equals(
+                        selected.getSubscription().getId(), sub.getId())) {
+                    return null;
+                }
+                selected = result;
             }
         }
-        return null;
+        return selected;
     }
 
     /**
@@ -105,7 +111,7 @@ public class SubscriptionMatcher {
             return null;
         }
         for (PtSubscriptionPlus sub : subscriptions) {
-            if (identityOf(torrent, sub) != Identity.SAME) {
+            if (identityOf(torrent, sub) != Identity.SAME || workConflict(torrent, sub) != null) {
                 continue;
             }
             MatchResult result = matchEpisode(torrent, sub,
@@ -175,6 +181,61 @@ public class SubscriptionMatcher {
         return (kind == ExternalIds.Kind.MOVIE) == TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType());
     }
 
+    /** 所有订阅入口共用的身份反证。明确 ID 允许合法译名差异，不能绕过年份矛盾。 */
+    public String workConflict(TorrentInfo torrent, PtSubscriptionPlus sub) {
+        Identity identity = identityOf(torrent, sub);
+        if (identity == Identity.DIFFERENT) {
+            return "资源外部 ID 指向另一部作品";
+        }
+        String year = torrent.getParsedYear();
+        String subtitleYear = DescriptionAliases.year(torrent.getDescription());
+        if (!yearPlausible(sub, year) || !yearPlausible(sub, subtitleYear)) {
+            return "资源年份与订阅作品不符（主标题 " + year + "，副标题 " + subtitleYear
+                    + "，订阅 " + sub.getYear() + "）";
+        }
+        if (identity == Identity.SAME) {
+            return null;
+        }
+        Set<String> chineseTitles = chineseTitles(List.of(
+                sub.getTitle() == null ? "" : sub.getTitle(),
+                sub.getOriginalTitle() == null ? "" : sub.getOriginalTitle()));
+        Set<String> aliases = chineseTitles(DescriptionAliases.identityAliases(torrent.getDescription()));
+        if (!Collections.disjoint(chineseTitles, torrentTitles(torrent))) {
+            return null;
+        }
+        if (!chineseTitles.isEmpty() && !aliases.isEmpty() && Collections.disjoint(chineseTitles, aliases)) {
+            return "资源副标题中文名 " + aliases + " 与订阅《" + sub.getTitle() + "》冲突，需人工核对";
+        }
+        return null;
+    }
+
+    private Set<String> chineseTitles(List<String> titles) {
+        Set<String> result = new LinkedHashSet<>();
+        for (String title : titles) {
+            boolean han = title.codePoints().anyMatch(c -> Character.UnicodeScript.of(c) == Character.UnicodeScript.HAN);
+            boolean other = title.codePoints().anyMatch(c -> {
+                Character.UnicodeScript script = Character.UnicodeScript.of(c);
+                return script == Character.UnicodeScript.HIRAGANA || script == Character.UnicodeScript.KATAKANA
+                        || script == Character.UnicodeScript.HANGUL;
+            });
+            if (han && !other) {
+                result.addAll(normalizeAll(title));
+            }
+        }
+        return result;
+    }
+
+    private boolean yearPlausible(PtSubscriptionPlus sub, String year) {
+        if (StringUtils.isBlank(year) || StringUtils.isBlank(sub.getYear())) {
+            return true;
+        }
+        // 第一季对应作品首播年；后续季可以晚于首播年，不能套电影的双向容差。
+        if (TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType()) || Integer.valueOf(1).equals(sub.getSeason())) {
+            return movieYearMatches(sub.getYear(), year);
+        }
+        return seriesYearPlausible(sub.getYear(), year);
+    }
+
     /**
      * 种子侧的候选标题集合（归一化后）。
      * <p>
@@ -221,7 +282,7 @@ public class SubscriptionMatcher {
                 return null;
             }
             // 同名翻拍常见，年份不符宁可漏也不能串台
-            if (!movieYearMatches(sub.getYear(), torrent.getParsedYear())) {
+            if (!movieYearAccepts(sub, torrent)) {
                 return null;
             }
             return new MatchResult(sub, MOVIE_EPISODE);
@@ -285,6 +346,14 @@ public class SubscriptionMatcher {
      * </p>
      */
     static final int MOVIE_YEAR_TOLERANCE = 1;
+
+    boolean movieYearAccepts(PtSubscriptionPlus sub, TorrentInfo torrent) {
+        if (identityOf(torrent, sub) == Identity.SAME
+                && (StringUtils.isBlank(sub.getYear()) || StringUtils.isBlank(torrent.getParsedYear()))) {
+            return true;
+        }
+        return movieYearMatches(sub.getYear(), torrent.getParsedYear());
+    }
 
     /**
      * 电影候选的年份是否可接受：允许 {@link #MOVIE_YEAR_TOLERANCE} 年以内的偏差。

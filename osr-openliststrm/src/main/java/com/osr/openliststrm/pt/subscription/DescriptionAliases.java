@@ -2,6 +2,7 @@ package com.osr.openliststrm.pt.subscription;
 
 import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.rename.TrailingYear;
+import com.osr.openliststrm.rename.SeasonSuffix;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -109,12 +110,41 @@ public final class DescriptionAliases {
             // 尾部年份括号必须剥掉：调用方（SubscriptionMatcher）做的是标题<b>全等</b>比较，
             // 而订阅标题里从来不带年份，多出一个 (2026) 就等于这条别名白抽了。判据与豆瓣源共用
             // 同一份（TrailingYear），各写一份的漂移表现是「同一个名字在豆瓣侧剥了、这里没剥」
-            String alias = TrailingYear.strip(part.trim());
+            String alias = SeasonSuffix.strip(TrailingYear.strip(part.trim()));
             if (isAlias(alias)) {
                 aliases.add(alias);
             }
         }
         return aliases;
+    }
+
+    /** 只识别站点元信息模板里的独立年份段，不扫描剧情简介中的数字。 */
+    public static String year(String description) {
+        if (parse(description).isEmpty()) {
+            return null;
+        }
+        String[] segments = description.split("[|｜]", 3);
+        if (segments.length < 2) {
+            return null;
+        }
+        String year = segments[1].trim();
+        return year.matches("(?:19|20)[0-9]{2}") ? year : null;
+    }
+
+    /** 中文名反证只采纳带字段分隔符的元信息头，不把普通简介当作作品名。 */
+    public static List<String> identityAliases(String description) {
+        if (description == null || (!description.contains("|") && !description.contains("｜"))) {
+            return List.of();
+        }
+        String[] segments = description.split("[|｜]", 3);
+        // 只有作品名后的元信息字段能识别为年份/集号，才将首段用于否决，避免把促销或简介作反证。
+        if (segments.length < 2 || (year(description) == null
+                && (segments[1].length() > 40 || DescriptionEpisode.parse(segments[1]) == null))) {
+            return List.of();
+        }
+        return parse(description).stream()
+                .filter(alias -> !alias.matches(".*[\\[\\]【】].*"))
+                .toList();
     }
 
     /**

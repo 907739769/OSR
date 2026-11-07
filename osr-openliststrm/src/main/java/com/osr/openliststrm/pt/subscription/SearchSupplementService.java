@@ -1,6 +1,8 @@
 package com.osr.openliststrm.pt.subscription;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.github.benmanes.caffeine.cache.Cache;
+import com.github.benmanes.caffeine.cache.Caffeine;
 import com.osr.common.utils.LogOnce;
 import com.osr.common.utils.ThreadTraceIdUtil;
 import com.osr.common.utils.Threads;
@@ -36,6 +38,7 @@ import com.osr.openliststrm.pt.subscription.dto.SupplementResult;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.BeanUtils;
 
 import java.time.LocalDate;
 import java.util.ArrayList;
@@ -66,6 +69,18 @@ import java.util.stream.Collectors;
 @Slf4j
 @Service
 public class SearchSupplementService {
+
+    /** 保留站点原始身份画像，推送时不依赖前端回传的可修改字段。 */
+    private final Cache<String, CandidateSnapshot> candidateSnapshots = Caffeine.newBuilder()
+            .maximumSize(5000).expireAfterWrite(15, TimeUnit.MINUTES).build();
+
+    private record CandidateSnapshot(Integer subId, TorrentInfo torrent) { }
+
+    private static TorrentInfo copyCandidate(TorrentInfo source) {
+        TorrentInfo copy = new TorrentInfo();
+        BeanUtils.copyProperties(source, copy);
+        return copy;
+    }
 
     /**
      * 候选淘汰日志在<b>同一次搜索内</b>的去重键（{@code traceId + 消息里插值的全部字段}）。
@@ -236,6 +251,12 @@ public class SearchSupplementService {
      */
     public SupplementResult supplement(Integer subId, int episode, String keyword, boolean manualSelect,
                                        Collection<Integer> indexerIds) {
+        return supplement(subId, episode, keyword, manualSelect, indexerIds, new SearchAttempt());
+    }
+
+    private SupplementResult supplement(Integer subId, int episode, String keyword, boolean manualSelect,
+                                        Collection<Integer> indexerIds, SearchAttempt attempt) {
+        attempt.stopSearching = false;
         PtSubscriptionPlus sub = requireSearchable(subId);
         validateEpisode(sub, episode);
         IndexerScope scope = resolveIndexerScope(indexerIds);
@@ -263,7 +284,7 @@ public class SearchSupplementService {
             if (altKeyword != null) {
                 plan.add(keywordStep(altKeyword));
             }
-            Map<StepKind, List<TorrentInfo>> grouped = executePlanByKind(plan, scope.ids());
+            Map<StepKind, List<TorrentInfo>> grouped = executePlanByKind(plan, scope.ids(), attempt);
             List<TorrentInfo> idCandidates = dedupeByIndexerGuid(grouped.get(StepKind.EXTERNAL_ID));
             List<TorrentInfo> kwCandidates = dedupeByIndexerGuid(grouped.get(StepKind.KEYWORD));
             fillParsedAll(idCandidates);
@@ -320,12 +341,20 @@ public class SearchSupplementService {
                 survivors.sort(sortComparator);
             }
 
-            subscriptionService.updateLastSearchTime(sub.getId(), new Date());
+            if (attempt.completed()) {
+                subscriptionService.updateLastSearchTime(sub.getId(), new Date());
+            }
 
             log.info("{} 关键词[{}]{}手动搜索补集：原始{}个，季集匹配后{}个，规则过滤后{}个"
                     + "（开启 DEBUG 日志可看到每个候选具体被哪一步、哪条规则淘汰）",
                     PtLogText.subject(sub), keyword, scope.label(), totalCandidates, allMatched.size(), survivors.size());
-            return new SupplementResult(false, totalCandidates, toCandidateDtos(survivors));
+            List<SearchCandidateDTO> dtos = toCandidateDtos(survivors);
+            for (int i = 0; i < dtos.size(); i++) {
+                String token = java.util.UUID.randomUUID().toString();
+                candidateSnapshots.put(token, new CandidateSnapshot(subId, copyCandidate(survivors.get(i))));
+                dtos.get(i).setCandidateId(token);
+            }
+            return new SupplementResult(false, totalCandidates, dtos);
         }
 
         // 以下为自动推送模式。三级逐级回退且<b>逐级早停</b>：某一级推送成功就不再向索引器发出
@@ -335,7 +364,7 @@ public class SearchSupplementService {
         // 这一次搜索的起点：没推成时从这之后的匹配日志里取原因回给用户，见 describeMiss
         long watermark = searchLogService.watermark(subId);
         boolean anyMatched = false;
-        List<TorrentInfo> idCandidates = dedupeByIndexerGuid(executePlan(idPlan(sub, episode), scope.ids()));
+        List<TorrentInfo> idCandidates = dedupeByIndexerGuid(executePlan(idPlan(sub, episode), scope.ids(), attempt));
         fillParsedAll(idCandidates);
         totalCandidates += idCandidates.size();
 
@@ -344,7 +373,7 @@ public class SearchSupplementService {
         List<TorrentInfo> idMatched = filterIdCandidates(sub, episode, idCandidates, null);
         if (!idMatched.isEmpty()) {
             anyMatched = true;
-            pushed = subscriptionEngine.pushBest(sub, episode, idMatched);
+            pushed = pushCandidates(sub, episode, idMatched, attempt);
         }
 
         // 第二级：关键词（含绝对号变体）。
@@ -354,33 +383,33 @@ public class SearchSupplementService {
         // 一旦本级有匹配却推送失败，第三级的英文名兜底就被跳过、这一轮空手而归，而那批资源
         // 本来可能推得动，只能等下一轮补搜重来。第一级从一开始就是按 pushed 判的，这里与它对齐
         List<TorrentInfo> matched = List.of();
-        if (!pushed) {
+        if (!pushed && !attempt.stopSearching) {
             List<SearchStep> plan = new ArrayList<>();
             plan.add(keywordStep(keyword));
             for (String variant : absoluteKeywords(sub, episode)) {
                 plan.add(keywordStep(variant));
             }
-            List<TorrentInfo> candidates = dedupeByIndexerGuid(executePlan(plan, scope.ids()));
+            List<TorrentInfo> candidates = dedupeByIndexerGuid(executePlan(plan, scope.ids(), attempt));
             fillParsedAll(candidates);
             totalCandidates += candidates.size();
             matched = filterByTarget(sub, episode, candidates);
             if (!matched.isEmpty()) {
                 anyMatched = true;
-                pushed = subscriptionEngine.pushBest(sub, episode, matched);
+                pushed = pushCandidates(sub, episode, matched, attempt);
             }
         }
 
         // 第三级：英文/原语言标题兜底
-        if (!pushed) {
+        if (!pushed && !attempt.stopSearching) {
             String altKeyword = buildAltKeyword(sub, episode);
             if (altKeyword != null) {
-                List<TorrentInfo> altCandidates = executePlan(List.of(keywordStep(altKeyword)), scope.ids());
+                List<TorrentInfo> altCandidates = executePlan(List.of(keywordStep(altKeyword)), scope.ids(), attempt);
                 fillParsedAll(altCandidates);
                 totalCandidates += altCandidates.size();
                 matched = filterByTarget(sub, episode, altCandidates);
                 if (!matched.isEmpty()) {
                     anyMatched = true;
-                    pushed = subscriptionEngine.pushBest(sub, episode, matched);
+                    pushed = pushCandidates(sub, episode, matched, attempt);
                 }
             }
         }
@@ -398,19 +427,22 @@ public class SearchSupplementService {
                 searchLogService.recordSummary(sub.getId(), episode, SearchLogService.SOURCE_SUPPLEMENT,
                         unmatchedReason(totalCandidates));
             } else {
-                pushed = subscriptionEngine.pushBest(sub, episode, List.of());
+                pushed = pushCandidates(sub, episode, List.of(), attempt);
             }
         }
 
         // 定向更新这一列，不要 updateById(sub)：推送链路可能在另一份订阅实例上写过
         // last_match_time，整实体写回会把它覆盖回旧值（见 IPtSubscriptionPlusService#updateLastSearchTime）
-        subscriptionService.updateLastSearchTime(sub.getId(), new Date());
+        if (attempt.completed()) {
+            subscriptionService.updateLastSearchTime(sub.getId(), new Date());
+        }
 
         log.info("{} 关键词[{}]{}搜索补集：候选{}个，{}",
                 PtLogText.subject(sub), keyword, scope.label(), totalCandidates, pushed ? "已推送" : "未推送");
         return pushed ? new SupplementResult(true, totalCandidates)
-                : SupplementResult.miss(totalCandidates,
-                        describeMiss(sub.getId(), watermark, totalCandidates, anyMatched));
+                : SupplementResult.miss(totalCandidates, !attempt.responded.get()
+                        ? "索引器未成功应答，本次检索未完成，请等待冷却后重试"
+                        : describeMiss(sub.getId(), watermark, totalCandidates, anyMatched));
     }
 
     /**
@@ -429,6 +461,8 @@ public class SearchSupplementService {
         } else if (summary.anyPushed()) {
             int pushedCount = summary.getEpisodesPushed() + (summary.isSeasonPushed() ? 1 : 0);
             result = new SupplementResult(true, summary.getCandidateCount(), null, null, pushedCount);
+        } else if (summary.isRetrySoon()) {
+            result = SupplementResult.miss(summary.getCandidateCount(), summary.getRetryReason());
         } else if (StringUtils.isNotBlank(summary.getRejectSummary())) {
             result = SupplementResult.miss(summary.getCandidateCount(), "未推送任何资源：" + summary.getRejectSummary());
         } else {
@@ -480,8 +514,25 @@ public class SearchSupplementService {
                 ? episode : absolutes.toLocalOrSelf(episode);
         validateEpisode(sub, targetEpisode);
 
-        TorrentInfo torrent = torrentOf(request);
+        TorrentInfo torrent;
+        if (StringUtils.isNotBlank(request.getCandidateId())) {
+            CandidateSnapshot snapshot = candidateSnapshots.getIfPresent(request.getCandidateId());
+            if (snapshot == null || !java.util.Objects.equals(snapshot.subId(), subId)) {
+                throw new IllegalArgumentException("候选已过期或不属于该订阅，请重新搜索后选择");
+            }
+            torrent = copyCandidate(snapshot.torrent());
+            if (indexerService.listEnabled().stream().noneMatch(i -> i.getId().equals(torrent.getIndexerId()))) {
+                throw new IllegalArgumentException("该候选来源站点已停用或删除，请重新搜索");
+            }
+        } else {
+            // 兼容既有脚本与旧页面；仍执行同一套反证、季集和质量规则校验。
+            torrent = torrentOf(request);
+        }
         subscriptionEngine.fillParsed(torrent);
+        String conflict = matcher.workConflict(torrent, sub);
+        if (conflict != null) {
+            throw new IllegalArgumentException(conflict);
+        }
         PushTarget target = resolvePushTarget(sub, targetEpisode, torrent, absolutes);
         // 走 pushManual 而不是 pushBest：手动推送要拿到未推送的真实原因，
         // 且不受「该种子有一条不可重试的失败记录」这层自动路径护栏约束
@@ -658,7 +709,7 @@ public class SearchSupplementService {
         if (summary.isSkipped()) {
             return;
         }
-        if (!summary.anyPushed()) {
+        if (!summary.anyPushed() && !summary.isRetrySoon()) {
             PtSubscriptionPlus sub = subscriptionService.getById(subId);
             if (sub != null) {
                 notifyNoResult(sub, summary.getRejectSummary());
@@ -719,22 +770,26 @@ public class SearchSupplementService {
         // 精确对应「这一次搜索」，不会把上一轮的原因混进来
         long watermark = searchLogService.watermark(subId);
 
+        SearchAttempt attempt = new SearchAttempt();
         boolean movie = SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType());
         if (movie) {
             boolean pushed = false;
             try {
-                pushed = supplement(subId, 0, sub.getTitle(), false, indexerIds).isPushed();
+                pushed = supplement(subId, 0, sub.getTitle(), false, indexerIds, attempt).isPushed();
             } catch (Exception e) {
+                attempt.deferred = true;
                 log.warn("{} 补搜失败：{}", PtLogText.subject(sub), e.getMessage());
             }
             SearchLogService.RejectionDigest digest = pushed
                     ? SearchLogService.RejectionDigest.EMPTY
                     : searchLogService.digestRejectionsSince(subId, watermark);
-            return new SearchAndPushSummary(false, pushed, 0, digest.summary(), digest.signature());
+            SearchAndPushSummary summary = new SearchAndPushSummary(false, pushed, 0, digest.summary(), digest.signature());
+            applyAttempt(summary, attempt);
+            return summary;
         }
 
         // 单次全季节搜索（三级回退：ID → 中文 → 英文/原语言）
-        SeasonSearch seasonSearch = searchSeasonCandidates(sub, indexerIds, extraKeyword);
+        SeasonSearch seasonSearch = searchSeasonCandidates(sub, indexerIds, extraKeyword, attempt);
         List<TorrentInfo> candidates = seasonSearch.candidates();
 
         // 季包优先还是单集优先，只看这一轮要补几集（判据与理由见 seasonPackMinMissing）。
@@ -748,7 +803,7 @@ public class SearchSupplementService {
 
         boolean seasonPushed = false;
         if (seasonPackFirst) {
-            seasonPushed = trySeasonPack(sub, candidates);
+            seasonPushed = trySeasonPack(sub, candidates, attempt);
         } else if (policy.episodeFirst()) {
             log.debug("{} 季包策略为 {}，本轮缺 {} 集仍先试单集资源，季包留作兜底",
                     PtLogText.subject(sub), policy, missingCount);
@@ -789,20 +844,26 @@ public class SearchSupplementService {
                 continue;
             }
             try {
-                if (subscriptionEngine.pushBest(sub, ep.getEpisode(), episodeCandidates)) {
+                PushOutcome outcome = subscriptionEngine.pushBestOutcome(sub, ep.getEpisode(), episodeCandidates);
+                if (outcome.pushed()) {
                     episodesPushed++;
+                } else if (outcome.searchMore()) {
+                    unmatched.add(ep);
+                } else if (outcome.retrySoon()) {
+                    attempt.deferred = true;
                 }
             } catch (Exception e) {
-                log.warn("{} 补搜推送失败：{}", PtLogText.subject(sub, ep.getEpisode(), null), e.getMessage());
+                attempt.deferred = true;
+                log.warn("{} 补搜推送失败：{}", PtLogText.subject(sub, ep.getEpisode(), null), e.getMessage(), e);
             }
         }
 
         // 候选池里一集都没匹配上的，补发真正的单集检索。
         // 季搜索一个应答都没拿到（索引器全挂、全超时）时不补发：那不是「季粒度关键词命不中单集」，
         // 而是站点根本不通，补发只会再对着同一批故障站点打满 5 集 × 三级请求、等满预算后同样落空
-        if (seasonSearch.anyResponded()) {
-            episodesPushed += fallbackPerEpisode(sub, unmatched, indexerIds);
-        } else if (!unmatched.isEmpty()) {
+        if (seasonSearch.anyResponded() && !attempt.deferred) {
+            episodesPushed += fallbackPerEpisode(sub, unmatched, indexerIds, attempt);
+        } else if (!seasonSearch.anyResponded() && !unmatched.isEmpty()) {
             log.warn("{} 季搜索没有任何索引器成功应答，本轮不补发单集检索（{} 集留到下一轮）",
                     PtLogText.subject(sub), unmatched.size());
         }
@@ -811,18 +872,20 @@ public class SearchSupplementService {
         // 「候选池里没有精确的单集资源」时，一个整季包仍然远比什么都不下强——
         // 这条兜底在的意义是：把季包从「首选」降级成「次选」，而不是把它关掉。
         // 必须重查一次集状态：上面刚推成功的集已不是 MISSING，拿本轮开头的快照判会多推一个白跑的包
-        if (!seasonPackFirst) {
+        if (!seasonPackFirst && !attempt.deferred) {
             boolean stillMissing = episodeService.listBySubscription(subId).stream()
                     .anyMatch(ep -> SubscriptionService.STATE_MISSING.equals(ep.getState()) && aired(ep, today));
             if (stillMissing) {
-                seasonPushed = trySeasonPack(sub, candidates);
+                seasonPushed = trySeasonPack(sub, candidates, attempt);
             }
         }
 
         // 剧集分支不走 supplement()，需自行记录本次搜索时间供 AutoSearchService 到期判断
         // 定向更新这一列，不要 updateById(sub)：推送链路可能在另一份订阅实例上写过
         // last_match_time，整实体写回会把它覆盖回旧值（见 IPtSubscriptionPlusService#updateLastSearchTime）
-        subscriptionService.updateLastSearchTime(sub.getId(), new Date());
+        if (attempt.completed()) {
+            subscriptionService.updateLastSearchTime(sub.getId(), new Date());
+        }
 
         boolean anyPushed = seasonPushed || episodesPushed > 0;
         SearchLogService.RejectionDigest digest = anyPushed
@@ -831,6 +894,7 @@ public class SearchSupplementService {
         SearchAndPushSummary summary = new SearchAndPushSummary(false, seasonPushed, episodesPushed,
                 digest.summary(), digest.signature());
         summary.setCandidateCount(candidates.size());
+        applyAttempt(summary, attempt);
         return summary;
     }
 
@@ -857,7 +921,7 @@ public class SearchSupplementService {
      *
      * @return 是否成功推送了一个季包
      */
-    private boolean trySeasonPack(PtSubscriptionPlus sub, List<TorrentInfo> candidates) {
+    private boolean trySeasonPack(PtSubscriptionPlus sub, List<TorrentInfo> candidates, SearchAttempt attempt) {
         if (candidates.isEmpty()) {
             return false;
         }
@@ -866,8 +930,9 @@ public class SearchSupplementService {
             return false;
         }
         try {
-            return subscriptionEngine.pushBest(sub, SubscriptionMatcher.SEASON_PACK, seasonCandidates);
+            return pushCandidates(sub, SubscriptionMatcher.SEASON_PACK, seasonCandidates, attempt);
         } catch (Exception e) {
+            attempt.deferred = true;
             log.warn("{} 补搜整季包推送异常：{}",
                     PtLogText.subject(sub, SubscriptionMatcher.SEASON_PACK, null), e.getMessage());
             return false;
@@ -926,7 +991,7 @@ public class SearchSupplementService {
      * @return 补发阶段成功推送的集数
      */
     private int fallbackPerEpisode(PtSubscriptionPlus sub, List<PtSubscriptionEpisodePlus> unmatched,
-                                   Set<Integer> indexerIds) {
+                                   Set<Integer> indexerIds, SearchAttempt attempt) {
         if (perEpisodeFallbackLimit <= 0 || unmatched.isEmpty()) {
             return 0;
         }
@@ -949,6 +1014,7 @@ public class SearchSupplementService {
                 .limit(perEpisodeFallbackLimit)
                 .toList();
         if (targets.size() < unmatched.size()) {
+            attempt.incomplete.set(true);
             log.warn("{} 季搜索未覆盖 {} 集，本轮只补发最久未搜的 {} 集（第 {} 集）"
                             + "的单集检索（上限 pt.search.per-episode-fallback-limit），其余轮换到下一轮",
                     PtLogText.subject(sub), unmatched.size(), targets.size(),
@@ -961,19 +1027,24 @@ public class SearchSupplementService {
         for (PtSubscriptionEpisodePlus ep : targets) {
             // 软上限：只在每一集开始前检查，不打断已发出的请求
             if (perEpisodeFallbackBudgetMillis > 0 && deadline - System.nanoTime() < 0) {
+                attempt.incomplete.set(true);
                 log.warn("{} 单集补发耗尽 {}ms 预算，已跑 {}/{} 集，其余留到下一轮",
                         PtLogText.subject(sub), perEpisodeFallbackBudgetMillis, done, targets.size());
                 break;
             }
             String keyword = sub.getTitle() + " S" + pad(sub.getSeason()) + "E" + pad(ep.getEpisode());
             try {
-                if (supplement(sub.getId(), ep.getEpisode(), keyword, false, indexerIds).isPushed()) {
+                if (supplement(sub.getId(), ep.getEpisode(), keyword, false, indexerIds, attempt).isPushed()) {
                     pushed++;
                 }
             } catch (Exception e) {
+                attempt.deferred = true;
                 log.warn("{} 单集补发失败：{}", PtLogText.subject(sub, ep.getEpisode(), null), e.getMessage());
             }
             done++;
+            if (attempt.deferred) {
+                break;
+            }
         }
         if (done > 0) {
             log.info("{} 单集补发：季搜索未覆盖 {} 集，补发 {} 集，推送 {} 集",
@@ -992,15 +1063,14 @@ public class SearchSupplementService {
      * @return 搜索到的全部候选种子（已去重），以及是否至少有一次请求成功应答
      */
     private SeasonSearch searchSeasonCandidates(PtSubscriptionPlus sub, Set<Integer> indexerIds,
-                                                String extraKeyword) {
-        AtomicBoolean responded = new AtomicBoolean(false);
+                                                String extraKeyword, SearchAttempt attempt) {
         Map<StepKind, List<TorrentInfo>> grouped =
-                executePlanByKind(seasonPlan(sub, extraKeyword), indexerIds, responded);
+                executePlanByKind(seasonPlan(sub, extraKeyword), indexerIds, attempt);
         List<TorrentInfo> all = new ArrayList<>();
         grouped.values().forEach(all::addAll);
         List<TorrentInfo> merged = dedupeByIndexerGuid(all);
         fillParsedAll(merged);
-        return new SeasonSearch(merged, responded.get());
+        return new SeasonSearch(merged, attempt.responded.get());
     }
 
     /**
@@ -1172,6 +1242,34 @@ public class SearchSupplementService {
      * 关键词检索的结果必须核对——两者过滤路径不同（{@code filterIdCandidates} vs
      * {@code filterByTarget*}），因此混在同一份计划里执行时必须能分开取回。
      */
+    /** 单次搜索的有效性，跨站并发只写原子字段；推送编排部分由调用线程写。 */
+    private static final class SearchAttempt {
+        final AtomicBoolean responded = new AtomicBoolean(false);
+        final AtomicBoolean incomplete = new AtomicBoolean();
+        boolean deferred;
+        boolean stopSearching;
+
+        boolean completed() {
+            return responded.get() && !incomplete.get() && !deferred;
+        }
+    }
+
+    private boolean pushCandidates(PtSubscriptionPlus sub, int episode, List<TorrentInfo> candidates,
+                                   SearchAttempt attempt) {
+        PushOutcome outcome = subscriptionEngine.pushBestOutcome(sub, episode, candidates);
+        attempt.stopSearching = !outcome.searchMore();
+        attempt.deferred |= outcome.retrySoon();
+        return outcome.pushed();
+    }
+
+    private void applyAttempt(SearchAndPushSummary summary, SearchAttempt attempt) {
+        summary.setRetrySoon(!attempt.completed());
+        if (summary.isRetrySoon()) {
+            summary.setRetryReason(attempt.deferred ? "推送暂未完成，请查看下载器容量、状态或连接；稍后重试"
+                    : "检索未完整完成（索引器未应答、部分失败或已达预算），剩余缺集留到下一轮");
+        }
+    }
+
     private enum StepKind {
         EXTERNAL_ID, KEYWORD
     }
@@ -1236,7 +1334,11 @@ public class SearchSupplementService {
 
     /** 同 {@link #executePlan(List)}，{@code indexerIds} 非 null 时只在这几个启用索引器上执行 */
     private List<TorrentInfo> executePlan(List<SearchStep> plan, Set<Integer> indexerIds) {
-        Map<StepKind, List<TorrentInfo>> grouped = executePlanByKind(plan, indexerIds);
+        return executePlan(plan, indexerIds, new SearchAttempt());
+    }
+
+    private List<TorrentInfo> executePlan(List<SearchStep> plan, Set<Integer> indexerIds, SearchAttempt attempt) {
+        Map<StepKind, List<TorrentInfo>> grouped = executePlanByKind(plan, indexerIds, attempt);
         List<TorrentInfo> merged = new ArrayList<>();
         // EnumMap 的迭代序是 EXTERNAL_ID → KEYWORD，恰好与所有计划里两类步的先后一致
         for (List<TorrentInfo> part : grouped.values()) {
@@ -1251,7 +1353,7 @@ public class SearchSupplementService {
      * 两个键恒存在，无对应步时为空表。
      */
     private Map<StepKind, List<TorrentInfo>> executePlanByKind(List<SearchStep> plan, Set<Integer> indexerIds) {
-        return executePlanByKind(plan, indexerIds, new AtomicBoolean());
+        return executePlanByKind(plan, indexerIds, new SearchAttempt());
     }
 
     /**
@@ -1259,7 +1361,7 @@ public class SearchSupplementService {
      * 不适用而跳过的步（返回 null）与抛异常的步都不算应答。
      */
     private Map<StepKind, List<TorrentInfo>> executePlanByKind(List<SearchStep> plan, Set<Integer> indexerIds,
-                                                               AtomicBoolean responded) {
+                                                               SearchAttempt attempt) {
         Map<StepKind, List<TorrentInfo>> grouped = new EnumMap<>(StepKind.class);
         for (StepKind kind : StepKind.values()) {
             grouped.put(kind, new ArrayList<>());
@@ -1285,7 +1387,7 @@ public class SearchSupplementService {
         try (var executor = Executors.newVirtualThreadPerTaskExecutor()) {
             List<CompletableFuture<Void>> futures = indexers.stream()
                     .map(indexer -> CompletableFuture.runAsync(
-                            Threads.wrap(() -> runPlanOn(indexer, plan, perStep, deadline, responded)), executor))
+                            Threads.wrap(() -> runPlanOn(indexer, plan, perStep, deadline, attempt)), executor))
                     .toList();
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
         }
@@ -1333,10 +1435,11 @@ public class SearchSupplementService {
      * 一个索引器不支持某种检索、或某次请求超时，不该让它剩下的几步也一并放弃。
      */
     private void runPlanOn(PtIndexerPlus indexer, List<SearchStep> plan,
-                           List<List<TorrentInfo>> perStep, long deadline, AtomicBoolean responded) {
+                           List<List<TorrentInfo>> perStep, long deadline, SearchAttempt attempt) {
         for (int i = 0; i < plan.size(); i++) {
             SearchStep step = plan.get(i);
             if (budgetExhausted(deadline)) {
+                attempt.incomplete.set(true);
                 // 放弃是有代价的，必须说出口：只写 debug 或干脆不写的话，用户看到的是"结果少了几个"，
                 // 而日志里一切正常，根本无从想到是某个慢站点没跑完
                 log.warn("索引器[{}]已用满 {}ms 检索预算，放弃剩余 {} 步（前 {} 步的结果照常参与匹配）",
@@ -1346,10 +1449,11 @@ public class SearchSupplementService {
             try {
                 List<TorrentInfo> found = step.op().apply(indexer);
                 if (found != null) {
-                    responded.set(true);
+                    attempt.responded.set(true);
                     perStep.get(i).addAll(found);
                 }
             } catch (Exception e) {
+                attempt.incomplete.set(true);
                 log.warn("索引器[{}]按{}搜索失败：{}", indexer.getName(), step.label(), e.getMessage());
             }
         }
@@ -1594,6 +1698,9 @@ public class SearchSupplementService {
      * 判据与 RSS 匹配共用 {@link SubscriptionMatcher#identityOf}，理由见那里。
      */
     private boolean sameWork(PtSubscriptionPlus sub, Set<String> subTitles, TorrentInfo candidate) {
+        if (matcher.workConflict(candidate, sub) != null) {
+            return false;
+        }
         SubscriptionMatcher.Identity identity = matcher.identityOf(candidate, sub);
         if (identity == SubscriptionMatcher.Identity.DIFFERENT) {
             logIdConflict(sub, candidate);
@@ -1722,6 +1829,19 @@ public class SearchSupplementService {
      */
     private List<TorrentInfo> filterIdCandidates(PtSubscriptionPlus sub, int episode,
                                                   List<TorrentInfo> candidates, Set<Integer> missingEpisodes) {
+        // 查询用了 ID 参数不代表站点执行了 ID 过滤：UNKNOWN 必须退回常规作品校验。
+        Set<String> titles = matcher.normalizeAll(sub.getTitle(), sub.getOriginalTitle(), sub.getEnglishTitle());
+        candidates = candidates.stream().filter(candidate -> {
+            if (matcher.workConflict(candidate, sub) != null) {
+                return false;
+            }
+            if (matcher.identityOf(candidate, sub) == SubscriptionMatcher.Identity.SAME) {
+                return true;
+            }
+            return sameWork(sub, titles, candidate)
+                    && (!SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType())
+                    || matcher.movieYearMatches(sub.getYear(), candidate.getParsedYear()));
+        }).toList();
         if (SubscriptionService.TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType())) {
             // 标题与年份仍然不校验（ID 已锁定作品），但两道与 RSS 电影分支一致的底线要守住：
             // 种子自带的 ID 明确指向别的作品、或种子带季/集号（那是剧集），都不是这部电影
@@ -1827,7 +1947,7 @@ public class SearchSupplementService {
             }
             // 年份判定走 SubscriptionMatcher 的共享方法（允许 1 年偏差），不要在这里另写一份：
             // RSS 自动匹配与搜索补集对「这个候选是不是这部电影」必须给出同一个答案
-            if (!matcher.movieYearMatches(sub.getYear(), candidate.getParsedYear())) {
+            if (!matcher.movieYearAccepts(sub, candidate)) {
                 continue;
             }
             matched.add(candidate);

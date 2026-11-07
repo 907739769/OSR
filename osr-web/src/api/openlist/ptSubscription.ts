@@ -112,6 +112,7 @@ export function searchSupplementApi(id: number, data: {
 
 /** 手动选择推送：用户在候选列表中选中一个种子后推送到下载器 */
 export function pushSelectedCandidateApi(id: number, data: {
+  candidateId?: string
   episode: number
   title: string
   size: number

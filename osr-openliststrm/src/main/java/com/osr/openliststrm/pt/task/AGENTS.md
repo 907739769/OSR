@@ -46,3 +46,9 @@
 - `DownloadRecordAdminService.enrich` 查询索引器/下载器关联前先判 ID 集是否为空。MP 的 `listByIds(empty)` 在真实 MySQL 会生成 `IN ()`，历史记录外键为空时不能阻断整条下载记录展示。
 
 - **近期已播缺集绕过长期落空退避**：`AutoSearchSchedule` 与一键诊断共用周期。每轮一次批量查询近 7 个自然日的 MISSING 日期，避免逐订阅查询；电影排除。未搜索或用户重新开启（`last_search_time IS NULL`）优先，再按最近观看时间稳定排序。关闭→开启重置由 `SubscriptionService` 负责，任务本身不改开关。
+
+
+## 2026-11 文件覆盖与检索失败分类
+- `DownloadTrackService.fileEpisodes` 统一“选文件”和“已完成磁力补确认”的季集范围判定：null 表示无法判断，空集合表示明确别季，非空集合是本地集号。视频扩展名用注入的 `OpenListHelper.isVideo`，字幕/NFO 不能给 actualEpisodes 增加视频确认依据；一个视频的 E01-E02 应覆盖两集。
+- 明确只有别季视频时应中止在途种子；已完成种子只释放无实际覆盖的集，不自动删保种文件。无法解析的视频仍保留，不以“未知”冒充“不含目标集”。这替代上文“actualEpisodes 为空一律不处理”的旧判据：现在还要结合 knownVideo，明确别季时 actualEpisodes 也会为空。
+- 自动补搜 `retrySoon` 表示故障/容量等待/未完成检索，不能发“站上无资源”通知或累计片源退避；有效检索时间未推进，因此下一心跳仍按原到期状态重试，全局索引器冷却继续生效。成功推送仍可清除既有落空状态。

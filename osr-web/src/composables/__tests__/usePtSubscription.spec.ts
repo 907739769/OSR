@@ -71,7 +71,8 @@ import {
   searchSupplementApi,
   getSubscriptionProgressApi,
   getSubscriptionEpisodesApi,
-  resetEpisodeApi
+  resetEpisodeApi,
+  pushSelectedCandidateApi
 } from '@/api/openlist/ptSubscription'
 import { usePtStatusSocket } from '../usePtStatusSocket'
 import { getPtIndexerListApi } from '@/api/openlist/ptIndexer'
@@ -364,6 +365,20 @@ describe('usePtSubscription 搜索限定站点', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     ;(getPtSubscriptionListApi as any).mockResolvedValue({ records: [], total: 0 })
+    ;(getPtIndexerListApi as any).mockResolvedValue({ records: [], total: 0 })
+  })
+
+  it('手动推送原样带回候选快照标识与副标题供后端重新校验', async () => {
+    const composable = usePtSubscription()
+    composable.openEpisodeSearch({ id: 7, title: '谷雨', season: 1 }, 13)
+    await flush()
+    await composable.pushSelectedCandidate({
+      candidateId: 'server-snapshot', title: 'The Silent Storm S01E13', parsedEpisode: 13,
+      description: '谷雨 | 2026 | 第1季第13集', indexerId: 1, guid: 'torrent-id', files: 1
+    })
+    expect(pushSelectedCandidateApi).toHaveBeenCalledWith(7, expect.objectContaining({
+      candidateId: 'server-snapshot', episode: 13, description: '谷雨 | 2026 | 第1季第13集'
+    }))
   })
 
   it('打开搜索弹窗时只拉启用中的站点，并剔除已选里不再启用的', async () => {

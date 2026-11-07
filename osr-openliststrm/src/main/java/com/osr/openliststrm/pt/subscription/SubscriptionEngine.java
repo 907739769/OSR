@@ -276,8 +276,12 @@ public class SubscriptionEngine {
      * @return 是否成功推送了一个种子
      */
     public boolean pushBest(PtSubscriptionPlus sub, int episode, List<TorrentInfo> candidates) {
+        return pushBestOutcome(sub, episode, candidates).pushed();
+    }
+
+    public PushOutcome pushBestOutcome(PtSubscriptionPlus sub, int episode, List<TorrentInfo> candidates) {
         return push(sub, episode, candidates, PushMode.FILL_MISSING,
-                SearchLogService.SOURCE_SUPPLEMENT).pushed();
+                SearchLogService.SOURCE_SUPPLEMENT);
     }
 
     /**
@@ -387,9 +391,18 @@ public class SubscriptionEngine {
                 log.debug("{} {}，跳过", PtLogText.subject(sub, match.getEpisode(), null), reason);
                 searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, reason);
             }
-            return PushOutcome.fail(reason);
+            return PushOutcome.fail(PushOutcome.Code.NO_TARGET, reason);
         }
 
+        // 在真正推送之前重验反证：手动推送与洗版也不能绕过中文名、年份或外部 ID 冲突。
+        List<TorrentInfo> identitySafe = candidates.stream()
+                .filter(t -> matcher.workConflict(t, sub) == null).toList();
+        if (!candidates.isEmpty() && identitySafe.isEmpty()) {
+            String reason = matcher.workConflict(candidates.getFirst(), sub);
+            searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, reason);
+            return PushOutcome.fail(PushOutcome.Code.IDENTITY_CONFLICT, reason);
+        }
+        candidates = identitySafe;
         List<TorrentInfo> fresh = excludeAlreadyRecorded(candidates, source);
         if (fresh.isEmpty()) {
             String reason;
@@ -407,12 +420,8 @@ public class SubscriptionEngine {
                     searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, reason);
                 }
             }
-            return PushOutcome.fail(reason);
-        }
-
-        // 季包目标下，先把「文件数证明覆盖不全」的候选让位给不矛盾的候选，再进过滤择优
-        if (!mode.isUpgrade() && match.getEpisode() == SubscriptionMatcher.SEASON_PACK) {
-            fresh = preferCompletePacks(fresh, targets.size());
+            return PushOutcome.fail(candidates.isEmpty() ? PushOutcome.Code.NO_CANDIDATE
+                    : PushOutcome.Code.ALREADY_RECORDED, reason);
         }
 
         FilterCriteria criteria = FilterCriteriaFactory.build(globalConfig, sub.getFilterOverride());
@@ -426,6 +435,10 @@ public class SubscriptionEngine {
                 .filter(TorrentFilterEngine.Verdict::accepted)
                 .map(TorrentFilterEngine.Verdict::torrent)
                 .toList();
+        // 只在规则合格的资源之间比较完整性，不能让不合格的完整包挤掉可下载的部分包。
+        if (!mode.isUpgrade() && match.getEpisode() == SubscriptionMatcher.SEASON_PACK) {
+            survivors = preferCompletePacks(survivors, targets.size());
+        }
         TorrentInfo best = filterEngine.pickBest(survivors, criteria);
         if (best == null) {
             // 走到这里说明 fresh 非空（上面已短路）却一个幸存者都没有——候选是被过滤规则全清的。
@@ -446,7 +459,7 @@ public class SubscriptionEngine {
                 log.info("{} {}；{}", PtLogText.subject(sub, match.getEpisode(), null), summary, candidatesDetail);
             }
             searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, summary);
-            return PushOutcome.fail(summary);
+            return PushOutcome.fail(PushOutcome.Code.FILTERED, summary);
         }
 
         // 选中的种子可能是区间打包（如 E01-E02），实际覆盖的集数比调用方传入的单集目标（match.episode）更多——
@@ -465,8 +478,17 @@ public class SubscriptionEngine {
                 && match.getEpisode() != SubscriptionMatcher.SEASON_PACK
                 && best.getParsedEpisode() != null && best.getParsedEpisodeEnd() != null
                 && best.getParsedEpisodeEnd() > best.getParsedEpisode()) {
-            match = new MatchResult(sub, best.getParsedEpisode(), best.getParsedEpisodeEnd());
+            AbsoluteEpisodeMap.LocalRange local = AbsoluteEpisodeMap.from(allEpisodes).toLocalRange(
+                    best.getParsedSeason(), best.getParsedEpisode(), best.getParsedEpisodeEnd());
+            match = local == null
+                    ? new MatchResult(sub, best.getParsedEpisode(), best.getParsedEpisodeEnd())
+                    : new MatchResult(sub, local.start(), local.end());
             targets = resolveTargets(match, allEpisodes, mode);
+            if (targets.isEmpty()) {
+                String reason = noTargetReason(match, allEpisodes);
+                searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, reason);
+                return PushOutcome.fail(PushOutcome.Code.NO_TARGET, reason);
+            }
         }
 
         // 「选下载器 + 判容量 + 占位自增」必须在同一把锁内原子完成：process() 用虚拟线程并行处理
@@ -479,7 +501,8 @@ public class SubscriptionEngine {
             if (downloader == null) {
                 log.warn("没有可用的下载器，{} 本轮跳过", PtLogText.subject(sub));
                 searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, "没有可用的下载器");
-                return PushOutcome.fail("没有可用的下载器，请到「下载器」页面添加或启用至少一个");
+                return PushOutcome.fail(PushOutcome.Code.NO_DOWNLOADER,
+                        "没有可用的下载器，请到「下载器」页面添加或启用至少一个");
             }
 
             if (isOverCapacity(downloader, downloaderLoadCache)) {
@@ -487,7 +510,7 @@ public class SubscriptionEngine {
                         downloader.getName(), downloader.getMaxConcurrent(),
                         PtLogText.subject(sub, match.getEpisode(), null));
                 searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, "下载器并发已达上限");
-                return PushOutcome.fail("下载器「" + downloader.getName() + "」已达最大并发 "
+                return PushOutcome.fail(PushOutcome.Code.CAPACITY, "下载器「" + downloader.getName() + "」已达最大并发 "
                         + downloader.getMaxConcurrent() + "，请等待在途任务完成或调高上限");
             }
 
@@ -509,7 +532,7 @@ public class SubscriptionEngine {
             String reason = "该集刚被另一次推送占位（可能是 RSS 轮询或自动搜索），无需重复推送";
             // 其余失败路径都落了摘要，这两条此前没有：搜索补集要从匹配日志取原因回给用户，漏记就只剩泛化文案
             searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, reason);
-            return PushOutcome.fail(reason);
+            return PushOutcome.fail(PushOutcome.Code.CLAIMED, reason);
         }
 
         String guidHash = GuidHasher.hash(best.getGuid());
@@ -533,7 +556,7 @@ public class SubscriptionEngine {
             downloaderLoadCache.merge(downloader.getId(), -1L, Long::sum);
             String reason = "保存下载记录失败，已回滚，请查看后端日志";
             searchLogService.recordSummary(sub.getId(), match.getEpisode(), source, reason);
-            return PushOutcome.fail(reason);
+            return PushOutcome.fail(PushOutcome.Code.PERSISTENCE_FAILED, reason);
         }
 
         try {
@@ -548,7 +571,8 @@ public class SubscriptionEngine {
             recordService.removeById(record.getId());
             releaseAll(claimed, mode);
             downloaderLoadCache.merge(downloader.getId(), -1L, Long::sum);
-            return PushOutcome.fail("推送到下载器「" + downloader.getName() + "」失败：" + e.getMessage());
+            return PushOutcome.fail(PushOutcome.Code.DOWNLOAD_FAILED,
+                    "推送到下载器「" + downloader.getName() + "」失败：" + e.getMessage());
         }
 
         for (PtSubscriptionEpisodePlus ep : claimed) {
@@ -919,6 +943,9 @@ public class SubscriptionEngine {
         torrent.setParsedTitle(info.getOriginalTitle());
         torrent.setParsedTitleEn(info.getEnglishTitle());
         torrent.setParsedYear(info.getYear());
+        if (torrent.getParsedYear() == null) {
+            torrent.setParsedYear(DescriptionAliases.year(torrent.getDescription()));
+        }
         torrent.setParsedSeason(toInt(info.getSeason()));
         torrent.setParsedEpisode(toInt(info.getEpisode()));
         torrent.setParsedEpisodeEnd(toInt(info.getEpisodeEnd()));
@@ -1434,6 +1461,12 @@ public class SubscriptionEngine {
             // 把订阅推到只做种的机器上，比换一台下载器糟得多
             log.warn("{} 指定的下载器 {} 不在订阅下载池中（已停用/已删除/已改为仅做种），"
                     + "改用负载最低的下载器", PtLogText.subject(sub), sub.getDownloaderId());
+        }
+        List<PtDownloaderPlus> available = enabled.stream()
+                .filter(d -> !isOverCapacity(d, loadCache)).toList();
+        // 全部满载时仍返回一个，交给调用方报告容量原因；指定下载器的选择已在上面处理。
+        if (!available.isEmpty()) {
+            enabled = available;
         }
         PtDownloaderPlus best = enabled.get(0);
         long bestLoad = loadCache.getOrDefault(best.getId(), 0L);

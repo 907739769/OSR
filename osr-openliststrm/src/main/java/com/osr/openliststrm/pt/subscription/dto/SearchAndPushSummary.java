@@ -47,6 +47,11 @@ public class SearchAndPushSummary {
     /** 季搜索汇总到的候选种子数（去重后、过滤前），不含单集补发那几次的候选；跳过时为 0 */
     private int candidateCount;
 
+    /** 故障、容量等待或检索截断：留到下一心跳，不作为片源缺失累计退避。 */
+    private boolean retrySoon;
+
+    private String retryReason;
+
     public SearchAndPushSummary(boolean skipped, boolean seasonPushed, int episodesPushed,
                                 String rejectSummary, String rejectSignature) {
         this.skipped = skipped;

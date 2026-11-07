@@ -229,6 +229,11 @@ public class AutoSearchService {
             return true;
         }
 
+        if (summary.isRetrySoon()) {
+            // 有效检索时间未推进，下次心跳按原到期状态重试；索引器限流仍由全局限流器控制。
+            return true;
+        }
+
         String sign = StringUtils.isBlank(summary.getRejectSignature())
                 ? NO_CANDIDATE_SIGN : summary.getRejectSignature();
         int nextStreak = streak + 1;

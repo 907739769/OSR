@@ -11,6 +11,9 @@ import lombok.Data;
 @Data
 public class PushSelectedRequest {
 
+    /** 有值时以服务端候选快照为准，不采信回传画像。 */
+    private String candidateId;
+
     /** 目标集号（与 SearchRequest.episode 语义一致） */
     private int episode;
 

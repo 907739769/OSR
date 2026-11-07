@@ -7,6 +7,7 @@ import com.osr.common.utils.StringUtils;
 import com.osr.common.utils.FaultThrottle;
 import com.osr.openliststrm.rename.MediaIdentityService;
 import com.osr.openliststrm.helper.TgHelper;
+import com.osr.openliststrm.helper.OpenListHelper;
 import com.osr.openliststrm.notify.NotificationType;
 import com.osr.openliststrm.notify.NotifyAction;
 import com.osr.openliststrm.notify.NotifyTarget;
@@ -112,6 +113,7 @@ public class DownloadTrackService {
     private final long zombieTimeoutMillisDefault;
 
     private final MediaIdentityService identityService;
+    private final OpenListHelper fileHelper;
     private final FaultThrottle identityFailures = new FaultThrottle();
     private final Map<Integer, Integer> identityBackfillCursor = new java.util.concurrent.ConcurrentHashMap<>();
     private final IPtDownloadRecordPlusService recordService;
@@ -135,9 +137,11 @@ public class DownloadTrackService {
                                 DownloaderClientFactory downloaderClientFactory,
                                 IPtIndexerPlusService indexerService,
                                 MediaIdentityService identityService,
+                                OpenListHelper fileHelper,
                                 @Value("${pt.download.max-consecutive-failures:3}") int maxConsecutiveFailures,
                                 @Value("${pt.download.zombie-timeout-hours:24}") int zombieTimeoutHoursDefault) {
         this.identityService = identityService;
+        this.fileHelper = fileHelper;
         this.recordService = recordService;
         this.episodeService = episodeService;
         this.completionSyncTrigger = completionSyncTrigger;
@@ -511,15 +515,18 @@ public class DownloadTrackService {
 
             Set<Integer> excludeIndexes = new HashSet<>();
             Set<Integer> actualEpisodes = new HashSet<>();
+            boolean knownVideo = false;
             for (DownloaderTorrentFile file : files) {
-                MediaInfo info = mediaParser.parseLocal(file.getName());
-                Integer episode = absolutes.toLocalOrSelf(toInt(info.getEpisode()));
-                if (episode == null) {
-                    // 解析不出集号的文件（NFO、字幕、样片等）默认保留，不做排除
+                Set<Integer> coverage = fileEpisodes(file.getName(), sub, absolutes);
+                if (coverage == null) {
+                    // 未识别的文件不能证明缺集，保留交给后续诊断。
                     continue;
                 }
-                actualEpisodes.add(episode);
-                if (!targetEpisodes.contains(episode)) {
+                if (fileHelper.isVideo(file.getName())) {
+                    knownVideo = true;
+                    actualEpisodes.addAll(coverage);
+                }
+                if (Collections.disjoint(targetEpisodes, coverage)) {
                     excludeIndexes.add(file.getIndex());
                 }
             }
@@ -528,7 +535,7 @@ public class DownloadTrackService {
             // 24 小时）才收尾；qB 某些版本还会把"全部文件不下载"直接判成 completed，
             // 记录转 COMPLETED 后连僵尸兜底都够不着，只能等 12 小时后的卡死在途集清扫。
             // 这一步的判据（下载器给出的真实文件列表）已经足够精确，直接中止最干净。
-            if (isNoTargetEpisode(sub, targetEpisodes, actualEpisodes)) {
+            if (isNoTargetEpisode(sub, targetEpisodes, actualEpisodes, knownVideo)) {
                 abortNoTargetEpisode(downloader, record, sub, matched, targetEpisodes, actualEpisodes);
                 return true;
             }
@@ -549,7 +556,7 @@ public class DownloadTrackService {
             if (!isUserPaused(record)) {
                 downloaderClientFactory.get(downloader).resumeTorrent(downloader, matched.getHash());
             }
-            reconcileClaims(record, sub, targets, actualEpisodes);
+            reconcileClaims(record, sub, targets, actualEpisodes, knownVideo);
             markFilesSelected(record);
             // 必须排在 markFilesSelected 之后：那一步失败会走 catch 留给下一轮重试，
             // 通知抢先发出去的话下一轮会再发一条
@@ -616,9 +623,39 @@ public class DownloadTrackService {
      * </ul>
      * </p>
      */
+    /** null=未识别；空集合=明确属于其他季；非空=本地集号。视频和字幕共用覆盖判定。 */
+    private Set<Integer> fileEpisodes(String name, PtSubscriptionPlus sub, AbsoluteEpisodeMap absolutes) {
+        if (name == null || (sub != null && TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType()))) {
+            return null;
+        }
+        MediaInfo info = mediaParser.parseLocal(name);
+        Integer start = toInt(info.getEpisode());
+        if (start == null) {
+            return null;
+        }
+        Integer parsedEnd = toInt(info.getEpisodeEnd());
+        int end = parsedEnd != null && parsedEnd > start ? parsedEnd : start;
+        if (start < 0 || end > 5000) {
+            return null;
+        }
+        Integer season = toInt(info.getSeason());
+        AbsoluteEpisodeMap.LocalRange local = absolutes.toLocalRange(season, start, end);
+        if (local != null) {
+            start = local.start();
+            end = local.end();
+        } else if (sub != null && season != null && sub.getSeason() != null && !season.equals(sub.getSeason())) {
+            return Set.of();
+        }
+        Set<Integer> result = new HashSet<>();
+        for (int ep = start; ep <= end; ep++) {
+            result.add(ep);
+        }
+        return result;
+    }
+
     private boolean isNoTargetEpisode(PtSubscriptionPlus sub, Set<Integer> targetEpisodes,
-                                      Set<Integer> actualEpisodes) {
-        if (sub == null || TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType()) || actualEpisodes.isEmpty()) {
+                                      Set<Integer> actualEpisodes, boolean knownVideo) {
+        if (sub == null || TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType()) || !knownVideo) {
             return false;
         }
         return Collections.disjoint(targetEpisodes, actualEpisodes);
@@ -739,8 +776,9 @@ public class DownloadTrackService {
      * </p>
      */
     private void reconcileClaims(PtDownloadRecordPlus record, PtSubscriptionPlus sub,
-                                 List<PtSubscriptionEpisodePlus> targets, Set<Integer> actualEpisodes) {
-        if (actualEpisodes.isEmpty() || sub == null || TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType())) {
+                                 List<PtSubscriptionEpisodePlus> targets, Set<Integer> actualEpisodes,
+                                 boolean knownVideo) {
+        if (!knownVideo || sub == null || TYPE_MOVIE.equalsIgnoreCase(sub.getMediaType())) {
             return;
         }
         // 对账的另一半：包内确实有的集打上"文件已确认"。同一份 actualEpisodes 判据，
@@ -825,13 +863,18 @@ public class DownloadTrackService {
             // 与 trySelectFiles 同一处理：文件名可能是绝对集号，先归一化成本地集号
             AbsoluteEpisodeMap absolutes = AbsoluteEpisodeMap.from(targets);
             Set<Integer> actualEpisodes = new HashSet<>();
+            boolean knownVideo = false;
             for (DownloaderTorrentFile file : files) {
-                Integer episode = absolutes.toLocalOrSelf(toInt(mediaParser.parseLocal(file.getName()).getEpisode()));
-                if (episode != null) {
-                    actualEpisodes.add(episode);
+                if (!file.isWanted() || !fileHelper.isVideo(file.getName())) {
+                    continue;
+                }
+                Set<Integer> coverage = fileEpisodes(file.getName(), sub, absolutes);
+                if (coverage != null) {
+                    knownVideo = true;
+                    actualEpisodes.addAll(coverage);
                 }
             }
-            reconcileClaims(record, sub, targets, actualEpisodes);
+            reconcileClaims(record, sub, targets, actualEpisodes, knownVideo);
             // 季包的命中通知在推送时被刻意跳过（见 SubscriptionEngine），本该由 trySelectFiles 补发。
             // 但不暂停加种的季包（磁力链）可能在下一轮轮询前就下完，直接走完成分支、绕过 trySelectFiles，
             // 那条通知就永远发不出去了。这里是它最后一次机会

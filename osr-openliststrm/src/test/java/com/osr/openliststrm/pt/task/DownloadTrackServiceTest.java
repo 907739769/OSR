@@ -62,6 +62,7 @@ import static org.mockito.Mockito.when;
 class DownloadTrackServiceTest {
 
     @Mock private com.osr.openliststrm.rename.MediaIdentityService identityService;
+    @Mock private com.osr.openliststrm.helper.OpenListHelper fileHelper;
     @Mock private IPtDownloadRecordPlusService recordService;
     @Mock private IPtSubscriptionEpisodePlusService episodeService;
     @Mock private DownloadCompletionSyncTrigger completionSyncTrigger;
@@ -74,8 +75,10 @@ class DownloadTrackServiceTest {
         // 默认桩：查不到任何订阅（对应"订阅已删除"分支），使全部现有用例回退全局默认值 24 小时，
         // 与改造前的行为保持一致，不用逐个用例改断言。
         when(subscriptionService.listByIds(any())).thenReturn(List.of());
+        when(fileHelper.isVideo(anyString())).thenAnswer(inv -> inv.<String>getArgument(0)
+                .toLowerCase(java.util.Locale.ROOT).matches(".*\\.(mkv|mp4|avi|mov|ts|m2ts|iso)$"));
         return new DownloadTrackService(recordService, episodeService, completionSyncTrigger, subscriptionService,
-                downloaderClientFactory, indexerService, identityService, 3, 24);
+                downloaderClientFactory, indexerService, identityService, fileHelper, 3, 24);
     }
 
     private PtDownloaderPlus downloader() {
@@ -697,6 +700,94 @@ class DownloadTrackServiceTest {
         PtSubscriptionEpisodePlus ep = episodeRow(id, 0, localEpisode);
         ep.setTmdbEpisodeNumber(tmdbEpisodeNumber);
         return ep;
+    }
+
+    @Test
+    void 只有别季同号视频_中止且不误确认目标文件() throws Exception {
+        PtDownloadRecordPlus r = record(100, -1, "osr-pt-pack", "PUSHED", 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(recordService.update(any(), any(Wrapper.class))).thenReturn(true);
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of(episodeRow(501, 0, 1)));
+        when(downloaderClientFactory.get(any())).thenReturn(downloaderClient);
+        when(downloaderClient.listFiles(any(), anyString())).thenReturn(List.of(file(0, "Show.S02E01.mkv")));
+        var svc = service(); when(subscriptionService.listByIds(any())).thenReturn(List.of(tvSub(10)));
+        try (var tg = mockStatic(TgHelper.class)) {
+            svc.track(downloader(), List.of(torrent("osr-pt,osr-pt-pack", 0)));
+        }
+        assertTrue(recordSets().stream().anyMatch(s -> "NO_TARGET_EPISODE".equals(s.getFailReasonCode())));
+        verify(downloaderClient, never()).resumeTorrent(any(), anyString());
+        var updates = ArgumentCaptor.forClass(PtSubscriptionEpisodePlus.class);
+        verify(episodeService, atLeastOnce()).update(updates.capture(), any(Wrapper.class));
+        assertTrue(updates.getAllValues().stream().noneMatch(e -> e != null && "1".equals(e.getFileConfirmed())));
+    }
+
+    @Test
+    void 多季包_只留目标季视频和对应字幕() throws Exception {
+        PtDownloadRecordPlus r = record(100, -1, "osr-pt-pack", "PUSHED", 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of(episodeRow(501, 0, 1)));
+        when(downloaderClientFactory.get(any())).thenReturn(downloaderClient);
+        when(downloaderClient.listFiles(any(), anyString())).thenReturn(List.of(
+                file(0, "Show.S01E01.mkv"), file(1, "Show.S02E01.mkv"),
+                file(2, "Show.S01E01.srt"), file(3, "Show.S02E01.srt")));
+        var svc = service(); when(subscriptionService.listByIds(any())).thenReturn(List.of(tvSub(10)));
+        svc.track(downloader(), List.of(torrent("osr-pt,osr-pt-pack", 0.1)));
+        verify(downloaderClient).excludeFiles(any(), anyString(), eq(Set.of(1, 3)));
+        verify(downloaderClient).resumeTorrent(any(), anyString());
+        assertFalse(anyFailedSet());
+    }
+
+    @Test
+    void 字幕含目标集但视频不含_不能作为目标视频存在的证据() throws Exception {
+        PtDownloadRecordPlus r = record(100, -1, "osr-pt-pack", "PUSHED", 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(recordService.update(any(), any(Wrapper.class))).thenReturn(true);
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of(episodeRow(501, 0, 1)));
+        when(downloaderClientFactory.get(any())).thenReturn(downloaderClient);
+        when(downloaderClient.listFiles(any(), anyString())).thenReturn(List.of(
+                file(0, "Show.S01E02.mkv"), file(1, "Show.S01E01.srt")));
+        var svc = service(); when(subscriptionService.listByIds(any())).thenReturn(List.of(tvSub(10)));
+        try (var tg = mockStatic(TgHelper.class)) {
+            svc.track(downloader(), List.of(torrent("osr-pt,osr-pt-pack", 0)));
+        }
+        assertTrue(recordSets().stream().anyMatch(s -> "NO_TARGET_EPISODE".equals(s.getFailReasonCode())));
+        verify(downloaderClient, never()).resumeTorrent(any(), anyString());
+    }
+
+    @Test
+    void 一个视频覆盖多集_每集都能确认而不是只认起点() throws Exception {
+        PtDownloadRecordPlus r = record(100, -1, "osr-pt-pack", "PUSHED", 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of(episodeRow(501, 0, 2)));
+        when(downloaderClientFactory.get(any())).thenReturn(downloaderClient);
+        when(downloaderClient.listFiles(any(), anyString())).thenReturn(List.of(file(0, "Show.S01E01-E02.mkv")));
+        var svc = service(); when(subscriptionService.listByIds(any())).thenReturn(List.of(tvSub(10)));
+        svc.track(downloader(), List.of(torrent("osr-pt,osr-pt-pack", 0.1)));
+        verify(downloaderClient, never()).excludeFiles(any(), anyString(), any());
+        var updates = ArgumentCaptor.forClass(PtSubscriptionEpisodePlus.class);
+        verify(episodeService, atLeastOnce()).update(updates.capture(), any(Wrapper.class));
+        assertTrue(updates.getAllValues().stream().anyMatch(e -> e != null && "1".equals(e.getFileConfirmed())));
+        assertFalse(anyFailedSet());
+    }
+
+    @Test
+    void 磁力已完成但只有别季视频_释放占位并且不误确认() throws Exception {
+        PtDownloadRecordPlus r = record(100, -1, "osr-pt-pack", "DOWNLOADING", 60_000);
+        when(recordService.list(any(Wrapper.class))).thenReturn(List.of(r));
+        when(recordService.update(any(), any(Wrapper.class))).thenReturn(true);
+        when(episodeService.list(any(Wrapper.class))).thenReturn(List.of(episodeRow(501, 0, 1)));
+        when(downloaderClientFactory.get(any())).thenReturn(downloaderClient);
+        when(downloaderClient.listFiles(any(), anyString())).thenReturn(List.of(file(0, "Show.S02E01.mkv")));
+        var svc = service(); when(subscriptionService.listByIds(any())).thenReturn(List.of(tvSub(10)));
+        try (var tg = mockStatic(TgHelper.class)) {
+            svc.track(downloader(), List.of(torrent("osr-pt,osr-pt-pack", 1)));
+        }
+        var updates = ArgumentCaptor.forClass(PtSubscriptionEpisodePlus.class);
+        verify(episodeService, atLeastOnce()).update(updates.capture(), any(Wrapper.class));
+        assertTrue(updates.getAllValues().stream().anyMatch(e -> e != null && "MISSING".equals(e.getState())));
+        assertTrue(updates.getAllValues().stream().noneMatch(e -> e != null && "1".equals(e.getFileConfirmed())));
+        // 已完成的种子可能负有保种义务，不能自动删掉。
+        verify(downloaderClient, never()).deleteTorrent(any(), anyString(), anyBoolean());
     }
 
     // ---------- 文件名用绝对集号（长篇动画） ----------

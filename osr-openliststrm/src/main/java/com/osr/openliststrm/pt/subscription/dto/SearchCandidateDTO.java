@@ -18,6 +18,9 @@ import lombok.Data;
 @AllArgsConstructor
 public class SearchCandidateDTO {
 
+    /** 订阅内手动候选的短期服务端快照标识；独立资源搜索不使用。 */
+    private String candidateId;
+
     /** 种子原始标题 */
     private String title;
 

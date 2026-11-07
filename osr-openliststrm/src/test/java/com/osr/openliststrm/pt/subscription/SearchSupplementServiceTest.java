@@ -96,6 +96,8 @@ class SearchSupplementServiceTest {
         // mock 默认返回 null，不打这个桩会让每条走到落空汇总的用例都撞 NPE
         when(searchLogService.digestRejectionsSince(any(), anyLong()))
                 .thenReturn(SearchLogService.RejectionDigest.EMPTY);
+        when(subscriptionEngine.pushBestOutcome(any(), anyInt(), anyList()))
+                .thenReturn(PushOutcome.fail(PushOutcome.Code.FILTERED, "候选不可用"));
         capabilityCache = new IndexerCapabilityCache(torznabClient, 300_000L);
         service = new SearchSupplementService(indexerService, torznabClient, subscriptionEngine, subscriptionService, episodeService, matcher, capabilityCache, filterConfigService, filterEngine, tmdbSearchService, blacklistService, searchLogService, 0, 0, 0, 0);
     }
@@ -317,7 +319,7 @@ class SearchSupplementServiceTest {
         t.setParsedSeason(1);
         t.setParsedEpisode(2);
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(t));
-        when(subscriptionEngine.pushBest(eq(sub), eq(2), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushBestOutcome(eq(sub), eq(2), anyList())).thenReturn(PushOutcome.ok());
 
         SupplementResult result = service.supplement(10, 2, "Some Show S01E02");
 
@@ -512,7 +514,7 @@ class SearchSupplementServiceTest {
 
         assertFalse(result.isPushed());
         assertEquals(1, result.getCandidateCount());
-        verify(subscriptionEngine, never()).pushBest(eq(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList());
+        verify(subscriptionEngine, never()).pushBestOutcome(eq(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList());
     }
 
     @Test
@@ -530,7 +532,7 @@ class SearchSupplementServiceTest {
 
         assertFalse(result.isPushed());
         assertEquals(1, result.getCandidateCount());
-        verify(subscriptionEngine, never()).pushBest(eq(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList());
+        verify(subscriptionEngine, never()).pushBestOutcome(eq(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList());
     }
 
     @Test
@@ -546,7 +548,7 @@ class SearchSupplementServiceTest {
         SupplementResult result = service.supplement(10, 3, "Some Show S01E03");
 
         assertEquals(1, result.getCandidateCount());
-        verify(subscriptionEngine, never()).pushBest(eq(sub), eq(3), anyList());
+        verify(subscriptionEngine, never()).pushBestOutcome(eq(sub), eq(3), anyList());
         // 搜到了、只是对不上本集：不能说成「未返回任何候选」，那会把人引去查索引器
         assertTrue(result.getReason().contains("对不上本集"), result.getReason());
         verify(searchLogService).recordSummary(eq(10), eq(3), eq(SearchLogService.SOURCE_SUPPLEMENT),
@@ -566,7 +568,7 @@ class SearchSupplementServiceTest {
 
         service.supplement(10, SubscriptionMatcher.SEASON_PACK, "Some Show S01");
 
-        verify(subscriptionEngine, never()).pushBest(eq(sub), anyInt(), anyList());
+        verify(subscriptionEngine, never()).pushBestOutcome(eq(sub), anyInt(), anyList());
     }
 
     @Test
@@ -582,14 +584,14 @@ class SearchSupplementServiceTest {
         match.setParsedEpisode(3);
         match.setParsedTitle("Some Show");
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(mismatch, match));
-        when(subscriptionEngine.pushBest(eq(sub), eq(3), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushBestOutcome(eq(sub), eq(3), anyList())).thenReturn(PushOutcome.ok());
 
         SupplementResult result = service.supplement(10, 3, "Some Show S01E03");
 
         assertTrue(result.isPushed());
         assertEquals(2, result.getCandidateCount());
         ArgumentCaptor<List<TorrentInfo>> captor = ArgumentCaptor.forClass(List.class);
-        verify(subscriptionEngine).pushBest(eq(sub), eq(3), captor.capture());
+        verify(subscriptionEngine).pushBestOutcome(eq(sub), eq(3), captor.capture());
         assertEquals(1, captor.getValue().size());
         assertTrue(captor.getValue().contains(match));
         assertFalse(captor.getValue().contains(mismatch));
@@ -604,14 +606,14 @@ class SearchSupplementServiceTest {
         t.setParsedTitle("手机");
         t.setParsedYear("2003");
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(t));
-        when(subscriptionEngine.pushBest(eq(movie), eq(0), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushBestOutcome(eq(movie), eq(0), anyList())).thenReturn(PushOutcome.ok());
 
         SupplementResult result = service.supplement(20, 0, "手机");
 
         assertTrue(result.isPushed());
         assertEquals(1, result.getCandidateCount());
         ArgumentCaptor<List<TorrentInfo>> captor = ArgumentCaptor.forClass(List.class);
-        verify(subscriptionEngine).pushBest(eq(movie), eq(0), captor.capture());
+        verify(subscriptionEngine).pushBestOutcome(eq(movie), eq(0), captor.capture());
         assertEquals(1, captor.getValue().size());
         assertTrue(captor.getValue().contains(t));
     }
@@ -631,7 +633,7 @@ class SearchSupplementServiceTest {
         SupplementResult result = service.supplement(20, 0, "手机");
 
         assertFalse(result.isPushed());
-        verify(subscriptionEngine, never()).pushBest(eq(movie), eq(0), anyList());
+        verify(subscriptionEngine, never()).pushBestOutcome(eq(movie), eq(0), anyList());
         assertTrue(result.getReason().contains("对不上本集"), result.getReason());
     }
 
@@ -649,7 +651,7 @@ class SearchSupplementServiceTest {
         SupplementResult result = service.supplement(20, 0, "手机");
 
         assertFalse(result.isPushed());
-        verify(subscriptionEngine, never()).pushBest(eq(movie), eq(0), anyList());
+        verify(subscriptionEngine, never()).pushBestOutcome(eq(movie), eq(0), anyList());
         assertTrue(result.getReason().contains("对不上本集"), result.getReason());
     }
 
@@ -668,7 +670,7 @@ class SearchSupplementServiceTest {
         service.supplement(20, 0, "手机");
 
         ArgumentCaptor<List<TorrentInfo>> captor = ArgumentCaptor.forClass(List.class);
-        verify(subscriptionEngine).pushBest(eq(movie), eq(0), captor.capture());
+        verify(subscriptionEngine).pushBestOutcome(eq(movie), eq(0), captor.capture());
         assertEquals(1, captor.getValue().size());
     }
 
@@ -688,7 +690,7 @@ class SearchSupplementServiceTest {
         SupplementResult result = service.supplement(20, 0, "手机");
 
         assertFalse(result.isPushed());
-        verify(subscriptionEngine, never()).pushBest(eq(movie), eq(0), anyList());
+        verify(subscriptionEngine, never()).pushBestOutcome(eq(movie), eq(0), anyList());
         assertTrue(result.getReason().contains("对不上本集"), result.getReason());
     }
 
@@ -704,7 +706,7 @@ class SearchSupplementServiceTest {
         t.setParsedTitle("手机");
         t.setParsedYear("2003");
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(t));
-        when(subscriptionEngine.pushBest(eq(movie), eq(0), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushBestOutcome(eq(movie), eq(0), anyList())).thenReturn(PushOutcome.ok());
 
         service.supplement(20, 0, "手机");
 
@@ -722,13 +724,13 @@ class SearchSupplementServiceTest {
         enTorrent.setParsedYear("2021");
         when(torznabClient.search(any(), eq("沙丘"))).thenReturn(List.of());
         when(torznabClient.search(any(), eq("Dune"))).thenReturn(List.of(enTorrent));
-        when(subscriptionEngine.pushBest(eq(movie), eq(0), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushBestOutcome(eq(movie), eq(0), anyList())).thenReturn(PushOutcome.ok());
 
         SupplementResult result = service.supplement(20, 0, "沙丘");
 
         assertTrue(result.isPushed());
         ArgumentCaptor<List<TorrentInfo>> captor = ArgumentCaptor.forClass(List.class);
-        verify(subscriptionEngine).pushBest(eq(movie), eq(0), captor.capture());
+        verify(subscriptionEngine).pushBestOutcome(eq(movie), eq(0), captor.capture());
         assertEquals(1, captor.getValue().size());
         assertTrue(captor.getValue().contains(enTorrent));
     }
@@ -769,7 +771,7 @@ class SearchSupplementServiceTest {
         enTorrent.setParsedSeason(1);
         enTorrent.setParsedEpisode(3);
         when(torznabClient.search(any(), eq("Breaking Bad S01E03"))).thenReturn(List.of(enTorrent));
-        when(subscriptionEngine.pushBest(eq(sub), eq(3), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushBestOutcome(eq(sub), eq(3), anyList())).thenReturn(PushOutcome.ok());
 
         service.supplement(10, 3, "Some Show S01E03");
 
@@ -819,14 +821,14 @@ class SearchSupplementServiceTest {
         t.setParsedYear("2021");
         when(torznabClient.searchByExternalId(idx, true, "imdbid", "tt1160419", null, null))
                 .thenReturn(List.of(t));
-        when(subscriptionEngine.pushBest(eq(movie), eq(0), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushBestOutcome(eq(movie), eq(0), anyList())).thenReturn(PushOutcome.ok());
 
         SupplementResult result = service.supplement(20, 0, "沙丘");
 
         assertTrue(result.isPushed());
         verify(torznabClient, never()).search(any(), anyString());
         ArgumentCaptor<List<TorrentInfo>> captor = ArgumentCaptor.forClass(List.class);
-        verify(subscriptionEngine).pushBest(eq(movie), eq(0), captor.capture());
+        verify(subscriptionEngine).pushBestOutcome(eq(movie), eq(0), captor.capture());
         assertTrue(captor.getValue().contains(t));
     }
 
@@ -844,7 +846,7 @@ class SearchSupplementServiceTest {
         t.setParsedYear("2021");
         when(torznabClient.searchByExternalId(idx, true, "tmdbid", "438631", null, null))
                 .thenReturn(List.of(t));
-        when(subscriptionEngine.pushBest(eq(movie), eq(0), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushBestOutcome(eq(movie), eq(0), anyList())).thenReturn(PushOutcome.ok());
 
         service.supplement(20, 0, "沙丘");
 
@@ -882,7 +884,7 @@ class SearchSupplementServiceTest {
         t.setParsedTitle("手机");
         t.setParsedYear("2003");
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(t));
-        when(subscriptionEngine.pushBest(eq(movie), eq(0), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushBestOutcome(eq(movie), eq(0), anyList())).thenReturn(PushOutcome.ok());
 
         service.supplement(20, 0, "手机");
 
@@ -903,7 +905,7 @@ class SearchSupplementServiceTest {
         anySeed.setParsedYear("2003");
         when(torznabClient.searchByExternalId(idx, true, "imdbid", "tt0125664", null, null))
                 .thenReturn(List.of(anySeed));
-        when(subscriptionEngine.pushBest(eq(movie), eq(0), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushBestOutcome(eq(movie), eq(0), anyList())).thenReturn(PushOutcome.ok());
 
         SupplementResult result = service.supplement(20, 0, "手机");
 
@@ -953,7 +955,7 @@ class SearchSupplementServiceTest {
 
         service.supplementOnCreate(99);
 
-        verify(subscriptionEngine, never()).pushBest(any(), anyInt(), anyList());
+        verify(subscriptionEngine, never()).pushBestOutcome(any(), anyInt(), anyList());
     }
 
     @Test
@@ -964,7 +966,7 @@ class SearchSupplementServiceTest {
 
         service.supplementOnCreate(10);
 
-        verify(subscriptionEngine, never()).pushBest(any(), anyInt(), anyList());
+        verify(subscriptionEngine, never()).pushBestOutcome(any(), anyInt(), anyList());
         verify(episodeService, never()).listBySubscription(10);
     }
 
@@ -977,7 +979,7 @@ class SearchSupplementServiceTest {
 
         service.supplementOnCreate(10);
 
-        verify(subscriptionEngine, never()).pushBest(any(), anyInt(), anyList());
+        verify(subscriptionEngine, never()).pushBestOutcome(any(), anyInt(), anyList());
     }
 
     @Test
@@ -989,7 +991,7 @@ class SearchSupplementServiceTest {
 
         service.supplementOnCreate(20);
 
-        verify(subscriptionEngine, times(1)).pushBest(eq(movie), eq(0), anyList());
+        verify(subscriptionEngine, times(1)).pushBestOutcome(eq(movie), eq(0), anyList());
     }
 
     @Test
@@ -998,12 +1000,12 @@ class SearchSupplementServiceTest {
         when(subscriptionService.getById(20)).thenReturn(movie);
         when(episodeService.listBySubscription(20)).thenReturn(List.of(episode(0, "MISSING")));
         when(indexerService.listEnabled()).thenReturn(List.of());
-        when(subscriptionEngine.pushBest(eq(movie), eq(0), anyList()))
+        when(subscriptionEngine.pushBestOutcome(eq(movie), eq(0), anyList()))
                 .thenThrow(new RuntimeException("boom"));
 
         assertDoesNotThrow(() -> service.supplementOnCreate(20));
 
-        verify(subscriptionEngine, times(1)).pushBest(eq(movie), eq(0), anyList());
+        verify(subscriptionEngine, times(1)).pushBestOutcome(eq(movie), eq(0), anyList());
     }
 
     @Test
@@ -1019,13 +1021,13 @@ class SearchSupplementServiceTest {
         seasonPack.setParsedEpisode(null);
         seasonPack.setParsedTitle("Some Show");
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(seasonPack));
-        when(subscriptionEngine.pushBest(eq(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushBestOutcome(eq(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList())).thenReturn(PushOutcome.ok());
 
         service.supplementOnCreate(10);
 
-        verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList());
-        verify(subscriptionEngine, never()).pushBest(eq(sub), eq(1), anyList());
-        verify(subscriptionEngine, never()).pushBest(eq(sub), eq(2), anyList());
+        verify(subscriptionEngine, times(1)).pushBestOutcome(eq(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList());
+        verify(subscriptionEngine, never()).pushBestOutcome(eq(sub), eq(1), anyList());
+        verify(subscriptionEngine, never()).pushBestOutcome(eq(sub), eq(2), anyList());
     }
 
     @Test
@@ -1046,14 +1048,14 @@ class SearchSupplementServiceTest {
         ep2torrent.setParsedEpisode(2);
         ep2torrent.setParsedTitle("Some Show");
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(ep1torrent, ep2torrent));
-        when(subscriptionEngine.pushBest(eq(sub), eq(1), anyList())).thenReturn(true);
-        when(subscriptionEngine.pushBest(eq(sub), eq(2), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushBestOutcome(eq(sub), eq(1), anyList())).thenReturn(PushOutcome.ok());
+        when(subscriptionEngine.pushBestOutcome(eq(sub), eq(2), anyList())).thenReturn(PushOutcome.ok());
 
         service.supplementOnCreate(10);
 
-        verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(1), anyList());
-        verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(2), anyList());
-        verify(subscriptionEngine, never()).pushBest(eq(sub), eq(3), anyList());
+        verify(subscriptionEngine, times(1)).pushBestOutcome(eq(sub), eq(1), anyList());
+        verify(subscriptionEngine, times(1)).pushBestOutcome(eq(sub), eq(2), anyList());
+        verify(subscriptionEngine, never()).pushBestOutcome(eq(sub), eq(3), anyList());
     }
 
     // ---------- 季包命中后仍处理单集 / 单集补发 ----------
@@ -1088,16 +1090,16 @@ class SearchSupplementServiceTest {
         ep3.setParsedEpisode(3);
         ep3.setParsedTitle("Some Show");
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(pack, ep3));
-        when(subscriptionEngine.pushBest(eq(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList())).thenReturn(true);
-        when(subscriptionEngine.pushBest(eq(sub), eq(3), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushBestOutcome(eq(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList())).thenReturn(PushOutcome.ok());
+        when(subscriptionEngine.pushBestOutcome(eq(sub), eq(3), anyList())).thenReturn(PushOutcome.ok());
 
         SearchAndPushSummary summary = service.searchAndPushMissing(10);
 
         // 季包占位过的 1、2 集重查后已不是 MISSING，不再被逐集推一次
-        verify(subscriptionEngine, never()).pushBest(eq(sub), eq(1), anyList());
-        verify(subscriptionEngine, never()).pushBest(eq(sub), eq(2), anyList());
+        verify(subscriptionEngine, never()).pushBestOutcome(eq(sub), eq(1), anyList());
+        verify(subscriptionEngine, never()).pushBestOutcome(eq(sub), eq(2), anyList());
         // 季包没覆盖到的第 3 集照常补
-        verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(3), anyList());
+        verify(subscriptionEngine, times(1)).pushBestOutcome(eq(sub), eq(3), anyList());
         assertTrue(summary.isSeasonPushed());
         assertEquals(1, summary.getEpisodesPushed());
     }
@@ -1134,14 +1136,14 @@ class SearchSupplementServiceTest {
         ep41.setParsedEpisode(41);
         ep41.setParsedTitle("Some Show");
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(pack, ep41));
-        when(subscriptionEngine.pushBest(eq(sub), eq(41), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushBestOutcome(eq(sub), eq(41), anyList())).thenReturn(PushOutcome.ok());
 
         SearchAndPushSummary summary = withSeasonPackThreshold(3).searchAndPushMissing(10);
 
-        verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(41), anyList());
+        verify(subscriptionEngine, times(1)).pushBestOutcome(eq(sub), eq(41), anyList());
         // 关键：季包一次都没被推——它既下几十 GB 换一集，又可能压根不含这一集。
         // 兜底那一步也不该补推：它按<b>推完之后</b>的集状态判，缺口已经补上了
-        verify(subscriptionEngine, never()).pushBest(any(), eq(SubscriptionMatcher.SEASON_PACK), anyList());
+        verify(subscriptionEngine, never()).pushBestOutcome(any(), eq(SubscriptionMatcher.SEASON_PACK), anyList());
         assertFalse(summary.isSeasonPushed());
         assertEquals(1, summary.getEpisodesPushed());
     }
@@ -1183,13 +1185,13 @@ class SearchSupplementServiceTest {
         ep3.setParsedEpisode(3);
         ep3.setParsedTitle("Some Show");
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(pack, ep3));
-        when(subscriptionEngine.pushBest(eq(sub), eq(3), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushBestOutcome(eq(sub), eq(3), anyList())).thenReturn(PushOutcome.ok());
 
         withSeasonPackThreshold(3).searchAndPushMissing(10);
 
         // 未播的 9 集不算数：本轮实际只缺 1 集，走单集优先
-        verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(3), anyList());
-        verify(subscriptionEngine, never()).pushBest(any(), eq(SubscriptionMatcher.SEASON_PACK), anyList());
+        verify(subscriptionEngine, times(1)).pushBestOutcome(eq(sub), eq(3), anyList());
+        verify(subscriptionEngine, never()).pushBestOutcome(any(), eq(SubscriptionMatcher.SEASON_PACK), anyList());
     }
 
     /**
@@ -1224,16 +1226,16 @@ class SearchSupplementServiceTest {
             pool.add(single);
         }
         when(torznabClient.search(any(), anyString())).thenReturn(pool);
-        when(subscriptionEngine.pushBest(eq(sub), org.mockito.ArgumentMatchers.intThat(ep -> ep > 0), anyList()))
-                .thenReturn(true);
+        when(subscriptionEngine.pushBestOutcome(eq(sub), org.mockito.ArgumentMatchers.intThat(ep -> ep > 0), anyList()))
+                .thenReturn(PushOutcome.ok());
 
         SearchAndPushSummary summary = withSeasonPackThreshold(3).searchAndPushMissing(10);
 
         for (int i = 13; i <= 16; i++) {
-            verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(i), anyList());
+            verify(subscriptionEngine, times(1)).pushBestOutcome(eq(sub), eq(i), anyList());
         }
         // 缺口已经被单集补上，兜底不再推季包
-        verify(subscriptionEngine, never()).pushBest(any(), eq(SubscriptionMatcher.SEASON_PACK), anyList());
+        verify(subscriptionEngine, never()).pushBestOutcome(any(), eq(SubscriptionMatcher.SEASON_PACK), anyList());
         assertFalse(summary.isSeasonPushed());
         assertEquals(4, summary.getEpisodesPushed());
     }
@@ -1264,12 +1266,12 @@ class SearchSupplementServiceTest {
         pack.setParsedSeason(1);
         pack.setParsedTitle("Some Show");
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(pack));
-        when(subscriptionEngine.pushBest(eq(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList()))
-                .thenReturn(true);
+        when(subscriptionEngine.pushBestOutcome(eq(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList()))
+                .thenReturn(PushOutcome.ok());
 
         SearchAndPushSummary summary = withSeasonPackThreshold(3).searchAndPushMissing(10);
 
-        verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList());
+        verify(subscriptionEngine, times(1)).pushBestOutcome(eq(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList());
         assertTrue(summary.isSeasonPushed());
     }
 
@@ -1291,14 +1293,14 @@ class SearchSupplementServiceTest {
         ep1.setParsedEpisode(1);
         ep1.setParsedTitle("Some Show");
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(pack, ep1));
-        when(subscriptionEngine.pushBest(eq(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList()))
-                .thenReturn(true);
+        when(subscriptionEngine.pushBestOutcome(eq(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList()))
+                .thenReturn(PushOutcome.ok());
 
         SearchAndPushSummary summary = withSeasonPackThreshold(3).searchAndPushMissing(10);
 
         assertTrue(summary.isSeasonPushed());
         // 季包占位过的集重查后已不是 MISSING，不会再被逐集推一次
-        verify(subscriptionEngine, never()).pushBest(any(), eq(1), anyList());
+        verify(subscriptionEngine, never()).pushBestOutcome(any(), eq(1), anyList());
     }
 
     /**
@@ -1325,12 +1327,12 @@ class SearchSupplementServiceTest {
         // 季粒度关键词只带回第 1 集；第 2 集只有拿「Some Show S01E02」去搜才返回
         when(torznabClient.search(any(), anyString())).thenAnswer(inv ->
                 inv.<String>getArgument(1).contains("E02") ? List.of(ep2) : List.of(ep1));
-        when(subscriptionEngine.pushBest(eq(sub), anyInt(), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushBestOutcome(eq(sub), anyInt(), anyList())).thenReturn(PushOutcome.ok());
 
         SearchAndPushSummary summary = withFallback(5).searchAndPushMissing(10);
 
         verify(torznabClient, atLeastOnce()).search(any(), eq("Some Show S01E02"));
-        verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(2), anyList());
+        verify(subscriptionEngine, times(1)).pushBestOutcome(eq(sub), eq(2), anyList());
         assertEquals(2, summary.getEpisodesPushed());
     }
 
@@ -1346,7 +1348,7 @@ class SearchSupplementServiceTest {
         ep1.setParsedEpisode(1);
         ep1.setParsedTitle("Some Show");
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(ep1));
-        when(subscriptionEngine.pushBest(eq(sub), eq(1), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushBestOutcome(eq(sub), eq(1), anyList())).thenReturn(PushOutcome.ok());
 
         withFallback(5).searchAndPushMissing(10);
 
@@ -1446,7 +1448,7 @@ class SearchSupplementServiceTest {
         assertTrue(service.searchAndPushMissing(10).isSkipped());
 
         verify(torznabClient, never()).search(any(), anyString());
-        verify(subscriptionEngine, never()).pushBest(any(), anyInt(), anyList());
+        verify(subscriptionEngine, never()).pushBestOutcome(any(), anyInt(), anyList());
     }
 
     @Test
@@ -1462,12 +1464,12 @@ class SearchSupplementServiceTest {
         ep1.setParsedEpisode(1);
         ep1.setParsedTitle("Some Show");
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(ep1));
-        when(subscriptionEngine.pushBest(eq(sub), eq(1), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushBestOutcome(eq(sub), eq(1), anyList())).thenReturn(PushOutcome.ok());
 
         service.searchAndPushMissing(10);
 
-        verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(1), anyList());
-        verify(subscriptionEngine, never()).pushBest(eq(sub), eq(2), anyList());
+        verify(subscriptionEngine, times(1)).pushBestOutcome(eq(sub), eq(1), anyList());
+        verify(subscriptionEngine, never()).pushBestOutcome(eq(sub), eq(2), anyList());
     }
 
     @Test
@@ -1486,7 +1488,7 @@ class SearchSupplementServiceTest {
 
         assertFalse(service.searchAndPushMissing(10).isSkipped());
 
-        verify(subscriptionEngine, atLeastOnce()).pushBest(eq(sub), anyInt(), anyList());
+        verify(subscriptionEngine, atLeastOnce()).pushBestOutcome(eq(sub), anyInt(), anyList());
     }
 
     @Test
@@ -1523,16 +1525,16 @@ class SearchSupplementServiceTest {
         ep2.setParsedTitle("Breaking Bad");
         when(torznabClient.search(any(), eq("Breaking Bad S01"))).thenReturn(List.of(ep2));
 
-        when(subscriptionEngine.pushBest(eq(sub), eq(1), anyList())).thenReturn(true);
-        when(subscriptionEngine.pushBest(eq(sub), eq(2), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushBestOutcome(eq(sub), eq(1), anyList())).thenReturn(PushOutcome.ok());
+        when(subscriptionEngine.pushBestOutcome(eq(sub), eq(2), anyList())).thenReturn(PushOutcome.ok());
 
         service.supplementOnCreate(10);
 
         verify(torznabClient).search(any(), eq("Some Show S01"));
         verify(torznabClient).search(any(), eq("Breaking Bad S01"));
         // 两级搜索都要发起，且候选池合并后两集都能推送成功
-        verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(1), anyList());
-        verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(2), anyList());
+        verify(subscriptionEngine, times(1)).pushBestOutcome(eq(sub), eq(1), anyList());
+        verify(subscriptionEngine, times(1)).pushBestOutcome(eq(sub), eq(2), anyList());
     }
 
     @Test
@@ -1569,13 +1571,13 @@ class SearchSupplementServiceTest {
         ep2.setParsedEpisode(2);
         ep2.setParsedTitle("Some Show");
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(ep1, ep2));
-        when(subscriptionEngine.pushBest(eq(sub), eq(1), anyList())).thenReturn(true);
-        when(subscriptionEngine.pushBest(eq(sub), eq(2), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushBestOutcome(eq(sub), eq(1), anyList())).thenReturn(PushOutcome.ok());
+        when(subscriptionEngine.pushBestOutcome(eq(sub), eq(2), anyList())).thenReturn(PushOutcome.ok());
 
         service.supplementOnCreate(10);
 
-        verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(1), anyList());
-        verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(2), anyList());
+        verify(subscriptionEngine, times(1)).pushBestOutcome(eq(sub), eq(1), anyList());
+        verify(subscriptionEngine, times(1)).pushBestOutcome(eq(sub), eq(2), anyList());
     }
 
     @Test
@@ -1596,13 +1598,13 @@ class SearchSupplementServiceTest {
         ep2.setParsedEpisode(2);
         ep2.setParsedTitle("Some Show");
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(ep1, ep2));
-        when(subscriptionEngine.pushBest(eq(sub), eq(1), anyList())).thenThrow(new RuntimeException("boom"));
-        when(subscriptionEngine.pushBest(eq(sub), eq(2), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushBestOutcome(eq(sub), eq(1), anyList())).thenThrow(new RuntimeException("boom"));
+        when(subscriptionEngine.pushBestOutcome(eq(sub), eq(2), anyList())).thenReturn(PushOutcome.ok());
 
         service.supplementOnCreate(10);
 
-        verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(1), anyList());
-        verify(subscriptionEngine, times(1)).pushBest(eq(sub), eq(2), anyList());
+        verify(subscriptionEngine, times(1)).pushBestOutcome(eq(sub), eq(1), anyList());
+        verify(subscriptionEngine, times(1)).pushBestOutcome(eq(sub), eq(2), anyList());
     }
 
     // ---------- supplementOnCreate 全部落空时的告警通知 ----------
@@ -1612,8 +1614,9 @@ class SearchSupplementServiceTest {
         PtSubscriptionPlus movie = movieSub(20, "手机", "2003");
         when(subscriptionService.getById(20)).thenReturn(movie);
         when(episodeService.listBySubscription(20)).thenReturn(List.of(episode(0, "MISSING")));
-        when(indexerService.listEnabled()).thenReturn(List.of());
-        when(subscriptionEngine.pushBest(eq(movie), eq(0), anyList())).thenReturn(false);
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+        when(torznabClient.search(any(), anyString())).thenReturn(List.of());
+        when(subscriptionEngine.pushBestOutcome(eq(movie), eq(0), anyList())).thenReturn(PushOutcome.fail(PushOutcome.Code.FILTERED, "候选不可用"));
 
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
             service.supplementOnCreate(20);
@@ -1627,7 +1630,7 @@ class SearchSupplementServiceTest {
         when(subscriptionService.getById(20)).thenReturn(movie);
         when(episodeService.listBySubscription(20)).thenReturn(List.of(episode(0, "MISSING")));
         when(indexerService.listEnabled()).thenReturn(List.of());
-        when(subscriptionEngine.pushBest(eq(movie), eq(0), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushBestOutcome(eq(movie), eq(0), anyList())).thenReturn(PushOutcome.ok());
 
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
             service.supplementOnCreate(20);
@@ -1643,7 +1646,8 @@ class SearchSupplementServiceTest {
                 episode(1, "MISSING"), episode(2, "MISSING"));
         when(episodeService.listBySubscription(10)).thenReturn(episodes);
         // 无索引器 → 搜索无候选 → 无推送 → 告警
-        when(indexerService.listEnabled()).thenReturn(List.of());
+        when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
+        when(torznabClient.search(any(), anyString())).thenReturn(List.of());
 
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
             service.supplementOnCreate(10);
@@ -1664,7 +1668,7 @@ class SearchSupplementServiceTest {
         seasonPack.setParsedEpisode(null);
         seasonPack.setParsedTitle("Some Show");
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(seasonPack));
-        when(subscriptionEngine.pushBest(eq(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushBestOutcome(eq(sub), eq(SubscriptionMatcher.SEASON_PACK), anyList())).thenReturn(PushOutcome.ok());
 
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
             service.supplementOnCreate(10);
@@ -1690,7 +1694,7 @@ class SearchSupplementServiceTest {
         ep2.setParsedEpisode(2);
         ep2.setParsedTitle("Some Show");
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(ep1, ep2));
-        when(subscriptionEngine.pushBest(eq(sub), eq(1), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushBestOutcome(eq(sub), eq(1), anyList())).thenReturn(PushOutcome.ok());
 
         try (MockedStatic<TgHelper> tg = mockStatic(TgHelper.class)) {
             service.supplementOnCreate(10);
@@ -1913,7 +1917,7 @@ class SearchSupplementServiceTest {
         SupplementResult result = service.supplement(10, 3, "Some Show S01E03");
 
         assertFalse(result.isPushed());
-        verify(subscriptionEngine, never()).pushBest(eq(sub), eq(3), anyList());
+        verify(subscriptionEngine, never()).pushBestOutcome(eq(sub), eq(3), anyList());
     }
 
     @Test
@@ -1926,12 +1930,12 @@ class SearchSupplementServiceTest {
         TorrentInfo renamed = parsedEpisode("Jue.Ming.Du.Shi.S01E03", "Jue Ming Du Shi", 1, 3);
         renamed.setImdbId("tt0903747");
         when(torznabClient.search(any(), anyString())).thenReturn(List.of(renamed));
-        when(subscriptionEngine.pushBest(eq(sub), eq(3), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushBestOutcome(eq(sub), eq(3), anyList())).thenReturn(PushOutcome.ok());
 
         assertTrue(service.supplement(10, 3, "Some Show S01E03").isPushed());
 
         ArgumentCaptor<List<TorrentInfo>> captor = ArgumentCaptor.forClass(List.class);
-        verify(subscriptionEngine).pushBest(eq(sub), eq(3), captor.capture());
+        verify(subscriptionEngine).pushBestOutcome(eq(sub), eq(3), captor.capture());
         assertEquals(List.of(renamed), captor.getValue());
     }
 
@@ -1964,6 +1968,7 @@ class SearchSupplementServiceTest {
         when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(19, "MISSING")));
         // ID 路径不校验标题：这里给一个与订阅对不上的标题，确认放行靠的不是标题
         TorrentInfo absolute = parsedEpisode("One.Piece.S01E1174", "One Piece", 1, 1174);
+        absolute.setImdbId(sub.getImdbId());
         when(torznabClient.searchByExternalId(any(), anyBoolean(), anyString(), anyString(), any(), any()))
                 .thenReturn(List.of(absolute));
         when(torznabClient.search(any(), anyString())).thenReturn(List.of());
@@ -2018,13 +2023,13 @@ class SearchSupplementServiceTest {
         when(episodeService.listBySubscription(10)).thenReturn(List.of(episode(5, "MISSING")));
         when(torznabClient.search(any(), anyString()))
                 .thenReturn(List.of(parsedEpisode("Some.Show.S01E05", "Some Show", 1, 5)));
-        when(subscriptionEngine.pushBest(eq(sub), eq(5), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushBestOutcome(eq(sub), eq(5), anyList())).thenReturn(PushOutcome.ok());
 
         SupplementResult result = service.supplement(10, SubscriptionMatcher.SEASON_PACK, "某剧 第一季", false, List.of(1));
 
         assertTrue(result.isPushed());
         assertEquals(1, result.getPushedCount());
-        verify(subscriptionEngine).pushBest(eq(sub), eq(5), anyList());
+        verify(subscriptionEngine).pushBestOutcome(eq(sub), eq(5), anyList());
         verify(torznabClient).search(same(idx1), eq("某剧 第一季"));
         verify(torznabClient, never()).search(same(idx2), anyString());
     }
@@ -2050,7 +2055,7 @@ class SearchSupplementServiceTest {
         when(indexerService.listEnabled()).thenReturn(List.of(indexer(1)));
         when(torznabClient.search(any(), anyString()))
                 .thenReturn(List.of(parsedEpisode("Some.Show.S01E02", "Some Show", 1, 2)));
-        when(subscriptionEngine.pushBest(eq(sub), eq(2), anyList())).thenReturn(false);
+        when(subscriptionEngine.pushBestOutcome(eq(sub), eq(2), anyList())).thenReturn(PushOutcome.fail(PushOutcome.Code.FILTERED, "候选不可用"));
         when(searchLogService.watermark(10)).thenReturn(42L);
         when(searchLogService.latestSummarySince(10, 42L, SearchLogService.SOURCE_SUPPLEMENT))
                 .thenReturn("下载器「qb」已达最大并发 3，请等待在途任务完成或调高上限");
@@ -2070,7 +2075,7 @@ class SearchSupplementServiceTest {
 
         SupplementResult result = service.supplement(10, 2, "Some Show S01E02");
 
-        verify(subscriptionEngine).pushBest(eq(sub), eq(2), eq(List.of()));
+        verify(subscriptionEngine).pushBestOutcome(eq(sub), eq(2), eq(List.of()));
         assertTrue(result.getReason().contains("未返回任何候选"), result.getReason());
     }
 
@@ -2088,14 +2093,15 @@ class SearchSupplementServiceTest {
         tvShow.setParsedSeason(1);
         tvShow.setParsedEpisode(1);
         TorrentInfo right = torrent("手机.2003.1080p");
+        right.setImdbId(movie.getImdbId());
         when(torznabClient.searchByExternalId(idx, true, "imdbid", "tt0125664", null, null))
                 .thenReturn(List.of(otherMovie, tvShow, right));
-        when(subscriptionEngine.pushBest(eq(movie), eq(0), anyList())).thenReturn(true);
+        when(subscriptionEngine.pushBestOutcome(eq(movie), eq(0), anyList())).thenReturn(PushOutcome.ok());
 
         service.supplement(20, 0, "手机");
 
         ArgumentCaptor<List<TorrentInfo>> captor = ArgumentCaptor.forClass(List.class);
-        verify(subscriptionEngine).pushBest(eq(movie), eq(0), captor.capture());
+        verify(subscriptionEngine).pushBestOutcome(eq(movie), eq(0), captor.capture());
         assertEquals(List.of(right), captor.getValue());
     }
 }

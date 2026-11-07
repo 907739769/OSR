@@ -11,16 +11,24 @@ package com.osr.openliststrm.pt.subscription;
  * 而真实原因很可能是第三种（比如候选被过滤规则清光、或该种子有一条不可重试的失败记录）。
  * </p>
  * <p>
- * 只有手动推送需要这个原因：自动路径（RSS、自动搜索、洗版扫描）拿到原因也无人阅读，
- * 因此 {@code SubscriptionEngine#pushBest}/{@code #pushUpgrade} 保持返回 boolean 不变，
- * 仅手动链路走 {@code #pushManual}。
+ * 自动补搜通过结构化 code 区分候选不可用与容量/外部故障，决定扩搜或下轮重试。
+ * {@code SubscriptionEngine#pushBest}/{@code #pushUpgrade} 仍保留 boolean 兼容入口。
  * </p>
  *
  * @param pushed 是否成功推送
  * @param reason 未推送的原因，可直接展示给用户；{@code pushed} 为 true 时恒为 null
  * @author Jack
  */
-public record PushOutcome(boolean pushed, String reason) {
+public record PushOutcome(boolean pushed, String reason, Code code) {
+
+    public enum Code {
+        SUCCESS, NO_TARGET, NO_CANDIDATE, ALREADY_RECORDED, FILTERED, IDENTITY_CONFLICT,
+        NO_DOWNLOADER, CAPACITY, CLAIMED, PERSISTENCE_FAILED, DOWNLOAD_FAILED, UNSPECIFIED
+    }
+
+    public PushOutcome(boolean pushed, String reason) {
+        this(pushed, reason, pushed ? Code.SUCCESS : Code.UNSPECIFIED);
+    }
 
     private static final PushOutcome OK = new PushOutcome(true, null);
 
@@ -30,5 +38,19 @@ public record PushOutcome(boolean pushed, String reason) {
 
     public static PushOutcome fail(String reason) {
         return new PushOutcome(false, reason);
+    }
+
+    public static PushOutcome fail(Code code, String reason) {
+        return new PushOutcome(false, reason, code);
+    }
+
+    /** 只有候选不可用时才扩大搜索；容量、状态及外部故障不应靠重复搜索解决。 */
+    public boolean searchMore() {
+        return code == Code.NO_CANDIDATE || code == Code.ALREADY_RECORDED || code == Code.FILTERED;
+    }
+
+    public boolean retrySoon() {
+        return code == Code.NO_DOWNLOADER || code == Code.CAPACITY || code == Code.PERSISTENCE_FAILED
+                || code == Code.DOWNLOAD_FAILED || code == Code.CLAIMED || code == Code.NO_TARGET;
     }
 }
