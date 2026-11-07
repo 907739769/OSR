@@ -559,6 +559,11 @@ public class SubscriptionEngine {
 
         sub.setLastMatchTime(new Date());
         subscriptionService.updateById(sub);
+        if (!mode.isUpgrade()) {
+            subscriptionService.updateAutoSearchMissState(sub.getId(), 0, null);
+            sub.setLastAutoSearchNoResult(0);
+            sub.setLastAutoSearchRejectSign(null);
+        }
         PtStatusWebSocket.pushSubscriptionEvent(sub);
 
         log.info("{} 已推送{}种子：{}（占位 {} 集）",

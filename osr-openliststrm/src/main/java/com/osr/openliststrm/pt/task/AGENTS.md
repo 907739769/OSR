@@ -44,3 +44,5 @@
 - **「忽略失败」（`pt_download_record.fail_ignored`）只扣「待处理」口径，不扣统计**：首页待办的失败数（`TodoSignalService`）与下载记录页的「隐藏已忽略」筛选会排除它，统计仪表盘的失败数、成功率、Top 订阅的失败列**照算**——忽略是「不处理」，不是「没失败」。所以它**不能并进 `UnresolvedFailureSql.NOT_SUPERSEDED`**，那条是统计与待办共用的；并进去的话用户忽略几条，成功率就跟着虚高。忽略也**不碰订阅的集状态**，那一集照旧缺失、自动补搜照常。首页待办跳下载记录页带的是 `state=FAILED&hideSuperseded=1&hideIgnored=1`，统计卡下钻只带前两个，两边条数各自与自己的数字对得上。
 
 - `DownloadRecordAdminService.enrich` 查询索引器/下载器关联前先判 ID 集是否为空。MP 的 `listByIds(empty)` 在真实 MySQL 会生成 `IN ()`，历史记录外键为空时不能阻断整条下载记录展示。
+
+- **近期已播缺集绕过长期落空退避**：`AutoSearchSchedule` 与一键诊断共用周期。每轮一次批量查询近 7 个自然日的 MISSING 日期，避免逐订阅查询；电影排除。未搜索或用户重新开启（`last_search_time IS NULL`）优先，再按最近观看时间稳定排序。关闭→开启重置由 `SubscriptionService` 负责，任务本身不改开关。

@@ -928,4 +928,26 @@ class SubscriptionServiceTest {
         verify(mediaServerClientFactory, never()).get(any());
         verify(healthRecorder, never()).recordSuccess(any());
     }
+
+    @Test
+    void 开启补搜_只重置原来关闭的订阅_不整实体写回() {
+        service.setAutoSearchBatch(List.of(1, 2), true);
+        var captor = ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper.class);
+        verify(subscriptionService, times(2)).update(captor.capture());
+        var reset = captor.getAllValues().get(0);
+        assertTrue(reset.getSqlSegment().contains("auto_search <>"));
+        assertTrue(reset.getSqlSegment().contains("auto_search IS NULL"));
+        assertTrue(reset.getSqlSet().contains("last_search_time"));
+        assertTrue(reset.getSqlSet().contains("last_auto_search_no_result"));
+        assertTrue(reset.getParamNameValuePairs().containsValue(0));
+        verify(subscriptionService, never()).updateById(any(PtSubscriptionPlus.class));
+    }
+
+    @Test
+    void 关闭补搜_保留上次搜索时间和落空记录() {
+        service.setAutoSearchBatch(List.of(1), false);
+        var captor = ArgumentCaptor.forClass(com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper.class);
+        verify(subscriptionService).update(captor.capture());
+        assertTrue(!captor.getValue().getSqlSet().contains("last_search_time"));
+    }
 }

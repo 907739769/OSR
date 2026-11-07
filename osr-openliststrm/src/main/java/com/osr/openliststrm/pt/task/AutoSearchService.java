@@ -1,27 +1,34 @@
 package com.osr.openliststrm.pt.task;
 
+import com.baomidou.mybatisplus.core.conditions.query.QueryWrapper;
 import com.osr.common.utils.FaultThrottle;
 import com.osr.common.utils.StringUtils;
 import com.osr.openliststrm.helper.TgHelper;
-import com.osr.openliststrm.notify.NotificationType;
-import com.osr.openliststrm.notify.NotifyAction;
-import com.osr.openliststrm.notify.NotifyTarget;
 import com.osr.openliststrm.mybatisplus.domain.PtFilterConfigPlus;
-import com.osr.openliststrm.pt.PtLogText;
+import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus;
 import com.osr.openliststrm.mybatisplus.domain.PtSubscriptionPlus;
 import com.osr.openliststrm.mybatisplus.service.IPtFilterConfigPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtIndexerPlusService;
+import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
+import com.osr.openliststrm.notify.NotificationType;
+import com.osr.openliststrm.notify.NotifyAction;
+import com.osr.openliststrm.notify.NotifyTarget;
+import com.osr.openliststrm.pt.PtLogText;
+import com.osr.openliststrm.pt.subscription.AutoSearchSchedule;
 import com.osr.openliststrm.pt.subscription.SearchSupplementService;
 import com.osr.openliststrm.pt.subscription.dto.SearchAndPushSummary;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
 /**
  * 自动补搜业务逻辑：对开启了 auto_search 且到期的订阅，发起一次搜索，先试季包、
@@ -40,19 +47,7 @@ import java.util.concurrent.TimeUnit;
 @Service
 public class AutoSearchService {
 
-    private static final int DEFAULT_INTERVAL_HOURS = 24;
-
-    /**
-     * 落空退避最多把周期翻几倍（{@code 1 << 3} = 8 倍）。
-     * 再往上由 {@link #MAX_INTERVAL_MILLIS} 封顶。
-     */
-    private static final int MAX_BACKOFF_SHIFT = 3;
-
-    /** 退避上限：连续落空再多，也至少一周试一次——片源可能很久以后才出现，不能彻底放弃 */
-    private static final long MAX_INTERVAL_MILLIS = 7L * 24 * 3600_000L;
-
-    /** 到期时刻的向后抖动幅度上限（百分比），按订阅 id 派生，见 {@link #isDue} */
-    private static final int JITTER_PERCENT_RANGE = 20;
+    private final IPtSubscriptionEpisodePlusService episodeService;
 
     /**
      * 「压根没搜到候选」的指纹取值。
@@ -101,12 +96,14 @@ public class AutoSearchService {
                              IPtFilterConfigPlusService filterConfigService,
                              SearchSupplementService searchSupplementService,
                              IPtIndexerPlusService indexerService,
+                             IPtSubscriptionEpisodePlusService episodeService,
                              @Value("${pt.search.auto-search-round-budget-ms:1200000}") long roundBudgetMillis) {
         this.subscriptionService = subscriptionService;
         this.filterConfigService = filterConfigService;
         this.searchSupplementService = searchSupplementService;
         this.indexerService = indexerService;
         this.roundBudgetMillis = roundBudgetMillis;
+        this.episodeService = episodeService;
     }
 
     /**
@@ -135,6 +132,16 @@ public class AutoSearchService {
             log.info("已有启用中的索引器，自动补搜恢复");
         }
         int intervalHours = resolveIntervalHours();
+        LocalDate today = LocalDate.now();
+        // 每轮一次批量查询，避免逐订阅查集表。日期未知不推断为连载，维持原有节奏。
+        Set<Integer> recentSubs = episodeService.list(new QueryWrapper<PtSubscriptionEpisodePlus>()
+                        .in("sub_id", candidates.stream().map(PtSubscriptionPlus::getId).toList())
+                        .eq("state", "MISSING")
+                        .ge("air_date", today.minusDays(6)).lt("air_date", today.plusDays(1)))
+                .stream().filter(ep -> AutoSearchSchedule.recentMissing(ep, today))
+                .map(PtSubscriptionEpisodePlus::getSubId).collect(Collectors.toSet());
+        candidates.stream().filter(sub -> "MOVIE".equalsIgnoreCase(sub.getMediaType()))
+                .forEach(sub -> recentSubs.remove(sub.getId()));
         long now = System.currentTimeMillis();
         long deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(Math.max(0L, roundBudgetMillis));
         int searched = 0;
@@ -142,7 +149,7 @@ public class AutoSearchService {
 
         for (int i = 0; i < candidates.size(); i++) {
             PtSubscriptionPlus sub = candidates.get(i);
-            if (!isDue(sub, intervalHours, now)) {
+            if (!isDue(sub, intervalHours, now, recentSubs.contains(sub.getId()))) {
                 continue;
             }
             if (budgetExhausted(deadline)) {
@@ -150,7 +157,7 @@ public class AutoSearchService {
                 // 用户看到的是「补搜好像不按周期跑」，而日志里一切正常
                 // 只数到期的：候选里多数是没到期的，把它们算进「留到下一轮」会把积压报得虚高
                 long remainingDue = candidates.subList(i, candidates.size()).stream()
-                        .filter(c -> isDue(c, intervalHours, now))
+                        .filter(c -> isDue(c, intervalHours, now, recentSubs.contains(c.getId())))
                         .count();
                 log.warn("自动补搜已用满 {}ms 单轮预算，本轮搜了 {} 个订阅，剩余 {} 个到期订阅留到下一轮"
                                 + "（它们的 last_search_time 未改动，下轮心跳会接着搜）",
@@ -161,7 +168,7 @@ public class AutoSearchService {
                 // 跳过（只剩未播集等）不算「已检索」：它一个请求都没发，也不写 last_search_time，
                 // 下轮心跳照样到期——计进来的话每 30 分钟都会报一次「1 个到期并已检索」，
                 // RoundHeartbeat 的静默汇报整个被架空
-                if (trySearch(sub, intervalHours)) {
+                if (trySearch(sub, intervalHours, recentSubs.contains(sub.getId()))) {
                     searched++;
                 }
             } catch (Exception e) {
@@ -209,7 +216,7 @@ public class AutoSearchService {
      *
      * @return 是否真正发起了检索；{@code false} 表示本轮被跳过
      */
-    private boolean trySearch(PtSubscriptionPlus sub, int intervalHours) {
+    private boolean trySearch(PtSubscriptionPlus sub, int intervalHours, boolean recent) {
         SearchAndPushSummary summary = searchSupplementService.searchAndPushMissing(sub.getId());
         if (summary.isSkipped()) {
             return false;
@@ -226,7 +233,7 @@ public class AutoSearchService {
                 ? NO_CANDIDATE_SIGN : summary.getRejectSignature();
         int nextStreak = streak + 1;
         if (streak == 0 || !sign.equals(sub.getLastAutoSearchRejectSign())) {
-            notifySafely(describeNoResult(sub, summary.getRejectSummary(), nextStreak, intervalHours), sub);
+            notifySafely(describeNoResult(sub, summary.getRejectSummary(), nextStreak, intervalHours, recent), sub);
         }
         subscriptionService.updateAutoSearchMissState(sub.getId(), nextStreak, sign);
         return true;
@@ -244,9 +251,9 @@ public class AutoSearchService {
      * 用户看到的是「我配了 24 小时，怎么两天没动静」，而这是有意的。
      * </p>
      */
-    private String describeNoResult(PtSubscriptionPlus sub, String rejectSummary, int nextStreak, int intervalHours) {
+    private String describeNoResult(PtSubscriptionPlus sub, String rejectSummary, int nextStreak, int intervalHours, boolean recent) {
         String title = StringUtils.escapeHtml(sub.getTitle());
-        long nextHours = effectiveIntervalMillis(sub, nextStreak, intervalHours) / 3600_000L;
+        long nextHours = AutoSearchSchedule.intervalMillis(sub, nextStreak, intervalHours, recent) / 3600_000L;
         String tail = "（已连续 " + nextStreak + " 轮落空，下次约 " + nextHours
                 + " 小时后再试；本提醒在落空原因变化或再次搜到资源前只发一次）";
         if (StringUtils.isNotBlank(rejectSummary)) {
@@ -260,38 +267,24 @@ public class AutoSearchService {
     /**
      * 是否到期。基准是全局周期，再叠两个修正：
      * <ol>
-     *   <li><b>连续落空退避</b>（{@link #effectiveIntervalMillis}）：片源确实不存在的老剧不该
+     *   <li><b>连续落空退避</b>（{@code AutoSearchSchedule.intervalMillis}）：片源确实不存在的老剧不该
      *       永远每 24 小时打满一整轮索引器请求，而这件事用户从现象上根本看不出来。</li>
      *   <li><b>按 id 派生的确定性抖动</b>：首次启动时所有订阅的 {@code last_search_time} 都是
      *       null、全体同时到期，串行跑完后它们的 {@code last_search_time} 又几乎相同，于是一个
      *       周期后再次聚在一起——这个抱团是自我维持的，不会自己散开。抖动只<b>向后</b>
-     *       （0 ~ +{@value #JITTER_PERCENT_RANGE}%），保证实际周期不会短于用户配的值；
+     *       （0 ~ +20%）；近期缺集使用最多 12 小时的基础周期，见 AutoSearchSchedule；
      *       用 id 而不是随机数，同一订阅每轮算出同一个偏移，行为可复现、也写得出测试。</li>
      * </ol>
      * 从未搜索过的订阅恒到期、不抖动：建订阅补搜（{@code SubscriptionSearchOnCreateTrigger}）
-     * 跑过之后 {@code last_search_time} 就有值了，这里的 null 主要是升级上来的存量库，
-     * 让它们先搜一次，抱团只会发生这一次。
+     * 跑过之后 {@code last_search_time} 就有值了，这里的 null 还包括用户重新开启的订阅，
+     * 这些订阅下一轮优先搜一次。
      */
-    private boolean isDue(PtSubscriptionPlus sub, int intervalHours, long now) {
+    private boolean isDue(PtSubscriptionPlus sub, int intervalHours, long now, boolean recent) {
         if (sub.getLastSearchTime() == null) {
             return true;
         }
         return now - sub.getLastSearchTime().getTime()
-                >= effectiveIntervalMillis(sub, missStreakOf(sub), intervalHours);
-    }
-
-    /**
-     * 该订阅本次实际使用的周期：基准 × 落空退避倍数（封顶 {@link #MAX_INTERVAL_MILLIS}）
-     * + 按 id 派生的向后抖动。
-     *
-     * @param streak 连续落空次数；0 表示上轮有命中或还没跑过，用基准周期
-     */
-    private long effectiveIntervalMillis(PtSubscriptionPlus sub, int streak, int intervalHours) {
-        long base = intervalHours * 3600_000L;
-        long backed = streak <= 0 ? base
-                : Math.min(base * (1L << Math.min(streak, MAX_BACKOFF_SHIFT)), MAX_INTERVAL_MILLIS);
-        int id = sub.getId() == null ? 0 : Math.abs(sub.getId());
-        return backed + backed / 100 * (id % (JITTER_PERCENT_RANGE + 1));
+                >= AutoSearchSchedule.intervalMillis(sub, missStreakOf(sub), intervalHours, recent);
     }
 
     /** 连续落空次数，null 视为 0（存量行、或刚从 char 列迁移过来的值） */
@@ -309,7 +302,7 @@ public class AutoSearchService {
     }
 
     /**
-     * 最近在媒体库里看过的剧排前面，没看过/读不到观看状态的保持原序（按 id）排在后面。
+     * 未搜过或重新开启的订阅优先；其余按最近观看时间稳定排序。
      * <p>
      * 单轮有预算（{@code roundBudgetMillis}），排不上的顺延到下一轮——所以顺序决定的是「谁先补到」。
      * 用户正在追的剧缺了一集，比一部半年没打开过的老剧缺一集要紧得多。稳定排序保证同类之间顺序不变，
@@ -318,15 +311,16 @@ public class AutoSearchService {
      */
     static List<PtSubscriptionPlus> inWatchOrder(List<PtSubscriptionPlus> candidates) {
         List<PtSubscriptionPlus> sorted = new ArrayList<>(candidates);
-        sorted.sort(Comparator.comparing(PtSubscriptionPlus::getLastWatchedTime,
-                Comparator.nullsLast(Comparator.reverseOrder())));
+        sorted.sort(Comparator.comparing((PtSubscriptionPlus sub) -> sub.getLastSearchTime() != null)
+                .thenComparing(PtSubscriptionPlus::getLastWatchedTime,
+                        Comparator.nullsLast(Comparator.reverseOrder())));
         return sorted;
     }
 
     private int resolveIntervalHours() {
         PtFilterConfigPlus config = filterConfigService.getConfig();
         Integer hours = config.getAutoSearchIntervalHours();
-        return hours == null ? DEFAULT_INTERVAL_HOURS : hours;
+        return AutoSearchSchedule.intervalHours(hours);
     }
 
     private void notifySafely(String msg, PtSubscriptionPlus sub) {

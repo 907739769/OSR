@@ -541,7 +541,7 @@ public class SubscriptionService {
     }
 
     /**
-     * 批量开启/关闭自动补搜，只写 auto_search 这一列。
+     * 批量开启/关闭自动补搜；从关闭切换为开启时清除旧等待与退避。
      * <p>
      * 不走 {@code updateById(实体)}：MyBatis-Plus 默认的 NOT_NULL 策略会把实体上所有非 null 字段
      * 一并写回，调用方手里的是查询时刻的快照，会把补搜链路刚写入的 last_search_time 覆盖回旧值。
@@ -550,9 +550,19 @@ public class SubscriptionService {
      * @param ids 调用方已校验过归属
      * @return 生效条数
      */
+    @Transactional
     public int setAutoSearchBatch(List<Integer> ids, boolean enabled) {
         if (ids == null || ids.isEmpty()) {
             return 0;
+        }
+        if (enabled) {
+            // 只重置真正从关闭切换为开启的订阅，重复点击「开启」不打断正常周期。
+            subscriptionService.update(new UpdateWrapper<PtSubscriptionPlus>()
+                    .in("id", ids)
+                    .and(w -> w.ne("auto_search", "1").or().isNull("auto_search"))
+                    .set("last_search_time", null)
+                    .set("last_auto_search_no_result", 0)
+                    .set("last_auto_search_reject_sign", null));
         }
         subscriptionService.update(new UpdateWrapper<PtSubscriptionPlus>()
                 .in("id", ids)

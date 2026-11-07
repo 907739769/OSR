@@ -266,4 +266,16 @@ class PtSubscriptionRestControllerTest {
         assertEquals(500, result.getCode());
         verify(subscriptionBiz, never()).setAutoSearchBatch(anyList(), anyBoolean());
     }
+
+    @Test
+    void 单条开启补搜_走统一的转换入口() {
+        when(subscriptionService.getById(1)).thenReturn(activeSub(1));
+        when(subscriptionService.updateById(any(PtSubscriptionPlus.class))).thenReturn(true);
+        PtSubscriptionPlus edit = new PtSubscriptionPlus();
+        edit.setId(1);
+        edit.setAutoSearch("1");
+        assertEquals(200, controller.edit(edit).getCode());
+        verify(subscriptionBiz).setAutoSearchBatch(List.of(1), true);
+        assertEquals(null, edit.getAutoSearch());
+    }
 }

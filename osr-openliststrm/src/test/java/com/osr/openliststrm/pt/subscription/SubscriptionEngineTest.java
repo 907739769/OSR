@@ -889,6 +889,8 @@ class SubscriptionEngineTest {
     @Test
     void pushBest_指定单集_只占位该集() throws Exception {
         PtSubscriptionPlus sub = tvSub(10, "Some Show", 1, 3);
+        sub.setLastAutoSearchNoResult(8);
+        sub.setLastAutoSearchRejectSign("NO_CANDIDATE");
         when(episodeService.listBySubscription(10)).thenReturn(List.of(
                 episode(101, 1, "MISSING"), episode(102, 2, "MISSING"), episode(103, 3, "MISSING")));
 
@@ -898,6 +900,9 @@ class SubscriptionEngineTest {
         ArgumentCaptor<PtDownloadRecordPlus> captor = ArgumentCaptor.forClass(PtDownloadRecordPlus.class);
         verify(recordService).save(captor.capture());
         assertEquals(2, captor.getValue().getEpisode());
+        verify(subscriptionService).updateAutoSearchMissState(10, 0, null);
+        assertEquals(0, sub.getLastAutoSearchNoResult());
+        assertEquals(null, sub.getLastAutoSearchRejectSign());
     }
 
     @Test

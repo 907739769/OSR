@@ -39,7 +39,7 @@ class SubscriptionDiagnosisServiceTest {
     private final IPtSearchLogPlusService logService = mock(IPtSearchLogPlusService.class);
     private final IPtIndexerPlusService indexerService = mock(IPtIndexerPlusService.class);
     private final SubscriptionDiagnosisService service =
-            new SubscriptionDiagnosisService(subscriptionService, episodeService, logService, indexerService);
+            new SubscriptionDiagnosisService(subscriptionService, episodeService, logService, indexerService, mock(com.osr.openliststrm.mybatisplus.service.IPtFilterConfigPlusService.class));
 
     private final List<PtSearchLogPlus> logs = new ArrayList<>();
     private final List<PtSubscriptionEpisodePlus> episodes = new ArrayList<>();
@@ -153,5 +153,21 @@ class SubscriptionDiagnosisServiceTest {
         assertEquals(0, ep.candidates());
         assertTrue(ep.summary().contains("下载记录"), ep.summary());
         assertFalse(ep.summary().contains("非免费"));
+    }
+
+    @Test
+    void 自动补搜诊断_显示等待原因与下次到期时间() {
+        sub.setLastSearchTime(new Date(NOW));
+        sub.setLastAutoSearchNoResult(5);
+        episode(1, "MISSING", TODAY.minusDays(1));
+        var result = service.diagnose(1, TODAY);
+        assertTrue(result.notes().stream().anyMatch(n -> n.contains("下次到期") && n.contains("近期播出缺集")));
+        assertFalse(result.notes().stream().anyMatch(n -> n.contains("已延长等待")));
+    }
+
+    @Test
+    void 重新开启补搜_诊断提示下一轮优先搜索() {
+        episode(1, "MISSING", TODAY.minusDays(30));
+        assertTrue(service.diagnose(1, TODAY).notes().stream().anyMatch(n -> n.contains("下一轮优先搜索")));
     }
 }

@@ -47,6 +47,7 @@ class AutoSearchServiceTest {
     @Mock private IPtFilterConfigPlusService filterConfigService;
     @Mock private SearchSupplementService searchSupplementService;
     @Mock private IPtIndexerPlusService indexerService;
+    @Mock private com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService episodeService;
 
     private AutoSearchService service() {
         // 默认有启用中的索引器：一个都没有时整轮会被跳过（见 AutoSearchService#run）；
@@ -57,7 +58,7 @@ class AutoSearchServiceTest {
     private AutoSearchService service(long roundBudgetMillis) {
         when(indexerService.listEnabled()).thenReturn(List.of(new PtIndexerPlus()));
         return new AutoSearchService(subscriptionService, filterConfigService, searchSupplementService,
-                indexerService, roundBudgetMillis);
+                indexerService, episodeService, roundBudgetMillis);
     }
 
     private PtSubscriptionPlus sub(int id, String mediaType, int season, Date lastSearchTime) {
@@ -124,7 +125,7 @@ class AutoSearchServiceTest {
         when(filterConfigService.getConfig()).thenReturn(config(24));
 
         new AutoSearchService(subscriptionService, filterConfigService, searchSupplementService,
-                indexerService, 0).run();
+                indexerService, episodeService, 0).run();
 
         verify(searchSupplementService, never()).searchAndPushMissing(NO_JITTER_ID);
     }
@@ -418,5 +419,37 @@ class AutoSearchServiceTest {
         service().run();
 
         verify(subscriptionService, never()).updateAutoSearchMissState(any(), anyInt(), any());
+    }
+
+    @Test
+    void 近期播出缺集_不受旧的落空退避限制() {
+        PtSubscriptionPlus s = sub(NO_JITTER_ID, "TV", 1, hoursAgo(13));
+        s.setLastAutoSearchNoResult(9);
+        candidates(s);
+        when(filterConfigService.getConfig()).thenReturn(config(24));
+        var ep = new com.osr.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus();
+        ep.setSubId(NO_JITTER_ID);
+        ep.setState("MISSING");
+        ep.setAirDate(new Date());
+        when(episodeService.list(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class)))
+                .thenReturn(List.of(ep));
+        pushed(NO_JITTER_ID);
+        service().run();
+        verify(searchSupplementService).searchAndPushMissing(NO_JITTER_ID);
+    }
+
+    @Test
+    void 近期缺集也要等待基础周期_不会每次心跳都搜() {
+        PtSubscriptionPlus s = sub(NO_JITTER_ID, "TV", 1, hoursAgo(1));
+        candidates(s);
+        when(filterConfigService.getConfig()).thenReturn(config(24));
+        var ep = new com.osr.openliststrm.mybatisplus.domain.PtSubscriptionEpisodePlus();
+        ep.setSubId(NO_JITTER_ID);
+        ep.setState("MISSING");
+        ep.setAirDate(new Date());
+        when(episodeService.list(any(com.baomidou.mybatisplus.core.conditions.Wrapper.class)))
+                .thenReturn(List.of(ep));
+        service().run();
+        verify(searchSupplementService, never()).searchAndPushMissing(NO_JITTER_ID);
     }
 }

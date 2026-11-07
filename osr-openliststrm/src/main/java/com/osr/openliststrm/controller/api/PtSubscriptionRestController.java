@@ -247,9 +247,15 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
         }
         // 这一列只由体检写，接口上一律不收
         entity.setHealthAutoSearchTime(null);
+        String autoSearch = entity.getAutoSearch();
+        if (autoSearch != null && !"0".equals(autoSearch) && !"1".equals(autoSearch)) {
+            return Result.error("自动补搜开关只能是 0 或 1");
+        }
+        // 保留库里的旧开关，交给统一入口识别关闭→开启的转换。
+        entity.setAutoSearch(null);
         Result<Void> result = super.edit(entity);
-        if (result.getCode() == 200 && entity.getAutoSearch() != null) {
-            service.clearHealthAutoSearchMark(List.of(entity.getId()));
+        if (result.getCode() == 200 && autoSearch != null) {
+            subscriptionBiz.setAutoSearchBatch(List.of(entity.getId()), "1".equals(autoSearch));
         }
         return result;
     }
@@ -548,7 +554,7 @@ public class PtSubscriptionRestController extends BaseCrudRestController<IPtSubs
     /**
      * 批量开启/关闭自动补搜。
      * <p>
-     * 只 set 这一列（见 {@code SubscriptionService#setAutoSearchBatch}），不能逐条 updateById：
+     * 只定向更新开关与等待状态（见 {@code SubscriptionService#setAutoSearchBatch}），不能逐条 updateById：
      * 列表页手里那份订阅是查询时刻的快照，整条写回会把补搜链路刚写入的 last_search_time 覆盖掉。
      * </p>
      *

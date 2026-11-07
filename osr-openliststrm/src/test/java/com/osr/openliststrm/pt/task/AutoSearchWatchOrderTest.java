@@ -27,4 +27,13 @@ class AutoSearchWatchOrderTest {
 
         assertEquals(List.of(4, 5, 2, 1, 3), ordered.stream().map(PtSubscriptionPlus::getId).toList());
     }
+
+    @Test
+    void 重新开启的订阅优先_预算不足时也先处理() {
+        PtSubscriptionPlus watched = sub(1, 300L);
+        watched.setLastSearchTime(new Date());
+        PtSubscriptionPlus enabled = sub(2, null);
+        assertEquals(List.of(2, 1), AutoSearchService.inWatchOrder(List.of(watched, enabled))
+                .stream().map(PtSubscriptionPlus::getId).toList());
+    }
 }

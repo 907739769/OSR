@@ -9,6 +9,7 @@ import com.osr.openliststrm.mybatisplus.service.IPtSearchLogPlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionEpisodePlusService;
 import com.osr.openliststrm.mybatisplus.service.IPtSubscriptionPlusService;
 import com.osr.openliststrm.pt.filter.RejectCode;
+import com.osr.openliststrm.mybatisplus.service.IPtFilterConfigPlusService;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.stereotype.Service;
 
@@ -58,15 +59,18 @@ public class SubscriptionDiagnosisService {
     private final IPtSubscriptionEpisodePlusService episodeService;
     private final IPtSearchLogPlusService logService;
     private final IPtIndexerPlusService indexerService;
+    private final IPtFilterConfigPlusService filterConfigService;
 
     public SubscriptionDiagnosisService(IPtSubscriptionPlusService subscriptionService,
                                         IPtSubscriptionEpisodePlusService episodeService,
                                         IPtSearchLogPlusService logService,
-                                        IPtIndexerPlusService indexerService) {
+                                        IPtIndexerPlusService indexerService,
+                                        IPtFilterConfigPlusService filterConfigService) {
         this.subscriptionService = subscriptionService;
         this.episodeService = episodeService;
         this.logService = logService;
         this.indexerService = indexerService;
+        this.filterConfigService = filterConfigService;
     }
 
     /**
@@ -92,6 +96,24 @@ public class SubscriptionDiagnosisService {
                 .stream()
                 .filter(ep -> aired(ep, today))
                 .toList();
+        if ("1".equals(sub.getAutoSearch()) && "ACTIVE".equals(sub.getStatus())
+                && pending.stream().anyMatch(ep -> "MISSING".equals(ep.getState()))) {
+            boolean recent = !"MOVIE".equalsIgnoreCase(sub.getMediaType())
+                    && pending.stream().anyMatch(ep -> AutoSearchSchedule.recentMissing(ep, today));
+            var config = filterConfigService.getConfig();
+            int hours = AutoSearchSchedule.intervalHours(config == null ? null : config.getAutoSearchIntervalHours());
+            int streak = sub.getLastAutoSearchNoResult() == null ? 0 : sub.getLastAutoSearchNoResult();
+            long interval = AutoSearchSchedule.intervalMillis(sub, streak, hours, recent);
+            String reason = recent ? "近期播出缺集，按追剧周期重试"
+                    : streak > 0 ? "连续 " + streak + " 次落空，已延长等待" : "按正常周期重试";
+            if (sub.getLastSearchTime() == null) {
+                notes.add("自动补搜：等待下一轮优先搜索（每 30 分钟检查一次）");
+            } else {
+                Date due = new Date(sub.getLastSearchTime().getTime() + interval);
+                notes.add("自动补搜：下次到期 " + new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(due)
+                        + "；" + reason + "。到期后由每 30 分钟的检查处理，单轮预算不足时顺延");
+            }
+        }
         if (pending.isEmpty()) {
             return new Diagnosis(sub.getId(), sub.getTitle(), notes, List.of(), 0);
         }
@@ -143,7 +165,7 @@ public class SubscriptionDiagnosisService {
         if (latest == null) {
             String summary = SubscriptionEpisodeState.BLOCKED.value().equals(state)
                     ? "连续失败已熔断，自动重试已停止；在进度里重置这一集，或到下载记录页手动重试"
-                    : "还没有搜索记录" + ("1".equals(sub.getAutoSearch()) ? "（下一轮自动补搜会搜）" : "，可以点「立即补搜」试一次");
+                    : "还没有搜索记录" + ("1".equals(sub.getAutoSearch()) ? "（自动补搜到期后会搜）" : "，可以点「立即补搜」试一次");
             return new EpisodeDiagnosis(ep.getEpisode(), label, state, null, null, 0, 0, List.of(), summary);
         }
 
