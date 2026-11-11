@@ -58,7 +58,12 @@ public class OpenAIApiService {
                 }}
         });
         payload.put("temperature", 0.0);
-        payload.put("max_tokens", maxTokens);
+        if ("gpt-5.6-terra".equals(model)) {
+            payload.put("reasoning_effort", "none");
+            payload.put("max_completion_tokens", maxTokens);
+        } else {
+            payload.put("max_tokens", maxTokens);
+        }
 
         RequestBody body = RequestBody.create(
                 MediaType.parse("application/json; charset=utf-8"),
