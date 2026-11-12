@@ -12,7 +12,7 @@ import org.slf4j.LoggerFactory;
  */
 public class OpenAIClient {
     private static final Logger log = LoggerFactory.getLogger(OpenAIClient.class);
-    private static final String DEFAULT_MODEL = "gpt-5-mini";
+    private static final String DEFAULT_MODEL = "gpt-5.6-terra";
     private static final String DEFAULT_ENDPOINT = "https://api.openai.com";
 
     private final String apiKey;
